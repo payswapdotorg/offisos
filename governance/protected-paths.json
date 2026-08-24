@@ -1,0 +1,38 @@
+{
+  "notes": "Architecture-controlled paths for Architecture v1.0. Changes to these locations are protected: they require an Architecture Change Request (ACR) and must not be carried silently by an implementation PR. The check-protected command fails the build when a changed file matches a pattern below. The full ACR template/lifecycle is owned by ARCH-WF-002; until it lands, ANY protected-path change is rejected. This manifest is itself architecture-controlled.",
+  "architecture_version": "1.0",
+  "patterns": [
+    {
+      "pattern": "spec/architecture.md",
+      "reason": "Frozen system architecture definition."
+    },
+    {
+      "pattern": "spec/architecture-lock.md",
+      "reason": "Immutable architectural rules and invariants; explicitly off-limits to implementation agents."
+    },
+    {
+      "pattern": "spec/adr/**",
+      "reason": "Architecture Decision Records are part of the frozen architecture rationale."
+    },
+    {
+      "pattern": "spec/00-readme.md",
+      "reason": "Declares architecture version and frozen status."
+    },
+    {
+      "pattern": "spec/SPEC-MANIFEST.md",
+      "reason": "Declares the frozen spec manifest."
+    },
+    {
+      "pattern": "governance/workflow-states.json",
+      "reason": "Canonical lifecycle definition; changing the process requires Architect review."
+    },
+    {
+      "pattern": "governance/architecture-versions.json",
+      "reason": "Architecture version registry; changes require an approved ACR."
+    },
+    {
+      "pattern": "governance/protected-paths.json",
+      "reason": "This manifest; changes require an approved ACR."
+    }
+  ]
+}

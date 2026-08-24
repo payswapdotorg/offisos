@@ -1,0 +1,175 @@
+{
+  "id": "ARCH-WF-001",
+  "title": "Establish repository workflow state machine and work-item governance",
+  "issue": 11,
+  "objective": "Establish the repository/process controls required to operate ConstructionOS through the frozen WorkflowOS-derived lifecycle (DRAFT → READY → ASSIGNED → IMPLEMENTING → PR_OPEN → VERIFYING → ARCHITECT_REVIEW → APPROVED → MERGED → VERIFIED), making implementation state auditable and preventing work from being treated as complete without the required evidence.",
+  "architecture_version": "1.0",
+  "requirements": ["FLOW-001", "FLOW-002", "FLOW-004"],
+  "dependencies": [],
+  "acceptance_criteria": [
+    "A canonical workflow/state definition is stored in the repository.",
+    "Valid transitions, responsible actors, and required evidence for each terminal state are documented.",
+    "At least one sample work item demonstrates full traceability from requirement through verification.",
+    "VERIFIED cannot be justified solely by implementation status, screenshots, or narrative claims.",
+    "Architecture-version association and Architecture Change Request routing are explicit.",
+    "Process definitions are reproducible and inspectable by the Architect."
+  ],
+  "non_goals": [
+    "No change to Architecture v1.0.",
+    "No implementation of product-domain functionality.",
+    "No requirement that all process automation be built before development can begin; documented enforceable controls are the initial target.",
+    "ACR template/lifecycle, revision-bound verification invalidation and full lock controls are owned by ARCH-WF-002."
+  ],
+  "risk_assumptions": [
+    "Branch protection on main is a repository setting outside version control; until the Product Owner requires the governance status checks, CI enforcement is advisory (documented in governance/README.md).",
+    "The validator is the reference implementation of the process and is itself subject to Architect review.",
+    "spec/work-items.md carries an older definition of ARCH-WF-001/ARCH-WF-002 than GitHub issues #11/#12; this record follows the issue definitions and the divergence is flagged in the implementation PR for Architect reconciliation (per DEC-001, preserved and not silently reconciled in this PR)."
+  ],
+  "evidence_requirements": [
+    "Deterministic automated test suite proving state-machine enforcement: legal and illegal transitions, transition ownership, required references, evidence gating for VERIFIED, and re-verification after rejection.",
+    "Governance validation run over all repository work-item records (npm run governance -- validate, exit 0).",
+    "CI workflow executing tests, governance validation and the protected-path check on every pull request.",
+    "A demonstration work item (SAMPLE-001) showing the full traceability chain from requirement through verification, including a verification failure and an architect changes-requested recovery."
+  ],
+  "state": "VERIFYING",
+  "transitions": [
+    {
+      "from": "DRAFT",
+      "to": "READY",
+      "at": "2026-08-24T19:42:31Z",
+      "actor": "pectoraux",
+      "role": "product-owner",
+      "reason": "Work item fully specified in GitHub issue #11 (objective, scope, acceptance criteria, non-goals, architect gate) and labeled ready.",
+      "references": { "issue": 11 }
+    },
+    {
+      "from": "READY",
+      "to": "ASSIGNED",
+      "at": "2026-08-24T19:55:00Z",
+      "actor": "pectoraux",
+      "role": "product-owner",
+      "reason": "Assigned to the Z.ai implementation agent via the Offisos implementation agent handoff.",
+      "references": { "issue": 11, "assignee": "z-ai-implementation-agent" }
+    },
+    {
+      "from": "ASSIGNED",
+      "to": "IMPLEMENTING",
+      "at": "2026-08-24T19:58:00Z",
+      "actor": "z-ai-implementation-agent",
+      "role": "implementer",
+      "reason": "Implementation started on branch work/arch-wf-001-governance: canonical state machine, schemas, work-item registry, validator CLI, deterministic tests, CI and documentation."
+    },
+    {
+      "from": "IMPLEMENTING",
+      "to": "PR_OPEN",
+      "at": "2026-08-24T20:16:03Z",
+      "actor": "z-ai-implementation-agent",
+      "role": "implementer",
+      "reason": "Implementation complete; opened pull request #13 (head at open time: implementation revision 7e1a136, 4 focused commits) for verification and Architect review.",
+      "references": { "pr": 13, "commit": "7e1a136ac6574b10cf934b22ae741f8167a363ad" }
+    },
+    {
+      "from": "PR_OPEN",
+      "to": "VERIFYING",
+      "at": "2026-08-24T20:16:27Z",
+      "actor": "z-ai-implementation-agent",
+      "role": "implementer",
+      "reason": "Evidence package (EV-001, EV-002, EV-003) recorded in the governance record and pushed as commit b0ca788; submitted for verification.",
+      "references": { "commit": "b0ca78838c4e350114ce124629a4c97c3d1e4009" }
+    },
+    {
+      "from": "VERIFYING",
+      "to": "ARCHITECT_REVIEW",
+      "at": "2026-08-24T20:16:52Z",
+      "actor": "github-actions",
+      "role": "automation",
+      "reason": "CI workflow run 32772959871 (pull_request event) on PR-head commit b0ca788 completed with conclusion success: typecheck, 58 deterministic tests, 38-check governance validation, protected-path check against base — verification evidence complete.",
+      "references": { "evidence": ["EV-001", "EV-002", "EV-003"] }
+    },
+    {
+      "from": "ARCHITECT_REVIEW",
+      "to": "IMPLEMENTING",
+      "at": "2026-08-24T20:31:07Z",
+      "actor": "pectoraux",
+      "role": "architect",
+      "reason": "Architect review of PR #13: changes required before approval. Directive recorded in the PR conversation (comment 5400958398) because GitHub blocks the PR author from submitting a formal REQUEST_CHANGES review on their own PR; no APPROVED/VERIFIED transition granted.",
+      "failure_reason": "EV-003 bound its CI-run evidence to implementation commit 7e1a136 with an inexact workflow_run reference ('governance (PR #13)') instead of the actual PR-head commit b0ca78838c4e350114ce124629a4c97c3d1e4009 and the exact workflow run 32772959871; implementation evidence and PR-head CI evidence were not explicitly distinguished.",
+      "references": { "decision": "DEC-001" }
+    },
+    {
+      "from": "IMPLEMENTING",
+      "to": "PR_OPEN",
+      "at": "2026-08-24T20:38:35Z",
+      "actor": "z-ai-implementation-agent",
+      "role": "implementer",
+      "reason": "Remediation of DEC-001 complete and pushed as commit cc231f7: EV-003 rebound to the actual PR-head commit b0ca788 and exact workflow run 32772959871; EV-001/EV-002 explicitly labeled implementation evidence bound to 7e1a136 (intervening commit metadata-only); spec/work-items.md divergence preserved untouched; lifecycle timestamps corrected to actual event times.",
+      "references": { "pr": 13, "commit": "cc231f7e247fc9eb8e70c0530cec6c3b1c9ff417" }
+    },
+    {
+      "from": "PR_OPEN",
+      "to": "VERIFYING",
+      "at": "2026-08-24T20:39:39Z",
+      "actor": "z-ai-implementation-agent",
+      "role": "implementer",
+      "reason": "Corrected evidence package (EV-001..EV-004) re-submitted for verification and Architect re-review of PR #13."
+    }
+  ],
+  "evidence": [
+    {
+      "id": "EV-001",
+      "type": "automated-test-suite",
+      "description": "Deterministic governance test suite executed against implementation revision 7e1a136: 58 tests (state machine legality and ownership, VERIFIED evidence gating including screenshot/narrative rejection, traceability, re-verification after rejection, dependency gating, protected-path bootstrap semantics, JSON Schema enforcement, CLI exit codes, end-to-end negative cases on corrupted repository copies), 0 failures. Implementation evidence: bound to the implementation head revision 7e1a136 (branch state before governance-metadata commits); the same revision was validated green by CI run 32772916843 (run #1, pull_request event, completed 2026-08-24T20:16:27Z).",
+      "produced_at": "2026-08-24T20:15:31Z",
+      "reproducible": true,
+      "reproduction": "npm ci && npm test",
+      "references": { "pr": 13, "commit": "7e1a136ac6574b10cf934b22ae741f8167a363ad" }
+    },
+    {
+      "id": "EV-002",
+      "type": "reproducible-script",
+      "description": "Governance validation over the repository work-item registry at implementation revision 7e1a136: 38 checks (state machine schema/integrity, architecture-version registry, protected-path manifest, requirement resolution, registry rules, per-record invariants for ARCH-WF-001 and SAMPLE-001), 0 failures; report artifact governance-report.json. Implementation evidence: bound to the implementation head revision 7e1a136 (branch state before governance-metadata commits); the same revision was validated green by CI run 32772916843 (run #1).",
+      "produced_at": "2026-08-24T20:15:31Z",
+      "reproducible": true,
+      "reproduction": "npm run governance -- validate",
+      "references": { "artifact_path": "governance-report.json", "pr": 13, "commit": "7e1a136ac6574b10cf934b22ae741f8167a363ad" }
+    },
+    {
+      "id": "EV-003",
+      "type": "ci-run",
+      "description": "GitHub Actions governance workflow run 32772959871 (run #2, pull_request event) on PR-head commit b0ca78838c4e350114ce124629a4c97c3d1e4009, completed 2026-08-24T20:16:52Z with conclusion success: typecheck, 58 deterministic tests, 38-check record validation, protected-path check against the base branch, governance-report artifact upload. This is the CI evidence for the PR head at Architect review time (b0ca788, which adds only governance metadata on top of the implementation revision). It is explicitly distinct from the implementation evidence EV-001/EV-002, which bind to implementation revision 7e1a136 because the single intervening commit is metadata-only (binding convention, governance/README.md Evidence policy); the implementation revision itself was validated by CI run 32772916843 (run #1, completed 2026-08-24T20:16:27Z).",
+      "produced_at": "2026-08-24T20:16:52Z",
+      "reproducible": true,
+      "reproduction": "Inspect workflow run 32772959871 (https://github.com/pectoraux/offisos/actions/runs/32772959871), or run locally: npm ci && npm run typecheck && npm test && npm run governance -- validate && npm run governance -- check-protected --base main",
+      "references": {
+        "workflow_run": "https://github.com/pectoraux/offisos/actions/runs/32772959871",
+        "pr": 13,
+        "commit": "b0ca78838c4e350114ce124629a4c97c3d1e4009"
+      }
+    },
+    {
+      "id": "EV-004",
+      "type": "ci-run",
+      "description": "GitHub Actions governance workflow run 32775057024 (run #3, pull_request event) on remediation commit cc231f7e247fc9eb8e70c0530cec6c3b1c9ff417, completed 2026-08-24T20:38:56Z with conclusion success: typecheck, 58 deterministic tests, 38-check record validation, protected-path check against the base branch, governance-report artifact upload. This is the green CI run on the corrected governance record (DEC-001 remediation), provided per the Architect's directive that re-review follows the metadata correction and a green CI run. It binds to cc231f7; commits after it that only amend governance metadata do not invalidate the binding (binding convention, governance/README.md Evidence policy).",
+      "produced_at": "2026-08-24T20:38:56Z",
+      "reproducible": true,
+      "reproduction": "Inspect workflow run 32775057024 (https://github.com/pectoraux/offisos/actions/runs/32775057024), or run locally at commit cc231f7: npm ci && npm run typecheck && npm test && npm run governance -- validate",
+      "references": {
+        "workflow_run": "https://github.com/pectoraux/offisos/actions/runs/32775057024",
+        "pr": 13,
+        "commit": "cc231f7e247fc9eb8e70c0530cec6c3b1c9ff417"
+      }
+    }
+  ],
+  "decisions": [
+    {
+      "id": "DEC-001",
+      "status": "changes_requested",
+      "decided_at": "2026-08-24T20:31:07Z",
+      "decided_by": "pectoraux",
+      "role": "architect",
+      "rationale": "Architect review of PR #13: the substantive ARCH-WF-001 implementation satisfies the acceptance criteria, the PR-head governance workflow is green, and the architecture remains untouched, but one evidence-quality issue must be corrected before approval (directive recorded in PR conversation comment 5400958398; a formal REQUEST_CHANGES review was not submittable because GitHub blocks the PR author from reviewing their own PR). VERIFIED is not granted.",
+      "evidence_refs": ["EV-001", "EV-002", "EV-003"],
+      "remediation_required": "1) Rebind EV-003 to the actual PR-head commit b0ca78838c4e350114ce124629a4c97c3d1e4009 and the exact workflow run 32772959871 (not 'governance (PR #13)' / the implementation commit). 2) Explicitly state that EV-001/EV-002 bind to 7e1a136 because the single intervening commit is metadata-only, while EV-003 is the CI evidence for the current PR head. 3) Preserve the explicitly flagged spec/work-items.md divergence; do not silently reconcile that file in this PR. After the metadata correction and a green CI run, the PR is ready for another Architect review."
+    }
+  ]
+}

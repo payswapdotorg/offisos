@@ -1,0 +1,24 @@
+{
+  "name": "offisos",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Offisos (ConstructionOS) monorepo root. Contains the frozen Architecture v1.0 specification (spec/) and repository governance tooling (tools/governance).",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "governance": "tsx tools/governance/src/cli.ts",
+    "test": "node --import tsx --test \"tools/governance/test/*.test.ts\"",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "ajv": "^8.17.1",
+    "ajv-formats": "^3.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}

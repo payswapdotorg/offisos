@@ -1,0 +1,241 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "work-item.schema.json",
+  "title": "ConstructionOS work-item governance record",
+  "description": "Schema for every record in governance/work-items/. One file per work item, named <ID>.json. The record is the repository-backed source of truth for work-item state, transition history, verification evidence and Architect decisions.",
+  "type": "object",
+  "required": [
+    "id",
+    "title",
+    "issue",
+    "objective",
+    "architecture_version",
+    "requirements",
+    "dependencies",
+    "acceptance_criteria",
+    "non_goals",
+    "evidence_requirements",
+    "state",
+    "transitions"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^[A-Z][A-Z0-9]*(-[A-Z0-9]+)*-[0-9]{3}$",
+      "description": "Canonical work-item identifier, e.g. ARCH-WF-001 or SAMPLE-001. Must match the file name."
+    },
+    "demo": {
+      "type": "boolean",
+      "default": false,
+      "description": "true marks a demonstration fixture that exercises the governance machinery with synthetic references. Demo records are excluded from the real work-item registry and must carry a disclaimer."
+    },
+    "disclaimer": {
+      "type": "string",
+      "description": "Required when demo=true. States that the record is synthetic and makes no claim about real work."
+    },
+    "title": { "type": "string", "minLength": 3 },
+    "issue": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "GitHub issue number that carries the work-item definition."
+    },
+    "objective": { "type": "string", "minLength": 10 },
+    "architecture_version": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Architecture version this work item targets. Must exist in governance/architecture-versions.json."
+    },
+    "requirements": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "pattern": "^[A-Z][A-Z0-9]*(-[A-Z0-9]+)*-[0-9]{3}$"
+      },
+      "description": "Requirement IDs from spec/requirements.md covered by this work item. Every ID must resolve in spec/requirements.md."
+    },
+    "dependencies": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[A-Z][A-Z0-9]*(-[A-Z0-9]+)*-[0-9]{3}$"
+      },
+      "description": "Work-item IDs this item depends on. Must resolve to non-demo records in governance/work-items/."
+    },
+    "acceptance_criteria": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 3 }
+    },
+    "non_goals": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 3 }
+    },
+    "risk_assumptions": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 3 }
+    },
+    "evidence_requirements": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 3 },
+      "description": "What evidence this work item must produce to reach VERIFIED."
+    },
+    "state": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Current lifecycle state. Must equal the target of the last recorded transition (or the initial state DRAFT when no transitions exist). Membership in the state machine is enforced by the validator."
+    },
+    "transitions": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/transition" }
+    },
+    "evidence": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/evidence" }
+    },
+    "decisions": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/decision" }
+    },
+    "acr": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Architecture Change Request identifier, when this work item required one."
+    }
+  },
+  "definitions": {
+    "reference": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "issue": { "type": "integer", "minimum": 1 },
+        "pr": { "type": "integer", "minimum": 1 },
+        "assignee": { "type": "string", "minLength": 1 },
+        "commit": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{7,40}$",
+          "description": "Git commit SHA the record or evidence binds to."
+        },
+        "merge_commit": { "type": "string", "pattern": "^[0-9a-f]{7,40}$" },
+        "evidence": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "minLength": 1 },
+          "description": "Evidence IDs (EV-xxx) referenced by this transition."
+        },
+        "decision": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Decision ID (DEC-xxx) referenced by this transition."
+        },
+        "acr": { "type": "string", "minLength": 1 },
+        "artifact": { "type": "string", "minLength": 1 }
+      }
+    },
+    "transition": {
+      "type": "object",
+      "required": ["from", "to", "at", "actor", "role", "reason"],
+      "additionalProperties": false,
+      "properties": {
+        "from": { "type": "string", "minLength": 1 },
+        "to": { "type": "string", "minLength": 1 },
+        "at": { "type": "string", "format": "date-time" },
+        "actor": {
+          "type": "string",
+          "minLength": 1,
+          "description": "GitHub username or agent identifier that performed the transition."
+        },
+        "role": {
+          "type": "string",
+          "enum": ["architect", "product-owner", "implementer", "automation"],
+          "description": "Role under which the transition was performed. Must be authorized for the transition in workflow-states.json."
+        },
+        "reason": { "type": "string", "minLength": 1 },
+        "failure_reason": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Required on failure-path transitions (verification_failed, changes_requested, block)."
+        },
+        "references": { "$ref": "#/definitions/reference" }
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "required": ["id", "type", "description", "produced_at", "reproducible", "references"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "pattern": "^EV-[0-9]{3}$" },
+        "type": {
+          "type": "string",
+          "enum": [
+            "automated-test-suite",
+            "ci-run",
+            "benchmark-artifact",
+            "reproducible-script",
+            "inspectable-artifact",
+            "screenshot",
+            "narrative-claim",
+            "demo",
+            "implementation-status"
+          ],
+          "description": "Accepted types can justify VERIFIED (with revision binding and reproducibility). Insufficient types never justify VERIFIED."
+        },
+        "description": { "type": "string", "minLength": 3 },
+        "produced_at": { "type": "string", "format": "date-time" },
+        "reproducible": {
+          "type": "boolean",
+          "description": "Whether a third party can reproduce this evidence from the repository."
+        },
+        "reproduction": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Exact command(s) required to reproduce the evidence."
+        },
+        "references": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "pr": { "type": "integer", "minimum": 1 },
+            "commit": { "type": "string", "pattern": "^[0-9a-f]{7,40}$" },
+            "workflow_run": { "type": "string", "minLength": 1 },
+            "artifact_path": { "type": "string", "minLength": 1 },
+            "path": { "type": "string", "minLength": 1 }
+          }
+        }
+      }
+    },
+    "decision": {
+      "type": "object",
+      "required": ["id", "status", "decided_at", "decided_by", "role", "rationale"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "pattern": "^DEC-[0-9]{3}$" },
+        "status": {
+          "type": "string",
+          "enum": ["approved", "rejected", "changes_requested"]
+        },
+        "decided_at": { "type": "string", "format": "date-time" },
+        "decided_by": { "type": "string", "minLength": 1 },
+        "role": {
+          "type": "string",
+          "enum": ["architect"],
+          "description": "Only the Architect issues governance decisions."
+        },
+        "rationale": { "type": "string", "minLength": 1 },
+        "evidence_refs": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "minLength": 1 },
+          "description": "Evidence IDs (EV-xxx) this decision is based on. All must exist in the same record."
+        },
+        "remediation_required": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Required for rejected / changes_requested decisions: what must change."
+        }
+      }
+    }
+  }
+}
