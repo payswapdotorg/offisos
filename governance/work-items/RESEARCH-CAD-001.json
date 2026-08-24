@@ -39,7 +39,7 @@
     "Committed evidence run with environment snapshot, per-benchmark results and summary.",
     "Findings report distinguishing measured results from inferred conclusions, with explicit failures and limitations."
   ],
-  "state": "IMPLEMENTING",
+  "state": "VERIFYING",
   "transitions": [
     {
       "from": "DRAFT",
@@ -125,6 +125,33 @@
       "references": {
         "decision": "DEC-001"
       }
+    },
+    {
+      "from": "IMPLEMENTING",
+      "to": "PR_OPEN",
+      "at": "2026-08-24T22:07:03Z",
+      "actor": "z-ai-implementation-agent",
+      "role": "implementer",
+      "reason": "DEC-001 remediation complete and pushed to PR #15 (rebased onto main c3ff419 after PR #14 merged): FreeCAD 1.1.3 headless runner + Sketcher/Draft/TechDraw evidence (pinned AppImage, SHA256 3a853eb6..., no sudo), regenerated evidence run 129 pass / 0 fail / 0 unknown, ARCH-WF-001 VERIFIED (DEC-003) recorded per the Architect directive, CI workflow installs FreeCAD reproducibly.",
+      "references": {
+        "pr": 15,
+        "commit": "6af5e5e"
+      }
+    },
+    {
+      "from": "PR_OPEN",
+      "to": "VERIFYING",
+      "at": "2026-08-24T22:08:25Z",
+      "actor": "github-actions",
+      "role": "automation",
+      "reason": "Remediation validation green on PR head 6af5e5e: governance run #15 (32808491017 series, dependency gate GREEN with ARCH-WF-001 VERIFIED \u2014 49/49 checks) and research-cad-001 run #3 with FreeCAD 1.1.3 installed in CI (10/10 tests, full evidence run 129/0/0). Corrected evidence package re-submitted for Architect re-review.",
+      "references": {
+        "evidence": [
+          "EV-004",
+          "EV-005",
+          "EV-006"
+        ]
+      }
     }
   ],
   "evidence": [
@@ -164,6 +191,44 @@
         "workflow_run": "https://github.com/pectoraux/offisos/actions/runs/32780094896",
         "pr": 15,
         "commit": "834df86"
+      }
+    },
+    {
+      "id": "EV-004",
+      "type": "automated-test-suite",
+      "description": "Deterministic CI test suite executed against remediation revision 6af5e5e in research-cad-001 CI run #3 with FreeCAD 1.1.3 installed (AppImage, SHA256-verified): 10/10 tests passed in 7.43 s, including the FreeCAD evidence assertions (Sketcher solve/propagation/failures, Draft/TechDraw, persistence) that skip only when FreeCAD is unavailable.",
+      "produced_at": "2026-08-24T22:08:01Z",
+      "reproducible": true,
+      "reproduction": "cd research/cad-001 && python3 -m pip install -r requirements.txt && make test (with FreeCAD installed per requirements.txt)",
+      "references": {
+        "pr": 15,
+        "commit": "6af5e5e"
+      }
+    },
+    {
+      "id": "EV-005",
+      "type": "inspectable-artifact",
+      "description": "Regenerated committed evidence run research/cad-001/evidence/run-001/ after DEC-001 remediation: 129 pass / 0 fail / 0 unknown \u2014 the FreeCAD UNKNOWN is replaced by measured Sketcher/Draft/TechDraw evidence. Independently reproduced in CI (research-cad-001 run #3 reported 'TOTAL: pass=129 fail=0 unknown=0' with FreeCAD 1.1.3 installed). Environment snapshot includes FreeCAD 1.1.3 provenance.",
+      "produced_at": "2026-08-24T22:08:08Z",
+      "reproducible": true,
+      "reproduction": "cd research/cad-001 && make bench (with FreeCAD installed per requirements.txt)",
+      "references": {
+        "artifact_path": "research/cad-001/evidence/run-001",
+        "pr": 15,
+        "commit": "6af5e5e"
+      }
+    },
+    {
+      "id": "EV-006",
+      "type": "ci-run",
+      "description": "Remediation CI on PR head 6af5e5e: governance workflow run #15 completed success \u2014 all 49 checks pass including the previously failing dependency check (ARCH-WF-001 now VERIFIED via DEC-003, rule not weakened); research-cad-001 workflow run #3 completed success with the FreeCAD AppImage install step (SHA256-verified) producing 'FreeCAD 1.1.3 Revision: 20260725', 10/10 tests and the 129/0/0 evidence run, artifact uploaded.",
+      "produced_at": "2026-08-24T22:08:25Z",
+      "reproducible": true,
+      "reproduction": "Inspect the research-cad-001 and governance workflow checks on PR #15 head 6af5e5e, or run locally: npm run governance -- validate (repo root) and the research-cad-001 workflow steps",
+      "references": {
+        "workflow_run": "PR #15 checks on 6af5e5e (governance run #15, research-cad-001 run #3)",
+        "pr": 15,
+        "commit": "6af5e5e"
       }
     }
   ],
