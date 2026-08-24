@@ -1,0 +1,183 @@
+name: repair-spec-once
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Repair and validate spec
+        shell: python
+        run: |
+          from pathlib import Path
+          import re
+          from collections import defaultdict, deque
+
+          wi = Path('work-items.md')
+          dg = Path('dependency-graph.md')
+          text = wi.read_text(encoding='utf-8')
+
+          license_block = '''### LICENSE-001 — Open-source composition and licensing gate
+
+          Objective: Audit candidate upstream engines/libraries, their transitive licenses, trademarks and distribution/hosting constraints, and define approved composition boundaries.
+          Requirements: PLAT-006, OFFICE-006, CAD-006, PM-006, EXT-005
+          Dependencies: none
+          Acceptance criteria: every proposed upstream dependency is classified; incompatible composition paths are rejected; approved alternatives and NOTICE/source-obligation requirements are recorded.
+          Verification: license inventory + legal/architect review.
+          Out of scope: product implementation.
+          Evidence: dependency/license matrix and approval record.
+          Definition of done: downstream compatibility work has an approved legal/composition boundary.
+
+          '''
+          # Remove accidental indentation introduced by Python triple-quoted formatting.
+          license_block = '\n'.join(line.strip() if line.strip() else '' for line in license_block.splitlines()) + '\n'
+
+          if '### LICENSE-001 — Open-source composition and licensing gate' not in text:
+              marker = '# Phase 0 — Repository/process foundation\n\n'
+              if marker not in text:
+                  raise SystemExit('Phase 0 marker not found')
+              text = text.replace(marker, marker + license_block, 1)
+
+          replacements = {
+              'Dependencies: PLATFORM-005, AUTH-004': 'Dependencies: PLATFORM-005, PLATFORM-002',
+              'Dependencies: RESEARCH-OFFICE-001, GRAPH-004': 'Dependencies: RESEARCH-OFFICE-001, GRAPH-001',
+              'Dependencies: AI-002, AI-003, EVIDENCE-001': 'Dependencies: AI-002, AI-003, KNOW-001',
+          }
+          for old, new in replacements.items():
+              text = text.replace(old, new)
+
+          # Validate work-item IDs and dependency references.
+          ids = re.findall(r'^###\s+([A-Z0-9-]+)\s+—', text, re.M)
+          if len(ids) != len(set(ids)):
+              raise SystemExit('Duplicate work-item IDs detected')
+          idset = set(ids)
+
+          graph = defaultdict(list)
+          current = None
+          for line in text.splitlines():
+              m = re.match(r'^###\s+([A-Z0-9-]+)\s+—', line)
+              if m:
+                  current = m.group(1)
+              elif current and line.startswith('Dependencies:'):
+                  deps = re.findall(r'\b[A-Z]+(?:-[A-Z0-9]+)+\b', line.split(':', 1)[1])
+                  for dep in deps:
+                      if dep not in idset:
+                          raise SystemExit(f'Missing dependency: {current} -> {dep}')
+                      graph[current].append(dep)
+
+          # Detect cycles.
+          indegree = {n: 0 for n in ids}
+          forward = defaultdict(list)
+          for node, deps in graph.items():
+              for dep in deps:
+                  forward[dep].append(node)
+                  indegree[node] += 1
+          q = deque(sorted(n for n, d in indegree.items() if d == 0))
+          topo = []
+          while q:
+              n = q.popleft()
+              topo.append(n)
+              for nxt in sorted(forward[n]):
+                  indegree[nxt] -= 1
+                  if indegree[nxt] == 0:
+                      q.append(nxt)
+          if len(topo) != len(ids):
+              raise SystemExit('Dependency cycle detected')
+
+          wi.write_text(text, encoding='utf-8')
+
+          # Regenerate the dependency graph from work-items.md so the graph cannot drift.
+          titles = {}
+          for m in re.finditer(r'^###\s+([A-Z0-9-]+)\s+—\s+(.+)$', text, re.M):
+              titles[m.group(1)] = m.group(2).strip()
+
+          waves = []
+          remaining = set(ids)
+          completed = set()
+          while remaining:
+              wave = sorted(n for n in remaining if all(d in completed for d in graph[n]))
+              if not wave:
+                  raise SystemExit('Unable to derive dependency waves')
+              waves.append(wave)
+              completed.update(wave)
+              remaining.difference_update(wave)
+
+          lines = [
+              '# ConstructionOS Dependency Graph',
+              '',
+              '**Architecture version:** 1.0',
+              '',
+              'This graph is generated from the `Dependencies:` fields in `work-items.md`. Those fields are authoritative; this document is a derived human-readable view.',
+              '',
+              '## 1. Validation invariants',
+              '',
+              '- Every dependency reference resolves to a work-item ID.',
+              '- No dependency cycle is permitted.',
+              '- Work items are eligible only after all dependencies are VERIFIED.',
+              '- Requirement IDs are not dependency nodes unless they are also work-item IDs.',
+              '- Compatibility/feasibility gates precede downstream intelligence work.',
+              '',
+              f'**Work items:** {len(ids)}  ',
+              f'**Topological waves:** {len(waves)}',
+              '',
+              '## 2. Dependency matrix',
+              '',
+              '| Work item | Depends on |',
+              '|---|---|',
+          ]
+          for n in ids:
+              deps = ', '.join(f'`{d}`' for d in graph[n]) if graph[n] else '—'
+              lines.append(f'| `{n}` — {titles[n]} | {deps} |')
+
+          lines += ['', '## 3. Topological development waves', '']
+          for i, wave in enumerate(waves):
+              lines.append(f'### Wave {i}')
+              lines.append('')
+              lines.append(', '.join(f'`{n}`' for n in wave))
+              lines.append('')
+
+          lines += [
+              '## 4. Parallelism rules',
+              '',
+              '- Independent research/compatibility work may proceed in parallel only when it shares no unresolved mutable architecture boundary.',
+              '- CAD/BIM and Project research may proceed in parallel.',
+              '- Office compatibility may proceed in parallel with CAD research after the licensing boundary is established.',
+              '- Cost/RFQ implementation must not begin before canonical graph and quantity contracts are accepted.',
+              '- Bid intelligence must not begin before cost and temporal replay foundations are accepted.',
+              '',
+              '## 5. Blocking conditions',
+              '',
+              'A downstream work item is blocked if:',
+              '',
+              '- a required architecture contract is unresolved;',
+              '- a dependency is not VERIFIED;',
+              '- a required compatibility gate failed;',
+              '- security/licensing review is unresolved where relevant;',
+              '- required acceptance criteria are ambiguous.',
+              '',
+          ]
+          dg.write_text('\n'.join(lines), encoding='utf-8')
+
+      - name: Commit repaired spec
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add work-items.md dependency-graph.md
+          git diff --cached --quiet && exit 0
+          git commit -m "fix(spec): repair work-item dependencies and regenerate graph"
+          git push
+
+      - name: Remove one-shot workflow
+        run: |
+          git rm .github/workflows/repair-spec.yml
+          git commit -m "chore: remove one-shot spec repair workflow"
+          git push
