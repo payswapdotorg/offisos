@@ -57,12 +57,11 @@ jobs:
       - name: Install FreeCAD (AppImage, no sudo required)
         run: |
           if [ ! -x ".freecad/squashfs-root/usr/bin/freecadcmd" ]; then
-            mkdir -p .freecad && cd .freecad
-            curl -sL --retry 3 -o freecad.AppImage "$FREECAD_URL"
-            echo "$FREECAD_SHA256  freecad.AppImage" | sha256sum -c -
-            chmod +x freecad.AppImage
-            ./freecad.AppImage --appimage-extract > /dev/null
-            rm freecad.AppImage
+            mkdir -p .freecad
+            curl -sL --retry 3 -o .freecad/freecad.AppImage "$FREECAD_URL"
+            echo "$FREECAD_SHA256  .freecad/freecad.AppImage" | sha256sum -c -
+            chmod +x .freecad/freecad.AppImage
+            (cd .freecad && ./freecad.AppImage --appimage-extract > /dev/null && rm freecad.AppImage)
           fi
           .freecad/squashfs-root/usr/bin/freecadcmd --version
 
