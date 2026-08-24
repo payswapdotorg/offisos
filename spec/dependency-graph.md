@@ -52,7 +52,7 @@ The graph is intentionally clone-first. Downstream intelligence work depends on 
 - `AI-003` — Direct provider adapters and local model interface — depends on: AI-001
 - `AI-004` — Agent runtime and tool contracts — depends on: AI-001, PLATFORM-005
 - `AI-005` — Model evaluation ledger — depends on: AI-002, AI-003, KNOW-001
-- `TOOL-001` — Universal capability registry — depends on: AI-004, EXT-001
+- `TOOL-001` — Universal capability registry — depends on: AI-004
 - `KNOW-001` — Knowledge/evidence foundation — depends on: PLATFORM-004
 - `UNKNOWN-001` — Unknown Resolution Engine — depends on: KNOW-001, AI-004
 - `UNKNOWN-002` — Value-of-information recommendations — depends on: UNKNOWN-001, LAB-001
@@ -74,7 +74,7 @@ The graph is intentionally clone-first. Downstream intelligence work depends on 
 - `INTEL-003` — Construction copilot — depends on: COMPAT-PM-002, KNOW-001, AI-004
 - `INTEL-004` — Condition assessment — depends on: GRAPH-001, UNKNOWN-001, TOOL-001
 - `INTEL-005` — Lifecycle maintenance optimization — depends on: INTEL-004, COST-002, LAB-002
-- `EXT-001` — Extension SDK — depends on: GRAPH-001, PLATFORM-002
+- `EXT-001` — Extension SDK — depends on: GRAPH-001, PLATFORM-002, TOOL-001
 - `EXT-002` — Extension sandbox/security — depends on: EXT-001, PLATFORM-002
 - `API-001` — Public domain API — depends on: GRAPH-001, PLATFORM-002
 - `API-002` — Webhooks, async jobs and SDKs — depends on: API-001, PLATFORM-005
@@ -127,19 +127,19 @@ The wave plan below is generated from the `Dependencies:` graph in `work-items.m
 
 ### Wave 10 — Tooling and collaborative runtime
 
-`AI-004, AI-005, API-001, COLLAB-001, COMPAT-SHEET-001, EXT-001, TIME-001`
+`AI-004, AI-005, API-001, COLLAB-001, COMPAT-SHEET-001, TIME-001`
 
 ### Wave 11 — Operational intelligence and API expansion
 
-`API-002, COLLAB-002, COLLAB-003, COST-001, EXT-002, INTEL-003, PLATFORM-006, TIME-002, TOOL-001, UNKNOWN-001`
+`API-002, COLLAB-002, COLLAB-003, COST-001, INTEL-003, PLATFORM-006, TIME-002, TOOL-001, UNKNOWN-001`
 
-### Wave 12 — Commercial foundation
+### Wave 12 — Extension and commercial foundation
 
-`COST-002, INTEL-004, RFQ-001`
+`COST-002, EXT-001, INTEL-004, RFQ-001`
 
 ### Wave 13 — Bid and subcontractor start
 
-`BID-001, INTEL-002, RFQ-002`
+`BID-001, EXT-002, INTEL-002, RFQ-002`
 
 ### Wave 14 — Bid and RFQ maturity
 

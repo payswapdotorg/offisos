@@ -400,7 +400,7 @@ Definition of done: model selection can be evidence-driven.
 
 Objective: Register native tools, engines and extensions with typed contracts and metadata.
 Requirements: TOOL-001..TOOL-004
-Dependencies: AI-004, EXT-001
+Dependencies: AI-004
 Acceptance criteria: capability discovery and selection return only authorized/eligible capabilities.
 Verification: registry/security tests.
 Definition of done: Tool Intelligence baseline is live.
@@ -610,7 +610,7 @@ Definition of done: maintenance intelligence baseline passes.
 
 Objective: Publish manifest, capability, permission and versioning contracts.
 Requirements: EXT-001, EXT-003, EXT-004
-Dependencies: GRAPH-001, PLATFORM-002
+Dependencies: GRAPH-001, PLATFORM-002, TOOL-001
 Acceptance criteria: sample extension can register and call allowed capabilities.
 Verification: SDK integration tests.
 Definition of done: extension developer baseline passes.
