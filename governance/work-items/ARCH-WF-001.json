@@ -35,7 +35,7 @@
     "CI workflow executing tests, governance validation and the protected-path check on every pull request.",
     "A demonstration work item (SAMPLE-001) showing the full traceability chain from requirement through verification, including a verification failure and an architect changes-requested recovery."
   ],
-  "state": "MERGED",
+  "state": "VERIFIED",
   "transitions": [
     {
       "from": "DRAFT",
@@ -175,6 +175,25 @@
       "references": {
         "merge_commit": "c0a722aaba2601ae1482b95ecacab4d029e4f746"
       }
+    },
+    {
+      "from": "MERGED",
+      "to": "VERIFIED",
+      "at": "2026-08-24T21:36:37Z",
+      "actor": "pectoraux",
+      "role": "architect",
+      "reason": "Post-merge verification decision recorded against the merged revision, as reserved by DEC-002 and directed by the Architect's PR #15 review directive (comment 5401683642): the governance validator's dependency gate requires ARCH-WF-001 VERIFIED before RESEARCH-CAD-001 execution states validate, and the Architect directed that decision to be recorded against merge commit c0a722a. Basis: merge commit c0a722a passes the full governance workflow (run 32776682467: typecheck, 58 deterministic tests, 38-check record validation, protected-path check); the MERGED-state record itself passes full validation on main (run 32780390046 on c3ff419); the evidence package EV-001..EV-004 is intact and revision-bound.",
+      "references": {
+        "decision": "DEC-003",
+        "evidence": [
+          "EV-001",
+          "EV-002",
+          "EV-003",
+          "EV-004",
+          "EV-005"
+        ],
+        "commit": "c0a722aaba2601ae1482b95ecacab4d029e4f746"
+      }
     }
   ],
   "evidence": [
@@ -228,6 +247,18 @@
         "pr": 13,
         "commit": "cc231f7e247fc9eb8e70c0530cec6c3b1c9ff417"
       }
+    },
+    {
+      "id": "EV-005",
+      "type": "ci-run",
+      "description": "Governance workflow run 32776682467 (run #10, push event) on merge commit c0a722aaba2601ae1482b95ecacab4d029e4f746, completed 2026-08-24T20:56:09Z with conclusion success (typecheck, 58 deterministic tests, 38-check record validation, protected-path check, report artifact upload). Complementary run 32780390046 (run #13, push event) on c3ff419 \u2014 the merge commit of PR #14 carrying the MERGED-state ARCH-WF-001 record \u2014 completed 2026-08-24T21:36:38Z with conclusion success, confirming the advanced record validates on main.",
+      "produced_at": "2026-08-24T21:36:38Z",
+      "reproducible": true,
+      "reproduction": "Inspect runs 32776682467 and 32780390046 (https://github.com/pectoraux/offisos/actions/runs/32780390046), or checkout c0a722a / c3ff419 and run: npm ci && npm test && npm run governance -- validate",
+      "references": {
+        "workflow_run": "https://github.com/pectoraux/offisos/actions/runs/32780390046",
+        "commit": "c3ff4196c04fe229cd810343f88f65cdeb74d366"
+      }
     }
   ],
   "decisions": [
@@ -257,6 +288,21 @@
         "EV-002",
         "EV-003",
         "EV-004"
+      ]
+    },
+    {
+      "id": "DEC-003",
+      "status": "approved",
+      "decided_at": "2026-08-24T21:36:37Z",
+      "decided_by": "pectoraux",
+      "role": "architect",
+      "rationale": "Verification of ARCH-WF-001 against the merged revision. DEC-002 reserved verification as a post-merge Architect decision against the merged revision; the merged revision c0a722a passes the complete governance workflow (run 32776682467) and the advanced MERGED-state record validates on main (run 32780390046 on c3ff419). The Architect's PR #15 review directive (comment 5401683642, 2026-08-24T21:36:37Z) orders this decision recorded so the RESEARCH-CAD-001 dependency gate can evaluate truthfully. Provenance note: this decision record was entered by the implementation agent on the Architect's explicit directive and is subject to the Architect's review of the PR carrying it; the directive text is preserved in the PR conversation.",
+      "evidence_refs": [
+        "EV-001",
+        "EV-002",
+        "EV-003",
+        "EV-004",
+        "EV-005"
       ]
     }
   ]
