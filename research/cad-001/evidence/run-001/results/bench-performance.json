@@ -1,0 +1,96 @@
+{
+  "benchmark": "bench-performance",
+  "description": "Benchmark: performance and scalability (RESEARCH-CAD-001 item 7).",
+  "started_at": "2026-08-24T21:27:27.660770+00:00",
+  "finished_at": "2026-08-24T21:27:29.524507+00:00",
+  "summary": {
+    "pass": 5,
+    "fail": 0,
+    "unknown": 0
+  },
+  "measurements": {
+    "small_model_creation_s_median": 0.0422,
+    "small_ifc_write_s_median": 0.0013,
+    "small_ifc_bytes": 16901,
+    "small_ifc_parse_s_median": 0.0037,
+    "medium_model_creation_s": 0.6469,
+    "medium_wall_count": 100,
+    "medium_opening_count": 50,
+    "medium_ifc_write_s": 0.0165,
+    "medium_ifc_bytes": 269158,
+    "medium_ifc_parse_s": 0.0414,
+    "medium_quantity_scan_s": 0.0,
+    "medium_quantity_extraction_s": 0.0,
+    "medium_wall_net_volume_sum": 173.25,
+    "occt_100_boolean_cuts_s": 0.7911,
+    "occt_1000_compound_build_s": 0.0336,
+    "occt_1000_compound_volume_s": 0.1185,
+    "peak_rss_mib": 554.3
+  },
+  "checks": [
+    {
+      "id": "perf/small/lifecycle-completes",
+      "description": "Small model lifecycle (create, write, parse) completes without error.",
+      "status": "pass",
+      "epistemic": "OBSERVED",
+      "tolerance": null,
+      "details": {
+        "creation_s": 0.0422,
+        "write_s": 0.0013,
+        "parse_s": 0.0037,
+        "ifc_bytes": 16901
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "perf/medium/lifecycle-completes",
+      "description": "Medium model (100 walls, 50 openings, 5 spaces) lifecycle completes; round-trip preserves the wall count.",
+      "status": "pass",
+      "epistemic": "OBSERVED",
+      "tolerance": null,
+      "details": {
+        "creation_s": 0.6469,
+        "write_s": 0.0165,
+        "parse_s": 0.0414,
+        "walls_roundtripped": 100
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "perf/occt/boolean-throughput",
+      "description": "100 box-cut boolean operations complete; per-op time recorded.",
+      "status": "pass",
+      "epistemic": "OBSERVED",
+      "tolerance": null,
+      "details": {
+        "total_s": 0.7911,
+        "per_op_ms": 7.911
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "perf/occt/compound-volume-exact",
+      "description": "1000-solid compound volume is exact after timing runs (6.0 m^3).",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": 1e-06,
+      "details": {
+        "measured": 6.000000000000369,
+        "expected": 6.0,
+        "delta": 3.6859404417555197e-13
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "perf/memory/peak-recorded",
+      "description": "Peak resident memory recorded for the full benchmark process.",
+      "status": "pass",
+      "epistemic": "OBSERVED",
+      "tolerance": null,
+      "details": {
+        "peak_rss_mib": 554.3
+      },
+      "evidence_refs": []
+    }
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "captured_at": "2026-08-24T21:27:29.740406+00:00",
+  "python": "3.12.13 (main, Jul 18 2026, 17:02:19) [Clang 22.1.3 ]",
+  "platform": "Linux-5.10.134-013.8.3.kangaroo.al8.x86_64-x86_64-with-glibc2.41",
+  "machine": "x86_64",
+  "packages": {
+    "ifcopenshell": "0.8.5",
+    "cadquery": "2.6.1",
+    "cadquery-ocp": "7.8.1.1.post1",
+    "numpy": "2.1.3",
+    "ezdxf": "1.4.3"
+  },
+  "occt_version": "7.8.1.1.post1",
+  "cpu_count_limit_note": "see /proc limits",
+  "total_memory": "MemTotal:        4259380 kB"
+}

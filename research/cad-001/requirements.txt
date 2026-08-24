@@ -1,0 +1,8 @@
+# RESEARCH-CAD-001 benchmark — exact tested versions
+# Python 3.12 required (OCCT/OCP wheels); install with:
+#   python3 -m pip install -r requirements.txt
+ifcopenshell==0.8.5
+cadquery==2.6.1          # pulls cadquery-ocp==7.8.1.1.post1 (OpenCascade 7.8.1 bindings)
+ezdxf==1.4.3
+numpy==2.1.3
+pytest==9.0.2

@@ -1,0 +1,216 @@
+{
+  "benchmark": "bench-bim-semantics",
+  "description": "Benchmark: BIM semantics (RESEARCH-CAD-001 evidence item 4).",
+  "started_at": "2026-08-24T21:27:26.932850+00:00",
+  "finished_at": "2026-08-24T21:27:27.532556+00:00",
+  "summary": {
+    "pass": 16,
+    "fail": 0,
+    "unknown": 0
+  },
+  "measurements": {
+    "element_count_total": 12,
+    "ifc_schema": "IFC4"
+  },
+  "checks": [
+    {
+      "id": "bim/elements/wall-count",
+      "description": "Model contains exactly 4 walls.",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "counts": {
+          "window": 2,
+          "wall": 4,
+          "door": 1,
+          "slab": 1,
+          "space": 1
+        }
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "bim/elements/slab-count",
+      "description": "Model contains exactly 1 slab.",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {},
+      "evidence_refs": []
+    },
+    {
+      "id": "bim/elements/space-count",
+      "description": "Model contains exactly 1 space.",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {},
+      "evidence_refs": []
+    },
+    {
+      "id": "bim/elements/door-window-counts",
+      "description": "Doors=1, windows=2 as fillings.",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {},
+      "evidence_refs": []
+    },
+    {
+      "id": "bim/relationships/voids-count",
+      "description": "Voids relationships match opening count (3).",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "voids": 3
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "bim/relationships/fills-count",
+      "description": "Fills relationships match door+window count (3).",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "fills": 3
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "bim/properties/string-roundtrip",
+      "description": "IfcLabel property FireRating round-trips exactly.",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "observed": "REI60"
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "bim/properties/boolean-roundtrip",
+      "description": "IfcBoolean property IsExternal round-trips as True.",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "observed": true
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "bim/properties/boolean-discrimination",
+      "description": "Boolean False values are preserved distinctly from True (no lossy coercion).",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "distinct_values": [
+          "False",
+          "True"
+        ]
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "bim/properties/space-longname",
+      "description": "Space LongName property survives the round trip.",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "observed": "Office"
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "bim/spatial/containment",
+      "description": "Every wall is contained in a building storey via IfcRelContainedInSpatialStructure.",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "walls_in_storey": 4
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "bim/placement/readback",
+      "description": "Wall placement matrix reads back with exact translation components (metres).",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "translation": [
+          0.0,
+          5.0,
+          0.0
+        ]
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "bim/units/length-unit-metre",
+      "description": "Adapter pins the project length unit to METRE so representation geometry, placements and quantities share one unit system. FINDING: ifcopenshell's default (unpinned) length unit is MILLIMETRE while its geometry/placement APIs take metres \u2014 an interoperability trap the adapter must handle explicitly.",
+      "status": "pass",
+      "epistemic": "OBSERVED",
+      "tolerance": null,
+      "details": {
+        "length_unit": "#2=IfcSIUnit(*,.LENGTHUNIT.,$,.METRE.)"
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "bim/units/representation-geometry-metres",
+      "description": "Wall representation extrusion depth equals the fixture height (3.0 m) in file units.",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": 1e-09,
+      "details": {
+        "measured": 3.0,
+        "expected": 3.0,
+        "delta": 0.0
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "bim/door/overall-dimensions",
+      "description": "IfcDoor OverallWidth/OverallHeight native attributes read back exactly.",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "doors": [
+          [
+            1.0,
+            2.1
+          ]
+        ]
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "bim/window/overall-dimensions",
+      "description": "IfcWindow OverallWidth/OverallHeight native attributes read back exactly.",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "windows": [
+          [
+            1.2,
+            1.5
+          ],
+          [
+            1.2,
+            1.5
+          ]
+        ]
+      },
+      "evidence_refs": []
+    }
+  ]
+}

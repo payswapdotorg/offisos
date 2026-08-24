@@ -1,0 +1,98 @@
+{
+  "benchmark": "bench-parametric",
+  "description": "Benchmark: parametric behavior (RESEARCH-CAD-001 evidence item 3).",
+  "started_at": "2026-08-24T21:27:26.895364+00:00",
+  "finished_at": "2026-08-24T21:27:26.932784+00:00",
+  "summary": {
+    "pass": 6,
+    "fail": 0,
+    "unknown": 1
+  },
+  "measurements": {
+    "freecad_sketcher": "not-available"
+  },
+  "checks": [
+    {
+      "id": "parametric/baseline-regeneration",
+      "description": "Parametric wall regenerates to the analytic net volume (4.23 m^3).",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": 1e-09,
+      "details": {
+        "measured": 4.2299999999999995,
+        "expected": 4.23,
+        "delta": 8.881784197001252e-16
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "parametric/regeneration-determinism",
+      "description": "Identical parameters produce identical regenerated volume.",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "volume": 4.2299999999999995
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "parametric/edit-height-delta",
+      "description": "Height edit 3.0 -> 3.5 m: net volume delta is exactly +0.9 m^3.",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": 1e-09,
+      "details": {
+        "measured": 0.8999999999999995,
+        "expected": 0.8999999999999999,
+        "delta": 4.440892098500626e-16,
+        "before": 4.2299999999999995,
+        "after": 5.129999999999999
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "parametric/failure-zero-extent-typed-error",
+      "description": "Zero-extent parameter raises OCCT Standard_DomainError (typed failure, no silent fallback).",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "observed_exception": "Standard_DomainError"
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "parametric/failure-nan-coordinate-finding",
+      "description": "FINDING: OCCT accepts NaN coordinates without error and returns a 0-volume shape. Input validation is therefore an ADAPTER obligation; the domain layer detects the degenerate result.",
+      "status": "pass",
+      "epistemic": "OBSERVED",
+      "tolerance": null,
+      "details": {
+        "occt_behavior": "no exception, volume 0.0",
+        "adapter_obligation": "validate finiteness of parameters before engine calls"
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "parametric/failure-oversized-opening",
+      "description": "Oversized opening consumes the wall: empty result detected, no fake volume.",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {},
+      "evidence_refs": []
+    },
+    {
+      "id": "parametric/freecad-sketcher/availability",
+      "description": "FreeCAD is not importable in this environment: Sketcher constraint solving NOT tested here. Recorded as an explicit environment limitation, not as an engine failure.",
+      "status": "unknown",
+      "epistemic": "OBSERVED",
+      "tolerance": null,
+      "details": {
+        "unknown_reason": "FreeCAD not installed in the benchmark environment (sandbox has no sudo/apt; conda-forge install attempted separately)"
+      },
+      "evidence_refs": []
+    }
+  ]
+}

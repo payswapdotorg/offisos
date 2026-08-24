@@ -1,0 +1,132 @@
+{
+  "benchmark": "bench-adapter-replacement",
+  "description": "Benchmark: adapter boundary and replacement proof (RESEARCH-CAD-001 item 9).",
+  "started_at": "2026-08-24T21:27:29.661905+00:00",
+  "finished_at": "2026-08-24T21:27:29.705423+00:00",
+  "summary": {
+    "pass": 6,
+    "fail": 0,
+    "unknown": 0
+  },
+  "measurements": {
+    "ifc_engine": "ifcopenshell+occt",
+    "reference_engine": "reference-python"
+  },
+  "checks": [
+    {
+      "id": "replacement/domain-results-identical",
+      "description": "The identical domain-level test suite produces identical results through the IfcOpenShell+OCCT adapter and the pure-Python reference adapter (within 1e-9): the domain layer does not depend on the engine.",
+      "status": "pass",
+      "epistemic": "OBSERVED",
+      "tolerance": null,
+      "details": {
+        "ifc": {
+          "wall_count": 4,
+          "slab_count": 1,
+          "space_count": 1,
+          "filling_count": 3,
+          "voids_relationships": 3,
+          "fills_relationships": 3,
+          "wall_gross_volume_sum": 23.4,
+          "wall_net_volume_sum": 21.689999999999998,
+          "slab_volume": 10.0,
+          "space_area": 32.56
+        },
+        "reference": {
+          "wall_count": 4,
+          "slab_count": 1,
+          "space_count": 1,
+          "filling_count": 3,
+          "voids_relationships": 3,
+          "fills_relationships": 3,
+          "wall_gross_volume_sum": 23.4,
+          "wall_net_volume_sum": 21.689999999999998,
+          "slab_volume": 10.0,
+          "space_area": 32.56
+        },
+        "mismatches": []
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "replacement/per-element-quantities-identical",
+      "description": "Per-wall net volumes are identical through both adapters.",
+      "status": "pass",
+      "epistemic": "OBSERVED",
+      "tolerance": null,
+      "details": {
+        "ifc": [
+          4.5,
+          4.5,
+          6.03,
+          6.66
+        ],
+        "reference": [
+          4.5,
+          4.5,
+          6.03,
+          6.66
+        ]
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "replacement/wall-count-expected",
+      "description": "Both adapters report the fixture wall count (4).",
+      "status": "pass",
+      "epistemic": "CALCULATED",
+      "tolerance": 0,
+      "details": {
+        "measured": 4,
+        "expected": 4,
+        "delta": 0
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "replacement/wall-net-volume-expected",
+      "description": "Both adapters report the analytic wall net volume sum (21.69 m^3).",
+      "status": "pass",
+      "epistemic": "CALCULATED",
+      "tolerance": 1e-09,
+      "details": {
+        "measured": 21.689999999999998,
+        "expected": 21.689999999999998,
+        "delta": 0.0
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "replacement/typed-unsupported-operation",
+      "description": "A reference adapter without IFC capability raises the typed UnsupportedOperationError instead of silently writing a non-IFC file.",
+      "status": "pass",
+      "epistemic": "ADAPTER",
+      "tolerance": null,
+      "details": {
+        "contract": "UnsupportedOperationError"
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "replacement/swap-scope",
+      "description": "Swapping the engine requires implementing the CadBimAdapter contract (create_model/add_wall/add_slab/add_space/export_ifc/import_ifc/extract_quantities); the domain test suite (domain_test_suite above) runs unchanged against any implementation.",
+      "status": "pass",
+      "epistemic": "ADAPTER",
+      "tolerance": null,
+      "details": {
+        "adapter_contract_methods": [
+          "create_model",
+          "add_wall",
+          "add_slab",
+          "add_space",
+          "export_ifc",
+          "import_ifc",
+          "extract_quantities"
+        ],
+        "engine_imports_confined_to": "offisos_cadbench/engines/",
+        "note": "engine modules are imported only inside adapter implementations; the domain suite imports none"
+      },
+      "evidence_refs": []
+    }
+  ]
+}

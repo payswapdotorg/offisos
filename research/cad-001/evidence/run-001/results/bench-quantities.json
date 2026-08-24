@@ -1,0 +1,159 @@
+{
+  "benchmark": "bench-quantities",
+  "description": "Benchmark: quantity extraction (RESEARCH-CAD-001 evidence item 6).",
+  "started_at": "2026-08-24T21:27:27.568044+00:00",
+  "finished_at": "2026-08-24T21:27:27.660641+00:00",
+  "summary": {
+    "pass": 11,
+    "fail": 0,
+    "unknown": 0
+  },
+  "measurements": {},
+  "checks": [
+    {
+      "id": "qty/brep/gross-volume",
+      "description": "OCCT BRep gross volume equals the analytic fixture value (5.4 m^3).",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": 1e-09,
+      "details": {
+        "measured": 5.4,
+        "expected": 5.3999999999999995,
+        "delta": 8.881784197001252e-16,
+        "state": "CALCULATED"
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "qty/brep/net-volume",
+      "description": "OCCT BRep net volume (boolean cut) equals analytic value (4.23 m^3).",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": 1e-09,
+      "details": {
+        "measured": 4.2299999999999995,
+        "expected": 4.2299999999999995,
+        "delta": 0.0,
+        "state": "CALCULATED"
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "qty/brep/openings-volume",
+      "description": "OCCT BRep openings volume = gross - net = 1.17 m^3 exactly.",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": 1e-09,
+      "details": {
+        "measured": 1.1700000000000008,
+        "expected": 1.17,
+        "delta": 8.881784197001252e-16
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "qty/brep/net-side-area",
+      "description": "Net side area equals gross side area minus opening rectangles (14.1 m^2).",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": 1e-09,
+      "details": {
+        "measured": 14.1,
+        "expected": 14.100000000000001,
+        "delta": 1.7763568394002505e-15
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "qty/determinism/identical-reruns",
+      "description": "Quantity extraction is deterministic: two runs produce identical values.",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "GrossVolume": 5.4,
+        "NetVolume": 4.2299999999999995
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "qty/sums/wall-gross-volume",
+      "description": "Sum of wall gross volumes equals the analytic fixture sum (23.4 m^3).",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": 1e-09,
+      "details": {
+        "measured": 23.4,
+        "expected": 23.4,
+        "delta": 0.0
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "qty/sums/wall-net-volume",
+      "description": "Sum of wall net volumes equals the analytic fixture sum (21.69 m^3).",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": 1e-09,
+      "details": {
+        "measured": 21.689999999999998,
+        "expected": 21.689999999999998,
+        "delta": 0.0
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "qty/sums/slab-volume",
+      "description": "Slab volume equals the analytic fixture value (10.0 m^3).",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": 1e-09,
+      "details": {
+        "measured": 10.0,
+        "expected": 10.0,
+        "delta": 0.0
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "qty/sums/space-area",
+      "description": "Space gross floor area equals the fixture footprint area.",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": 1e-09,
+      "details": {
+        "measured": 32.56,
+        "expected": 32.56,
+        "delta": 0.0
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "qty/roundtrip/observed-equals-calculated",
+      "description": "OBSERVED (round-tripped) NetVolume equals the CALCULATED (BRep) value exactly.",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": 1e-09,
+      "details": {
+        "measured": 6.0299999999999985,
+        "expected": 6.0299999999999985,
+        "delta": 0.0,
+        "observed_state": "OBSERVED",
+        "calculated_state": "CALCULATED"
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "qty/unknown/ghost-wall",
+      "description": "A wall with no geometry and no quantity set yields UNKNOWN, never a fake 0.",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "state": "UNKNOWN",
+        "value": null
+      },
+      "evidence_refs": []
+    }
+  ]
+}

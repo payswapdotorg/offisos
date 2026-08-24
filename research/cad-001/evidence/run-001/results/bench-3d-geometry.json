@@ -1,0 +1,243 @@
+{
+  "benchmark": "bench-3d-geometry",
+  "description": "Benchmark: 3D geometry capabilities (RESEARCH-CAD-001 evidence item 2).",
+  "started_at": "2026-08-24T21:27:25.953846+00:00",
+  "finished_at": "2026-08-24T21:27:26.895244+00:00",
+  "summary": {
+    "pass": 18,
+    "fail": 0,
+    "unknown": 0
+  },
+  "measurements": {
+    "assembly_1000_solids_build_ms": 36.779,
+    "assembly_1000_solids_total_volume": 6.000000000000369,
+    "assembly_1000_solids_validity_check_ms": 729.317
+  },
+  "checks": [
+    {
+      "id": "3d/primitives/box-volume",
+      "description": "Box primitive volume is exact (2x3x4 = 24 m^3).",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": 1e-09,
+      "details": {
+        "measured": 23.999999999999996,
+        "expected": 24.0,
+        "delta": 3.552713678800501e-15
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "3d/primitives/cylinder-volume",
+      "description": "Cylinder primitive volume is exact (pi r^2 h = 9 pi).",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": 1e-06,
+      "details": {
+        "measured": 28.274333882308134,
+        "expected": 28.274333882308138,
+        "delta": 3.552713678800501e-15
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "3d/primitives/sphere-volume",
+      "description": "Sphere primitive volume is exact (4/3 pi r^3).",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": 1e-06,
+      "details": {
+        "measured": 33.51032163829113,
+        "expected": 33.510321638291124,
+        "delta": 7.105427357601002e-15
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "3d/booleans/fuse-done",
+      "description": "Fuse boolean completes.",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {},
+      "evidence_refs": []
+    },
+    {
+      "id": "3d/booleans/fuse-volume",
+      "description": "Fuse volume = 8 + 8 - overlap 2 = 14 m^3 exactly (overlap is 1x1x2).",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": 1e-09,
+      "details": {
+        "measured": 13.999999999999998,
+        "expected": 14.0,
+        "delta": 1.7763568394002505e-15
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "3d/booleans/cut-done",
+      "description": "Cut boolean completes.",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {},
+      "evidence_refs": []
+    },
+    {
+      "id": "3d/booleans/cut-volume",
+      "description": "Cut volume = 8 - 2 = 6 m^3 exactly.",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": 1e-09,
+      "details": {
+        "measured": 5.999999999999998,
+        "expected": 6.0,
+        "delta": 1.7763568394002505e-15
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "3d/booleans/common-done",
+      "description": "Common (intersection) boolean completes.",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {},
+      "evidence_refs": []
+    },
+    {
+      "id": "3d/booleans/common-volume",
+      "description": "Intersection volume = 2 m^3 exactly (1x1x2 overlap).",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": 1e-09,
+      "details": {
+        "measured": 1.9999999999999996,
+        "expected": 2.0,
+        "delta": 4.440892098500626e-16
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "3d/booleans/curved-cut-volume",
+      "description": "Sphere(r=1) minus coaxial cylinder(r=0.5): volume equals the exact napkin-ring value pi*h^3/6 with h=2*sqrt(R^2-r^2).",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": 1e-06,
+      "details": {
+        "measured": 2.720699046351335,
+        "expected": 2.720699046351326,
+        "delta": 8.881784197001252e-15,
+        "napkin_ring_height": 1.7320508075688772,
+        "exact_volume": 2.720699046351326
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "3d/transforms/rotation-preserves-volume",
+      "description": "90-degree rotation preserves volume exactly.",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "volume": 24.0,
+        "centre_of_mass": [
+          -1.4999999999999998,
+          1.0000000000000002,
+          2.0
+        ]
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "3d/transforms/centre-of-mass",
+      "description": "Centre of mass follows the rotation exactly.",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": 1e-09,
+      "details": {
+        "measured": -1.4999999999999998,
+        "expected": -1.5,
+        "delta": 2.220446049250313e-16
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "3d/transforms/centre-of-mass-y",
+      "description": "Rotated centre of mass Y coordinate.",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": 1e-09,
+      "details": {
+        "measured": 1.0000000000000002,
+        "expected": 1.0,
+        "delta": 2.220446049250313e-16
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "3d/transforms/translation",
+      "description": "Translation moves centre of mass exactly.",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "centre_of_mass": [
+          11.000000000000002,
+          21.500000000000004,
+          32.0
+        ]
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "3d/validity/boolean-result-valid",
+      "description": "BRepCheck_Analyzer validates the fused solid.",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {},
+      "evidence_refs": []
+    },
+    {
+      "id": "3d/assembly/compound-volume",
+      "description": "Compound of 1000 solids: total volume exact (n x 0.006 m^3).",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": 1e-06,
+      "details": {
+        "measured": 6.000000000000369,
+        "expected": 6.0,
+        "delta": 3.6859404417555197e-13,
+        "solids": 1000,
+        "build_ms": 36.779
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "3d/assembly/compound-valid",
+      "description": "Compound of 1000 solids passes validity analysis.",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "validity_check_ms": 729.317
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "3d/primitives/torus-volume",
+      "description": "Torus volume = 2 pi^2 R r^2 exact.",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": 1e-06,
+      "details": {
+        "measured": 9.869604401089358,
+        "expected": 9.869604401089358,
+        "delta": 0.0
+      },
+      "evidence_refs": []
+    }
+  ]
+}

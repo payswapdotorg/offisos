@@ -1,0 +1,22 @@
+{
+  "written_at": "2026-08-24T21:27:29.744102+00:00",
+  "benchmarks": [
+    "bench-2d-drafting",
+    "bench-3d-geometry",
+    "bench-parametric",
+    "bench-bim-semantics",
+    "bench-ifc-roundtrip",
+    "bench-quantities",
+    "bench-performance",
+    "bench-cg-mapping",
+    "bench-adapter-replacement",
+    "bench-failure-modes",
+    "bench-licensing"
+  ],
+  "totals": {
+    "pass": 108,
+    "fail": 0,
+    "unknown": 1
+  },
+  "exit_code": 0
+}
