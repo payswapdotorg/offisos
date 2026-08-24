@@ -1,0 +1,63 @@
+{
+  "id": "ARCH-WF-001",
+  "title": "Establish repository workflow state machine and work-item governance",
+  "issue": 11,
+  "objective": "Establish the repository/process controls required to operate ConstructionOS through the frozen WorkflowOS-derived lifecycle (DRAFT → READY → ASSIGNED → IMPLEMENTING → PR_OPEN → VERIFYING → ARCHITECT_REVIEW → APPROVED → MERGED → VERIFIED), making implementation state auditable and preventing work from being treated as complete without the required evidence.",
+  "architecture_version": "1.0",
+  "requirements": ["FLOW-001", "FLOW-002", "FLOW-004"],
+  "dependencies": [],
+  "acceptance_criteria": [
+    "A canonical workflow/state definition is stored in the repository.",
+    "Valid transitions, responsible actors, and required evidence for each terminal state are documented.",
+    "At least one sample work item demonstrates full traceability from requirement through verification.",
+    "VERIFIED cannot be justified solely by implementation status, screenshots, or narrative claims.",
+    "Architecture-version association and Architecture Change Request routing are explicit.",
+    "Process definitions are reproducible and inspectable by the Architect."
+  ],
+  "non_goals": [
+    "No change to Architecture v1.0.",
+    "No implementation of product-domain functionality.",
+    "No requirement that all process automation be built before development can begin; documented enforceable controls are the initial target.",
+    "ACR template/lifecycle, revision-bound verification invalidation and full lock controls are owned by ARCH-WF-002."
+  ],
+  "risk_assumptions": [
+    "Branch protection on main is a repository setting outside version control; until the Product Owner requires the governance status checks, CI enforcement is advisory (documented in governance/README.md).",
+    "The validator is the reference implementation of the process and is itself subject to Architect review.",
+    "spec/work-items.md carries an older definition of ARCH-WF-001/ARCH-WF-002 than GitHub issues #11/#12; this record follows the issue definitions and the divergence is flagged in the implementation PR for Architect reconciliation."
+  ],
+  "evidence_requirements": [
+    "Deterministic automated test suite proving state-machine enforcement: legal and illegal transitions, transition ownership, required references, evidence gating for VERIFIED, and re-verification after rejection.",
+    "Governance validation run over all repository work-item records (npm run governance -- validate, exit 0).",
+    "CI workflow executing tests, governance validation and the protected-path check on every pull request.",
+    "A demonstration work item (SAMPLE-001) showing the full traceability chain from requirement through verification, including a verification failure and an architect changes-requested recovery."
+  ],
+  "state": "IMPLEMENTING",
+  "transitions": [
+    {
+      "from": "DRAFT",
+      "to": "READY",
+      "at": "2026-08-24T19:42:31Z",
+      "actor": "pectoraux",
+      "role": "product-owner",
+      "reason": "Work item fully specified in GitHub issue #11 (objective, scope, acceptance criteria, non-goals, architect gate) and labeled ready.",
+      "references": { "issue": 11 }
+    },
+    {
+      "from": "READY",
+      "to": "ASSIGNED",
+      "at": "2026-08-24T19:55:00Z",
+      "actor": "pectoraux",
+      "role": "product-owner",
+      "reason": "Assigned to the Z.ai implementation agent via the Offisos implementation agent handoff.",
+      "references": { "issue": 11, "assignee": "z-ai-implementation-agent" }
+    },
+    {
+      "from": "ASSIGNED",
+      "to": "IMPLEMENTING",
+      "at": "2026-08-24T19:58:00Z",
+      "actor": "z-ai-implementation-agent",
+      "role": "implementer",
+      "reason": "Implementation started on branch work/arch-wf-001-governance: canonical state machine, schemas, work-item registry, validator CLI, deterministic tests, CI and documentation."
+    }
+  ]
+}

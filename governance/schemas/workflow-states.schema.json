@@ -1,0 +1,94 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "workflow-states.schema.json",
+  "title": "ConstructionOS workflow state machine definition",
+  "description": "Schema for governance/workflow-states.json, the canonical definition of the work-item lifecycle.",
+  "type": "object",
+  "required": [
+    "definition_version",
+    "architecture_version",
+    "source_of_authority",
+    "roles",
+    "initial_state",
+    "states",
+    "transitions",
+    "state_entry_requirements",
+    "decision_rules"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": { "type": "string" },
+    "definition_version": { "type": "integer", "minimum": 1 },
+    "architecture_version": { "type": "string", "minLength": 1 },
+    "source_of_authority": { "type": "string", "minLength": 1 },
+    "notes": { "type": "string" },
+    "roles": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": { "type": "string", "minLength": 1 }
+    },
+    "initial_state": { "type": "string", "minLength": 1 },
+    "states": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "type": "object",
+        "required": ["description", "terminal"],
+        "additionalProperties": false,
+        "properties": {
+          "description": { "type": "string", "minLength": 1 },
+          "terminal": { "type": "boolean" }
+        }
+      }
+    },
+    "transitions": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["from", "to", "actors", "requires"],
+        "additionalProperties": false,
+        "properties": {
+          "from": { "type": "string", "minLength": 1 },
+          "to": { "type": "string", "minLength": 1 },
+          "label": { "type": "string", "minLength": 1 },
+          "actors": {
+            "type": "array",
+            "minItems": 1,
+            "items": { "type": "string", "minLength": 1 }
+          },
+          "requires": {
+            "type": "array",
+            "minItems": 1,
+            "items": { "type": "string", "minLength": 1 }
+          },
+          "reference_fields": {
+            "type": "array",
+            "minItems": 1,
+            "items": { "type": "string", "minLength": 1 }
+          }
+        }
+      }
+    },
+    "state_entry_requirements": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": true
+      }
+    },
+    "decision_rules": {
+      "type": "object",
+      "required": ["deciding_role", "statuses"],
+      "additionalProperties": true,
+      "properties": {
+        "deciding_role": { "type": "string", "minLength": 1 },
+        "statuses": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "minLength": 1 }
+        }
+      }
+    }
+  }
+}

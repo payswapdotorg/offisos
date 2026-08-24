@@ -1,0 +1,235 @@
+{
+  "id": "SAMPLE-001",
+  "demo": true,
+  "disclaimer": "SYNTHETIC DEMONSTRATION FIXTURE. This record exercises the governance machinery end-to-end. All references (issue #999, PR #999, commit 1234567, workflow run synthetic-run-1, actor names) are placeholders that do not exist. This record demonstrates the full traceability chain — requirement → work item → PR/commit → evidence → Architect decision → VERIFIED — including one verification failure and one architect changes-requested recovery. It asserts nothing about real work and must never be cited as completed work.",
+  "title": "Sample work item demonstrating full lifecycle traceability (synthetic fixture)",
+  "issue": 999,
+  "objective": "Provide a fully populated, synthetic work-item record that demonstrates every governance control: legal transitions with correct ownership, failure paths (verification_failed, changes_requested), evidence gating for VERIFIED, decision-evidence linkage and re-verification after rejection.",
+  "architecture_version": "1.0",
+  "requirements": ["FLOW-001", "FLOW-002"],
+  "dependencies": [],
+  "acceptance_criteria": [
+    "The record validates against governance/schemas/work-item.schema.json.",
+    "The transition history is contiguous, legal, authorized and time-ordered.",
+    "VERIFIED is reached with reproducible, revision-bound accepted evidence and an Architect-approved decision.",
+    "A verification failure and an architect changes-requested decision are recorded and correctly remediated."
+  ],
+  "non_goals": [
+    "This fixture performs no real implementation and makes no claim about any real work item."
+  ],
+  "risk_assumptions": [],
+  "evidence_requirements": [
+    "At least one accepted, reproducible, revision-bound evidence item (automated test suite, CI run or reproducible script).",
+    "An approved Architect decision referencing that evidence."
+  ],
+  "state": "VERIFIED",
+  "transitions": [
+    {
+      "from": "DRAFT",
+      "to": "READY",
+      "at": "2026-01-05T09:00:00Z",
+      "actor": "sample-product-owner",
+      "role": "product-owner",
+      "reason": "Sample specification complete with explicit acceptance criteria and evidence expectations.",
+      "references": { "issue": 999 }
+    },
+    {
+      "from": "READY",
+      "to": "ASSIGNED",
+      "at": "2026-01-05T10:00:00Z",
+      "actor": "sample-product-owner",
+      "role": "product-owner",
+      "reason": "Assigned to the sample implementer.",
+      "references": { "issue": 999, "assignee": "sample-implementer" }
+    },
+    {
+      "from": "ASSIGNED",
+      "to": "IMPLEMENTING",
+      "at": "2026-01-06T08:00:00Z",
+      "actor": "sample-implementer",
+      "role": "implementer",
+      "reason": "Started implementation."
+    },
+    {
+      "from": "IMPLEMENTING",
+      "to": "PR_OPEN",
+      "at": "2026-01-08T12:00:00Z",
+      "actor": "sample-implementer",
+      "role": "implementer",
+      "reason": "Opened implementation pull request.",
+      "references": { "pr": 999 }
+    },
+    {
+      "from": "PR_OPEN",
+      "to": "VERIFYING",
+      "at": "2026-01-08T12:30:00Z",
+      "actor": "sample-implementer",
+      "role": "implementer",
+      "reason": "Submitted for verification."
+    },
+    {
+      "from": "VERIFYING",
+      "to": "IMPLEMENTING",
+      "at": "2026-01-08T14:00:00Z",
+      "actor": "sample-ci",
+      "role": "automation",
+      "reason": "CI verification run failed on the submitted revision.",
+      "failure_reason": "Automated test suite exited 1: 2 failing tests in the sample module."
+    },
+    {
+      "from": "IMPLEMENTING",
+      "to": "PR_OPEN",
+      "at": "2026-01-09T09:00:00Z",
+      "actor": "sample-implementer",
+      "role": "implementer",
+      "reason": "Fixed the failing tests and updated the pull request.",
+      "references": { "pr": 999 }
+    },
+    {
+      "from": "PR_OPEN",
+      "to": "VERIFYING",
+      "at": "2026-01-09T09:15:00Z",
+      "actor": "sample-ci",
+      "role": "automation",
+      "reason": "CI re-ran verification checks."
+    },
+    {
+      "from": "VERIFYING",
+      "to": "ARCHITECT_REVIEW",
+      "at": "2026-01-09T10:00:00Z",
+      "actor": "sample-ci",
+      "role": "automation",
+      "reason": "Verification evidence complete: tests green, validation green.",
+      "references": { "evidence": ["EV-001", "EV-002"] }
+    },
+    {
+      "from": "ARCHITECT_REVIEW",
+      "to": "IMPLEMENTING",
+      "at": "2026-01-09T15:00:00Z",
+      "actor": "sample-architect",
+      "role": "architect",
+      "reason": "Architect requested changes before approval.",
+      "failure_reason": "Evidence EV-002 lacks a reproduction command; evidence package incomplete."
+    },
+    {
+      "from": "IMPLEMENTING",
+      "to": "PR_OPEN",
+      "at": "2026-01-10T11:00:00Z",
+      "actor": "sample-implementer",
+      "role": "implementer",
+      "reason": "Addressed the requested changes and added the missing reproduction command.",
+      "references": { "pr": 999 }
+    },
+    {
+      "from": "PR_OPEN",
+      "to": "VERIFYING",
+      "at": "2026-01-10T11:05:00Z",
+      "actor": "sample-implementer",
+      "role": "implementer",
+      "reason": "Re-submitted for verification."
+    },
+    {
+      "from": "VERIFYING",
+      "to": "ARCHITECT_REVIEW",
+      "at": "2026-01-10T11:30:00Z",
+      "actor": "sample-ci",
+      "role": "automation",
+      "reason": "Verification evidence complete after remediation.",
+      "references": { "evidence": ["EV-001", "EV-002", "EV-003"] }
+    },
+    {
+      "from": "ARCHITECT_REVIEW",
+      "to": "APPROVED",
+      "at": "2026-01-10T16:00:00Z",
+      "actor": "sample-architect",
+      "role": "architect",
+      "reason": "All acceptance criteria satisfied with reproducible, revision-bound evidence.",
+      "references": { "decision": "DEC-002" }
+    },
+    {
+      "from": "APPROVED",
+      "to": "MERGED",
+      "at": "2026-01-11T09:00:00Z",
+      "actor": "sample-product-owner",
+      "role": "product-owner",
+      "reason": "Merged the approved pull request.",
+      "references": { "merge_commit": "abcdef1" }
+    },
+    {
+      "from": "MERGED",
+      "to": "VERIFIED",
+      "at": "2026-01-12T10:00:00Z",
+      "actor": "sample-architect",
+      "role": "architect",
+      "reason": "Verification confirmed against the merged revision with accepted evidence.",
+      "references": { "decision": "DEC-003", "evidence": ["EV-001", "EV-002", "EV-003"] }
+    }
+  ],
+  "evidence": [
+    {
+      "id": "EV-001",
+      "type": "automated-test-suite",
+      "description": "Deterministic test suite executed against implementation revision 1234567: 128 tests, 0 failures.",
+      "produced_at": "2026-01-09T10:00:00Z",
+      "reproducible": true,
+      "reproduction": "npm test",
+      "references": { "pr": 999, "commit": "1234567" }
+    },
+    {
+      "id": "EV-002",
+      "type": "ci-run",
+      "description": "CI pipeline run on the pull request head: tests, governance validation and protected-path check all exited 0.",
+      "produced_at": "2026-01-10T11:20:00Z",
+      "reproducible": true,
+      "reproduction": "Push the revision to the pull request and inspect the CI run, or run locally: npm test && npm run governance -- validate",
+      "references": { "workflow_run": "synthetic-run-1", "pr": 999, "commit": "1234567" }
+    },
+    {
+      "id": "EV-003",
+      "type": "reproducible-script",
+      "description": "Governance validation script over the full work-item registry, exit 0, report artifact retained.",
+      "produced_at": "2026-01-10T11:25:00Z",
+      "reproducible": true,
+      "reproduction": "npm run governance -- validate",
+      "references": { "artifact_path": "governance-report.json", "commit": "1234567" }
+    },
+    {
+      "id": "EV-004",
+      "type": "screenshot",
+      "description": "Screenshot of a terminal showing green output. Illustrates an evidence type that is recorded but never sufficient for VERIFIED.",
+      "produced_at": "2026-01-10T11:26:00Z",
+      "reproducible": false,
+      "references": {}
+    }
+  ],
+  "decisions": [
+    {
+      "id": "DEC-001",
+      "status": "changes_requested",
+      "decided_at": "2026-01-09T15:00:00Z",
+      "decided_by": "sample-architect",
+      "role": "architect",
+      "rationale": "Evidence package incomplete: the CI-run evidence lacks a reproduction command, so a third party cannot reproduce the claimed result.",
+      "evidence_refs": ["EV-001", "EV-002"],
+      "remediation_required": "Add the reproduction command to EV-002, regenerate the evidence and re-submit for verification."
+    },
+    {
+      "id": "DEC-002",
+      "status": "approved",
+      "decided_at": "2026-01-10T16:00:00Z",
+      "decided_by": "sample-architect",
+      "role": "architect",
+      "rationale": "All acceptance criteria satisfied; evidence is reproducible, revision-bound and covers every criterion.",
+      "evidence_refs": ["EV-001", "EV-002", "EV-003"]
+    },
+    {
+      "id": "DEC-003",
+      "status": "approved",
+      "decided_at": "2026-01-12T10:00:00Z",
+      "decided_by": "sample-architect",
+      "role": "architect",
+      "rationale": "Verification decision: acceptance evidence remains valid for the merged revision; work item is VERIFIED.",
+      "evidence_refs": ["EV-001", "EV-002", "EV-003"]
+    }
+  ]
+}

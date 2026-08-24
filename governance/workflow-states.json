@@ -1,0 +1,229 @@
+{
+  "$schema": "./schemas/workflow-states.schema.json",
+  "definition_version": 1,
+  "architecture_version": "1.0",
+  "source_of_authority": "spec/architecture-lock.md (Section 2, Development workflow lock); spec/development-workflow.md (Section 2, Work-item lifecycle)",
+  "notes": "Canonical, machine-readable definition of the ConstructionOS work-item lifecycle. The validator (tools/governance) enforces this definition against every record in governance/work-items/. Changing this file changes the process for all work items and is an architecture-adjacent change requiring Architect review.",
+  "roles": {
+    "architect": "Project Architect / Technical Reviewer. Owns architectural integrity, review, approval and verification decisions.",
+    "product-owner": "Product Owner / final authority. Owns product scope, priorities and approval of architecture-version changes.",
+    "implementer": "Implementation agent. Implements assigned work items and produces evidence. May not approve or verify its own work.",
+    "automation": "Deterministic automation (CI, bots) executing checks defined in this repository."
+  },
+  "initial_state": "DRAFT",
+  "states": {
+    "DRAFT": {
+      "description": "Work item is being authored. Objective, scope, acceptance criteria and evidence expectations are being defined.",
+      "terminal": false
+    },
+    "READY": {
+      "description": "Work item is fully specified and eligible for assignment (see spec/00-readme.md, Definition of ready to implement).",
+      "terminal": false
+    },
+    "ASSIGNED": {
+      "description": "Work item has been assigned to an implementer.",
+      "terminal": false
+    },
+    "IMPLEMENTING": {
+      "description": "Assigned implementer is actively implementing the work item.",
+      "terminal": false
+    },
+    "PR_OPEN": {
+      "description": "An implementation pull request is open and references the work item.",
+      "terminal": false
+    },
+    "VERIFYING": {
+      "description": "Verification evidence is being produced and checked (automated checks, benchmarks, reproduction runs).",
+      "terminal": false
+    },
+    "ARCHITECT_REVIEW": {
+      "description": "Evidence package is complete and awaits independent Architect review.",
+      "terminal": false
+    },
+    "APPROVED": {
+      "description": "Architect has approved the implementation. Merge is authorized.",
+      "terminal": false
+    },
+    "MERGED": {
+      "description": "The approved implementation pull request has been merged.",
+      "terminal": false
+    },
+    "VERIFIED": {
+      "description": "Architect has recorded a verification decision binding acceptance evidence to the implementation revision. This is the only state that may be cited as completed work.",
+      "terminal": true
+    },
+    "IMPLEMENTATION_BLOCKED": {
+      "description": "Work is blocked (missing dependency, unresolved decision, external impediment). Reachable from ASSIGNED, IMPLEMENTING and VERIFYING; returns to IMPLEMENTING once resolved.",
+      "terminal": false
+    },
+    "ARCHITECTURE_CHANGE_REQUEST": {
+      "description": "Architect determined the work item requires a change to frozen architecture. Work pauses pending the Architecture Change Request process (see governance/README.md, Architecture changes).",
+      "terminal": false
+    }
+  },
+  "transitions": [
+    {
+      "from": "DRAFT",
+      "to": "READY",
+      "label": "declare_ready",
+      "actors": ["architect", "product-owner"],
+      "requires": ["reason"],
+      "reference_fields": ["issue"]
+    },
+    {
+      "from": "READY",
+      "to": "ASSIGNED",
+      "label": "assign",
+      "actors": ["architect", "product-owner"],
+      "requires": ["reason"],
+      "reference_fields": ["issue", "assignee"]
+    },
+    {
+      "from": "ASSIGNED",
+      "to": "IMPLEMENTING",
+      "label": "start_implementation",
+      "actors": ["implementer"],
+      "requires": ["reason"]
+    },
+    {
+      "from": "IMPLEMENTING",
+      "to": "PR_OPEN",
+      "label": "open_pr",
+      "actors": ["implementer"],
+      "requires": ["reason"],
+      "reference_fields": ["pr"]
+    },
+    {
+      "from": "PR_OPEN",
+      "to": "VERIFYING",
+      "label": "submit_for_verification",
+      "actors": ["implementer", "automation"],
+      "requires": ["reason"]
+    },
+    {
+      "from": "VERIFYING",
+      "to": "ARCHITECT_REVIEW",
+      "label": "verification_evidence_complete",
+      "actors": ["architect", "automation"],
+      "requires": ["reason"],
+      "reference_fields": ["evidence"]
+    },
+    {
+      "from": "VERIFYING",
+      "to": "IMPLEMENTING",
+      "label": "verification_failed",
+      "actors": ["architect", "automation", "implementer"],
+      "requires": ["reason", "failure_reason"]
+    },
+    {
+      "from": "ARCHITECT_REVIEW",
+      "to": "APPROVED",
+      "label": "architect_approves",
+      "actors": ["architect"],
+      "requires": ["reason"],
+      "reference_fields": ["decision"]
+    },
+    {
+      "from": "ARCHITECT_REVIEW",
+      "to": "IMPLEMENTING",
+      "label": "changes_requested",
+      "actors": ["architect"],
+      "requires": ["reason", "failure_reason"]
+    },
+    {
+      "from": "ARCHITECT_REVIEW",
+      "to": "ARCHITECTURE_CHANGE_REQUEST",
+      "label": "architecture_change_required",
+      "actors": ["architect"],
+      "requires": ["reason"]
+    },
+    {
+      "from": "APPROVED",
+      "to": "MERGED",
+      "label": "merge",
+      "actors": ["product-owner", "implementer"],
+      "requires": ["reason"],
+      "reference_fields": ["merge_commit"]
+    },
+    {
+      "from": "MERGED",
+      "to": "VERIFIED",
+      "label": "verify",
+      "actors": ["architect"],
+      "requires": ["reason"],
+      "reference_fields": ["decision", "evidence"]
+    },
+    {
+      "from": "ASSIGNED",
+      "to": "IMPLEMENTATION_BLOCKED",
+      "label": "block",
+      "actors": ["implementer", "architect", "product-owner"],
+      "requires": ["reason", "failure_reason"]
+    },
+    {
+      "from": "IMPLEMENTING",
+      "to": "IMPLEMENTATION_BLOCKED",
+      "label": "block",
+      "actors": ["implementer", "architect", "product-owner"],
+      "requires": ["reason", "failure_reason"]
+    },
+    {
+      "from": "VERIFYING",
+      "to": "IMPLEMENTATION_BLOCKED",
+      "label": "block",
+      "actors": ["implementer", "architect", "product-owner"],
+      "requires": ["reason", "failure_reason"]
+    },
+    {
+      "from": "IMPLEMENTATION_BLOCKED",
+      "to": "IMPLEMENTING",
+      "label": "unblock",
+      "actors": ["implementer", "architect", "product-owner"],
+      "requires": ["reason"]
+    },
+    {
+      "from": "ARCHITECTURE_CHANGE_REQUEST",
+      "to": "IMPLEMENTING",
+      "label": "acr_resolved",
+      "actors": ["architect", "product-owner"],
+      "requires": ["reason"],
+      "reference_fields": ["acr"]
+    }
+  ],
+  "state_entry_requirements": {
+    "PR_OPEN": {
+      "requires_transition_reference": "pr"
+    },
+    "MERGED": {
+      "requires_last_decision": "approved"
+    },
+    "VERIFIED": {
+      "requires_last_decision": "approved",
+      "requires_requirements_resolved": true,
+      "evidence": {
+        "minimum_accepted_evidence": 1,
+        "accepted_types": [
+          "automated-test-suite",
+          "ci-run",
+          "benchmark-artifact",
+          "reproducible-script",
+          "inspectable-artifact"
+        ],
+        "insufficient_types": [
+          "screenshot",
+          "narrative-claim",
+          "demo",
+          "implementation-status"
+        ],
+        "must_be_revision_bound": true,
+        "policy": "VERIFIED is never justified solely by implementation status, screenshots, demos or narrative claims (spec/architecture-lock.md LOCK-004). Every accepted evidence item must be reproducible and bound to the implementation revision (commit, pull request and/or CI run) it validates."
+      }
+    }
+  },
+  "decision_rules": {
+    "deciding_role": "architect",
+    "statuses": ["approved", "rejected", "changes_requested"],
+    "remediation_required_for": ["rejected", "changes_requested"],
+    "reverification_policy": "A rejected or changes_requested decision must be followed by a transition back to IMPLEMENTING (changes_requested transition or verification_failed transition) before any later approval may take effect."
+  }
+}
