@@ -1,8 +1,8 @@
 {
   "benchmark": "bench-adapter-replacement",
   "description": "Benchmark: adapter boundary and replacement proof (RESEARCH-CAD-001 item 9).",
-  "started_at": "2026-08-24T21:27:29.661905+00:00",
-  "finished_at": "2026-08-24T21:27:29.705423+00:00",
+  "started_at": "2026-08-24T21:56:59.085050+00:00",
+  "finished_at": "2026-08-24T21:56:59.127972+00:00",
   "summary": {
     "pass": 6,
     "fail": 0,

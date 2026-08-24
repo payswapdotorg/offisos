@@ -1,7 +1,8 @@
 {
-  "written_at": "2026-08-24T21:27:29.744102+00:00",
+  "written_at": "2026-08-24T21:56:59.235840+00:00",
   "benchmarks": [
     "bench-2d-drafting",
+    "bench-freecad",
     "bench-3d-geometry",
     "bench-parametric",
     "bench-bim-semantics",
@@ -14,9 +15,9 @@
     "bench-licensing"
   ],
   "totals": {
-    "pass": 108,
+    "pass": 129,
     "fail": 0,
-    "unknown": 1
+    "unknown": 0
   },
   "exit_code": 0
 }

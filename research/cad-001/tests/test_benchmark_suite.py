@@ -21,6 +21,9 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 
 from offisos_cadbench.benchmarks.run_all import BENCHMARKS, run_all  # noqa: E402
+from offisos_cadbench.freecad_runner import find_freecadcmd  # noqa: E402
+
+FREECAD_AVAILABLE = find_freecadcmd() is not None
 
 
 def _run_all_checks() -> dict[str, dict]:
@@ -56,11 +59,53 @@ class BenchmarkSuiteTest(unittest.TestCase):
             for check in result["checks"]:
                 if check["status"] == "unknown":
                     unknowns.append(f"{benchmark_id}:{check['id']}")
-        self.assertEqual(
-            ["bench-parametric:parametric/freecad-sketcher/availability"],
-            unknowns,
-            "the only unknown must be the recorded FreeCAD environment limitation",
-        )
+        if FREECAD_AVAILABLE:
+            # DEC-001 remediation: with FreeCAD installed, NO unknowns remain.
+            self.assertEqual([], unknowns,
+                             "FreeCAD is available: no unknown checks are permitted")
+        else:
+            self.assertEqual(
+                sorted([
+                    "bench-parametric:parametric/freecad-sketcher/availability",
+                    "bench-freecad:freecad/availability",
+                ]),
+                sorted(unknowns),
+                "without FreeCAD, the only unknowns are the recorded "
+                "environment limitations",
+            )
+
+    def test_freecad_evidence_when_available(self):
+        if not FREECAD_AVAILABLE:
+            self.skipTest("FreeCAD not installed in this environment")
+        parametric = RESULTS["bench-parametric"]
+        by_id = {c["id"]: c for c in parametric["checks"]}
+        for critical in [
+            "parametric/freecad-sketcher/solve",
+            "parametric/freecad-sketcher/fully-constrained",
+            "parametric/freecad-sketcher/edit-resolve",
+            "parametric/freecad-sketcher/constraint-propagation",
+            "parametric/freecad-sketcher/failure-invalid-datum",
+            "parametric/freecad-sketcher/failure-conflicting-constraints",
+        ]:
+            self.assertEqual("pass", by_id[critical]["status"], critical)
+        freecad = RESULTS["bench-freecad"]
+        by_id = {c["id"]: c for c in freecad["checks"]}
+        for critical in [
+            "freecad/version",
+            "freecad/draft/line-exact",
+            "freecad/draft/rectangle-exact",
+            "freecad/draft/layer-assignment",
+            "freecad/draft/dimension-exact",
+            "freecad/draft/dimension-vertical-exact",
+            "freecad/draft/grid-parameters",
+            "freecad/techdraw/hlr-projection",
+            "freecad/techdraw/page-view",
+            "freecad/techdraw/view-geometry",
+            "freecad/techdraw/dxf-export",
+            "freecad/persistence/fcstd",
+            "freecad/persistence/reopen-objects",
+        ]:
+            self.assertEqual("pass", by_id[critical]["status"], critical)
 
     def test_critical_geometry_checks_pass(self):
         result = RESULTS["bench-3d-geometry"]

@@ -1,8 +1,8 @@
 {
   "benchmark": "bench-2d-drafting",
   "description": "Benchmark: 2D drafting capabilities (RESEARCH-CAD-001 evidence item 1).",
-  "started_at": "2026-08-24T21:27:24.353161+00:00",
-  "finished_at": "2026-08-24T21:27:25.953783+00:00",
+  "started_at": "2026-08-24T21:56:52.927981+00:00",
+  "finished_at": "2026-08-24T21:56:54.562528+00:00",
   "summary": {
     "pass": 11,
     "fail": 0,

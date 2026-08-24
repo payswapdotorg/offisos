@@ -1,8 +1,8 @@
 {
   "benchmark": "bench-bim-semantics",
   "description": "Benchmark: BIM semantics (RESEARCH-CAD-001 evidence item 4).",
-  "started_at": "2026-08-24T21:27:26.932850+00:00",
-  "finished_at": "2026-08-24T21:27:27.532556+00:00",
+  "started_at": "2026-08-24T21:56:56.381585+00:00",
+  "finished_at": "2026-08-24T21:56:56.983344+00:00",
   "summary": {
     "pass": 16,
     "fail": 0,

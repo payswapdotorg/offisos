@@ -1,8 +1,8 @@
 {
   "benchmark": "bench-ifc-roundtrip",
   "description": "Benchmark: IFC round-trip semantic fidelity (RESEARCH-CAD-001 item 5).",
-  "started_at": "2026-08-24T21:27:27.532621+00:00",
-  "finished_at": "2026-08-24T21:27:27.567972+00:00",
+  "started_at": "2026-08-24T21:56:56.983425+00:00",
+  "finished_at": "2026-08-24T21:56:57.020442+00:00",
   "summary": {
     "pass": 14,
     "fail": 0,
@@ -42,7 +42,7 @@
       "tolerance": null,
       "details": {
         "gids": [
-          "3Ms0VEjgD59BxdiVzcJTCD"
+          "0RZorvgUDDHR9LbhdSjhU9"
         ]
       },
       "evidence_refs": []

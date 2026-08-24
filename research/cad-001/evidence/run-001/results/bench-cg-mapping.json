@@ -1,8 +1,8 @@
 {
   "benchmark": "bench-cg-mapping",
   "description": "Benchmark: Construction Graph mapping (RESEARCH-CAD-001 item 8).",
-  "started_at": "2026-08-24T21:27:29.524615+00:00",
-  "finished_at": "2026-08-24T21:27:29.661840+00:00",
+  "started_at": "2026-08-24T21:56:58.951484+00:00",
+  "finished_at": "2026-08-24T21:56:59.084980+00:00",
   "summary": {
     "pass": 9,
     "fail": 0,
@@ -18,12 +18,12 @@
       "tolerance": null,
       "details": {
         "build_a_sample": [
-          "2T8fe1NYH32hKajoPR0rCz",
-          "3LfYj6r1L1HRltc59PPfYr"
+          "1MeoyUwObEtwEizT4r2Rl9",
+          "33bbBxGHb6lvrcPEC6dyx1"
         ],
         "build_b_sample": [
-          "2b4fdINkn3MwKvhYnRiG3Y",
-          "059S2I8A1D4Bkzb3aa5lL6"
+          "1RARcdNuz4yhtXjzWhjbjS",
+          "3YPFt9XBv5XPcC7JJkOYR5"
         ]
       },
       "evidence_refs": []
@@ -71,7 +71,7 @@
       "details": {
         "sample_provenance": {
           "source_engine": "ifcopenshell+occt",
-          "source_engine_id": "09XkiUm0v0ovNeB1EMbjNF",
+          "source_engine_id": "3OxTCvS8X8RAm_cWll6HGx",
           "source_engine_class": "IfcWindow",
           "model_revision": "cg-a",
           "identity_resolution": "identity-pset"

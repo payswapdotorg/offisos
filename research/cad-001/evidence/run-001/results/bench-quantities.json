@@ -1,8 +1,8 @@
 {
   "benchmark": "bench-quantities",
   "description": "Benchmark: quantity extraction (RESEARCH-CAD-001 evidence item 6).",
-  "started_at": "2026-08-24T21:27:27.568044+00:00",
-  "finished_at": "2026-08-24T21:27:27.660641+00:00",
+  "started_at": "2026-08-24T21:56:57.020518+00:00",
+  "finished_at": "2026-08-24T21:56:57.110658+00:00",
   "summary": {
     "pass": 11,
     "fail": 0,

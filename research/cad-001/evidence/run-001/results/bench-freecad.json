@@ -1,0 +1,204 @@
+{
+  "benchmark": "bench-freecad",
+  "description": "Benchmark: FreeCAD Draft and TechDraw capabilities (RESEARCH-CAD-001).",
+  "started_at": "2026-08-24T21:56:54.562593+00:00",
+  "finished_at": "2026-08-24T21:56:55.183769+00:00",
+  "summary": {
+    "pass": 15,
+    "fail": 0,
+    "unknown": 0
+  },
+  "measurements": {
+    "freecad_version": "1.1.3",
+    "freecad_appimage_sha256": "3a853eb69ee595f779f2255dbf80a765926981d8ff68903cefee4dfb03a8f5ef"
+  },
+  "checks": [
+    {
+      "id": "freecad/version",
+      "description": "FreeCAD engine reports its exact version (matches the pinned AppImage).",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "engine_version": "1.1.3",
+        "appimage": "FreeCAD_1.1.3-Linux-x86_64-py311.AppImage",
+        "appimage_sha256": "3a853eb69ee595f779f2255dbf80a765926981d8ff68903cefee4dfb03a8f5ef",
+        "build_date": "20260725 (Git shallow)"
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "freecad/draft/line-exact",
+      "description": "Draft line: length and endpoints exact (8.0 m fixture segment).",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "length": 8.0,
+        "start": [
+          0.0,
+          0.0
+        ],
+        "end": [
+          8.0,
+          0.0
+        ]
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "freecad/draft/rectangle-exact",
+      "description": "Draft rectangle: Length/Height exact and shape area = 40 m^2 with 4 edges.",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "length": 8.0,
+        "height": 5.0,
+        "area": 40.0,
+        "edges": 4
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "freecad/draft/layer-assignment",
+      "description": "Draft layer: object assignment via Group round-trips with exact membership.",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "layer": "WALL",
+        "members": [
+          "Line"
+        ]
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "freecad/draft/dimension-exact",
+      "description": "Draft linear dimension measures the fixture length exactly (Distance = 8.0).",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "distance": 8.0
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "freecad/draft/dimension-vertical-exact",
+      "description": "Second dimension (vertical fixture edge) measures exactly 5.0.",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "distance": 5.0
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "freecad/draft/grid-parameters",
+      "description": "Draft grid parameters (spacing, snap) read/write exactly through the console parameter system; interactive snapping itself is a GUI workflow.",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "grid_spacing": 0.5,
+        "grid_snap": true,
+        "note": "Draft snap toolbar is GUI-only; parameter state is the console-observable part"
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "freecad/techdraw/hlr-projection",
+      "description": "TechDraw HLR projection of a box along Z: exactly 4 visible edges, 0 hidden edges (top view outline).",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "visible_edges": 4,
+        "hidden_edges": 0
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "freecad/techdraw/template-available",
+      "description": "A standard A4 landscape SVG template ships with the engine.",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "template": "Default_Template_A4_Landscape.svg"
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "freecad/techdraw/page-view",
+      "description": "DrawPage with A4 template carries the DrawViewPart (1 view).",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "views": 1,
+        "scale": 1.0
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "freecad/techdraw/view-geometry",
+      "description": "The view exposes exactly 4 projected edges for the box top view.",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "edges": 4
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "freecad/techdraw/dxf-export",
+      "description": "TechDraw page exports to DXF in console mode with valid DXF content.",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "bytes": 4907
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "freecad/techdraw/svg-export-gui-only",
+      "description": "FINDING: TechDrawGui cannot load in a console application; SVG/PDF page export requires the GUI runtime. DXF export (checked above) is the console-capable path. Recorded as an engine capability boundary, not a failure.",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "techdrawgui_importable": false,
+        "console_export_path": "TechDraw.writeDXFPage"
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "freecad/persistence/fcstd",
+      "description": "The benchmark document persists to FCStd and reopens with the Draft objects intact.",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "bytes": 6499
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "freecad/persistence/reopen-objects",
+      "description": "Reopened FCStd preserves the Draft line with its exact geometry.",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "length_after_reopen": 8.0
+      },
+      "evidence_refs": []
+    }
+  ]
+}

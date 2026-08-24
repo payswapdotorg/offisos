@@ -11,6 +11,11 @@ on:
       - "research/cad-001/**"
       - ".github/workflows/research-cad.yml"
 
+env:
+  FREECAD_VERSION: "1.1.3"
+  FREECAD_SHA256: "3a853eb69ee595f779f2255dbf80a765926981d8ff68903cefee4dfb03a8f5ef"
+  FREECAD_URL: "https://github.com/FreeCAD/FreeCAD/releases/download/1.1.3/FreeCAD_1.1.3-Linux-x86_64-py311.AppImage"
+
 jobs:
   benchmark:
     name: CAD/BIM candidate benchmark (deterministic suite)
@@ -43,10 +48,32 @@ jobs:
               print(d, md.version(d))
           "
 
+      - name: Cache FreeCAD AppImage (pinned version + SHA256)
+        uses: actions/cache@v4
+        with:
+          path: research/cad-001/.freecad
+          key: freecad-${{ env.FREECAD_VERSION }}-${{ env.FREECAD_SHA256 }}
+
+      - name: Install FreeCAD (AppImage, no sudo required)
+        run: |
+          if [ ! -x ".freecad/squashfs-root/usr/bin/freecadcmd" ]; then
+            mkdir -p .freecad && cd .freecad
+            curl -sL --retry 3 -o freecad.AppImage "$FREECAD_URL"
+            echo "$FREECAD_SHA256  freecad.AppImage" | sha256sum -c -
+            chmod +x freecad.AppImage
+            ./freecad.AppImage --appimage-extract > /dev/null
+            rm freecad.AppImage
+          fi
+          .freecad/squashfs-root/usr/bin/freecadcmd --version
+
       - name: Deterministic benchmark test suite (zero failures required)
+        env:
+          FREECADCMD: ${{ github.workspace }}/research/cad-001/.freecad/squashfs-root/usr/bin/freecadcmd
         run: python -m pytest tests/ -q
 
       - name: Full benchmark evidence run
+        env:
+          FREECADCMD: ${{ github.workspace }}/research/cad-001/.freecad/squashfs-root/usr/bin/freecadcmd
         run: python -m offisos_cadbench.benchmarks.run_all ci-run
 
       - name: Upload evidence artifact

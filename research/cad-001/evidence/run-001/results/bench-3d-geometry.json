@@ -1,17 +1,17 @@
 {
   "benchmark": "bench-3d-geometry",
   "description": "Benchmark: 3D geometry capabilities (RESEARCH-CAD-001 evidence item 2).",
-  "started_at": "2026-08-24T21:27:25.953846+00:00",
-  "finished_at": "2026-08-24T21:27:26.895244+00:00",
+  "started_at": "2026-08-24T21:56:55.183841+00:00",
+  "finished_at": "2026-08-24T21:56:56.132997+00:00",
   "summary": {
     "pass": 18,
     "fail": 0,
     "unknown": 0
   },
   "measurements": {
-    "assembly_1000_solids_build_ms": 36.779,
+    "assembly_1000_solids_build_ms": 37.03,
     "assembly_1000_solids_total_volume": 6.000000000000369,
-    "assembly_1000_solids_validity_check_ms": 729.317
+    "assembly_1000_solids_validity_check_ms": 727.605
   },
   "checks": [
     {
@@ -211,7 +211,7 @@
         "expected": 6.0,
         "delta": 3.6859404417555197e-13,
         "solids": 1000,
-        "build_ms": 36.779
+        "build_ms": 37.03
       },
       "evidence_refs": []
     },
@@ -222,7 +222,7 @@
       "epistemic": "NATIVE",
       "tolerance": null,
       "details": {
-        "validity_check_ms": 729.317
+        "validity_check_ms": 727.605
       },
       "evidence_refs": []
     },

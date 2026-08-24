@@ -2,9 +2,11 @@
 
 **Work item:** RESEARCH-CAD-001 (GitHub issue #1)
 **Architecture version:** 1.0 (FROZEN)
-**Evidence run:** `evidence/run-001/` (108 pass / 0 fail / 1 unknown)
+**Evidence run:** `evidence/run-001/` (129 pass / 0 fail / 0 unknown)
 **Environment:** Linux x86_64, Python 3.12.13, ifcopenshell 0.8.5,
-cadquery-ocp 7.8.1.1.post1 (OCCT 7.8.1), ezdxf 1.4.3, numpy 2.1.3
+cadquery-ocp 7.8.1.1.post1 (OCCT 7.8.1), ezdxf 1.4.3, numpy 2.1.3,
+FreeCAD 1.1.3 (official AppImage, SHA256
+3a853eb69ee595f779f2255dbf80a765926981d8ff68903cefee4dfb03a8f5ef)
 (see `evidence/run-001/environment.json`)
 
 This report separates **measured results** from **inferred conclusions**.
@@ -22,11 +24,11 @@ belongs to the Architect — this report recommends, it does not decide.
 | IfcOpenShell | 0.8.5 | fully tested (BIM semantics, IFC round-trip, quantities) |
 | OCCT (via OCP) | 7.8.1 | fully tested (2D/3D geometry, booleans, transforms, parametric regeneration, failure behavior, performance) |
 | ezdxf | 1.4.3 | gap-filling evaluation only (2D drafting representation: layers + dimensions), justified by the observed OCCT gap |
-| FreeCAD 1.1.x | **not tested** | not installable in the benchmark sandbox (no sudo/apt; conda-forge CDN unreachable). Sketcher constraint solving, Draft and TechDraw remain untested — an explicit environment limitation, recorded as `unknown`, **not** as an engine failure. Follow-up required in a suitable environment. |
+| FreeCAD | 1.1.3 | **fully tested** (DEC-001 remediation): Sketcher constraint solving, Draft (lines/rectangles/layers/dimensions/parameters), TechDraw (HLR projection, page/view, DXF export), FCStd persistence — via the official pinned AppImage (no sudo required; provenance and SHA256 recorded in `benchmarks/bench_freecad.py` and `requirements.txt`) |
 
 ## 2. Findings by evidence item
 
-### Item 1 — 2D drafting (11 checks, all pass)
+### Item 1 — 2D drafting (26 checks incl. FreeCAD, all pass)
 
 - **NATIVE (OCCT):** modeler precision is explicit (`Precision::Confusion`
   = 1e-7); point-to-curve projection and circle parametrization are exact
@@ -40,6 +42,18 @@ belongs to the Architect — this report recommends, it does not decide.
 - **Gap evaluation (ezdxf, NATIVE):** DXF layer table round-trips with all
   fixture layers; segments keep exact coordinates; aligned dimension
   entities round-trip and measure fixture lengths exactly (1e-9). [2d/layers/dxf-*, 2d/dimensions/*]
+- **FreeCAD Draft 1.1.3 (NATIVE, DEC-001 remediation):** lines and
+  rectangles exact (length/height/area at 1e-9); layer assignment via
+  Group round-trips with exact membership; linear dimensions measure
+  fixture lengths exactly (`Distance` = 8.0/5.0); the Draft parameter
+  system (grid spacing/snap) reads and writes exactly through the console
+  parameter API — interactive snapping itself is a GUI workflow (recorded
+  distinction). TechDraw: HLR projection of a box along Z yields exactly
+  4 visible/0 hidden edges; a DrawPage with the shipped A4 template
+  carries a DrawViewPart with exactly 4 projected edges; the page exports
+  to valid DXF in console mode. **FINDING:** TechDrawGui cannot load in a
+  console application — SVG/PDF page export requires the GUI runtime; DXF
+  is the console-capable export path. [freecad/draft/*, freecad/techdraw/*]
 
 ### Item 2 — 3D geometry (18 checks, all pass)
 
@@ -65,8 +79,16 @@ belongs to the Architect — this report recommends, it does not decide.
 - **FINDING (OBSERVED):** OCCT accepts NaN coordinates without error and
   returns a 0-volume shape — input finiteness validation is an **adapter
   obligation**. [parametric/failure-nan-coordinate-finding]
-- **UNKNOWN:** FreeCAD Sketcher constraint solving not tested (environment
-  limitation above). OCCT itself provides no constraint solver.
+- **FreeCAD 1.1.3 Sketcher (NATIVE, DEC-001 remediation):** a rectangle with
+  geometric + dimensional constraints solves to DoF = 0 and reports
+  `FullyConstrained`; editing the DistanceX datum 4.0 → 6.0 re-solves the
+  sketch to exactly width 6.0 with the height constraint still holding at
+  exactly 2.0 (constraint propagation). Invalid datums (zero and negative
+  unsigned Distance) are rejected with typed `ValueError`; conflicting
+  dimensions are detected via the solver's conflicting/redundant constraint
+  reporting. [parametric/freecad-sketcher/*]
+- OCCT itself provides no 2D constraint solver; FreeCAD Sketcher provides it
+  and works headless in console mode.
 
 ### Item 4 — BIM semantics (16 checks, all pass)
 
@@ -162,9 +184,12 @@ bowtie profile → BRepCheck flags invalid; disjoint fuse → measurable
 
 ## 4. Limitations and unknowns (explicit)
 
-1. **FreeCAD untested** (environment) — Sketcher constraints, Draft,
-   TechDraw, and the 1.1.x release line require a follow-up run in an
-   environment that can install FreeCAD.
+1. ~~FreeCAD untested~~ **Resolved by the DEC-001 remediation:** FreeCAD
+   1.1.3 is now fully tested (Sketcher/Draft/TechDraw/persistence) via the
+   pinned official AppImage. Remaining FreeCAD limitation: TechDraw
+   SVG/PDF page export is GUI-only (console DXF export verified);
+   FreeCAD's GUI-only workflows (interactive snap toolbar, TechDrawGui)
+   were not exercised in console mode.
 2. Performance numbers are single-environment observations on a 4 GiB
    sandbox; not thresholds.
 3. ezdxf was evaluated as a 2D representation gap-filler only; DWG was not
@@ -183,10 +208,11 @@ subject to constraints**, specifically:
 - OCCT 7.8.1 as the geometry kernel behind the adapter (exact where
   tested; NaN-input validation is an adapter obligation);
 - IfcOpenShell 0.8.5 for IFC semantics/round-trip (pinned METRE unit);
-- 2D drafting representation and interactive constraint solving are NOT
-  provided by OCCT — either FreeCAD must be evaluated in a follow-up
-  environment (item 3 above) or the 2D layer must come from IFC/DXF +
-  domain logic; this is a scope constraint, not an architecture change;
+- FreeCAD 1.1.3 for 2D drafting representation (Draft), interactive
+  constraint solving (Sketcher, verified headless) and drawing production
+  (TechDraw, console DXF export; SVG/PDF export requires the GUI runtime
+  — a constraint for headless server deployments, not an architecture
+  change);
 - composition approval is pending LICENSE-001;
 - thresholds are pending RESEARCH-CAD-006.
 

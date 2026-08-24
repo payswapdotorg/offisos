@@ -1,15 +1,15 @@
 {
   "benchmark": "bench-parametric",
   "description": "Benchmark: parametric behavior (RESEARCH-CAD-001 evidence item 3).",
-  "started_at": "2026-08-24T21:27:26.895364+00:00",
-  "finished_at": "2026-08-24T21:27:26.932784+00:00",
+  "started_at": "2026-08-24T21:56:56.133120+00:00",
+  "finished_at": "2026-08-24T21:56:56.381513+00:00",
   "summary": {
-    "pass": 6,
+    "pass": 12,
     "fail": 0,
-    "unknown": 1
+    "unknown": 0
   },
   "measurements": {
-    "freecad_sketcher": "not-available"
+    "freecad_sketcher": "tested"
   },
   "checks": [
     {
@@ -84,13 +84,72 @@
       "evidence_refs": []
     },
     {
-      "id": "parametric/freecad-sketcher/availability",
-      "description": "FreeCAD is not importable in this environment: Sketcher constraint solving NOT tested here. Recorded as an explicit environment limitation, not as an engine failure.",
-      "status": "unknown",
-      "epistemic": "OBSERVED",
+      "id": "parametric/freecad-sketcher/solve",
+      "description": "FreeCAD Sketcher solves a fully constrained rectangle (DoF = 0).",
+      "status": "pass",
+      "epistemic": "NATIVE",
       "tolerance": null,
       "details": {
-        "unknown_reason": "FreeCAD not installed in the benchmark environment (sandbox has no sudo/apt; conda-forge install attempted separately)"
+        "dof": 0
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "parametric/freecad-sketcher/fully-constrained",
+      "description": "The sketch reports FullyConstrained after solving.",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "fully_constrained": true
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "parametric/freecad-sketcher/edit-resolve",
+      "description": "Editing the dimensional constraint re-solves the sketch to width 6.0 exactly.",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "width": 6.0,
+        "dof": 0
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "parametric/freecad-sketcher/constraint-propagation",
+      "description": "The height constraint still holds exactly after the width edit.",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "height": 2.0
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "parametric/freecad-sketcher/failure-invalid-datum",
+      "description": "Invalid datums (zero and negative unsigned Distance) are rejected with typed ValueError, not silently accepted.",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "zero_rejected": true,
+        "negative_rejected": true
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "parametric/freecad-sketcher/failure-conflicting-constraints",
+      "description": "Conflicting dimensions are detected by the solver (conflicting or redundant lists, or non-zero solve).",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "conflicting": true,
+        "redundant": false,
+        "solve_result": -3
       },
       "evidence_refs": []
     }

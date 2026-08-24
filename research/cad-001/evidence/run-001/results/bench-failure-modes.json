@@ -1,8 +1,8 @@
 {
   "benchmark": "bench-failure-modes",
   "description": "Benchmark: failure modes (RESEARCH-CAD-001 execution rule 5).",
-  "started_at": "2026-08-24T21:27:29.705478+00:00",
-  "finished_at": "2026-08-24T21:27:29.713680+00:00",
+  "started_at": "2026-08-24T21:56:59.128022+00:00",
+  "finished_at": "2026-08-24T21:56:59.135899+00:00",
   "summary": {
     "pass": 8,
     "fail": 0,
