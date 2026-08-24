@@ -1,0 +1,58 @@
+name: research-cad-001
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "research/cad-001/**"
+      - ".github/workflows/research-cad.yml"
+  pull_request:
+    paths:
+      - "research/cad-001/**"
+      - ".github/workflows/research-cad.yml"
+
+jobs:
+  benchmark:
+    name: CAD/BIM candidate benchmark (deterministic suite)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: research/cad-001
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: research/cad-001/requirements.txt
+
+      - name: Install pinned engine versions
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+
+      - name: Record exact installed versions
+        run: |
+          python -c "
+          import importlib.metadata as md, ifcopenshell
+          print('ifcopenshell', ifcopenshell.version)
+          for d in ('cadquery', 'cadquery-ocp', 'ezdxf', 'numpy'):
+              print(d, md.version(d))
+          "
+
+      - name: Deterministic benchmark test suite (zero failures required)
+        run: python -m pytest tests/ -q
+
+      - name: Full benchmark evidence run
+        run: python -m offisos_cadbench.benchmarks.run_all ci-run
+
+      - name: Upload evidence artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: research-cad-001-evidence
+          path: research/cad-001/evidence/ci-run/
+          if-no-files-found: error
