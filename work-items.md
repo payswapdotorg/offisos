@@ -22,6 +22,17 @@ An implementation agent may not expand scope by changing architecture or adding 
 
 # Phase 0 — Repository/process foundation
 
+### LICENSE-001 — Open-source composition and licensing gate
+
+Objective: Audit candidate upstream engines/libraries, their transitive licenses, trademarks and distribution/hosting constraints, and define approved composition boundaries.
+Requirements: PLAT-006, OFFICE-006, CAD-006, PM-006, EXT-005
+Dependencies: none
+Acceptance criteria: every proposed upstream dependency is classified; incompatible composition paths are rejected; approved alternatives and NOTICE/source-obligation requirements are recorded.
+Verification: license inventory + legal/architect review.
+Out of scope: product implementation.
+Evidence: dependency/license matrix and approval record.
+Definition of done: downstream compatibility work has an approved legal/composition boundary.
+
 ### ARCH-WF-001 — Initialize repository and spec discipline
 
 Objective: Establish repo structure and adopt the WorkflowOS-derived spec/change-control conventions.
@@ -204,7 +215,7 @@ Definition of done: implementation boundaries approved.
 
 Objective: Deliver XLSX editing workflow suitable for construction estimating.
 Requirements: OFFICE-001, OFFICE-004, OFFICE-005
-Dependencies: RESEARCH-OFFICE-001, GRAPH-004
+Dependencies: RESEARCH-OFFICE-001, GRAPH-001
 Acceptance criteria: representative XLSX files round-trip; construction functions operate through shared domain APIs.
 Verification: file-format round-trip suite + e2e.
 Out of scope: full parity with every spreadsheet feature.
@@ -308,7 +319,7 @@ Definition of done: canonical graph is stable.
 
 Objective: Implement project presence, comments, activity and collaborative session infrastructure.
 Requirements: COLLAB-001
-Dependencies: PLATFORM-005, AUTH-004
+Dependencies: PLATFORM-005, PLATFORM-002
 Acceptance criteria: authorized users see coherent project activity.
 Verification: e2e collaboration tests.
 Out of scope: CRDT-specific editor implementation.
@@ -380,7 +391,7 @@ Definition of done: agent runtime is governed.
 
 Objective: Record model/task/provider outcomes for routing and quality evaluation.
 Requirements: AI-006
-Dependencies: AI-002, AI-003, EVIDENCE-001
+Dependencies: AI-002, AI-003, KNOW-001
 Acceptance criteria: model executions are benchmarkable by task/cost/latency/quality.
 Verification: telemetry and evaluation tests.
 Definition of done: model selection can be evidence-driven.
@@ -458,7 +469,7 @@ Definition of done: RFQ package generation works.
 
 Objective: Allow off-platform recipients to securely submit quotes.
 Requirements: RFQ-003, RFQ-004
-Dependencies: AUTH-005, RFQ-001, COMPAT-SHEET-001
+Dependencies: PLATFORM-002, RFQ-001, COMPAT-SHEET-001
 Acceptance criteria: recipient sees only authorized scope and submits quote without tenant access.
 Verification: security/e2e tests.
 Definition of done: external quote flow works.
@@ -496,7 +507,7 @@ Definition of done: tender mechanism engine is trusted.
 
 Objective: Estimate win probability conditioned on project/tender/market/bidder context.
 Requirements: BID-002, BID-006
-Dependencies: BID-001, TIME-004
+Dependencies: BID-001, TIME-002
 Acceptance criteria: historical backtest reports calibration metrics.
 Verification: leakage-free time-series backtest.
 Definition of done: model meets defined calibration threshold.
@@ -599,7 +610,7 @@ Definition of done: maintenance intelligence baseline passes.
 
 Objective: Publish manifest, capability, permission and versioning contracts.
 Requirements: EXT-001, EXT-003, EXT-004
-Dependencies: TOOL-001, GRAPH-004
+Dependencies: GRAPH-001, PLATFORM-002
 Acceptance criteria: sample extension can register and call allowed capabilities.
 Verification: SDK integration tests.
 Definition of done: extension developer baseline passes.
@@ -617,7 +628,7 @@ Definition of done: extension security gate passes.
 
 Objective: Publish stable, versioned domain APIs.
 Requirements: API-001, API-002, API-005
-Dependencies: GRAPH-004, PLATFORM-002
+Dependencies: GRAPH-001, PLATFORM-002
 Acceptance criteria: external client can complete representative project/RFQ query/mutation flows using same domain services as native apps.
 Verification: contract/e2e tests.
 Definition of done: public API v1 passes.
