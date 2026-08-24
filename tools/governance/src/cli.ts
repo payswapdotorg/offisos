@@ -9,10 +9,14 @@
  *       governance/work-items/. Writes governance-report.json and exits
  *       non-zero on any violation.
  *
- *   check-protected (--paths-file <file> | --base <git-ref>) [--root <dir>]
- *       Check a list of changed paths against the protected-path manifest.
- *       --paths-file reads one path per line; --base computes the changed
- *       paths via `git diff --name-only <base>...HEAD`.
+ *   check-protected (--base <git-ref> | --paths-file <file>) [--root <dir>]
+ *       Check changed paths against the protected-path manifest.
+ *       --base computes changed paths via `git diff --name-only
+ *       <base>...HEAD` and applies bootstrap semantics (changes to paths or
+ *       protected trees that already exist on the base branch are
+ *       violations; brand-new protected files are the bootstrap case).
+ *       --paths-file reads one path per line and applies strict semantics
+ *       (every matching path is a violation).
  *
  * All checks are deterministic and offline.
  */
@@ -83,8 +87,8 @@ function main(): void {
   if (command === "check-protected") {
     const pathsFile = options.get("paths-file");
     const base = options.get("base");
-    if ((pathsFile === undefined) === (base === undefined)) {
-      console.error("Exactly one of --paths-file or --base is required.");
+    if (pathsFile === undefined && base === undefined) {
+      console.error("At least one of --paths-file or --base is required.");
       usage();
     }
     let changedPaths: string[];
@@ -101,7 +105,24 @@ function main(): void {
       }
     }
     const manifest = readJson<ProtectedPathsFile>(resolve(root, "governance", "protected-paths.json"));
-    const check = protectedPathsCheckResult(changedPaths, manifest);
+    // With a base ref, bootstrap semantics apply: changes count as violations
+    // when the path (or its protected tree) already exists on the base
+    // branch; brand-new protected files where nothing existed before are the
+    // documented bootstrap case. Without a base ref, strict mode: every
+    // matching path is a violation.
+    const check =
+      base === undefined
+        ? protectedPathsCheckResult(changedPaths, manifest)
+        : protectedPathsCheckResult(changedPaths, manifest, {
+            existsOnBase: (path) => {
+              try {
+                execSync(`git cat-file -e ${base}:${path}`, { cwd: root, stdio: ["ignore", "ignore", "ignore"] });
+                return true;
+              } catch {
+                return false;
+              }
+            },
+          });
     printCheck(check);
     process.exit(printSummary([check]));
   }

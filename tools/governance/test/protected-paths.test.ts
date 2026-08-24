@@ -80,6 +80,50 @@ test("a protected change fails with ACR routing guidance", () => {
   assert.ok(message.includes("Architecture Change Request"), "must route to the ACR process");
 });
 
+test("bootstrap semantics: creating a brand-new protected file is not a violation", () => {
+  const manifest = loadProtectedPaths(REPO_ROOT);
+  // Simulate a base branch where the governance system does not exist yet.
+  const violations = checkProtectedPaths(
+    ["governance/workflow-states.json", "governance/protected-paths.json", "tools/governance/src/cli.ts"],
+    manifest,
+    { existsOnBase: () => false },
+  );
+  assert.deepEqual(violations, []);
+});
+
+test("bootstrap semantics: modifying an existing protected file is a violation", () => {
+  const manifest = loadProtectedPaths(REPO_ROOT);
+  const violations = checkProtectedPaths(
+    ["governance/workflow-states.json"],
+    manifest,
+    { existsOnBase: (p) => p === "governance/workflow-states.json" },
+  );
+  assert.equal(violations.length, 1);
+  assert.equal(violations[0]!.path, "governance/workflow-states.json");
+});
+
+test("bootstrap semantics: adding a file into an existing protected tree is a violation", () => {
+  const manifest = loadProtectedPaths(REPO_ROOT);
+  // spec/adr/ exists on the base branch, so a new ADR must be routed through review.
+  const violations = checkProtectedPaths(
+    ["spec/adr/099-new-decision.md"],
+    manifest,
+    { existsOnBase: (p) => p === "spec/adr" },
+  );
+  assert.equal(violations.length, 1);
+  assert.equal(violations[0]!.path, "spec/adr/099-new-decision.md");
+});
+
+test("bootstrap semantics: adding a file into a tree that does not exist on base is not a violation", () => {
+  const manifest = loadProtectedPaths(REPO_ROOT);
+  const violations = checkProtectedPaths(
+    ["spec/adr/099-new-decision.md"],
+    manifest,
+    { existsOnBase: () => false },
+  );
+  assert.deepEqual(violations, []);
+});
+
 test("check-protected reads changed paths from a paths file", () => {
   const manifest = loadProtectedPaths(REPO_ROOT);
   const dir = mkdtempSync(join(tmpdir(), "offisos-paths-"));

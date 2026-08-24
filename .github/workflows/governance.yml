@@ -36,10 +36,7 @@ jobs:
       - name: Check protected architecture paths (pull requests)
         if: github.event_name == 'pull_request'
         run: |
-          git diff --name-only origin/${{ github.base_ref }}...HEAD > /tmp/changed-paths.txt
-          echo "Changed paths:"
-          cat /tmp/changed-paths.txt
-          npm run governance -- check-protected --paths-file /tmp/changed-paths.txt
+          npm run governance -- check-protected --base origin/${{ github.base_ref }}
 
       - name: Upload governance report artifact
         if: always()

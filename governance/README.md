@@ -96,7 +96,9 @@ Records with `"demo": true` are demonstration fixtures: they are validated by th
 
 - Every work item declares its `architecture_version`; unknown versions are rejected.
 - `protected-paths.json` lists architecture-controlled artifacts (frozen architecture docs, ADRs, and the governance definitions themselves).
-- `npm run governance -- check-protected` fails when a changed path touches a protected artifact, routing the author to the **Architecture Change Request** process instead of a silent change. Until ARCH-WF-002 lands the ACR template and lifecycle, *any* protected-path change in an implementation PR is rejected outright.
+- `npm run governance -- check-protected --base <ref>` fails when a changed path touches a protected artifact, routing the author to the **Architecture Change Request** process instead of a silent change.
+- **Bootstrap semantics:** protection applies to modifications/deletions/renames of paths that exist on the base branch, and to additions inside protected directory trees that already exist on the base branch. Creating a brand-new protected file where nothing existed before (e.g. the PR that introduces the governance system itself) is the documented bootstrap case and is not a violation — after it merges, modifications are protected. `--paths-file` (no base ref) applies strict semantics: every matching path is a violation.
+- Until ARCH-WF-002 lands the ACR template and lifecycle, *any* protected-path change in an implementation PR is rejected outright.
 - The validator itself is the reference implementation of these controls and is subject to Architect review.
 
 ## 7. Repository integration
