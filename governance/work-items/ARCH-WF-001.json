@@ -2,9 +2,13 @@
   "id": "ARCH-WF-001",
   "title": "Establish repository workflow state machine and work-item governance",
   "issue": 11,
-  "objective": "Establish the repository/process controls required to operate ConstructionOS through the frozen WorkflowOS-derived lifecycle (DRAFT → READY → ASSIGNED → IMPLEMENTING → PR_OPEN → VERIFYING → ARCHITECT_REVIEW → APPROVED → MERGED → VERIFIED), making implementation state auditable and preventing work from being treated as complete without the required evidence.",
+  "objective": "Establish the repository/process controls required to operate ConstructionOS through the frozen WorkflowOS-derived lifecycle (DRAFT \u2192 READY \u2192 ASSIGNED \u2192 IMPLEMENTING \u2192 PR_OPEN \u2192 VERIFYING \u2192 ARCHITECT_REVIEW \u2192 APPROVED \u2192 MERGED \u2192 VERIFIED), making implementation state auditable and preventing work from being treated as complete without the required evidence.",
   "architecture_version": "1.0",
-  "requirements": ["FLOW-001", "FLOW-002", "FLOW-004"],
+  "requirements": [
+    "FLOW-001",
+    "FLOW-002",
+    "FLOW-004"
+  ],
   "dependencies": [],
   "acceptance_criteria": [
     "A canonical workflow/state definition is stored in the repository.",
@@ -31,7 +35,7 @@
     "CI workflow executing tests, governance validation and the protected-path check on every pull request.",
     "A demonstration work item (SAMPLE-001) showing the full traceability chain from requirement through verification, including a verification failure and an architect changes-requested recovery."
   ],
-  "state": "VERIFYING",
+  "state": "MERGED",
   "transitions": [
     {
       "from": "DRAFT",
@@ -40,7 +44,9 @@
       "actor": "pectoraux",
       "role": "product-owner",
       "reason": "Work item fully specified in GitHub issue #11 (objective, scope, acceptance criteria, non-goals, architect gate) and labeled ready.",
-      "references": { "issue": 11 }
+      "references": {
+        "issue": 11
+      }
     },
     {
       "from": "READY",
@@ -49,7 +55,10 @@
       "actor": "pectoraux",
       "role": "product-owner",
       "reason": "Assigned to the Z.ai implementation agent via the Offisos implementation agent handoff.",
-      "references": { "issue": 11, "assignee": "z-ai-implementation-agent" }
+      "references": {
+        "issue": 11,
+        "assignee": "z-ai-implementation-agent"
+      }
     },
     {
       "from": "ASSIGNED",
@@ -66,7 +75,10 @@
       "actor": "z-ai-implementation-agent",
       "role": "implementer",
       "reason": "Implementation complete; opened pull request #13 (head at open time: implementation revision 7e1a136, 4 focused commits) for verification and Architect review.",
-      "references": { "pr": 13, "commit": "7e1a136ac6574b10cf934b22ae741f8167a363ad" }
+      "references": {
+        "pr": 13,
+        "commit": "7e1a136ac6574b10cf934b22ae741f8167a363ad"
+      }
     },
     {
       "from": "PR_OPEN",
@@ -75,7 +87,9 @@
       "actor": "z-ai-implementation-agent",
       "role": "implementer",
       "reason": "Evidence package (EV-001, EV-002, EV-003) recorded in the governance record and pushed as commit b0ca788; submitted for verification.",
-      "references": { "commit": "b0ca78838c4e350114ce124629a4c97c3d1e4009" }
+      "references": {
+        "commit": "b0ca78838c4e350114ce124629a4c97c3d1e4009"
+      }
     },
     {
       "from": "VERIFYING",
@@ -83,8 +97,14 @@
       "at": "2026-08-24T20:16:52Z",
       "actor": "github-actions",
       "role": "automation",
-      "reason": "CI workflow run 32772959871 (pull_request event) on PR-head commit b0ca788 completed with conclusion success: typecheck, 58 deterministic tests, 38-check governance validation, protected-path check against base — verification evidence complete.",
-      "references": { "evidence": ["EV-001", "EV-002", "EV-003"] }
+      "reason": "CI workflow run 32772959871 (pull_request event) on PR-head commit b0ca788 completed with conclusion success: typecheck, 58 deterministic tests, 38-check governance validation, protected-path check against base \u2014 verification evidence complete.",
+      "references": {
+        "evidence": [
+          "EV-001",
+          "EV-002",
+          "EV-003"
+        ]
+      }
     },
     {
       "from": "ARCHITECT_REVIEW",
@@ -94,7 +114,9 @@
       "role": "architect",
       "reason": "Architect review of PR #13: changes required before approval. Directive recorded in the PR conversation (comment 5400958398) because GitHub blocks the PR author from submitting a formal REQUEST_CHANGES review on their own PR; no APPROVED/VERIFIED transition granted.",
       "failure_reason": "EV-003 bound its CI-run evidence to implementation commit 7e1a136 with an inexact workflow_run reference ('governance (PR #13)') instead of the actual PR-head commit b0ca78838c4e350114ce124629a4c97c3d1e4009 and the exact workflow run 32772959871; implementation evidence and PR-head CI evidence were not explicitly distinguished.",
-      "references": { "decision": "DEC-001" }
+      "references": {
+        "decision": "DEC-001"
+      }
     },
     {
       "from": "IMPLEMENTING",
@@ -103,7 +125,10 @@
       "actor": "z-ai-implementation-agent",
       "role": "implementer",
       "reason": "Remediation of DEC-001 complete and pushed as commit cc231f7: EV-003 rebound to the actual PR-head commit b0ca788 and exact workflow run 32772959871; EV-001/EV-002 explicitly labeled implementation evidence bound to 7e1a136 (intervening commit metadata-only); spec/work-items.md divergence preserved untouched; lifecycle timestamps corrected to actual event times.",
-      "references": { "pr": 13, "commit": "cc231f7e247fc9eb8e70c0530cec6c3b1c9ff417" }
+      "references": {
+        "pr": 13,
+        "commit": "cc231f7e247fc9eb8e70c0530cec6c3b1c9ff417"
+      }
     },
     {
       "from": "PR_OPEN",
@@ -112,6 +137,44 @@
       "actor": "z-ai-implementation-agent",
       "role": "implementer",
       "reason": "Corrected evidence package (EV-001..EV-004) re-submitted for verification and Architect re-review of PR #13."
+    },
+    {
+      "from": "VERIFYING",
+      "to": "ARCHITECT_REVIEW",
+      "at": "2026-08-24T20:52:00Z",
+      "actor": "pectoraux",
+      "role": "architect",
+      "reason": "Architect completed review of the DEC-001 remediation evidence (DEC-002, recorded in commit c413cc4): EV-001/EV-002 bound to implementation revision 7e1a136, EV-003 bound to PR-head revision b0ca788 and exact run 32772959871, EV-004 green remediation run 32775057024 on cc231f7, PR head dc6f637 validated by run 32775199909 with only governance-metadata changes after EV-004. Verification evidence complete.",
+      "references": {
+        "evidence": [
+          "EV-001",
+          "EV-002",
+          "EV-003",
+          "EV-004"
+        ]
+      }
+    },
+    {
+      "from": "ARCHITECT_REVIEW",
+      "to": "APPROVED",
+      "at": "2026-08-24T20:52:00Z",
+      "actor": "pectoraux",
+      "role": "architect",
+      "reason": "DEC-002: approved for merge, subject to the canonical record being advanced through ARCHITECT_REVIEW and APPROVED and the normal Product Owner merge step; VERIFIED explicitly not granted (post-merge Architect decision).",
+      "references": {
+        "decision": "DEC-002"
+      }
+    },
+    {
+      "from": "APPROVED",
+      "to": "MERGED",
+      "at": "2026-08-24T20:55:52Z",
+      "actor": "pectoraux",
+      "role": "product-owner",
+      "reason": "Product Owner merged PR #13 into main as merge commit c0a722aaba2601ae1482b95ecacab4d029e4f746 (merge commit message: 'Merge ARCH-WF-001 after Architect approval and remediation'; branch also carried Architect commits c413cc4/8dedf97/6d9d9c8/e7e4821 and ACR-001 record 2f00c70). Governance workflow run 32776682467 on the merge commit completed with conclusion success.",
+      "references": {
+        "merge_commit": "c0a722aaba2601ae1482b95ecacab4d029e4f746"
+      }
     }
   ],
   "evidence": [
@@ -122,7 +185,10 @@
       "produced_at": "2026-08-24T20:15:31Z",
       "reproducible": true,
       "reproduction": "npm ci && npm test",
-      "references": { "pr": 13, "commit": "7e1a136ac6574b10cf934b22ae741f8167a363ad" }
+      "references": {
+        "pr": 13,
+        "commit": "7e1a136ac6574b10cf934b22ae741f8167a363ad"
+      }
     },
     {
       "id": "EV-002",
@@ -131,7 +197,11 @@
       "produced_at": "2026-08-24T20:15:31Z",
       "reproducible": true,
       "reproduction": "npm run governance -- validate",
-      "references": { "artifact_path": "governance-report.json", "pr": 13, "commit": "7e1a136ac6574b10cf934b22ae741f8167a363ad" }
+      "references": {
+        "artifact_path": "governance-report.json",
+        "pr": 13,
+        "commit": "7e1a136ac6574b10cf934b22ae741f8167a363ad"
+      }
     },
     {
       "id": "EV-003",
@@ -168,8 +238,26 @@
       "decided_by": "pectoraux",
       "role": "architect",
       "rationale": "Architect review of PR #13: the substantive ARCH-WF-001 implementation satisfies the acceptance criteria, the PR-head governance workflow is green, and the architecture remains untouched, but one evidence-quality issue must be corrected before approval (directive recorded in PR conversation comment 5400958398; a formal REQUEST_CHANGES review was not submittable because GitHub blocks the PR author from reviewing their own PR). VERIFIED is not granted.",
-      "evidence_refs": ["EV-001", "EV-002", "EV-003"],
+      "evidence_refs": [
+        "EV-001",
+        "EV-002",
+        "EV-003"
+      ],
       "remediation_required": "1) Rebind EV-003 to the actual PR-head commit b0ca78838c4e350114ce124629a4c97c3d1e4009 and the exact workflow run 32772959871 (not 'governance (PR #13)' / the implementation commit). 2) Explicitly state that EV-001/EV-002 bind to 7e1a136 because the single intervening commit is metadata-only, while EV-003 is the CI evidence for the current PR head. 3) Preserve the explicitly flagged spec/work-items.md divergence; do not silently reconcile that file in this PR. After the metadata correction and a green CI run, the PR is ready for another Architect review."
+    },
+    {
+      "id": "DEC-002",
+      "status": "approved",
+      "decided_at": "2026-08-24T20:52:00Z",
+      "decided_by": "pectoraux",
+      "role": "architect",
+      "rationale": "Architect approval of PR #13 after DEC-001 remediation (decision artifact recorded by the Architect in commit c413cc4, governance/architect-decisions/ARCH-WF-001-DEC-002.md, subsequently reverted from the repository tree by commit 6d9d9c8 together with the reviewer-only artifact convention; this record remains the canonical lifecycle record per the convention documented in 8dedf97). Basis: evidence bindings corrected and exact (EV-001/EV-002 -> 7e1a136; EV-003 -> b0ca788 + run 32772959871; EV-004 -> cc231f7 + run 32775057024; PR head dc6f637 validated by run 32775199909), spec/work-items.md divergence preserved, no frozen spec/ changes, governance workflow green on the PR head. Approved for merge; VERIFIED not granted and remains a post-merge Architect decision against the merged revision.",
+      "evidence_refs": [
+        "EV-001",
+        "EV-002",
+        "EV-003",
+        "EV-004"
+      ]
     }
   ]
 }
