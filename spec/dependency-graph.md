@@ -83,41 +83,83 @@ The graph is intentionally clone-first. Downstream intelligence work depends on 
 
 ## 3. Development waves
 
-### Wave 0 — Repository/process foundation
+The wave plan below is generated from the `Dependencies:` graph in `work-items.md` and therefore reflects a topological ordering, not a manually maintained schedule. Any edit to the dependency graph must be made in `work-items.md` before regenerating this section.
 
-`ARCH-WF-001, ARCH-WF-002, LICENSE-001`
+### Wave 0 — Licensing and repo foundation
 
-### Wave 1 — Existential clone gates
+`ARCH-WF-001, LICENSE-001`
 
-`RESEARCH-CAD-001, RESEARCH-PM-001, RESEARCH-OFFICE-001`
+### Wave 1 — Feasibility and baseline verification
+
+`ARCH-WF-002, RESEARCH-CAD-001, RESEARCH-OFFICE-001, RESEARCH-PM-001`
 
 ### Wave 2 — Deep compatibility proof
 
-`RESEARCH-CAD-002, RESEARCH-CAD-003, RESEARCH-CAD-004, RESEARCH-CAD-005, RESEARCH-CAD-006, RESEARCH-CAD-007, RESEARCH-PM-002`
+`COMPAT-DOC-001, COMPAT-OFFICE-001, RESEARCH-CAD-002, RESEARCH-CAD-003, RESEARCH-CAD-006, RESEARCH-PM-002`
 
-### Wave 3 — First application implementations
+### Wave 3 — Scheduling and quantity proof
 
-`COMPAT-CAD-001, COMPAT-BIM-001, COMPAT-IFC-001, COMPAT-PM-001, COMPAT-PM-002, COMPAT-SHEET-001, COMPAT-DOC-001, COMPAT-OFFICE-001`
+`COMPAT-PM-001, RESEARCH-CAD-004`
 
-### Wave 4 — Platform and shared-data foundation
+### Wave 4 — Project and cost propagation
 
-`PLATFORM-001, PLATFORM-002, PLATFORM-003, PLATFORM-004, PLATFORM-005, PLATFORM-006, GRAPH-001, COLLAB-001, COLLAB-002, COLLAB-003`
+`COMPAT-PM-002, RESEARCH-CAD-005`
 
-### Wave 5 — Intelligence substrate
+### Wave 5 — CAD/BIM synthesis gate
 
-`AI-001, AI-002, AI-003, AI-004, AI-005, EXT-001, EXT-002, TOOL-001, KNOW-001, UNKNOWN-001, UNKNOWN-002, TIME-001, TIME-002`
+`RESEARCH-CAD-007`
 
-### Wave 6 — Commercial intelligence
+### Wave 6 — Core compatibility implementation
 
-`COST-001, COST-002, RFQ-001, RFQ-002, RFQ-003, RFQ-004, BID-001, BID-002, BID-003, LAB-001, LAB-002`
+`COMPAT-CAD-001, PLATFORM-001`
 
-### Wave 7 — Domain intelligence
+### Wave 7 — BIM and platform services
 
-`INTEL-001, INTEL-002, INTEL-003, INTEL-004, INTEL-005`
+`COMPAT-BIM-001, PLATFORM-002, PLATFORM-003`
 
-### Wave 8 — Public platform and final benchmarks
+### Wave 8 — Domain events and runtime preparation
 
-`API-001, API-002, BENCH-001, BENCH-002`
+`AI-001, COMPAT-IFC-001, PLATFORM-004`
+
+### Wave 9 — Graph, knowledge and AI routing
+
+`AI-002, AI-003, GRAPH-001, KNOW-001, PLATFORM-005`
+
+### Wave 10 — Tooling and collaborative runtime
+
+`AI-004, AI-005, API-001, COLLAB-001, COMPAT-SHEET-001, EXT-001, TIME-001`
+
+### Wave 11 — Operational intelligence and API expansion
+
+`API-002, COLLAB-002, COLLAB-003, COST-001, EXT-002, INTEL-003, PLATFORM-006, TIME-002, TOOL-001, UNKNOWN-001`
+
+### Wave 12 — Commercial foundation
+
+`COST-002, INTEL-004, RFQ-001`
+
+### Wave 13 — Bid and subcontractor start
+
+`BID-001, INTEL-002, RFQ-002`
+
+### Wave 14 — Bid and RFQ maturity
+
+`BID-002, RFQ-003`
+
+### Wave 15 — Execution optimization
+
+`BID-003, LAB-001`
+
+### Wave 16 — Calibration and uncertainty tracking
+
+`LAB-002, UNKNOWN-002`
+
+### Wave 17 — Domain intelligence and final RFQ work
+
+`INTEL-001, INTEL-005, RFQ-004`
+
+### Wave 18 — Final benchmark pass
+
+`BENCH-001, BENCH-002`
 
 ## 4. Parallelism rules
 

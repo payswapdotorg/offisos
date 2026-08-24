@@ -25,7 +25,7 @@ An implementation agent may not expand scope by changing architecture or adding 
 ### LICENSE-001 — Open-source composition and licensing gate
 
 Objective: Audit candidate upstream engines/libraries, their transitive licenses, trademarks and distribution/hosting constraints, and define approved composition boundaries.
-Requirements: PLAT-006, OFFICE-006, CAD-006, PM-006, EXT-005
+Requirements: LICENSE-001, LICENSE-002, LICENSE-003, LICENSE-004
 Dependencies: none
 Acceptance criteria: every proposed upstream dependency is classified; incompatible composition paths are rejected; approved alternatives and NOTICE/source-obligation requirements are recorded.
 Verification: license inventory + legal/architect review.

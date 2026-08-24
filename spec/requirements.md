@@ -5,6 +5,15 @@
 
 Each requirement has: ID, title, description, owner/module, dependencies, acceptance criteria and required verification. A requirement is not considered complete from an implementation claim alone.
 
+## License and composition
+
+| ID | Requirement | Module | Dependencies |
+|---|---|---|---|
+| LICENSE-001 | Approve upstream dependencies by license class, transitive obligations, and distribution constraints. | legal/composition | — |
+| LICENSE-002 | Record source, NOTICE and attribution obligations for each approved upstream dependency. | legal/composition | LICENSE-001 |
+| LICENSE-003 | Reject or isolate incompatible open-source or proprietary combinations before implementation. | legal/composition | LICENSE-001 |
+| LICENSE-004 | Keep product branding and trademark obligations separate from code-licensing decisions. | legal/composition | LICENSE-001 |
+
 ## Platform
 
 | ID | Requirement | Module | Dependencies |
