@@ -31,7 +31,7 @@
     "CI workflow executing tests, governance validation and the protected-path check on every pull request.",
     "A demonstration work item (SAMPLE-001) showing the full traceability chain from requirement through verification, including a verification failure and an architect changes-requested recovery."
   ],
-  "state": "IMPLEMENTING",
+  "state": "VERIFYING",
   "transitions": [
     {
       "from": "DRAFT",
@@ -95,6 +95,23 @@
       "reason": "Architect review of PR #13: changes required before approval. Directive recorded in the PR conversation (comment 5400958398) because GitHub blocks the PR author from submitting a formal REQUEST_CHANGES review on their own PR; no APPROVED/VERIFIED transition granted.",
       "failure_reason": "EV-003 bound its CI-run evidence to implementation commit 7e1a136 with an inexact workflow_run reference ('governance (PR #13)') instead of the actual PR-head commit b0ca78838c4e350114ce124629a4c97c3d1e4009 and the exact workflow run 32772959871; implementation evidence and PR-head CI evidence were not explicitly distinguished.",
       "references": { "decision": "DEC-001" }
+    },
+    {
+      "from": "IMPLEMENTING",
+      "to": "PR_OPEN",
+      "at": "2026-08-24T20:38:35Z",
+      "actor": "z-ai-implementation-agent",
+      "role": "implementer",
+      "reason": "Remediation of DEC-001 complete and pushed as commit cc231f7: EV-003 rebound to the actual PR-head commit b0ca788 and exact workflow run 32772959871; EV-001/EV-002 explicitly labeled implementation evidence bound to 7e1a136 (intervening commit metadata-only); spec/work-items.md divergence preserved untouched; lifecycle timestamps corrected to actual event times.",
+      "references": { "pr": 13, "commit": "cc231f7e247fc9eb8e70c0530cec6c3b1c9ff417" }
+    },
+    {
+      "from": "PR_OPEN",
+      "to": "VERIFYING",
+      "at": "2026-08-24T20:39:39Z",
+      "actor": "z-ai-implementation-agent",
+      "role": "implementer",
+      "reason": "Corrected evidence package (EV-001..EV-004) re-submitted for verification and Architect re-review of PR #13."
     }
   ],
   "evidence": [
@@ -127,6 +144,19 @@
         "workflow_run": "https://github.com/pectoraux/offisos/actions/runs/32772959871",
         "pr": 13,
         "commit": "b0ca78838c4e350114ce124629a4c97c3d1e4009"
+      }
+    },
+    {
+      "id": "EV-004",
+      "type": "ci-run",
+      "description": "GitHub Actions governance workflow run 32775057024 (run #3, pull_request event) on remediation commit cc231f7e247fc9eb8e70c0530cec6c3b1c9ff417, completed 2026-08-24T20:38:56Z with conclusion success: typecheck, 58 deterministic tests, 38-check record validation, protected-path check against the base branch, governance-report artifact upload. This is the green CI run on the corrected governance record (DEC-001 remediation), provided per the Architect's directive that re-review follows the metadata correction and a green CI run. It binds to cc231f7; commits after it that only amend governance metadata do not invalidate the binding (binding convention, governance/README.md Evidence policy).",
+      "produced_at": "2026-08-24T20:38:56Z",
+      "reproducible": true,
+      "reproduction": "Inspect workflow run 32775057024 (https://github.com/pectoraux/offisos/actions/runs/32775057024), or run locally at commit cc231f7: npm ci && npm run typecheck && npm test && npm run governance -- validate",
+      "references": {
+        "workflow_run": "https://github.com/pectoraux/offisos/actions/runs/32775057024",
+        "pr": 13,
+        "commit": "cc231f7e247fc9eb8e70c0530cec6c3b1c9ff417"
       }
     }
   ],
