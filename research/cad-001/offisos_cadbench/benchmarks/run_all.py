@@ -23,6 +23,7 @@ from . import (
     bench_bim_semantics,
     bench_cg_mapping,
     bench_failure_modes,
+    bench_freecad,
     bench_ifc_roundtrip,
     bench_licensing,
     bench_parametric,
@@ -32,6 +33,7 @@ from . import (
 
 BENCHMARKS = [
     ("bench-2d-drafting", bench_2d_drafting),
+    ("bench-freecad", bench_freecad),
     ("bench-3d-geometry", bench_3d_geometry),
     ("bench-parametric", bench_parametric),
     ("bench-bim-semantics", bench_bim_semantics),

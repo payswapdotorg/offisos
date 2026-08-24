@@ -170,6 +170,16 @@ def environment_snapshot() -> dict[str, Any]:
         env["occt_version"] = _md.version("cadquery-ocp")  # e.g. 7.8.1.1.post1 -> OCCT 7.8.1
     except Exception as exc:  # pragma: no cover
         env["occt_version"] = f"unavailable: {exc}"
+    try:  # FreeCAD provenance (optional; evidence item 3/1)
+        from .freecad_runner import find_freecadcmd, freecad_version
+
+        cmd = find_freecadcmd()
+        if cmd is not None:
+            env["freecad"] = freecad_version(cmd)
+        else:
+            env["freecad"] = None
+    except Exception as exc:  # pragma: no cover
+        env["freecad"] = f"unavailable: {exc}"
     try:
         import resource
 
