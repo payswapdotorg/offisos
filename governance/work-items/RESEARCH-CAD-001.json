@@ -1,0 +1,64 @@
+{
+  "id": "RESEARCH-CAD-001",
+  "title": "Evaluate CAD/BIM engine candidates",
+  "issue": 1,
+  "objective": "Determine whether the current CAD/BIM candidate foundation (IfcOpenShell + IFC/openBIM stack, OpenCascade Technology as geometry kernel, FreeCAD, additional candidates only where a material gap is evidenced) can satisfy ConstructionOS feasibility requirements without changing the frozen adapter architecture. Deliverable: a reproducible evidence package — not production CAD.",
+  "architecture_version": "1.0",
+  "requirements": ["CAD-001", "CAD-002", "BIM-001", "BIM-002"],
+  "dependencies": ["ARCH-WF-001"],
+  "acceptance_criteria": [
+    "Reproducible benchmark procedure exists.",
+    "Each required capability has observed evidence, not feature-list claims.",
+    "Results distinguish native capability, adapter capability, and missing capability.",
+    "IFC semantic fidelity is tested, not inferred from successful file opening.",
+    "Quantity extraction has numerical assertions.",
+    "Licensing/composition analysis names the exact components and licenses tested.",
+    "Recommendation is one of: (a) proceed with candidate behind adapter; (b) reject candidate and evaluate next; (c) reduce scope without architecture change; (d) Architecture Change Request required."
+  ],
+  "non_goals": [
+    "No production CAD implementation.",
+    "No architecture change.",
+    "No silent replacement of the Construction Graph with an engine-native model.",
+    "No threshold-setting (RESEARCH-CAD-006) and no composition approval (LICENSE-001)."
+  ],
+  "risk_assumptions": [
+    "DEPENDENCY-GATE FLAG: ARCH-WF-001 is MERGED (merge commit c0a722a, governance CI run 32776682467 green) but not yet VERIFIED; verification is the Architect's pending post-merge decision (requested in PR #14). The validator's dependency invariant therefore reports one failing check for this record until that decision lands. The Architect declared this work item eligible (Issue #1, 2026-08-24T19:42:57Z) and the Product Owner directed execution (Issue #1, 2026-08-24T20:56:01Z). The invariant is NOT weakened silently; resolution path: Architect records ARCH-WF-001 VERIFIED, then this validation turns green.",
+    "FreeCAD could not be installed in the benchmark sandbox (no sudo/apt; conda-forge CDN unreachable) — Sketcher/Draft/TechDraw untested, recorded as unknown, not as engine failure; follow-up required.",
+    "Performance numbers are single-environment observations, not thresholds."
+  ],
+  "evidence_requirements": [
+    "Deterministic benchmark suite covering the ten required evidence areas (2D drafting, 3D geometry, parametrics, BIM semantics, IFC round-trip, quantities, performance, Construction Graph mapping, adapter/replacement, licensing inventory).",
+    "Reproducible fixtures: 2D plan, small architectural BIM model, openings/quantities model, IFC round-trip fixture, medium performance model.",
+    "Committed evidence run with environment snapshot, per-benchmark results and summary.",
+    "Findings report distinguishing measured results from inferred conclusions, with explicit failures and limitations."
+  ],
+  "state": "IMPLEMENTING",
+  "transitions": [
+    {
+      "from": "DRAFT",
+      "to": "READY",
+      "at": "2026-08-24T19:42:57Z",
+      "actor": "pectoraux",
+      "role": "architect",
+      "reason": "Architect status comment on Issue #1: RESEARCH-CAD-001 is the first eligible substantive work item; Architecture v1.0 remains frozen; work must not be marked VERIFIED based on feature lists, screenshots, successful file opens or narrative claims.",
+      "references": { "issue": 1 }
+    },
+    {
+      "from": "READY",
+      "to": "ASSIGNED",
+      "at": "2026-08-24T20:56:01Z",
+      "actor": "pectoraux",
+      "role": "product-owner",
+      "reason": "Execution directive on Issue #1: implement the reproducible CAD/BIM candidate benchmark described in the issue; do not build production CAD or change Architecture v1.0; submit a focused PR with fixtures, benchmark scripts, exact versions, quantitative results, failure modes, licensing/composition evidence and reproducibility commands.",
+      "references": { "issue": 1, "assignee": "z-ai-implementation-agent" }
+    },
+    {
+      "from": "ASSIGNED",
+      "to": "IMPLEMENTING",
+      "at": "2026-08-24T21:05:00Z",
+      "actor": "z-ai-implementation-agent",
+      "role": "implementer",
+      "reason": "Implementation started on branch work/research-cad-001-benchmark: benchmark harness with epistemic labeling, deterministic fixtures, CAD/BIM adapter contract with IfcOpenShell+OCCT and pure-Python reference implementations, eleven benchmark modules, CI workflow and findings report."
+    }
+  ]
+}
