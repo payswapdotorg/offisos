@@ -1,0 +1,50 @@
+name: governance
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  validate:
+    name: Governance validation (tests, records, protected paths)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository (full history for diffing)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies (reproducible)
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Deterministic governance test suite
+        run: npm test
+
+      - name: Validate work-item records against the canonical state machine
+        run: npm run governance -- validate
+
+      - name: Check protected architecture paths (pull requests)
+        if: github.event_name == 'pull_request'
+        run: |
+          git diff --name-only origin/${{ github.base_ref }}...HEAD > /tmp/changed-paths.txt
+          echo "Changed paths:"
+          cat /tmp/changed-paths.txt
+          npm run governance -- check-protected --paths-file /tmp/changed-paths.txt
+
+      - name: Upload governance report artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: governance-report
+          path: governance-report.json
+          if-no-files-found: warn
