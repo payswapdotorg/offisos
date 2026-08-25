@@ -42,7 +42,7 @@
     "Epistemic distinction of OBSERVED/CALCULATED/UNKNOWN quantity states.",
     "Runtime and fixture characteristics recorded."
   ],
-  "state": "PR_OPEN",
+  "state": "VERIFYING",
   "transitions": [
     {
       "from": "DRAFT",
@@ -86,6 +86,76 @@
         "pr": 21,
         "commit": "e99265e18eff72eae9405bc8d9ceecb3c3f38e4c"
       }
+    },
+    {
+      "from": "PR_OPEN",
+      "to": "VERIFYING",
+      "at": "2026-08-25T07:05:39Z",
+      "actor": "github-actions",
+      "role": "automation",
+      "reason": "research-cad-004 workflow run #1 on PR head 4a49b35 completed success (pinned toolchain, 9/9 deterministic tests, full 46/0/0 evidence run, artifact upload); governance run #29: validator 81/82 with exactly the two documented dependency-gate failures (CAD-002/CAD-003 MERGED-not-VERIFIED), governance test suite 56/58 with two stale repository-integration expectations.",
+      "references": {
+        "evidence": [
+          "EV-001",
+          "EV-002",
+          "EV-003"
+        ]
+      }
+    },
+    {
+      "from": "VERIFYING",
+      "to": "ARCHITECT_REVIEW",
+      "at": "2026-08-25T07:23:42Z",
+      "actor": "pectoraux",
+      "role": "architect",
+      "reason": "Architect took up review of the RESEARCH-CAD-004 evidence package on PR #21.",
+      "references": {
+        "evidence": [
+          "EV-001",
+          "EV-002",
+          "EV-003"
+        ]
+      }
+    },
+    {
+      "from": "ARCHITECT_REVIEW",
+      "to": "IMPLEMENTING",
+      "at": "2026-08-25T07:23:42Z",
+      "actor": "pectoraux",
+      "role": "architect",
+      "reason": "Architect review of PR #21: changes requested (comment 5406944101). The CAD-004 research benchmark is strong and its research workflow is green, but the PR cannot be approved because the governance workflow is genuinely red on the PR merge ref.",
+      "failure_reason": "Governance test suite 56/58: two stale repository-integration tests ('the real repository passes full governance validation' and 'CLI validate exits 0 on the real repository') still assert zero validation failures on the real repository, while the validator correctly reports CAD-002 and CAD-003 as MERGED rather than VERIFIED. Remediation: update the tests to match the canonical dependency-gate semantics now exercised by real work items WITHOUT weakening the dependency rule; preserve the explicit validator failures for CAD-002/CAD-003 until the Architect performs the post-merge verification decisions; governance suite must reach 58/58; rerun the CAD-004 benchmark workflow and bind final evidence to the exact PR-head commit/run.",
+      "references": {
+        "decision": "DEC-001"
+      }
+    },
+    {
+      "from": "IMPLEMENTING",
+      "to": "PR_OPEN",
+      "at": "2026-08-25T07:30:07Z",
+      "actor": "z-ai-implementation-agent",
+      "role": "implementer",
+      "reason": "DEC-001 remediation complete and pushed to PR #21: the governance repository-integration tests now derive their expected dependency-gate failures independently from the work-item records (execution-state records x un-VERIFIED dependencies) and require the validator's actual failures to match exactly with attributable messages. The dependency rule is not weakened \u2014 verified adversarially: with the CAD-004 dependency check suppressed in rules.ts, both updated tests fail. The validator's 81/82 outcome (two preserved CAD-002/CAD-003 dependency failures) is retained per directive item 2.",
+      "references": {
+        "pr": 21,
+        "commit": "ec740ccff9c45c4bf078541c0aef15e76e4baebb"
+      }
+    },
+    {
+      "from": "PR_OPEN",
+      "to": "VERIFYING",
+      "at": "2026-08-25T07:30:58Z",
+      "actor": "github-actions",
+      "role": "automation",
+      "reason": "Remediation validation on PR #21 fix head ec740cc: governance run #30 \u2014 the deterministic governance test suite step is GREEN with 58/58 (the previously failing repository-integration expectations now match the dependency-gate semantics) while the validator step reports the directed, preserved 81/82 (exactly the two attributable CAD-002/CAD-003 dependency-gate failures, exit 1 retained, not bypassed); research-cad-004 run #2 GREEN (pinned toolchain, 9/9 deterministic tests, full 46/0/0 evidence run, artifact upload). Corrected evidence package re-submitted for Architect re-review.",
+      "references": {
+        "evidence": [
+          "EV-001",
+          "EV-002",
+          "EV-003",
+          "EV-004"
+        ]
+      }
     }
   ],
   "evidence": [
@@ -123,6 +193,35 @@
         "workflow_run": "research-cad-004 workflow on the PR",
         "pr": 21
       }
+    },
+    {
+      "id": "EV-004",
+      "type": "ci-run",
+      "description": "DEC-001 remediation CI on PR #21 fix head ec740cc: governance run #30 (pull_request, completed 2026-08-25T07:30:29Z) \u2014 deterministic governance test suite 58/58 GREEN (repository-integration expectations updated to derive expected dependency-gate failures from work-item records; adversarially verified to fail when the dependency check is suppressed in the validator), validator step reporting the directed 81/82 with exactly the two preserved CAD-002/CAD-003 dependency-gate failures (non-zero exit retained per directive item 2 \u2014 the failures persist until the Architect's post-merge verification decisions); research-cad-004 run #2 (completed 2026-08-25T07:30:58Z) GREEN with 9/9 deterministic tests and the full 46 pass / 0 fail / 0 unknown evidence run. Gate-enforcement adversarial proof: suppressing the CAD-004 dependency check in rules.ts makes both updated tests fail (5/7 locally) \u2014 the tests enforce the dependency rule in the weakened-validator direction.",
+      "produced_at": "2026-08-25T07:30:58Z",
+      "reproducible": true,
+      "reproduction": "Inspect governance run #30 and research-cad-004 run #2 on PR #21 head ec740cc. Locally: npm test (58/58) and npm run governance -- validate (81/82, exit 1 with the two attributable CAD-002/CAD-003 dependency failures). Adversarial gate proof: temporarily suppress the CAD-004 dependency failure in tools/governance/src/rules.ts and re-run tools/governance/test/repo-integration.test.ts \u2014 both dependency-gate tests must fail.",
+      "references": {
+        "workflow_run": "governance #30 + research-cad-004 #2 on ec740cc",
+        "pr": 21,
+        "commit": "ec740ccff9c45c4bf078541c0aef15e76e4baebb"
+      }
+    }
+  ],
+  "decisions": [
+    {
+      "id": "DEC-001",
+      "status": "changes_requested",
+      "decided_at": "2026-08-25T07:23:42Z",
+      "decided_by": "pectoraux",
+      "role": "architect",
+      "rationale": "The CAD-004 research benchmark itself is strong (46/46 checks, research workflow green), but PR #21 cannot be approved because the governance workflow is genuinely red: beyond the two documented dependency checks, the governance test suite is 56/58 with two failing repository-integration tests whose expectations predate real work items exercising the dependency gate. No architecture change is required; Architecture v1.1 remains frozen and the dependency invariant must not be bypassed.",
+      "evidence_refs": [
+        "EV-001",
+        "EV-002",
+        "EV-003"
+      ],
+      "remediation_required": "1) Update the governance repository-integration tests so expectations match the canonical dependency-gate semantics now exercised by real work items, without weakening the dependency rule. 2) Preserve the explicit validator failures for CAD-002/CAD-003 until the Architect performs their post-merge verification decisions. 3) Re-run the full governance suite (must be 58/58, with the validator still reporting the two attributable dependency failures when appropriate). 4) Re-run the CAD-004 benchmark workflow and bind the final evidence to the exact PR-head commit/run."
     }
   ]
 }
