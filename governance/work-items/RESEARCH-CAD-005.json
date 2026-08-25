@@ -91,8 +91,9 @@
       "at": "2026-08-25T11:35:00Z",
       "actor": "z-ai-implementation-agent",
       "role": "implementer",
-      "reason": "Evidence package complete; opening the focused PR for RESEARCH-CAD-005 (two focused commits: benchmark package + evidence run-001, governance record). Local validation: benchmark 83/0/0, deterministic tests 21/21, governance suite 58/58, typecheck clean; the validator reports exactly the one documented dependency-gate failure (RESEARCH-CAD-004 MERGED at 93c5211, VERIFIED reserved for the Architect) with the resolution path stated in the record's risk flags.",
+      "reason": "Evidence package complete; opened PR #22 for RESEARCH-CAD-005 (two focused commits: benchmark package + evidence run-001, governance record). Local validation: benchmark 83/0/0, deterministic tests 21/21, governance suite 58/58, typecheck clean; the validator reports exactly the one documented dependency-gate failure (RESEARCH-CAD-004 MERGED at 93c5211, VERIFIED reserved for the Architect) with the resolution path stated in the record's risk flags.",
       "references": {
+        "pr": 22,
         "evidence": [
           "EV-001",
           "EV-002"
