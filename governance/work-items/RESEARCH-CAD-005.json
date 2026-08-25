@@ -144,12 +144,12 @@
     {
       "id": "EV-003",
       "type": "ci-run",
-      "description": "CI reproduction of the full evidence package on PR #22 head 46f32e2: research-cad-005 workflow run #3 (https://github.com/pectoraux/offisos/actions/runs/32842514248, completed 2026-08-25T11:35:08Z, success) — pinned toolchain + FreeCAD 1.1.3 AppImage installed on ubuntu-latest, deterministic suite 21/21 in 8.1s, full benchmark evidence run reproduced on the different execution environment with the identical result TOTAL: pass=83 fail=0 unknown=0, artifact uploaded. Governance workflow run #37 (https://github.com/pectoraux/offisos/actions/runs/32842514281) on the same head: typecheck + 58/58 tests green; the validate step reports exactly the one documented dependency-gate failure (RESEARCH-CAD-004 MERGED at 93c5211, VERIFIED reserved for the Architect) — the expected-red pattern with the attributable message verified in the CI logs.",
+      "description": "CI reproduction of the full evidence package on PR #22 head 46f32e2: research-cad-005 workflow run #3 (https://github.com/pectoraux/offisos/actions/runs/32842514248, completed 2026-08-25T11:35:08Z, success) — pinned toolchain + FreeCAD 1.1.3 AppImage installed on ubuntu-latest, deterministic suite 21/21 in 8.1s, full benchmark evidence run reproduced on the different execution environment with the identical result TOTAL: pass=83 fail=0 unknown=0, artifact uploaded. Governance workflow run #37 (https://github.com/pectoraux/offisos/actions/runs/32842514281) on the same head: typecheck + 58/58 tests green; the validate step reports exactly the one documented dependency-gate failure (RESEARCH-CAD-004 MERGED at 93c5211, VERIFIED reserved for the Architect) — the expected-red pattern with the attributable message verified in the CI logs. The final PR head fe0e713 (VERIFYING record commit) re-ran both workflows with the same outcome: research-cad-005 run #4 (32843140313) success with the full 83/0/0 reproduction, governance run #38 (32843140304) with tests green and the same single documented dependency-gate failure.",
       "produced_at": "2026-08-25T11:35:08Z",
       "reproducible": true,
       "reproduction": "Inspect runs 32842514248 and 32842514281 on PR #22 head 46f32e2, or checkout 46f32e2 and run: cd research/cad-005 && make test && make bench",
       "references": {
-        "workflow_run": "research-cad-005 #3 (32842514248) + governance #37 (32842514281) on 46f32e2",
+        "workflow_run": "research-cad-005 #3 (32842514248) + governance #37 (32842514281) on 46f32e2; research-cad-005 #4 (32843140313) + governance #38 (32843140304) on fe0e713",
         "commit": "46f32e2"
       }
     }
