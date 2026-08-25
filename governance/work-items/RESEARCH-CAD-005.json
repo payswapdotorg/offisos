@@ -37,7 +37,7 @@
     "No final licensing/composition decision (separate downstream gate)."
   ],
   "risk_assumptions": [
-    "DEPENDENCY-GATE FLAG: per issue #5 this work item depends on RESEARCH-CAD-001 (VERIFIED), RESEARCH-CAD-002 (VERIFIED da85d8d), RESEARCH-CAD-003 (VERIFIED f1f900e) and RESEARCH-CAD-004 (MERGED as 93c5211 with green governance run #34 and research-cad-004 run #6 on the merge commit; VERIFIED not yet issued — no directive). The validator's dependency invariant will therefore report exactly one failing check until the Architect records the CAD-004 post-merge verification decision. The invariant is NOT weakened; resolution path: Architect records VERIFIED for RESEARCH-CAD-004 against merge revision 93c5211 (both workflows already green on that revision), after which governance validation turns fully green. The dependency-aware governance repository-integration tests derive this expected single failure independently.",
+    "DEPENDENCY-GATE FLAG: per issue #5 this work item depends on RESEARCH-CAD-001 (VERIFIED), RESEARCH-CAD-002 (VERIFIED da85d8d), RESEARCH-CAD-003 (VERIFIED f1f900e) and RESEARCH-CAD-004 (MERGED as 93c5211 with green governance run #34 and research-cad-004 run #6 on the merge commit; VERIFIED not yet issued — no directive). The validator's dependency invariant will therefore report exactly one failing check until the Architect records the CAD-004 post-merge verification decision. The invariant is NOT weakened; resolution path: Architect records VERIFIED for RESEARCH-CAD-004 against merge revision 93c5211 (both workflows already green on that revision), after which governance validation turns fully green. The dependency-aware governance repository-integration tests derive this expected single failure independently. RESOLUTION (2026-08-25T12:10:00Z, PR #22 disposition relayed by the Product Owner): the Architect directed the formal post-merge verification of CAD-004 against 93c5211; the MERGED->VERIFIED transition is recorded in this revision (DEC-003 + EV-007 in the CAD-004 record, entered by the implementer on the explicit directive per the RESEARCH-CAD-001 DEC-003 provenance convention, subject to the Architect's review of the PR carrying it). The dependency invariant now evaluates green with no rule change.",
     "Architecture version: this record targets v1.1 (active) per the execution directive ('Architecture: v1.1 frozen'); issue #5's 'Architecture v1.0 remains frozen' body text predates the ACR-002 merge (same superseded-wording situation as issue #4, recorded in RESEARCH-CAD-004).",
     "Measurement environments differ between the local evidence run and CI (GitHub-hosted ubuntu-latest runners): the evidence states clearly where measurements are not comparable because of different execution environments; both environments run the identical pinned toolchain and identical fixtures, and the benchmark records an environment snapshot with every run.",
     "FreeCAD GUI-dependent operations (rendering/view pipelines) are not measurable headless; geometry preparation is measured via the console-mode recompute/ tessellation paths and this limitation is recorded honestly rather than approximated.",
@@ -52,7 +52,7 @@
     "Representative workloads compared across at least three fixture scales.",
     "Clear statement where measurements are not comparable because of different execution environments."
   ],
-  "state": "VERIFYING",
+  "state": "ARCHITECT_REVIEW",
   "transitions": [
     {
       "from": "DRAFT",
@@ -109,6 +109,21 @@
       "reason": "Evidence package submitted for Architect review on PR #22: local full run 83/0/0 (EV-001), deterministic gate 21/21 (EV-002), CI reproduction on a different execution environment with the identical 83/0/0 result and artifact upload (EV-003). Governance CI on the PR head: tests 58/58 and typecheck green; the validate step carries exactly the one documented dependency-gate failure (CAD-004 MERGED at 93c5211) whose resolution is the Architect's post-merge verification decision. VERIFIED is not claimed.",
       "references": {
         "pr": 22,
+        "evidence": [
+          "EV-001",
+          "EV-002",
+          "EV-003"
+        ]
+      }
+    },
+    {
+      "from": "VERIFYING",
+      "to": "ARCHITECT_REVIEW",
+      "at": "2026-08-25T12:10:00Z",
+      "actor": "pectoraux",
+      "role": "architect",
+      "reason": "Per the Architect disposition on PR #22 (CHANGES REQUESTED — governance dependency only, relayed by the Product Owner, 2026-08-25T12:10:00Z): the CAD-005 benchmark substantively passes review ('CAD/BIM remains operationally viable with explicit worker, isolation, cancellation, validation, and scalability constraints'); the sole blocker was CAD-004 MERGED-not-VERIFIED. CAD-004 is now formally VERIFIED against merge commit 93c52111c292839d87b4d09b17a1686b8779f478 (DEC-003 + EV-007 in its record, per the disposition and the RESEARCH-CAD-001 DEC-003 provenance convention); the dependency invariant is now satisfied with no rule change. Local re-validation on this record revision: governance validator 93/93 exit 0 (the single CAD-004 dependency-gate failure cleared) and governance test suite 58/58. The CAD-005 evidence package proceeds to approval review as directed. VERIFIED is not claimed; final licensing/composition decision remains a separate downstream gate.",
+      "references": {
         "evidence": [
           "EV-001",
           "EV-002",
