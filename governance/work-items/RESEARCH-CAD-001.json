@@ -1,0 +1,251 @@
+{
+  "id": "RESEARCH-CAD-001",
+  "title": "Evaluate CAD/BIM engine candidates",
+  "issue": 1,
+  "objective": "Determine whether the current CAD/BIM candidate foundation (IfcOpenShell + IFC/openBIM stack, OpenCascade Technology as geometry kernel, FreeCAD, additional candidates only where a material gap is evidenced) can satisfy ConstructionOS feasibility requirements without changing the frozen adapter architecture. Deliverable: a reproducible evidence package \u2014 not production CAD.",
+  "architecture_version": "1.0",
+  "requirements": [
+    "CAD-001",
+    "CAD-002",
+    "BIM-001",
+    "BIM-002"
+  ],
+  "dependencies": [
+    "ARCH-WF-001"
+  ],
+  "acceptance_criteria": [
+    "Reproducible benchmark procedure exists.",
+    "Each required capability has observed evidence, not feature-list claims.",
+    "Results distinguish native capability, adapter capability, and missing capability.",
+    "IFC semantic fidelity is tested, not inferred from successful file opening.",
+    "Quantity extraction has numerical assertions.",
+    "Licensing/composition analysis names the exact components and licenses tested.",
+    "Recommendation is one of: (a) proceed with candidate behind adapter; (b) reject candidate and evaluate next; (c) reduce scope without architecture change; (d) Architecture Change Request required."
+  ],
+  "non_goals": [
+    "No production CAD implementation.",
+    "No architecture change.",
+    "No silent replacement of the Construction Graph with an engine-native model.",
+    "No threshold-setting (RESEARCH-CAD-006) and no composition approval (LICENSE-001)."
+  ],
+  "risk_assumptions": [
+    "DEPENDENCY-GATE (resolved by DEC-003): ARCH-WF-001 was MERGED but not VERIFIED at original submission; the validator's dependency invariant correctly reported one failing check. Resolved per the Architect directive: DEC-003 recorded against merge commit c0a722a (PR #15 comment 5401683642).",
+    "FreeCAD environment limitation (resolved by DEC-001 remediation): the original sandbox could not install FreeCAD (no sudo/apt; conda-forge CDN unreachable); resolved by installing the pinned official FreeCAD 1.1.3 AppImage (SHA256-verified, no sudo required). SVG/PDF TechDraw export remains GUI-only \u2014 recorded as an engine capability finding, not a failure.",
+    "Performance numbers are single-environment observations, not thresholds."
+  ],
+  "evidence_requirements": [
+    "Deterministic benchmark suite covering the ten required evidence areas (2D drafting, 3D geometry, parametrics, BIM semantics, IFC round-trip, quantities, performance, Construction Graph mapping, adapter/replacement, licensing inventory).",
+    "Reproducible fixtures: 2D plan, small architectural BIM model, openings/quantities model, IFC round-trip fixture, medium performance model.",
+    "Committed evidence run with environment snapshot, per-benchmark results and summary.",
+    "Findings report distinguishing measured results from inferred conclusions, with explicit failures and limitations."
+  ],
+  "state": "VERIFYING",
+  "transitions": [
+    {
+      "from": "DRAFT",
+      "to": "READY",
+      "at": "2026-08-24T19:42:57Z",
+      "actor": "pectoraux",
+      "role": "architect",
+      "reason": "Architect status comment on Issue #1: RESEARCH-CAD-001 is the first eligible substantive work item; Architecture v1.0 remains frozen; work must not be marked VERIFIED based on feature lists, screenshots, successful file opens or narrative claims.",
+      "references": {
+        "issue": 1
+      }
+    },
+    {
+      "from": "READY",
+      "to": "ASSIGNED",
+      "at": "2026-08-24T20:56:01Z",
+      "actor": "pectoraux",
+      "role": "product-owner",
+      "reason": "Execution directive on Issue #1: implement the reproducible CAD/BIM candidate benchmark described in the issue; do not build production CAD or change Architecture v1.0; submit a focused PR with fixtures, benchmark scripts, exact versions, quantitative results, failure modes, licensing/composition evidence and reproducibility commands.",
+      "references": {
+        "issue": 1,
+        "assignee": "z-ai-implementation-agent"
+      }
+    },
+    {
+      "from": "ASSIGNED",
+      "to": "IMPLEMENTING",
+      "at": "2026-08-24T21:05:00Z",
+      "actor": "z-ai-implementation-agent",
+      "role": "implementer",
+      "reason": "Implementation started on branch work/research-cad-001-benchmark: benchmark harness with epistemic labeling, deterministic fixtures, CAD/BIM adapter contract with IfcOpenShell+OCCT and pure-Python reference implementations, eleven benchmark modules, CI workflow and findings report."
+    },
+    {
+      "from": "IMPLEMENTING",
+      "to": "PR_OPEN",
+      "at": "2026-08-24T21:33:04Z",
+      "actor": "z-ai-implementation-agent",
+      "role": "implementer",
+      "reason": "Evidence package complete; opened PR #15 (5 focused commits) with the full benchmark suite, committed evidence run-001, findings report and CI workflow.",
+      "references": {
+        "pr": 15,
+        "commit": "834df86"
+      }
+    },
+    {
+      "from": "PR_OPEN",
+      "to": "VERIFYING",
+      "at": "2026-08-24T21:33:55Z",
+      "actor": "github-actions",
+      "role": "automation",
+      "reason": "research-cad-001 workflow run 32780094896 (run #1) on PR head 834df86 completed with conclusion success: pinned installs, 9/9 deterministic tests, full evidence run, artifact upload. Governance run 32780094768 reports exactly the documented dependency-gate failure (ARCH-WF-001 not yet VERIFIED).",
+      "references": {
+        "evidence": [
+          "EV-001",
+          "EV-002",
+          "EV-003"
+        ]
+      }
+    },
+    {
+      "from": "VERIFYING",
+      "to": "ARCHITECT_REVIEW",
+      "at": "2026-08-24T21:36:37Z",
+      "actor": "pectoraux",
+      "role": "architect",
+      "reason": "Architect took up the review of PR #15 (evidence package complete: test suite green, committed evidence run, CI green on the PR head; dependency-gate flag documented in the PR description).",
+      "references": {
+        "evidence": [
+          "EV-001",
+          "EV-002",
+          "EV-003"
+        ]
+      }
+    },
+    {
+      "from": "ARCHITECT_REVIEW",
+      "to": "IMPLEMENTING",
+      "at": "2026-08-24T21:36:37Z",
+      "actor": "pectoraux",
+      "role": "architect",
+      "reason": "Architect review of PR #15: changes requested before approval. The benchmark package is technically strong and the evidence substantially credible, but two gates remain (directive preserved in PR #15 comment 5401683642).",
+      "failure_reason": "1) ARCH-WF-001 dependency gate: MERGED but not VERIFIED \u2014 the post-merge MERGED -> VERIFIED decision must be recorded against merge commit c0a722a (do not weaken the dependency rule). 2) FreeCAD capability remains UNKNOWN: Sketcher/Draft/TechDraw evidence must be produced in a suitable environment; installation/version/licensing issues must be reported as evidence, not assumptions. Keep the benchmark implementation intact; do not broaden it unnecessarily.",
+      "references": {
+        "decision": "DEC-001"
+      }
+    },
+    {
+      "from": "IMPLEMENTING",
+      "to": "PR_OPEN",
+      "at": "2026-08-24T22:07:03Z",
+      "actor": "z-ai-implementation-agent",
+      "role": "implementer",
+      "reason": "DEC-001 remediation complete and pushed to PR #15 (rebased onto main c3ff419 after PR #14 merged): FreeCAD 1.1.3 headless runner + Sketcher/Draft/TechDraw evidence (pinned AppImage, SHA256 3a853eb6..., no sudo), regenerated evidence run 129 pass / 0 fail / 0 unknown, ARCH-WF-001 VERIFIED (DEC-003) recorded per the Architect directive, CI workflow installs FreeCAD reproducibly.",
+      "references": {
+        "pr": 15,
+        "commit": "6af5e5e"
+      }
+    },
+    {
+      "from": "PR_OPEN",
+      "to": "VERIFYING",
+      "at": "2026-08-24T22:08:25Z",
+      "actor": "github-actions",
+      "role": "automation",
+      "reason": "Remediation validation green on PR head 6af5e5e: governance run #15 (32808491017 series, dependency gate GREEN with ARCH-WF-001 VERIFIED \u2014 49/49 checks) and research-cad-001 run #3 with FreeCAD 1.1.3 installed in CI (10/10 tests, full evidence run 129/0/0). Corrected evidence package re-submitted for Architect re-review.",
+      "references": {
+        "evidence": [
+          "EV-004",
+          "EV-005",
+          "EV-006"
+        ]
+      }
+    }
+  ],
+  "evidence": [
+    {
+      "id": "EV-001",
+      "type": "automated-test-suite",
+      "description": "Deterministic CI test suite executed against implementation revision 834df86: 9 tests running the full benchmark in-process (zero failures required; critical capability checks for geometry exactness, round-trip fidelity, quantities, replacement proof, CG mapping, typed failure modes), 0 failures.",
+      "produced_at": "2026-08-24T21:32:27Z",
+      "reproducible": true,
+      "reproduction": "cd research/cad-001 && python3 -m pip install -r requirements.txt && make test",
+      "references": {
+        "pr": 15,
+        "commit": "834df86"
+      }
+    },
+    {
+      "id": "EV-002",
+      "type": "inspectable-artifact",
+      "description": "Committed evidence run research/cad-001/evidence/run-001/. Original submission (revision 834df86): 108 pass / 0 fail / 1 unknown (FreeCAD environment limitation). Regenerated after DEC-001 remediation with FreeCAD 1.1.3 evidence (AppImage, SHA256 3a853eb69ee595f779f2255dbf80a765926981d8ff68903cefee4dfb03a8f5ef): 129 pass / 0 fail / 0 unknown; environment snapshot now includes ifcopenshell 0.8.5, cadquery-ocp 7.8.1.1.post1, ezdxf 1.4.3, numpy 2.1.3, FreeCAD 1.1.3.",
+      "produced_at": "2026-08-24T21:27:29Z",
+      "reproducible": true,
+      "reproduction": "cd research/cad-001 && make bench",
+      "references": {
+        "artifact_path": "research/cad-001/evidence/run-001",
+        "pr": 15,
+        "commit": "834df86"
+      }
+    },
+    {
+      "id": "EV-003",
+      "type": "ci-run",
+      "description": "research-cad-001 workflow run 32780094896 (run #1, pull_request event) on PR head 834df86, completed 2026-08-24T21:33:55Z with conclusion success: pinned engine installs, version recording, 9/9 tests, full evidence run, artifact upload.",
+      "produced_at": "2026-08-24T21:33:55Z",
+      "reproducible": true,
+      "reproduction": "Inspect run 32780094896 (https://github.com/pectoraux/offisos/actions/runs/32780094896) or the research-cad-001 workflow checks on PR #15",
+      "references": {
+        "workflow_run": "https://github.com/pectoraux/offisos/actions/runs/32780094896",
+        "pr": 15,
+        "commit": "834df86"
+      }
+    },
+    {
+      "id": "EV-004",
+      "type": "automated-test-suite",
+      "description": "Deterministic CI test suite executed against remediation revision 6af5e5e in research-cad-001 CI run #3 with FreeCAD 1.1.3 installed (AppImage, SHA256-verified): 10/10 tests passed in 7.43 s, including the FreeCAD evidence assertions (Sketcher solve/propagation/failures, Draft/TechDraw, persistence) that skip only when FreeCAD is unavailable.",
+      "produced_at": "2026-08-24T22:08:01Z",
+      "reproducible": true,
+      "reproduction": "cd research/cad-001 && python3 -m pip install -r requirements.txt && make test (with FreeCAD installed per requirements.txt)",
+      "references": {
+        "pr": 15,
+        "commit": "6af5e5e"
+      }
+    },
+    {
+      "id": "EV-005",
+      "type": "inspectable-artifact",
+      "description": "Regenerated committed evidence run research/cad-001/evidence/run-001/ after DEC-001 remediation: 129 pass / 0 fail / 0 unknown \u2014 the FreeCAD UNKNOWN is replaced by measured Sketcher/Draft/TechDraw evidence. Independently reproduced in CI (research-cad-001 run #3 reported 'TOTAL: pass=129 fail=0 unknown=0' with FreeCAD 1.1.3 installed). Environment snapshot includes FreeCAD 1.1.3 provenance.",
+      "produced_at": "2026-08-24T22:08:08Z",
+      "reproducible": true,
+      "reproduction": "cd research/cad-001 && make bench (with FreeCAD installed per requirements.txt)",
+      "references": {
+        "artifact_path": "research/cad-001/evidence/run-001",
+        "pr": 15,
+        "commit": "6af5e5e"
+      }
+    },
+    {
+      "id": "EV-006",
+      "type": "ci-run",
+      "description": "Remediation CI on PR head 6af5e5e: governance workflow run #15 completed success \u2014 all 49 checks pass including the previously failing dependency check (ARCH-WF-001 now VERIFIED via DEC-003, rule not weakened); research-cad-001 workflow run #3 completed success with the FreeCAD AppImage install step (SHA256-verified) producing 'FreeCAD 1.1.3 Revision: 20260725', 10/10 tests and the 129/0/0 evidence run, artifact uploaded.",
+      "produced_at": "2026-08-24T22:08:25Z",
+      "reproducible": true,
+      "reproduction": "Inspect the research-cad-001 and governance workflow checks on PR #15 head 6af5e5e, or run locally: npm run governance -- validate (repo root) and the research-cad-001 workflow steps",
+      "references": {
+        "workflow_run": "PR #15 checks on 6af5e5e (governance run #15, research-cad-001 run #3)",
+        "pr": 15,
+        "commit": "6af5e5e"
+      }
+    }
+  ],
+  "decisions": [
+    {
+      "id": "DEC-001",
+      "status": "changes_requested",
+      "decided_at": "2026-08-24T21:36:37Z",
+      "decided_by": "pectoraux",
+      "role": "architect",
+      "rationale": "The benchmark package is technically strong and the evidence substantially credible; the adapter boundary/replacement proof, IFC semantics/round-trip assertions, numerical quantity checks, Construction Graph identity proof, typed failure behavior and explicit licensing inventory are all useful evidence. Not approving because two gates remain unresolved. No architecture change requested; Architecture v1.0 remains frozen. VERIFIED is not granted.",
+      "evidence_refs": [
+        "EV-001",
+        "EV-002",
+        "EV-003"
+      ],
+      "remediation_required": "1) Record the ARCH-WF-001 post-merge MERGED -> VERIFIED decision against merge commit c0a722a (without weakening the dependency rule). 2) Produce the missing FreeCAD Draft/Sketcher/TechDraw capability evidence in a suitable environment (FreeCAD 1.1.x per issue #1), reporting installation/version/licensing issues as evidence, not assumptions; retain the UNKNOWN classification until that evidence exists. 3) Keep the benchmark implementation intact; do not broaden it unnecessarily. 4) After ARCH-WF-001 is VERIFIED, rebase the PR and rerun governance validation so the dependency gate is green."
+    }
+  ]
+}

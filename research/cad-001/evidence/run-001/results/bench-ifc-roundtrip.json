@@ -1,0 +1,239 @@
+{
+  "benchmark": "bench-ifc-roundtrip",
+  "description": "Benchmark: IFC round-trip semantic fidelity (RESEARCH-CAD-001 item 5).",
+  "started_at": "2026-08-24T21:56:56.983425+00:00",
+  "finished_at": "2026-08-24T21:56:57.020442+00:00",
+  "summary": {
+    "pass": 14,
+    "fail": 0,
+    "unknown": 0
+  },
+  "measurements": {},
+  "checks": [
+    {
+      "id": "roundtrip/identity/domain-ids-preserved",
+      "description": "All Offisos domain ids are preserved across the IFC round trip (openings excluded: they are voids, not canonical elements).",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "before": [
+          "el:rt-slab",
+          "el:rt-space",
+          "el:rt-wall",
+          "el:rt-wall:door-1",
+          "el:rt-wall:window-2"
+        ],
+        "after": [
+          "el:rt-slab",
+          "el:rt-space",
+          "el:rt-wall",
+          "el:rt-wall:door-1",
+          "el:rt-wall:window-2"
+        ]
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "roundtrip/globalid/stable-within-file",
+      "description": "GlobalIds are stable across file write/read/write cycles (same logical file).",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "gids": [
+          "0RZorvgUDDHR9LbhdSjhU9"
+        ]
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "roundtrip/classes/preserved",
+      "description": "IFC entity classes are preserved for every element.",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "before": [
+          "IfcDoor",
+          "IfcSlab",
+          "IfcSpace",
+          "IfcWall",
+          "IfcWindow"
+        ],
+        "after": [
+          "IfcDoor",
+          "IfcSlab",
+          "IfcSpace",
+          "IfcWall",
+          "IfcWindow"
+        ]
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "roundtrip/properties/values-preserved",
+      "description": "Every typed property value is preserved exactly (label, boolean, real, identifier).",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "FireRating": {
+          "expected": "REI60",
+          "observed": "REI60",
+          "type_preserved": true,
+          "value_preserved": true
+        },
+        "IsExternal": {
+          "expected": true,
+          "observed": true,
+          "type_preserved": true,
+          "value_preserved": true
+        },
+        "LoadBearing": {
+          "expected": false,
+          "observed": false,
+          "type_preserved": true,
+          "value_preserved": true
+        },
+        "ThermalTransmittance": {
+          "expected": 0.35,
+          "observed": 0.35,
+          "type_preserved": true,
+          "value_preserved": true
+        },
+        "Reference": {
+          "expected": "W-STD-300",
+          "observed": "W-STD-300",
+          "type_preserved": true,
+          "value_preserved": true
+        },
+        "RenovationStatus": {
+          "expected": "NEW",
+          "observed": "NEW",
+          "type_preserved": true,
+          "value_preserved": true
+        }
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "roundtrip/properties/boolean-type-fidelity",
+      "description": "Boolean properties remain booleans (not coerced to 0/1 or strings).",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {},
+      "evidence_refs": []
+    },
+    {
+      "id": "roundtrip/quantities/net-volume",
+      "description": "Qto NetVolume survives the round trip exactly (4.23 m^3).",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": 1e-09,
+      "details": {
+        "measured": 4.2299999999999995,
+        "expected": 4.2299999999999995,
+        "delta": 0.0,
+        "state": "OBSERVED"
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "roundtrip/quantities/gross-volume",
+      "description": "Qto GrossVolume survives the round trip exactly (5.4 m^3).",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": 1e-09,
+      "details": {
+        "measured": 5.4,
+        "expected": 5.3999999999999995,
+        "delta": 8.881784197001252e-16
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "roundtrip/quantities/net-side-area",
+      "description": "Qto NetSideArea survives the round trip exactly (14.1 m^2).",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": 1e-09,
+      "details": {
+        "measured": 14.1,
+        "expected": 14.100000000000001,
+        "delta": 1.7763568394002505e-15
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "roundtrip/relationships/voids",
+      "description": "IfcRelVoidsElement relationships are preserved exactly.",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "before": 2,
+        "after": 2
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "roundtrip/relationships/fills",
+      "description": "IfcRelFillsElement relationships are preserved exactly.",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "before": 2,
+        "after": 2
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "roundtrip/narrow-patch/target-changed",
+      "description": "Targeted property edit (FireRating REI60 -> REI90) is applied.",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "observed": "REI90"
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "roundtrip/narrow-patch/unrelated-preserved",
+      "description": "Unrelated slab/space property sets are byte-identical after the patch.",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {},
+      "evidence_refs": []
+    },
+    {
+      "id": "roundtrip/narrow-patch/quantities-preserved",
+      "description": "Wall quantity sets are unchanged by the property-only patch.",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {},
+      "evidence_refs": []
+    },
+    {
+      "id": "roundtrip/losses/none-observed",
+      "description": "No semantic loss observed for the tested property types (IfcLabel, IfcBoolean, IfcReal, IfcIdentifier), quantities or relationships.",
+      "status": "pass",
+      "epistemic": "OBSERVED",
+      "tolerance": null,
+      "details": {
+        "tested_types": [
+          "IfcBoolean",
+          "IfcIdentifier",
+          "IfcLabel",
+          "IfcReal"
+        ]
+      },
+      "evidence_refs": []
+    }
+  ]
+}

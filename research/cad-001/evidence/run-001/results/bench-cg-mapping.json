@@ -1,0 +1,144 @@
+{
+  "benchmark": "bench-cg-mapping",
+  "description": "Benchmark: Construction Graph mapping (RESEARCH-CAD-001 item 8).",
+  "started_at": "2026-08-24T21:56:58.951484+00:00",
+  "finished_at": "2026-08-24T21:56:59.084980+00:00",
+  "summary": {
+    "pass": 9,
+    "fail": 0,
+    "unknown": 0
+  },
+  "measurements": {},
+  "checks": [
+    {
+      "id": "cg/engine-ids/unstable-across-regeneration",
+      "description": "Engine GlobalIds differ between two builds of the same logical fixture (direct observation of why engine ids cannot be canonical).",
+      "status": "pass",
+      "epistemic": "OBSERVED",
+      "tolerance": null,
+      "details": {
+        "build_a_sample": [
+          "1MeoyUwObEtwEizT4r2Rl9",
+          "33bbBxGHb6lvrcPEC6dyx1"
+        ],
+        "build_b_sample": [
+          "1RARcdNuz4yhtXjzWhjbjS",
+          "3YPFt9XBv5XPcC7JJkOYR5"
+        ]
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "cg/domain-ids/stable-across-regeneration",
+      "description": "Offisos domain ids are identical across regeneration of the same fixture.",
+      "status": "pass",
+      "epistemic": "OBSERVED",
+      "tolerance": null,
+      "details": {
+        "count": 9
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "cg/domain-ids/roundtrip-preserved",
+      "description": "Domain ids survive the IFC round trip exactly.",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "before": 9,
+        "after": 9
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "cg/revision/node-count",
+      "description": "Graph revision contains a node for every canonical element.",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "nodes": 9
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "cg/provenance/recorded",
+      "description": "Every node records provenance: engine, engine id, engine class, identity resolution method.",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "sample_provenance": {
+          "source_engine": "ifcopenshell+occt",
+          "source_engine_id": "3OxTCvS8X8RAm_cWll6HGx",
+          "source_engine_class": "IfcWindow",
+          "model_revision": "cg-a",
+          "identity_resolution": "identity-pset"
+        }
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "cg/openings/not-canonical-elements",
+      "description": "Opening elements are recorded as voids in lineage, not canonical elements.",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "void_lineage_entries": 3
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "cg/diff/detects-added-element",
+      "description": "Diff between revisions detects exactly the one added wall.",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "added": [
+          "el:wall-99"
+        ],
+        "removed": []
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "cg/diff/roundtrip-no-change",
+      "description": "Diff between the original and round-tripped revision is empty.",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "diff": {
+          "added": [],
+          "removed": [],
+          "unchanged": [
+            "el:slab-00",
+            "el:space-101",
+            "el:wall-00",
+            "el:wall-00:window-1",
+            "el:wall-01",
+            "el:wall-01:door-1",
+            "el:wall-01:window-2",
+            "el:wall-02",
+            "el:wall-03"
+          ]
+        }
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "cg/anchors/deterministic-derivation",
+      "description": "Structural-anchor domain ids are deterministic and position-sensitive.",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "derived": "off:proj:S01:wall:007:f1daf66c19d0a805"
+      },
+      "evidence_refs": []
+    }
+  ]
+}

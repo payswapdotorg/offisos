@@ -1,0 +1,181 @@
+{
+  "benchmark": "bench-2d-drafting",
+  "description": "Benchmark: 2D drafting capabilities (RESEARCH-CAD-001 evidence item 1).",
+  "started_at": "2026-08-24T21:56:52.927981+00:00",
+  "finished_at": "2026-08-24T21:56:54.562528+00:00",
+  "summary": {
+    "pass": 11,
+    "fail": 0,
+    "unknown": 0
+  },
+  "measurements": {
+    "dxf_version": "R2010",
+    "ezdxf_version": "1.4.3"
+  },
+  "checks": [
+    {
+      "id": "2d/precision/confusion-bounded",
+      "description": "OCCT reports a well-defined modeler precision (Precision::Confusion).",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "confusion": 1e-07
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "2d/precision/point-line-distance",
+      "description": "Point-to-line projection distance matches analytic |y|=4.0 exactly.",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": 1e-12,
+      "details": {
+        "measured": 4.0,
+        "expected": 4.0,
+        "delta": 0.0
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "2d/precision/circle-parametrization",
+      "description": "Circle parametrization returns the exact radius point.",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": 1e-12,
+      "details": {
+        "measured": 2.5,
+        "expected": 2.5,
+        "delta": 0.0
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "2d/precision/curve-discretization",
+      "description": "Parametric evaluation of a circle: every sampled point lies exactly on the radius.",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "points": 12,
+        "max_radius_error": 0.0
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "2d/snapping/grid",
+      "description": "Grid snapping at 0.5 m spacing (adapter-level drafting logic).",
+      "status": "pass",
+      "epistemic": "ADAPTER",
+      "tolerance": null,
+      "details": {
+        "input": [
+          3.24,
+          4.87
+        ],
+        "snapped": [
+          3.0,
+          5.0
+        ],
+        "spacing": 0.5
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "2d/snapping/endpoint-tolerance",
+      "description": "Endpoint snapping lands on the exact endpoint within OCCT tolerance.",
+      "status": "pass",
+      "epistemic": "ADAPTER",
+      "tolerance": null,
+      "details": {
+        "snapped": [
+          3.000000001,
+          0.0
+        ],
+        "occt_confusion": 1e-07,
+        "endpoint": [
+          3.0,
+          0.0
+        ]
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "2d/layers/occt-native-gap",
+      "description": "OCCT exposes no layer model in its 2D geometry API (observed by API introspection).",
+      "status": "pass",
+      "epistemic": "OBSERVED",
+      "tolerance": null,
+      "details": {
+        "finding": "OCCT is a geometry kernel, not a drafting application; layers must come from the BIM/representation layer (IFC) or a drafting representation format (DXF), not from the kernel"
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "2d/layers/dxf-roundtrip",
+      "description": "DXF layer table round-trips: every fixture layer preserved (auto layers 0/Defpoints excluded from the assertion).",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "layers": [
+          "0",
+          "ANNOTATION",
+          "DIMENSIONS",
+          "DOOR",
+          "Defpoints",
+          "WALL",
+          "WINDOW"
+        ],
+        "fixture_layers": [
+          "ANNOTATION",
+          "DIMENSIONS",
+          "DOOR",
+          "WALL",
+          "WINDOW"
+        ]
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "2d/layers/dxf-segment-fidelity",
+      "description": "DXF segments round-trip with layer assignment and exact coordinates.",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "segments": 4
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "2d/dimensions/dxf-entities",
+      "description": "DXF aligned dimension entities round-trip for fixture dimensions.",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "dimensions": 2
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "2d/dimensions/measurement-precision",
+      "description": "DXF dimension measurements match fixture lengths exactly.",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "measured": [
+          8.0,
+          5.0
+        ],
+        "expected": [
+          8.0,
+          5.0
+        ]
+      },
+      "evidence_refs": []
+    }
+  ]
+}

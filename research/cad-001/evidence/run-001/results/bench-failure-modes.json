@@ -1,0 +1,99 @@
+{
+  "benchmark": "bench-failure-modes",
+  "description": "Benchmark: failure modes (RESEARCH-CAD-001 execution rule 5).",
+  "started_at": "2026-08-24T21:56:59.128022+00:00",
+  "finished_at": "2026-08-24T21:56:59.135899+00:00",
+  "summary": {
+    "pass": 8,
+    "fail": 0,
+    "unknown": 0
+  },
+  "measurements": {},
+  "checks": [
+    {
+      "id": "failure/malformed-ifc/typed-error",
+      "description": "Malformed IFC input raises the adapter's typed InvalidInputError.",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "file": "truncated/garbled STEP content"
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "failure/missing-file/typed-error",
+      "description": "Missing file raises the typed InvalidInputError.",
+      "status": "pass",
+      "epistemic": "ADAPTER",
+      "tolerance": null,
+      "details": {},
+      "evidence_refs": []
+    },
+    {
+      "id": "failure/empty-file/typed-error",
+      "description": "Empty file raises the typed InvalidInputError.",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {},
+      "evidence_refs": []
+    },
+    {
+      "id": "failure/invalid-geometry/zero-extent",
+      "description": "Zero-extent geometry raises OCCT Standard_DomainError (typed engine failure).",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "exception": "Standard_DomainError"
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "failure/invalid-geometry/self-intersecting-detected",
+      "description": "Self-intersecting (bowtie) profile produces a shape that OCCT's BRepCheck_Analyzer flags as invalid \u2014 detected, not silently accepted.",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "verdict": "BRepCheck_Analyzer reports invalid"
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "failure/lossy-conversion/disjoint-fuse-compound",
+      "description": "Fusing two disjoint solids produces a compound of 2 solids with the correct total volume \u2014 the 'single solid' expectation is lost, and the loss is measurable, not silent.",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "solids": 2,
+        "volume": 1.9999999999999991,
+        "expected_solid_count": 1,
+        "note": "callers must check topology"
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "failure/ambiguous-quantity/unknown-not-zero",
+      "description": "A wall without geometry or quantities yields UNKNOWN with value None \u2014 the system never fabricates a 0 quantity (LOCK-007).",
+      "status": "pass",
+      "epistemic": "ADAPTER",
+      "tolerance": null,
+      "details": {
+        "state": "UNKNOWN"
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "failure/unsupported-operation/typed",
+      "description": "Unsupported capability (IFC import on the reference engine) raises the typed UnsupportedOperationError.",
+      "status": "pass",
+      "epistemic": "ADAPTER",
+      "tolerance": null,
+      "details": {},
+      "evidence_refs": []
+    }
+  ]
+}
