@@ -1,13 +1,23 @@
 {
   "notes": "Registry of architecture versions. Every work item declares the version it targets; the validator rejects records referencing unknown versions. An approved Architecture Change Request creates a new immutable entry here (lifecycle owned by ARCH-WF-002).",
-  "active_version": "1.0",
+  "active_version": "1.1",
   "versions": [
     {
       "version": "1.0",
-      "status": "FROZEN",
+      "status": "SUPERSEDED",
       "defined_by": ["spec/architecture.md", "spec/architecture-lock.md"],
       "declared_in": ["spec/00-readme.md", "spec/SPEC-MANIFEST.md"],
       "locked_at": "2026-08-24",
+      "superseded_by": "1.1",
+      "protected_paths_manifest": "governance/protected-paths.json"
+    },
+    {
+      "version": "1.1",
+      "status": "FROZEN",
+      "defined_by": ["spec/architecture.md", "spec/architecture-lock.md", "governance/architecture-changes/ACR-002-cad-bim-web-desktop-client-topology.md"],
+      "declared_in": ["spec/00-readme.md", "spec/SPEC-MANIFEST.md"],
+      "locked_at": "2026-08-25",
+      "change_requests": ["ACR-002"],
       "protected_paths_manifest": "governance/protected-paths.json"
     }
   ]
