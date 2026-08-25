@@ -1,0 +1,375 @@
+{
+  "benchmark": "bench-engine-freecad",
+  "description": "Benchmark: FreeCAD engine lifecycle and document operations scaling.",
+  "started_at": "2026-08-25T11:19:17.249820+00:00",
+  "finished_at": "2026-08-25T11:19:39.957959+00:00",
+  "summary": {
+    "pass": 5,
+    "fail": 0,
+    "unknown": 0
+  },
+  "measurements": {
+    "freecad_version": {
+      "version": "1.1.3"
+    },
+    "cold_start": {
+      "samples_ms": [
+        123.744,
+        114.463,
+        126.475,
+        103.679,
+        82.093
+      ],
+      "median_ms": 114.463,
+      "min_ms": 82.093,
+      "max_ms": 126.475,
+      "peak_rss_mb_max": 35.42,
+      "boundary": "ENGINE = full FreeCADCmd process startup incl. FreeCAD module import and version probe; parent-side wall clock"
+    },
+    "freecad_document_ops": {
+      "small": {
+        "tier": "small",
+        "objects": 40,
+        "fcstd_size_bytes": 51492,
+        "engine_build_document_ms": 258.433,
+        "open": {
+          "samples_ms": [
+            139.038,
+            141.059,
+            140.866,
+            142.402,
+            141.776
+          ],
+          "median_ms": 141.059,
+          "min_ms": 139.038,
+          "max_ms": 142.402
+        },
+        "parametric_edit_recompute": {
+          "samples_ms": [
+            10.905,
+            10.987,
+            10.655,
+            11.144,
+            10.783
+          ],
+          "median_ms": 10.905,
+          "min_ms": 10.655,
+          "max_ms": 11.144
+        },
+        "full_recompute": {
+          "samples_ms": [
+            95.119,
+            99.481,
+            96.575,
+            98.424,
+            96.434
+          ],
+          "median_ms": 96.575,
+          "min_ms": 95.119,
+          "max_ms": 99.481
+        },
+        "save": {
+          "samples_ms": [
+            18.075,
+            18.188,
+            18.542,
+            18.627,
+            18.237
+          ],
+          "median_ms": 18.237,
+          "min_ms": 18.075,
+          "max_ms": 18.627
+        },
+        "reopen": {
+          "samples_ms": [
+            139.696,
+            141.898,
+            141.016,
+            139.825,
+            140.767
+          ],
+          "median_ms": 140.767,
+          "min_ms": 139.696,
+          "max_ms": 141.898
+        },
+        "adapter_process_overhead": {
+          "samples_ms": [
+            83.279,
+            94.271,
+            97.022,
+            93.047,
+            96.608
+          ],
+          "median_ms": 94.271,
+          "min_ms": 83.279,
+          "max_ms": 97.022
+        },
+        "peak_child_rss_mb": {
+          "max": 94.27,
+          "values": [
+            93.65,
+            87.34,
+            93.33,
+            87.2,
+            93.77,
+            87.18,
+            93.68,
+            87.37,
+            94.27,
+            87.33
+          ]
+        },
+        "boundary": "ENGINE timings measured inside the FreeCADCmd process (perf_counter around each engine call); the ADAPTER/process overhead is subprocess + JSON protocol cost measured parent-side (process wall minus in-engine sum)"
+      },
+      "medium": {
+        "tier": "medium",
+        "objects": 240,
+        "fcstd_size_bytes": 299768,
+        "engine_build_document_ms": 755.092,
+        "open": {
+          "samples_ms": [
+            200.731,
+            200.988,
+            200.807,
+            198.761,
+            200.948
+          ],
+          "median_ms": 200.807,
+          "min_ms": 198.761,
+          "max_ms": 200.988
+        },
+        "parametric_edit_recompute": {
+          "samples_ms": [
+            59.699,
+            60.551,
+            61.081,
+            59.871,
+            59.813
+          ],
+          "median_ms": 59.871,
+          "min_ms": 59.699,
+          "max_ms": 61.081
+        },
+        "full_recompute": {
+          "samples_ms": [
+            589.572,
+            601.179,
+            599.604,
+            624.391,
+            608.67
+          ],
+          "median_ms": 601.179,
+          "min_ms": 589.572,
+          "max_ms": 624.391
+        },
+        "save": {
+          "samples_ms": [
+            106.796,
+            106.26,
+            107.356,
+            106.318,
+            104.315
+          ],
+          "median_ms": 106.318,
+          "min_ms": 104.315,
+          "max_ms": 107.356
+        },
+        "reopen": {
+          "samples_ms": [
+            197.822,
+            200.216,
+            199.982,
+            203.738,
+            201.968
+          ],
+          "median_ms": 200.216,
+          "min_ms": 197.822,
+          "max_ms": 203.738
+        },
+        "adapter_process_overhead": {
+          "samples_ms": [
+            113.915,
+            105.234,
+            103.892,
+            102.298,
+            101.216
+          ],
+          "median_ms": 103.892,
+          "min_ms": 101.216,
+          "max_ms": 113.915
+        },
+        "peak_child_rss_mb": {
+          "max": 107.16,
+          "values": [
+            106.43,
+            100.41,
+            107.04,
+            98.65,
+            106.44,
+            100.16,
+            107.16,
+            98.36,
+            106.54,
+            98.76
+          ]
+        },
+        "boundary": "ENGINE timings measured inside the FreeCADCmd process (perf_counter around each engine call); the ADAPTER/process overhead is subprocess + JSON protocol cost measured parent-side (process wall minus in-engine sum)"
+      },
+      "large": {
+        "tier": "large",
+        "objects": 840,
+        "fcstd_size_bytes": 1042982,
+        "engine_build_document_ms": 2538.626,
+        "open": {
+          "samples_ms": [
+            428.672,
+            376.936
+          ],
+          "median_ms": 428.672,
+          "min_ms": 376.936,
+          "max_ms": 428.672
+        },
+        "parametric_edit_recompute": {
+          "samples_ms": [
+            124.294,
+            125.481
+          ],
+          "median_ms": 125.481,
+          "min_ms": 124.294,
+          "max_ms": 125.481
+        },
+        "full_recompute": {
+          "samples_ms": [
+            2338.588,
+            2168.463
+          ],
+          "median_ms": 2338.588,
+          "min_ms": 2168.463,
+          "max_ms": 2338.588
+        },
+        "save": {
+          "samples_ms": [
+            365.656,
+            376.129
+          ],
+          "median_ms": 376.129,
+          "min_ms": 365.656,
+          "max_ms": 376.129
+        },
+        "reopen": {
+          "samples_ms": [
+            378.048,
+            376.665
+          ],
+          "median_ms": 378.048,
+          "min_ms": 376.665,
+          "max_ms": 378.048
+        },
+        "adapter_process_overhead": {
+          "samples_ms": [
+            224.597,
+            166.817
+          ],
+          "median_ms": 224.597,
+          "min_ms": 166.817,
+          "max_ms": 224.597
+        },
+        "peak_child_rss_mb": {
+          "max": 146.39,
+          "values": [
+            146.39,
+            139.87,
+            145.98,
+            135.89
+          ]
+        },
+        "boundary": "ENGINE timings measured inside the FreeCADCmd process (perf_counter around each engine call); the ADAPTER/process overhead is subprocess + JSON protocol cost measured parent-side (process wall minus in-engine sum)"
+      }
+    }
+  },
+  "checks": [
+    {
+      "id": "freecad/cold-start-measured",
+      "description": "Application start/load (FreeCADCmd cold process startup) measured over 5 repeats with distribution.",
+      "status": "pass",
+      "epistemic": "OBSERVED",
+      "tolerance": null,
+      "details": {
+        "median_ms": 114.463,
+        "min_ms": 82.093,
+        "max_ms": 126.475
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "freecad/small/document-ops-measured",
+      "description": "FreeCAD document operations measured at small tier (40 objects, 51492 byte FCStd): open, selection query, parametric edit/recompute, full recompute, save, controlled reopen \u2014 with distributions and child peak RSS.",
+      "status": "pass",
+      "epistemic": "OBSERVED",
+      "tolerance": null,
+      "details": {
+        "open_ms_median": 141.059,
+        "parametric_edit_recompute_ms_median": 10.905,
+        "full_recompute_ms_median": 96.575,
+        "save_ms_median": 18.237,
+        "reopen_ms_median": 140.767,
+        "peak_child_rss_mb": 94.27
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "freecad/medium/document-ops-measured",
+      "description": "FreeCAD document operations measured at medium tier (240 objects, 299768 byte FCStd): open, selection query, parametric edit/recompute, full recompute, save, controlled reopen \u2014 with distributions and child peak RSS.",
+      "status": "pass",
+      "epistemic": "OBSERVED",
+      "tolerance": null,
+      "details": {
+        "open_ms_median": 200.807,
+        "parametric_edit_recompute_ms_median": 59.871,
+        "full_recompute_ms_median": 601.179,
+        "save_ms_median": 106.318,
+        "reopen_ms_median": 200.216,
+        "peak_child_rss_mb": 107.16
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "freecad/large/document-ops-measured",
+      "description": "FreeCAD document operations measured at large tier (840 objects, 1042982 byte FCStd): open, selection query, parametric edit/recompute, full recompute, save, controlled reopen \u2014 with distributions and child peak RSS.",
+      "status": "pass",
+      "epistemic": "OBSERVED",
+      "tolerance": null,
+      "details": {
+        "open_ms_median": 428.672,
+        "parametric_edit_recompute_ms_median": 125.481,
+        "full_recompute_ms_median": 2338.588,
+        "save_ms_median": 376.129,
+        "reopen_ms_median": 378.048,
+        "peak_child_rss_mb": 146.39
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "freecad/adapter-process-overhead-recorded",
+      "description": "Adapter/process overhead (subprocess + JSON protocol, parent-side) separated from in-engine operation time at every tier \u2014 the engine-vs-Offisos-translation separation for the FreeCAD path.",
+      "status": "pass",
+      "epistemic": "OBSERVED",
+      "tolerance": null,
+      "details": {
+        "small": {
+          "adapter_overhead_ms_median": 94.271,
+          "open_engine_ms_median": 141.059
+        },
+        "medium": {
+          "adapter_overhead_ms_median": 103.892,
+          "open_engine_ms_median": 200.807
+        },
+        "large": {
+          "adapter_overhead_ms_median": 224.597,
+          "open_engine_ms_median": 428.672
+        }
+      },
+      "evidence_refs": []
+    }
+  ]
+}

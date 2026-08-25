@@ -1,0 +1,5 @@
+__pycache__/
+.freecad/
+.work/
+evidence/ci-run/
+*.FCBak

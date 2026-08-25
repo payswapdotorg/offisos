@@ -1,0 +1,75 @@
+{
+  "benchmark": "bench-recommendation",
+  "description": "Run-level evidence-based recommendation synthesis.",
+  "started_at": "2026-08-25T11:20:01.900073+00:00",
+  "finished_at": "2026-08-25T11:20:01.900163+00:00",
+  "summary": {
+    "pass": 2,
+    "fail": 0,
+    "unknown": 0
+  },
+  "measurements": {
+    "recommendation": {
+      "recommendation": "b: candidate remains operationally viable with explicit constraints",
+      "basis": [
+        "All three fixture scales completed every scoped operation measured: IFC open/export/query, OCCT booleans/tessellation/STEP-IO, FreeCAD document lifecycle (cold start, build, open, parametric edit/recompute, save, reopen), semantic and quantity extraction.",
+        "No workload in this benchmark exceeded available resources: the largest tier (4,830 IfcProducts, ~109k STEP entities, 6.9MB) opens, extracts, and re-exports in sub-second to few-second times with bounded memory.",
+        "Measured operational constraints are REQUIRED, not optional: in-process cancellation is impossible (native calls are non-preemptable \u2014 measured); threads do not parallelize engine work (measured); engine calls must run in disposable subprocesses with wall-clock timeouts, SIGTERM->SIGKILL escalation, and per-worker RLIMIT_AS ceilings.",
+        "Malformed input, failed operations, corruption and interruption all fail typed and recoverable at the adapter boundary; the durable-write pattern preserves artifacts under mid-write crashes (measured).",
+        "Timing variance across repeated runs is recorded as distributions; deterministic operations (extraction, geometry) are byte/value-identical across repeats; IFC GlobalId instability is restated as explicit engine nondeterminism with domain ids canonical."
+      ],
+      "environment_comparability": "Absolute times are environment-specific (see environment.json comparability_note); cross-environment conclusions use ratios/orderings only.",
+      "totals": {
+        "pass": 81,
+        "fail": 0,
+        "unknown": 0
+      },
+      "constraints_detail": {
+        "process_model": "engine calls must run in disposable subprocesses (process-per-call or worker pool): (a) in-process cancellation is impossible (bench_cancellation), (b) threads do not parallelize native calls (this module), (c) parent must stay engine-free for isolation (this module)",
+        "memory": null,
+        "timeouts": "every engine invocation needs a wall-clock timeout enforced at the process boundary with SIGTERM->SIGKILL escalation (typed EngineTimeout measured in bench_cancellation)",
+        "rlimits": "per-worker RLIMIT_AS ceiling recommended: exhaustion is survivable and typed when enforced at the process boundary (measured in this module)",
+        "startup": null
+      }
+    }
+  },
+  "checks": [
+    {
+      "id": "recommendation/evidence-based",
+      "description": "Final recommendation per issue #5 acceptance criteria: (b) candidate remains operationally viable with explicit constraints \u2014 every constraint cited is bound to a measured check in this evidence run.",
+      "status": "pass",
+      "epistemic": "INFERRED",
+      "tolerance": null,
+      "details": {
+        "totals": {
+          "pass": 81,
+          "fail": 0,
+          "unknown": 0
+        },
+        "recommendation": "b: candidate remains operationally viable with explicit constraints"
+      },
+      "evidence_refs": [
+        "cancellation/in-process-non-preemptable",
+        "isolation/threads-do-not-parallelize-native-calls",
+        "isolation/resource-exhaustion-recorded",
+        "robustness/durable-write/original-intact-after-crash",
+        "determinism/extraction-result-byte-identical"
+      ]
+    },
+    {
+      "id": "recommendation/resource-exhaustion-scan",
+      "description": "Scan for workloads where the candidate exceeded available resources or became materially unstable: none at the exercised tier scales (largest tier stated); forced exhaustion under artificial RLIMIT_AS ceilings is recorded in both modes (256MB: typed ImportError; 1GB: hard SIGSEGV mid-allocation) with the parent isolated and surviving; the multi-tool boolean scaling cliff is recorded as a stress-boundary datum.",
+      "status": "pass",
+      "epistemic": "INFERRED",
+      "tolerance": null,
+      "details": {
+        "exhausted_at_exercised_scales": false,
+        "largest_tier": "large: 4,830 IfcProducts / ~109k entities / 6.9MB; OCCT 480-primitive chains; FreeCAD 630-object documents",
+        "forced_exhaustion_recorded": true
+      },
+      "evidence_refs": [
+        "isolation/resource-exhaustion-recorded"
+      ]
+    }
+  ]
+}

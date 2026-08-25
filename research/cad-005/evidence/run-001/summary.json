@@ -1,0 +1,101 @@
+{
+  "run_id": "run-001",
+  "generated_at": "2026-08-25T11:20:01.931683+00:00",
+  "total": {
+    "pass": 83,
+    "fail": 0,
+    "unknown": 0
+  },
+  "benchmarks": [
+    {
+      "benchmark": "bench-fixture",
+      "description": "Benchmark: fixture tiers and their documented characteristics.",
+      "summary": {
+        "pass": 9,
+        "fail": 0,
+        "unknown": 0
+      }
+    },
+    {
+      "benchmark": "bench-engine-ifc",
+      "description": "Benchmark: IFC engine operations scaling with engine/adapter separation.",
+      "summary": {
+        "pass": 11,
+        "fail": 0,
+        "unknown": 0
+      }
+    },
+    {
+      "benchmark": "bench-engine-occt",
+      "description": "Benchmark: OCCT geometry engine operations scaling.",
+      "summary": {
+        "pass": 15,
+        "fail": 0,
+        "unknown": 0
+      }
+    },
+    {
+      "benchmark": "bench-engine-freecad",
+      "description": "Benchmark: FreeCAD engine lifecycle and document operations scaling.",
+      "summary": {
+        "pass": 5,
+        "fail": 0,
+        "unknown": 0
+      }
+    },
+    {
+      "benchmark": "bench-extraction",
+      "description": "Benchmark: semantic and quantity extraction scaling.",
+      "summary": {
+        "pass": 7,
+        "fail": 0,
+        "unknown": 0
+      }
+    },
+    {
+      "benchmark": "bench-determinism",
+      "description": "Benchmark: repeated-run variance and determinism.",
+      "summary": {
+        "pass": 6,
+        "fail": 0,
+        "unknown": 0
+      }
+    },
+    {
+      "benchmark": "bench-robustness",
+      "description": "Benchmark: failure, recovery, and corruption detection.",
+      "summary": {
+        "pass": 17,
+        "fail": 0,
+        "unknown": 0
+      }
+    },
+    {
+      "benchmark": "bench-cancellation",
+      "description": "Benchmark: cancellation, interruption, and timeout behavior.",
+      "summary": {
+        "pass": 5,
+        "fail": 0,
+        "unknown": 0
+      }
+    },
+    {
+      "benchmark": "bench-isolation",
+      "description": "Benchmark: adapter operational behavior \u2014 isolation, global state,",
+      "summary": {
+        "pass": 6,
+        "fail": 0,
+        "unknown": 0
+      }
+    },
+    {
+      "benchmark": "bench-recommendation",
+      "description": "Run-level evidence-based recommendation synthesis.",
+      "summary": {
+        "pass": 2,
+        "fail": 0,
+        "unknown": 0
+      }
+    }
+  ]
+}

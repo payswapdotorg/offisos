@@ -1,0 +1,303 @@
+{
+  "benchmark": "bench-fixture",
+  "description": "Benchmark: fixture tiers and their documented characteristics.",
+  "started_at": "2026-08-25T11:14:46.458203+00:00",
+  "finished_at": "2026-08-25T11:15:40.809015+00:00",
+  "summary": {
+    "pass": 9,
+    "fail": 0,
+    "unknown": 0
+  },
+  "measurements": {
+    "ifc_small": {
+      "tier": "small",
+      "label": "small architectural model",
+      "path": "/home/z/offisos/research/cad-005/.work/fixtures/ifc-small.ifc",
+      "file_size_bytes": 55570,
+      "sha256": "c52cb743228d655468e08032d4689866720d94d63f434fdc43f9605672c732b7",
+      "step_entities": 948,
+      "products_total": 41,
+      "walls": 12,
+      "openings": 12,
+      "doors": 6,
+      "windows": 6,
+      "spaces": 4,
+      "slabs": 1,
+      "total_wall_length_m": 80.0,
+      "total_wall_gross_volume_m3": 72.0,
+      "schema": "IFC4"
+    },
+    "ifc_medium": {
+      "tier": "medium",
+      "label": "medium construction model",
+      "path": "/home/z/offisos/research/cad-005/.work/fixtures/ifc-medium.ifc",
+      "file_size_bytes": 324893,
+      "sha256": "81ac1c17c5e2ec8ef1d5535e6d5b856d814b398f042cf138f4c75b79ea3b09e9",
+      "step_entities": 5380,
+      "products_total": 237,
+      "walls": 72,
+      "openings": 72,
+      "doors": 36,
+      "windows": 36,
+      "spaces": 18,
+      "slabs": 3,
+      "total_wall_length_m": 240.0,
+      "total_wall_gross_volume_m3": 216.0,
+      "schema": "IFC4"
+    },
+    "ifc_large": {
+      "tier": "large",
+      "label": "larger stress model (anticipated professional use)",
+      "path": "/home/z/offisos/research/cad-005/.work/fixtures/ifc-large.ifc",
+      "file_size_bytes": 6880510,
+      "sha256": "1edec62b2d63f4ebf871c06bff0c812749e6cba56a6dabedde9df682c0678f6e",
+      "step_entities": 109036,
+      "products_total": 4830,
+      "walls": 1500,
+      "openings": 1500,
+      "doors": 750,
+      "windows": 750,
+      "spaces": 300,
+      "slabs": 30,
+      "total_wall_length_m": 2520.0,
+      "total_wall_gross_volume_m3": 2268.0,
+      "schema": "IFC4"
+    },
+    "scaling": {
+      "entity_ratio_medium_over_small": 5.68,
+      "entity_ratio_large_over_medium": 20.27,
+      "size_ratio_large_over_small": 123.82
+    },
+    "occt_tiers": {
+      "small": {
+        "tier": "small",
+        "primitives": 24,
+        "plate_holes": 25,
+        "cut_pairs": 12
+      },
+      "medium": {
+        "tier": "medium",
+        "primitives": 120,
+        "plate_holes": 100,
+        "cut_pairs": 60
+      },
+      "large": {
+        "tier": "large",
+        "primitives": 480,
+        "plate_holes": 400,
+        "cut_pairs": 200
+      }
+    },
+    "fcstd_tiers": {
+      "small": {
+        "tier": "small",
+        "wall_features": 20,
+        "opening_cut_features": 10,
+        "parametric_edit_features_per_run": 1
+      },
+      "medium": {
+        "tier": "medium",
+        "wall_features": 120,
+        "opening_cut_features": 60,
+        "parametric_edit_features_per_run": 6
+      },
+      "large": {
+        "tier": "large",
+        "wall_features": 420,
+        "opening_cut_features": 210,
+        "parametric_edit_features_per_run": 12
+      }
+    }
+  },
+  "checks": [
+    {
+      "id": "ifc/small/characteristics",
+      "description": "IFC small tier documented: 41 IfcProducts, 948 STEP entities, 12 walls, 55570 bytes.",
+      "status": "pass",
+      "epistemic": "OBSERVED",
+      "tolerance": null,
+      "details": {
+        "products": 41,
+        "step_entities": 948,
+        "walls": 12,
+        "doors": 6,
+        "windows": 6,
+        "spaces": 4,
+        "openings": 12,
+        "file_size_bytes": 55570,
+        "total_wall_length_m": 80.0,
+        "total_wall_gross_volume_m3": 72.0,
+        "sha256": "c52cb743228d655468e08032d4689866720d94d63f434fdc43f9605672c732b7"
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "ifc/medium/characteristics",
+      "description": "IFC medium tier documented: 237 IfcProducts, 5380 STEP entities, 72 walls, 324893 bytes.",
+      "status": "pass",
+      "epistemic": "OBSERVED",
+      "tolerance": null,
+      "details": {
+        "products": 237,
+        "step_entities": 5380,
+        "walls": 72,
+        "doors": 36,
+        "windows": 36,
+        "spaces": 18,
+        "openings": 72,
+        "file_size_bytes": 324893,
+        "total_wall_length_m": 240.0,
+        "total_wall_gross_volume_m3": 216.0,
+        "sha256": "81ac1c17c5e2ec8ef1d5535e6d5b856d814b398f042cf138f4c75b79ea3b09e9"
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "ifc/large/characteristics",
+      "description": "IFC large tier documented: 4830 IfcProducts, 109036 STEP entities, 1500 walls, 6880510 bytes.",
+      "status": "pass",
+      "epistemic": "OBSERVED",
+      "tolerance": null,
+      "details": {
+        "products": 4830,
+        "step_entities": 109036,
+        "walls": 1500,
+        "doors": 750,
+        "windows": 750,
+        "spaces": 300,
+        "openings": 1500,
+        "file_size_bytes": 6880510,
+        "total_wall_length_m": 2520.0,
+        "total_wall_gross_volume_m3": 2268.0,
+        "sha256": "1edec62b2d63f4ebf871c06bff0c812749e6cba56a6dabedde9df682c0678f6e"
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "ifc/tiers/increasing",
+      "description": "IFC fixture entity and geometry counts increase across the three scales (small < medium < large).",
+      "status": "pass",
+      "epistemic": "CALCULATED",
+      "tolerance": null,
+      "details": {
+        "step_entities": [
+          948,
+          5380,
+          109036
+        ],
+        "walls": [
+          12,
+          72,
+          1500
+        ],
+        "file_size_bytes": [
+          55570,
+          324893,
+          6880510
+        ]
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "ifc/small/structural_determinism",
+      "description": "Rebuilding the small fixture reproduces identical structure (entity counts, element counts, geometric totals).",
+      "status": "pass",
+      "epistemic": "OBSERVED",
+      "tolerance": null,
+      "details": {
+        "structurally_equal": true,
+        "byte_identical": false,
+        "sha256_first": "c52cb743228d655468e08032d4689866720d94d63f434fdc43f9605672c732b7",
+        "sha256_second": "632833529c1891ac48d5bb83ea9fecaf0410239461ef5d533e601bf004d465f5",
+        "note": "Byte-identity is not expected: IFC GlobalIds are regenerated per build (CAD-001 finding; engine nondeterminism restated as an explicit datum)."
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "ifc/medium/structural_determinism",
+      "description": "Rebuilding the medium fixture reproduces identical structure (entity counts, element counts, geometric totals).",
+      "status": "pass",
+      "epistemic": "OBSERVED",
+      "tolerance": null,
+      "details": {
+        "structurally_equal": true,
+        "byte_identical": false,
+        "sha256_first": "81ac1c17c5e2ec8ef1d5535e6d5b856d814b398f042cf138f4c75b79ea3b09e9",
+        "sha256_second": "ba9acd81bd9dd2e0026527c6af204e409c65d98d8b4492ff39f7e6f599d6a52a",
+        "note": "Byte-identity is not expected: IFC GlobalIds are regenerated per build (CAD-001 finding; engine nondeterminism restated as an explicit datum)."
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "ifc/large/structural_determinism",
+      "description": "Rebuilding the large fixture reproduces identical structure (entity counts, element counts, geometric totals).",
+      "status": "pass",
+      "epistemic": "OBSERVED",
+      "tolerance": null,
+      "details": {
+        "structurally_equal": true,
+        "byte_identical": false,
+        "sha256_first": "1edec62b2d63f4ebf871c06bff0c812749e6cba56a6dabedde9df682c0678f6e",
+        "sha256_second": "e3c0c19366b73038a0a2868466be1dc237a5d8d4b34816eee91a4dda88039dfb",
+        "note": "Byte-identity is not expected: IFC GlobalIds are regenerated per build (CAD-001 finding; engine nondeterminism restated as an explicit datum)."
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "occt/tiers/increasing",
+      "description": "OCCT workload tiers increase across the three scales (primitives, plate holes, boolean chain length).",
+      "status": "pass",
+      "epistemic": "CALCULATED",
+      "tolerance": null,
+      "details": {
+        "small": {
+          "tier": "small",
+          "primitives": 24,
+          "plate_holes": 25,
+          "cut_pairs": 12
+        },
+        "medium": {
+          "tier": "medium",
+          "primitives": 120,
+          "plate_holes": 100,
+          "cut_pairs": 60
+        },
+        "large": {
+          "tier": "large",
+          "primitives": 480,
+          "plate_holes": 400,
+          "cut_pairs": 200
+        }
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "fcstd/tiers/increasing",
+      "description": "FreeCAD FCStd workload tiers increase across the three scales (wall features, parametric cut features).",
+      "status": "pass",
+      "epistemic": "CALCULATED",
+      "tolerance": null,
+      "details": {
+        "small": {
+          "tier": "small",
+          "wall_features": 20,
+          "opening_cut_features": 10,
+          "parametric_edit_features_per_run": 1
+        },
+        "medium": {
+          "tier": "medium",
+          "wall_features": 120,
+          "opening_cut_features": 60,
+          "parametric_edit_features_per_run": 6
+        },
+        "large": {
+          "tier": "large",
+          "wall_features": 420,
+          "opening_cut_features": 210,
+          "parametric_edit_features_per_run": 12
+        }
+      },
+      "evidence_refs": []
+    }
+  ]
+}

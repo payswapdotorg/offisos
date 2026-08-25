@@ -1,0 +1,660 @@
+{
+  "benchmark": "bench-engine-ifc",
+  "description": "Benchmark: IFC engine operations scaling with engine/adapter separation.",
+  "started_at": "2026-08-25T11:15:40.818514+00:00",
+  "finished_at": "2026-08-25T11:15:49.738919+00:00",
+  "summary": {
+    "pass": 11,
+    "fail": 0,
+    "unknown": 0
+  },
+  "measurements": {
+    "ifc_open": {
+      "small": {
+        "operation": "ifc_open[small]",
+        "boundary": "ENGINE = ifcopenshell.open (STEP parse + entity graph); ADAPTER = Offisos domain-index extraction (identity psets, class mapping, provenance)",
+        "repeats": 5,
+        "actual_repeats": 5,
+        "engine_ms": {
+          "min": 7.05,
+          "median": 7.707,
+          "mean": 8.64,
+          "max": 12.175,
+          "stdev": 2.086,
+          "samples": [
+            12.175,
+            7.05,
+            7.426,
+            8.844,
+            7.707
+          ]
+        },
+        "adapter_ms": {
+          "min": 6.117,
+          "median": 6.59,
+          "mean": 6.759,
+          "max": 7.874,
+          "stdev": 0.661,
+          "samples": [
+            7.874,
+            6.117,
+            6.508,
+            6.59,
+            6.707
+          ]
+        },
+        "total_ms": {
+          "min": 13.167,
+          "median": 14.413,
+          "mean": 15.4,
+          "max": 20.049,
+          "stdev": 2.726,
+          "samples": [
+            20.049,
+            13.167,
+            13.934,
+            15.435,
+            14.413
+          ]
+        },
+        "adapter_share_of_total_median": 0.4572,
+        "tier": "small",
+        "elements": 41,
+        "file_size_bytes": 55570
+      },
+      "medium": {
+        "operation": "ifc_open[medium]",
+        "boundary": "ENGINE = ifcopenshell.open (STEP parse + entity graph); ADAPTER = Offisos domain-index extraction (identity psets, class mapping, provenance)",
+        "repeats": 5,
+        "actual_repeats": 5,
+        "engine_ms": {
+          "min": 37.812,
+          "median": 45.787,
+          "mean": 44.749,
+          "max": 48.468,
+          "stdev": 4.062,
+          "samples": [
+            37.812,
+            46.39,
+            45.787,
+            45.29,
+            48.468
+          ]
+        },
+        "adapter_ms": {
+          "min": 26.483,
+          "median": 29.598,
+          "mean": 29.894,
+          "max": 34.474,
+          "stdev": 2.996,
+          "samples": [
+            26.483,
+            30.644,
+            29.598,
+            34.474,
+            28.268
+          ]
+        },
+        "total_ms": {
+          "min": 64.295,
+          "median": 76.736,
+          "mean": 74.643,
+          "max": 79.764,
+          "stdev": 5.999,
+          "samples": [
+            64.295,
+            77.034,
+            75.385,
+            79.764,
+            76.736
+          ]
+        },
+        "adapter_share_of_total_median": 0.3857,
+        "tier": "medium",
+        "elements": 237,
+        "file_size_bytes": 324893
+      },
+      "large": {
+        "operation": "ifc_open[large]",
+        "boundary": "ENGINE = ifcopenshell.open (STEP parse + entity graph); ADAPTER = Offisos domain-index extraction (identity psets, class mapping, provenance)",
+        "repeats": 2,
+        "actual_repeats": 2,
+        "engine_ms": {
+          "min": 595.591,
+          "median": 695.393,
+          "mean": 695.393,
+          "max": 795.195,
+          "stdev": 141.141,
+          "samples": [
+            595.591,
+            795.195
+          ]
+        },
+        "adapter_ms": {
+          "min": 522.845,
+          "median": 537.158,
+          "mean": 537.158,
+          "max": 551.471,
+          "stdev": 20.241,
+          "samples": [
+            522.845,
+            551.471
+          ]
+        },
+        "total_ms": {
+          "min": 1118.437,
+          "median": 1232.551,
+          "mean": 1232.551,
+          "max": 1346.666,
+          "stdev": 161.382,
+          "samples": [
+            1118.437,
+            1346.666
+          ]
+        },
+        "adapter_share_of_total_median": 0.4358,
+        "tier": "large",
+        "elements": 4830,
+        "file_size_bytes": 6880510
+      }
+    },
+    "ifc_export": {
+      "small": {
+        "operation": "ifc_export_translation[small]",
+        "boundary": "ENGINE = reopen source file (parse for mutation); ADAPTER = controlled mutation application with lineage records (5 edits)",
+        "repeats": 5,
+        "actual_repeats": 5,
+        "engine_ms": {
+          "min": 6.676,
+          "median": 7.298,
+          "mean": 7.265,
+          "max": 7.913,
+          "stdev": 0.509,
+          "samples": [
+            7.913,
+            7.583,
+            7.298,
+            6.855,
+            6.676
+          ]
+        },
+        "adapter_ms": {
+          "min": 2.625,
+          "median": 4.144,
+          "mean": 3.863,
+          "max": 4.456,
+          "stdev": 0.72,
+          "samples": [
+            2.625,
+            4.456,
+            4.191,
+            3.9,
+            4.144
+          ]
+        },
+        "total_ms": {
+          "min": 10.538,
+          "median": 10.821,
+          "mean": 11.128,
+          "max": 12.038,
+          "stdev": 0.621,
+          "samples": [
+            10.538,
+            12.038,
+            11.49,
+            10.755,
+            10.821
+          ]
+        },
+        "adapter_share_of_total_median": 0.383,
+        "tier": "small",
+        "mutations": 5,
+        "engine_serialize_ms_single": 3.631,
+        "output_file_size_bytes": 55575
+      },
+      "medium": {
+        "operation": "ifc_export_translation[medium]",
+        "boundary": "ENGINE = reopen source file (parse for mutation); ADAPTER = controlled mutation application with lineage records (23 edits)",
+        "repeats": 5,
+        "actual_repeats": 5,
+        "engine_ms": {
+          "min": 35.832,
+          "median": 42.261,
+          "mean": 41.811,
+          "max": 45.391,
+          "stdev": 3.623,
+          "samples": [
+            35.832,
+            41.829,
+            45.391,
+            42.261,
+            43.744
+          ]
+        },
+        "adapter_ms": {
+          "min": 11.973,
+          "median": 13.78,
+          "mean": 13.968,
+          "max": 15.278,
+          "stdev": 1.369,
+          "samples": [
+            11.973,
+            15.235,
+            13.78,
+            15.278,
+            13.573
+          ]
+        },
+        "total_ms": {
+          "min": 47.805,
+          "median": 57.316,
+          "mean": 55.779,
+          "max": 59.17,
+          "stdev": 4.533,
+          "samples": [
+            47.805,
+            57.063,
+            59.17,
+            57.539,
+            57.316
+          ]
+        },
+        "adapter_share_of_total_median": 0.2404,
+        "tier": "medium",
+        "mutations": 23,
+        "engine_serialize_ms_single": 31.492,
+        "output_file_size_bytes": 324916
+      },
+      "large": {
+        "operation": "ifc_export_translation[large]",
+        "boundary": "ENGINE = reopen source file (parse for mutation); ADAPTER = controlled mutation application with lineage records (100 edits)",
+        "repeats": 2,
+        "actual_repeats": 2,
+        "engine_ms": {
+          "min": 592.716,
+          "median": 690.319,
+          "mean": 690.319,
+          "max": 787.923,
+          "stdev": 138.032,
+          "samples": [
+            592.716,
+            787.923
+          ]
+        },
+        "adapter_ms": {
+          "min": 69.924,
+          "median": 83.214,
+          "mean": 83.214,
+          "max": 96.505,
+          "stdev": 18.796,
+          "samples": [
+            69.924,
+            96.505
+          ]
+        },
+        "total_ms": {
+          "min": 662.64,
+          "median": 773.534,
+          "mean": 773.534,
+          "max": 884.428,
+          "stdev": 156.828,
+          "samples": [
+            662.64,
+            884.428
+          ]
+        },
+        "adapter_share_of_total_median": 0.1076,
+        "tier": "large",
+        "mutations": 100,
+        "engine_serialize_ms_single": 350.359,
+        "output_file_size_bytes": 6880610
+      }
+    },
+    "ifc_query": {
+      "small": {
+        "operation": "ifc_query[small]",
+        "boundary": "ENGINE = by_type(IfcWall) + by_guid lookup + attribute reads over all elements; ADAPTER = domain-id keyed consumer index build from the query result",
+        "repeats": 5,
+        "actual_repeats": 5,
+        "engine_ms": {
+          "min": 0.013,
+          "median": 0.017,
+          "mean": 0.021,
+          "max": 0.04,
+          "stdev": 0.011,
+          "samples": [
+            0.04,
+            0.022,
+            0.013,
+            0.017,
+            0.013
+          ]
+        },
+        "adapter_ms": {
+          "min": 0.063,
+          "median": 0.064,
+          "mean": 0.068,
+          "max": 0.077,
+          "stdev": 0.006,
+          "samples": [
+            0.077,
+            0.064,
+            0.072,
+            0.063,
+            0.063
+          ]
+        },
+        "total_ms": {
+          "min": 0.076,
+          "median": 0.085,
+          "mean": 0.089,
+          "max": 0.117,
+          "stdev": 0.016,
+          "samples": [
+            0.117,
+            0.086,
+            0.085,
+            0.081,
+            0.076
+          ]
+        },
+        "adapter_share_of_total_median": 0.7529,
+        "tier": "small",
+        "walls_queried": 12,
+        "query_throughput_walls_per_s": 102162.4
+      },
+      "medium": {
+        "operation": "ifc_query[medium]",
+        "boundary": "ENGINE = by_type(IfcWall) + by_guid lookup + attribute reads over all elements; ADAPTER = domain-id keyed consumer index build from the query result",
+        "repeats": 5,
+        "actual_repeats": 5,
+        "engine_ms": {
+          "min": 0.061,
+          "median": 0.086,
+          "mean": 0.079,
+          "max": 0.095,
+          "stdev": 0.016,
+          "samples": [
+            0.09,
+            0.095,
+            0.086,
+            0.063,
+            0.061
+          ]
+        },
+        "adapter_ms": {
+          "min": 0.378,
+          "median": 0.422,
+          "mean": 0.949,
+          "max": 1.939,
+          "stdev": 0.769,
+          "samples": [
+            1.939,
+            1.624,
+            0.422,
+            0.378,
+            0.38
+          ]
+        },
+        "total_ms": {
+          "min": 0.44,
+          "median": 0.508,
+          "mean": 1.027,
+          "max": 2.029,
+          "stdev": 0.781,
+          "samples": [
+            2.029,
+            1.719,
+            0.508,
+            0.44,
+            0.441
+          ]
+        },
+        "adapter_share_of_total_median": 0.8307,
+        "tier": "medium",
+        "walls_queried": 72,
+        "query_throughput_walls_per_s": 35485.6
+      },
+      "large": {
+        "operation": "ifc_query[large]",
+        "boundary": "ENGINE = by_type(IfcWall) + by_guid lookup + attribute reads over all elements; ADAPTER = domain-id keyed consumer index build from the query result",
+        "repeats": 2,
+        "actual_repeats": 2,
+        "engine_ms": {
+          "min": 1.313,
+          "median": 10.67,
+          "mean": 10.67,
+          "max": 20.026,
+          "stdev": 13.232,
+          "samples": [
+            20.026,
+            1.313
+          ]
+        },
+        "adapter_ms": {
+          "min": 9.222,
+          "median": 9.377,
+          "mean": 9.377,
+          "max": 9.533,
+          "stdev": 0.22,
+          "samples": [
+            9.533,
+            9.222
+          ]
+        },
+        "total_ms": {
+          "min": 10.535,
+          "median": 20.047,
+          "mean": 20.047,
+          "max": 29.559,
+          "stdev": 13.452,
+          "samples": [
+            29.559,
+            10.535
+          ]
+        },
+        "adapter_share_of_total_median": 0.4678,
+        "tier": "large",
+        "walls_queried": 1500,
+        "query_throughput_walls_per_s": 50745.4
+      }
+    },
+    "ifc_memory": {
+      "small": {
+        "hwm_before_mb": 508.71,
+        "hwm_after_mb": 508.71,
+        "hwm_growth_mb": 0.0,
+        "rss_before_mb": 508.71,
+        "rss_after_mb": 508.71,
+        "semantics": "VmHWM is a process-lifetime monotonic high-water mark; hwm_growth is the additional peak grown by the phase, not a phase-local peak",
+        "elements": 41,
+        "serialized_index_bytes": 8484
+      },
+      "medium": {
+        "hwm_before_mb": 508.71,
+        "hwm_after_mb": 508.71,
+        "hwm_growth_mb": 0.0,
+        "rss_before_mb": 508.71,
+        "rss_after_mb": 508.71,
+        "semantics": "VmHWM is a process-lifetime monotonic high-water mark; hwm_growth is the additional peak grown by the phase, not a phase-local peak",
+        "elements": 237,
+        "serialized_index_bytes": 49486
+      },
+      "large": {
+        "hwm_before_mb": 592.46,
+        "hwm_after_mb": 636.36,
+        "hwm_growth_mb": 43.9,
+        "rss_before_mb": 583.2,
+        "rss_after_mb": 636.36,
+        "semantics": "VmHWM is a process-lifetime monotonic high-water mark; hwm_growth is the additional peak grown by the phase, not a phase-local peak",
+        "elements": 4830,
+        "serialized_index_bytes": 1003771
+      }
+    },
+    "ifc_open_per_element_ms": {
+      "small": 0.3515,
+      "medium": 0.3238,
+      "large": 0.2552
+    }
+  },
+  "checks": [
+    {
+      "id": "ifc-open/small/measured",
+      "description": "IFC open measured for small tier with engine/adapter split, median + distribution over 5 repeats.",
+      "status": "pass",
+      "epistemic": "OBSERVED",
+      "tolerance": null,
+      "details": {
+        "engine_ms_median": 7.707,
+        "adapter_ms_median": 6.59,
+        "adapter_share": 0.4572,
+        "elements": 41
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "ifc-open/medium/measured",
+      "description": "IFC open measured for medium tier with engine/adapter split, median + distribution over 5 repeats.",
+      "status": "pass",
+      "epistemic": "OBSERVED",
+      "tolerance": null,
+      "details": {
+        "engine_ms_median": 45.787,
+        "adapter_ms_median": 29.598,
+        "adapter_share": 0.3857,
+        "elements": 237
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "ifc-open/large/measured",
+      "description": "IFC open measured for large tier with engine/adapter split, median + distribution over 2 repeats.",
+      "status": "pass",
+      "epistemic": "OBSERVED",
+      "tolerance": null,
+      "details": {
+        "engine_ms_median": 695.393,
+        "adapter_ms_median": 537.158,
+        "adapter_share": 0.4358,
+        "elements": 4830
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "ifc-open/per-element-cost-recorded",
+      "description": "Per-element open cost (median total / element count) recorded for all tiers \u2014 the scaling currency for cross-environment comparison.",
+      "status": "pass",
+      "epistemic": "CALCULATED",
+      "tolerance": null,
+      "details": {
+        "small": 0.3515,
+        "medium": 0.3238,
+        "large": 0.2552
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "ifc-export/small/measured",
+      "description": "IFC controlled export measured for small: adapter mutation+lineage time, engine serialization time, output size.",
+      "status": "pass",
+      "epistemic": "OBSERVED",
+      "tolerance": null,
+      "details": {
+        "adapter_mutation_ms_median": 4.144,
+        "engine_serialize_ms": 3.631,
+        "output_file_size_bytes": 55575,
+        "mutations": 5
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "ifc-export/medium/measured",
+      "description": "IFC controlled export measured for medium: adapter mutation+lineage time, engine serialization time, output size.",
+      "status": "pass",
+      "epistemic": "OBSERVED",
+      "tolerance": null,
+      "details": {
+        "adapter_mutation_ms_median": 13.78,
+        "engine_serialize_ms": 31.492,
+        "output_file_size_bytes": 324916,
+        "mutations": 23
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "ifc-export/large/measured",
+      "description": "IFC controlled export measured for large: adapter mutation+lineage time, engine serialization time, output size.",
+      "status": "pass",
+      "epistemic": "OBSERVED",
+      "tolerance": null,
+      "details": {
+        "adapter_mutation_ms_median": 83.214,
+        "engine_serialize_ms": 350.359,
+        "output_file_size_bytes": 6880610,
+        "mutations": 100
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "ifc-query/small/measured",
+      "description": "Selection/query measured for small (engine lookups vs adapter consumer index) with throughput.",
+      "status": "pass",
+      "epistemic": "OBSERVED",
+      "tolerance": null,
+      "details": {
+        "engine_ms_median": 0.017,
+        "walls": 12,
+        "throughput": 102162.4
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "ifc-query/medium/measured",
+      "description": "Selection/query measured for medium (engine lookups vs adapter consumer index) with throughput.",
+      "status": "pass",
+      "epistemic": "OBSERVED",
+      "tolerance": null,
+      "details": {
+        "engine_ms_median": 0.086,
+        "walls": 72,
+        "throughput": 35485.6
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "ifc-query/large/measured",
+      "description": "Selection/query measured for large (engine lookups vs adapter consumer index) with throughput.",
+      "status": "pass",
+      "epistemic": "OBSERVED",
+      "tolerance": null,
+      "details": {
+        "engine_ms_median": 10.67,
+        "walls": 1500,
+        "throughput": 50745.4
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "ifc/memory-recorded",
+      "description": "Peak resident memory (VmHWM growth) recorded for the open+index+serialize phase at every tier, with semantics documented.",
+      "status": "pass",
+      "epistemic": "OBSERVED",
+      "tolerance": null,
+      "details": {
+        "small": {
+          "hwm_growth_mb": 0.0,
+          "rss_after_mb": 508.71
+        },
+        "medium": {
+          "hwm_growth_mb": 0.0,
+          "rss_after_mb": 508.71
+        },
+        "large": {
+          "hwm_growth_mb": 43.9,
+          "rss_after_mb": 636.36
+        }
+      },
+      "evidence_refs": []
+    }
+  ]
+}
