@@ -52,7 +52,7 @@
     "Representative workloads compared across at least three fixture scales.",
     "Clear statement where measurements are not comparable because of different execution environments."
   ],
-  "state": "PR_OPEN",
+  "state": "VERIFYING",
   "transitions": [
     {
       "from": "DRAFT",
@@ -99,6 +99,22 @@
           "EV-002"
         ]
       }
+    },
+    {
+      "from": "PR_OPEN",
+      "to": "VERIFYING",
+      "at": "2026-08-25T11:40:00Z",
+      "actor": "z-ai-implementation-agent",
+      "role": "implementer",
+      "reason": "Evidence package submitted for Architect review on PR #22: local full run 83/0/0 (EV-001), deterministic gate 21/21 (EV-002), CI reproduction on a different execution environment with the identical 83/0/0 result and artifact upload (EV-003). Governance CI on the PR head: tests 58/58 and typecheck green; the validate step carries exactly the one documented dependency-gate failure (CAD-004 MERGED at 93c5211) whose resolution is the Architect's post-merge verification decision. VERIFIED is not claimed.",
+      "references": {
+        "pr": 22,
+        "evidence": [
+          "EV-001",
+          "EV-002",
+          "EV-003"
+        ]
+      }
     }
   ],
   "evidence": [
@@ -123,6 +139,18 @@
       "reproduction": "cd research/cad-005 && make test (requires the pinned toolchain; FreeCAD-dependent tests run when FreeCADCmd is available — CI installs the pinned AppImage)",
       "references": {
         "path": "research/cad-005/tests/test_benchmark_suite.py"
+      }
+    },
+    {
+      "id": "EV-003",
+      "type": "ci-run",
+      "description": "CI reproduction of the full evidence package on PR #22 head 46f32e2: research-cad-005 workflow run #3 (https://github.com/pectoraux/offisos/actions/runs/32842514248, completed 2026-08-25T11:35:08Z, success) — pinned toolchain + FreeCAD 1.1.3 AppImage installed on ubuntu-latest, deterministic suite 21/21 in 8.1s, full benchmark evidence run reproduced on the different execution environment with the identical result TOTAL: pass=83 fail=0 unknown=0, artifact uploaded. Governance workflow run #37 (https://github.com/pectoraux/offisos/actions/runs/32842514281) on the same head: typecheck + 58/58 tests green; the validate step reports exactly the one documented dependency-gate failure (RESEARCH-CAD-004 MERGED at 93c5211, VERIFIED reserved for the Architect) — the expected-red pattern with the attributable message verified in the CI logs.",
+      "produced_at": "2026-08-25T11:35:08Z",
+      "reproducible": true,
+      "reproduction": "Inspect runs 32842514248 and 32842514281 on PR #22 head 46f32e2, or checkout 46f32e2 and run: cd research/cad-005 && make test && make bench",
+      "references": {
+        "workflow_run": "research-cad-005 #3 (32842514248) + governance #37 (32842514281) on 46f32e2",
+        "commit": "46f32e2"
       }
     }
   ],
