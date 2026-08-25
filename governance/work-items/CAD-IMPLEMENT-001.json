@@ -1,0 +1,113 @@
+{
+  "id": "CAD-IMPLEMENT-001",
+  "title": "Build shared CAD/BIM application shell (Web + Electron)",
+  "issue": 24,
+  "objective": "Deliver the first production implementation work item for the CAD/BIM application: the shared application shell that proves the frozen Architecture v1.1 CAD/BIM client topology (ACR-002, §5.3). The shell implements the shared renderer/editor core, the Web Host and Electron Host, the CAD/BIM App API (semantic command/query contract v1), the CADDocument model (versioned working representation, §5.4), and the adapter boundary with a dummy engine/file adapter as the boundary test double. The implementation follows the Issue #24 build order: Shared Renderer -> Web Host -> Electron Host -> CAD/BIM App API -> CADDocument -> Adapter Boundary. The first PR must prove Web/Electron parity, document serialization/versioning, transport independence, dummy-adapter operation, undo/redo, CI reproducibility, and the absence of engine-specific coupling (LOCK-018). This work item does NOT integrate production CAD/BIM engines (FreeCAD/OCCT/IfcOpenShell) — those are a future work item behind the proven adapter boundary — and does NOT alter Architecture v1.1 (FROZEN).",
+  "architecture_version": "1.1",
+  "requirements": [
+    "WORKSPACE-001",
+    "WORKSPACE-002",
+    "CAD-001",
+    "CAD-002",
+    "BIM-001",
+    "BIM-002",
+    "IFC-001"
+  ],
+  "dependencies": [
+    "ARCH-WF-001"
+  ],
+  "acceptance_criteria": [
+    "Web and Electron hosts prove parity: the same semantic command/query sequence through the Web Host and the Electron Host yields identical CADDocument content (LOCK-017, §5.5).",
+    "Document serialization/versioning: canonical JSON round-trip preserves identity; the version chain satisfies data-model.md §2 (entity_id, version_id, version_number, parent_version_id, created_at, created_by, source_snapshot_id, status) and is reconstructable via parent_version_id (LOCK-005).",
+    "Transport independence: the renderer talks to hosts ONLY through the Transport contract; the wire command/query contract is versioned (v1) and survives a JSON serialization boundary losslessly (§5.5, api-contract.md §1/§8).",
+    "Dummy-adapter operation: an end-to-end open -> applyEdit -> serialize -> undo -> redo -> verify workflow runs entirely against the in-memory dummy EngineAdapterBundle, with no FreeCAD/OCCT/IfcOpenShell import anywhere in the dependency graph (LOCK-003/018).",
+    "Undo/redo: the CADDocument model implements command-log + inverse semantics for addElement, removeElement, updateElement and setProps; undo reverts content and version, redo restores the child version; a new execute after undo clears the redo stack (§5.4, §15).",
+    "CI reproducibility: the deterministic test suite and canonical-serialization hashes are reproducible; two fresh handler instances given the same command sequence produce identical content hashes (LOCK-004/005).",
+    "No engine-specific coupling: a static check asserts that no source file under src/contracts, src/renderer, src/app-api or src/caddocument imports Electron, browser UI, FreeCAD, OpenCascade or IfcOpenShell (LOCK-018, §5.5)."
+  ],
+  "non_goals": [
+    "No production CAD/BIM engine integration (FreeCAD/OCCT/IfcOpenShell) — a future work item behind the proven adapter boundary; this work item proves the boundary with the dummy adapter only.",
+    "No Construction Graph integration — CADDocument is the editor's working representation, not the canonical project/asset system of record (LOCK-019, §5.4); Graph mapping is a separate work item.",
+    "No legal/composition approval — that is LICENSE-001's decision; RESEARCH-CAD-006 feeds it and continues separately.",
+    "No production packaging change — out of scope per Issue #24; the Electron runtime bootstrap (require('electron')) is deferred to a packaging work item.",
+    "No architecture change — Architecture v1.1 remains FROZEN; no protected path is touched."
+  ],
+  "risk_assumptions": [
+    "REAL-ENGINE INTEGRATION DEFERRED: CAD-IMPLEMENT-001 proves the adapter boundary with the in-memory dummy adapter (src/adapters/dummy). Production engines (FreeCAD/OCCT/IfcOpenShell) are a future work item behind the EngineAdapterBundle contract and are NOT imported by this work item; the dummy adapter carries the ADAPTER_BOUNDARY_MARK and satisfies the same interface (LOCK-003: a replacement engine must not require renderer or CADDocument redesign).",
+    "CAD-006 CONTINUES SEPARATELY: RESEARCH-CAD-006 (exact-version licensing/composition evidence) is not a hard dependency of CAD-IMPLEMENT-001; this work item builds against the frozen Architecture v1.1, not against CAD-006's research output. CAD-007 (the final CAD/BIM feasibility gate: adapter boundary, replacement path, existential end-to-end workflow) remains untouched until CAD-006 is VERIFIED, per the execution directive.",
+    "ELECTRON BOOTSTRAP DEFERRED: the host layer + Transport contract are proven by test/host-parity.test.ts (same sequence through WebHost+WebSocketTransport and ElectronHost+IpcTransport yields identical content). The actual require('electron') main-process bootstrap (BrowserWindow loading the renderer bundle, native IPC channel wiring) is deferred to a packaging work item; src/host-electron/main.ts documents the integration point and is intentionally not wired to the Electron runtime so the host layer remains testable without it installed.",
+    "CONSTRUCTION GRAPH DEFERRED: CADDocument identity is editor/file identity, not Construction Graph identity (LOCK-019, §5.4). The mapping from CADDocument model versions to Construction Graph entities through explicit versioned contracts/events is a separate work item; CAD-IMPLEMENT-001 does not claim Graph authority.",
+    "SPEC DIVERGENCE: spec/work-items.md defines PLATFORM-006 ('Unified application shell', dependencies PLATFORM-002/COMPAT-SHEET-001/COMPAT-DOC-001/COMPAT-CAD-001/COMPAT-PM-001) as the closest frozen ancestor of this work item. CAD-IMPLEMENT-001 is defined by Issue #24 as a new production-implementation track (CAD-IMPLEMENT-*) scoped to the CAD/BIM shell specifically; the implementer follows Issue #24 and flags the divergence (same superseded-wording pattern as RESEARCH-CAD-001..006, where the GitHub Issue redefines the work item).",
+    "WIRE BINARY FORM: the command/query contract is JSON (api-contract.md); binary file sources travel as a JSON array of numbers (number[]), not as a Uint8Array, because Uint8Array is not JSON-native. The App API handler normalizes number[] -> Uint8Array for the file adapter; a production transport may use binary frames, but the contract semantics are unchanged.",
+    "Architecture version: this record targets v1.1 (active, FROZEN) per the execution directive ('Architecture v1.1 remains frozen').",
+    "Dependency gate: this work item depends on ARCH-WF-001 (VERIFIED — the governance foundation, state machine and validator). The real-engine work item (future) will additionally depend on the VERIFIED CAD research gates; CAD-IMPLEMENT-001 does not, because it does not exercise the engines."
+  ],
+  "evidence_requirements": [
+    "Deterministic automated test suite proving all seven acceptance criteria above, reproducible from the committed source with no network access.",
+    "Canonical serialization + version-chain + undo/redo evidence bound to the implementation revision.",
+    "Web/Electron parity evidence (same sequence -> identical content hash) bound to the implementation revision.",
+    "Dummy-adapter end-to-end evidence (open -> edit -> serialize -> undo -> redo -> verify) with no engine imports.",
+    "Forbidden-import static check evidence (LOCK-018) bound to the implementation revision.",
+    "CI workflow reproducing the local evidence on a different execution environment (ubuntu-latest).",
+    "No claim of VERIFIED; the implementer produces evidence and submits for Architect review (LOCK-004: implementation status is not evidence)."
+  ],
+  "state": "IMPLEMENTING",
+  "transitions": [
+    {
+      "from": "DRAFT",
+      "to": "READY",
+      "at": "2026-08-25T20:00:00Z",
+      "actor": "pectoraux",
+      "role": "architect",
+      "reason": "Architect execution directive on Issue #24: the first production implementation work item CAD-IMPLEMENT-001 is now live — build the shared CAD/BIM application shell (Web + Electron) per Architecture v1.1 (FROZEN). The implementation starts with the build order Shared Renderer -> Web Host -> Electron Host -> CAD/BIM App API -> CADDocument -> Adapter Boundary. The first PR must prove Web/Electron parity, document serialization/versioning, transport independence, dummy-adapter operation, undo/redo, CI reproducibility, and no engine-specific coupling. Architecture v1.1 remains frozen; CAD-006 licensing research continues separately; CAD-007 remains untouched until CAD-006 is verified.",
+      "references": {
+        "issue": 24
+      }
+    },
+    {
+      "from": "READY",
+      "to": "ASSIGNED",
+      "at": "2026-08-25T20:00:00Z",
+      "actor": "pectoraux",
+      "role": "product-owner",
+      "reason": "Execution directive assigns CAD-IMPLEMENT-001 to the implementation agent; the governance foundation (ARCH-WF-001) is VERIFIED, the architecture is frozen at v1.1, and the engine research (RESEARCH-CAD-001..005) has established the adapter boundary the shell must respect.",
+      "references": {
+        "issue": 24,
+        "assignee": "z-ai-implementation-agent"
+      }
+    },
+    {
+      "from": "ASSIGNED",
+      "to": "IMPLEMENTING",
+      "at": "2026-08-25T20:05:00Z",
+      "actor": "z-ai-implementation-agent",
+      "role": "implementer",
+      "reason": "Implementation started on branch work/cad-implement-001-app-shell (off origin/main 719bd42 — clean base, no CAD-006 carryover): built the full shell skeleton — contracts (HostCapabilities, Transport, Command/Query v1, CADDocument, EngineAdapter, SceneGraph), the platform-independent renderer/editor core, the App API handler with AJV schemas + idempotency, the CADDocument model (versioned per data-model §2, canonical JSON serialization, undo/redo + inverse, provenance), the Web Host + WebSocketTransport, the Electron Host + IpcTransport + main entry stub, and the in-memory dummy adapter bundle. The feat commit 0fd5cd8 carries the deliverable; the deterministic test suite is 42/42 green with typecheck clean (Web/Electron parity, serialization/versioning round-trip, transport independence, dummy-adapter e2e, undo/redo convergence, CI reproducibility, and the LOCK-018 forbidden-import static check)."
+    }
+  ],
+  "evidence": [
+    {
+      "id": "EV-001",
+      "type": "automated-test-suite",
+      "description": "Deterministic CI test suite for CAD-IMPLEMENT-001 (42 tests, 0 failures, typecheck clean): no-forbidden-imports LOCK-018 static check (no Electron/browser/FreeCAD/OCCT/IfcOpenShell in src/contracts, src/renderer, src/app-api, src/caddocument); render-deterministic + Web/Electron render parity; contract-schema AJV wire schemas + unknown-version rejection; idempotency cache + handler apply-once; serialization-roundtrip canonical JSON identity + malformed rejection (LOCK-007); version-chain data-model §2 fields + parent linkage; undo-redo add/remove/update/setProps inverses + redo-restores-child-version + convergence; host-parity same sequence through WebHost+WebSocketTransport and ElectronHost+IpcTransport yields identical content hash + §16 native-capability allowlisting; dummy-adapter-e2e write->open->edit->serialize->undo->redo->verify with no engine imports; reproducibility fresh-handler identical hashes + serialize∘deserialize fixed point.",
+      "produced_at": "2026-08-25T20:10:00Z",
+      "reproducible": true,
+      "reproduction": "cd app && node --import tsx --test \"test/*.test.ts\"  (requires root toolchain: npm install at repo root for tsx + typescript + ajv)",
+      "references": {
+        "commit": "0fd5cd8e86fa54a00dc04b9e9b01f043924f54c4"
+      }
+    },
+    {
+      "id": "EV-002",
+      "type": "inspectable-artifact",
+      "description": "CI workflow .github/workflows/cad-implement-001.yml reproduces the local evidence on GitHub-hosted ubuntu-latest: Node 20, root toolchain install, app typecheck (tsc --noEmit -p app/tsconfig.json), the 42-test deterministic suite, the LOCK-018 forbidden-import static check, and an evidence artifact upload. The workflow triggers on push to main and on pull_request touching app/** or the workflow file.",
+      "produced_at": "2026-08-25T20:10:00Z",
+      "reproducible": true,
+      "reproduction": "Inspect .github/workflows/cad-implement-001.yml; locally: cd app && node_modules/.bin/tsc --noEmit -p tsconfig.json && node --import tsx --test \"test/*.test.ts\".",
+      "references": {
+        "artifact_path": ".github/workflows/cad-implement-001.yml",
+        "commit": "0fd5cd8e86fa54a00dc04b9e9b01f043924f54c4"
+      }
+    }
+  ]
+}
