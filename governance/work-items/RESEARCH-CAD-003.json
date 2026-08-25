@@ -79,9 +79,9 @@
       "at": "2026-08-25T04:42:00Z",
       "actor": "z-ai-implementation-agent",
       "role": "implementer",
-      "reason": "Evidence package complete; opening the focused PR for RESEARCH-CAD-003 (three focused commits: pipeline/fixture/CG-mapping, seven benchmark modules, evidence+report+CI+tests).",
+      "reason": "Evidence package complete; opening PR #19 for RESEARCH-CAD-003 (three focused commits: pipeline/fixture/CG-mapping, seven benchmark modules, evidence+report+CI+tests).",
       "references": {
-        "pr": 17,
+        "pr": 19,
         "commit": "840331084929f3f6e2a601fd96026f4f723ec4cf"
       }
     }
@@ -95,7 +95,7 @@
       "reproducible": true,
       "reproduction": "cd research/cad-003 && python3 -m pip install -r requirements.txt && make test",
       "references": {
-        "pr": 17
+        "pr": 19
       }
     },
     {
@@ -107,7 +107,7 @@
       "reproduction": "cd research/cad-003 && make bench",
       "references": {
         "artifact_path": "research/cad-003/evidence/run-001",
-        "pr": 17
+        "pr": 19
       }
     },
     {
@@ -119,7 +119,7 @@
       "reproduction": "Inspect the research-cad-003 workflow checks on the PR",
       "references": {
         "workflow_run": "research-cad-003 workflow on PR #17",
-        "pr": 17
+        "pr": 19
       }
     }
   ]
