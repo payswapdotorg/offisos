@@ -40,7 +40,7 @@
     "IDS validation workflow (positive and negative controls); BCF toolchain probe evidence.",
     "Exact IfcOpenShell/IfcTester/schema/runtime versions recorded; runtime and output-size measurements."
   ],
-  "state": "PR_OPEN",
+  "state": "IMPLEMENTING",
   "transitions": [
     {
       "from": "DRAFT",
@@ -84,6 +84,48 @@
         "pr": 19,
         "commit": "840331084929f3f6e2a601fd96026f4f723ec4cf"
       }
+    },
+    {
+      "from": "PR_OPEN",
+      "to": "VERIFYING",
+      "at": "2026-08-25T04:43:39Z",
+      "actor": "github-actions",
+      "role": "automation",
+      "reason": "research-cad-003 workflow run #2 on PR head 7c1c7db completed success (pinned toolchain, 9/9 deterministic tests, full 64/0/0 evidence run, artifact upload). Governance run #23 reports 70/71: the single failure is the protected-paths/manifest consistency check INHERITED from main (Architecture v1.1 merge 3c3172b advanced the version registry to 1.1 without updating the manifest target; governance run #21 on main itself failed on the same check). The defect and resolution options were documented on the PR.",
+      "references": {
+        "evidence": [
+          "EV-001",
+          "EV-002",
+          "EV-003"
+        ]
+      }
+    },
+    {
+      "from": "VERIFYING",
+      "to": "ARCHITECT_REVIEW",
+      "at": "2026-08-25T05:14:51Z",
+      "actor": "pectoraux",
+      "role": "architect",
+      "reason": "Architect took up review of the RESEARCH-CAD-003 evidence package on PR #19.",
+      "references": {
+        "evidence": [
+          "EV-001",
+          "EV-002",
+          "EV-003"
+        ]
+      }
+    },
+    {
+      "from": "ARCHITECT_REVIEW",
+      "to": "IMPLEMENTING",
+      "at": "2026-08-25T05:14:51Z",
+      "actor": "pectoraux",
+      "role": "architect",
+      "reason": "Architect review of PR #19: changes requested (comment 5405704039). The IFC/BIM implementation is strong (64/0/0 evidence, surgical mutations, semantic round-trip, Construction Graph independence, IDS validation, BCF round-trip) and is NOT the blocker.",
+      "failure_reason": "The inherited architecture-governance defect on main: Architecture v1.1 is active (architecture-versions.json) but governance/protected-paths.json still targets architecture 1.0, failing the governance consistency check. Remediation: repair the manifest/registry consistency in a focused architecture-governance change, then rebase PR #19 and rerun governance. The work item must retain Architecture v1.0 (do not rewrite its version merely to make validation pass). Keep IDS/BCF toolchain findings explicit. Do not claim final IFC/BIM verification yet.",
+      "references": {
+        "decision": "DEC-001"
+      }
     }
   ],
   "evidence": [
@@ -121,6 +163,22 @@
         "workflow_run": "research-cad-003 workflow on PR #17",
         "pr": 19
       }
+    }
+  ],
+  "decisions": [
+    {
+      "id": "DEC-001",
+      "status": "changes_requested",
+      "decided_at": "2026-08-25T05:14:51Z",
+      "decided_by": "pectoraux",
+      "role": "architect",
+      "rationale": "PR #19's IFC/BIM evidence is substantially strong and the research workflow is green, but approval is blocked by the governance inconsistency introduced by the Architecture v1.1 (ACR-002) merge: architecture-versions.json is active 1.1 while protected-paths.json still targets 1.0. The failure originates from the ACR-002 merge, not this work item. No architecture change is requested for the IFC semantic layer; Architecture v1.1 remains active but the governance consistency defect must be corrected before this work item can proceed to approval.",
+      "evidence_refs": [
+        "EV-001",
+        "EV-002",
+        "EV-003"
+      ],
+      "remediation_required": "1) Repair the manifest/registry consistency in a focused architecture-governance PR (do not weaken or bypass the check), then rebase PR #19 and rerun governance. 2) Preserve the work-item version: RESEARCH-CAD-003 retains Architecture v1.0 unless its implementation genuinely depends on v1.1. 3) Keep the IDS/BCF findings explicit, including the broken ifcopenshell-ids mirror and the unrelated PyPI bcf package as toolchain findings, not architectural blockers. 4) Do not claim final IFC/BIM verification until the governance defect is cleared and the corrected PR is revalidated."
     }
   ]
 }
