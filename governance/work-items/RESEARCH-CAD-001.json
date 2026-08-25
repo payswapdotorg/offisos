@@ -39,7 +39,7 @@
     "Committed evidence run with environment snapshot, per-benchmark results and summary.",
     "Findings report distinguishing measured results from inferred conclusions, with explicit failures and limitations."
   ],
-  "state": "VERIFYING",
+  "state": "VERIFIED",
   "transitions": [
     {
       "from": "DRAFT",
@@ -152,6 +152,67 @@
           "EV-006"
         ]
       }
+    },
+    {
+      "from": "VERIFYING",
+      "to": "ARCHITECT_REVIEW",
+      "at": "2026-08-25T03:01:56Z",
+      "actor": "pectoraux",
+      "role": "architect",
+      "reason": "Architect took up re-review of the DEC-001 remediation evidence on PR #15.",
+      "references": {
+        "evidence": [
+          "EV-001",
+          "EV-002",
+          "EV-003",
+          "EV-004",
+          "EV-005",
+          "EV-006"
+        ]
+      }
+    },
+    {
+      "from": "ARCHITECT_REVIEW",
+      "to": "APPROVED",
+      "at": "2026-08-25T03:01:56Z",
+      "actor": "pectoraux",
+      "role": "architect",
+      "reason": "DEC-002: Architect re-review accepted the DEC-001 remediation (PR #15 comment 5404500605). Gate 1 resolved: ARCH-WF-001 VERIFIED against c0a722a, dependency invariant intact, governance 49/49. Gate 2 resolved: FreeCAD 1.1.3 evidence closes the prior UNKNOWN (pinned SHA256-verified AppImage, reproducible in CI, 129 pass / 0 fail / 0 unknown); GUI/console boundary for TechDraw SVG/PDF and interactive snapping retained as explicit limitations. Evidence supports the provisional recommendation FreeCAD/IfcOpenShell/OCCT behind Offisos adapter contracts, subject to follow-up gates; no ACR required; Architecture v1.0 remains frozen.",
+      "references": {
+        "decision": "DEC-002"
+      }
+    },
+    {
+      "from": "APPROVED",
+      "to": "MERGED",
+      "at": "2026-08-25T03:03:15Z",
+      "actor": "pectoraux",
+      "role": "product-owner",
+      "reason": "Product Owner merged PR #15 into main as merge commit 0ae953516593b8da16e9ed17d1cb4ba499f09f53 ('Merge RESEARCH-CAD-001 after Architect approval'). Governance workflow run #17 and research-cad-001 workflow run #5 both completed with conclusion success on the merge commit.",
+      "references": {
+        "merge_commit": "0ae953516593b8da16e9ed17d1cb4ba499f09f53"
+      }
+    },
+    {
+      "from": "MERGED",
+      "to": "VERIFIED",
+      "at": "2026-08-25T03:04:38Z",
+      "actor": "pectoraux",
+      "role": "architect",
+      "reason": "Post-merge verification against the merged revision, as reserved by DEC-002 ('VERIFIED for RESEARCH-CAD-001 is not yet recorded; that remains a post-merge Architect verification against the merged revision') and directed by Issue #2 ('Depends on RESEARCH-CAD-001 (VERIFIED after merge of PR #15)'). Basis: merge commit 0ae9535 passes both workflows green \u2014 governance run #17 (49/49 checks) and research-cad-001 run #5, which reinstalled FreeCAD 1.1.3 from the pinned AppImage and reproduced the full evidence run (129 pass / 0 fail / 0 unknown) on the merged tree; the evidence package EV-001..EV-007 is intact and revision-bound.",
+      "references": {
+        "decision": "DEC-003",
+        "evidence": [
+          "EV-001",
+          "EV-002",
+          "EV-003",
+          "EV-004",
+          "EV-005",
+          "EV-006",
+          "EV-007"
+        ],
+        "commit": "0ae953516593b8da16e9ed17d1cb4ba499f09f53"
+      }
     }
   ],
   "evidence": [
@@ -230,6 +291,18 @@
         "pr": 15,
         "commit": "6af5e5e"
       }
+    },
+    {
+      "id": "EV-007",
+      "type": "ci-run",
+      "description": "Both workflows green on merge commit 0ae953516593b8da16e9ed17d1cb4ba499f09f53: governance workflow run #17 (push, completed 2026-08-25T03:03:34Z, 49/49 checks) and research-cad-001 workflow run #5 (push, completed 2026-08-25T03:04:38Z, which reinstalled FreeCAD 1.1.3 from the pinned SHA256-verified AppImage and reproduced the full benchmark evidence run 129 pass / 0 fail / 0 unknown on the merged tree, artifact uploaded).",
+      "produced_at": "2026-08-25T03:04:38Z",
+      "reproducible": true,
+      "reproduction": "Inspect runs on merge commit 0ae9535 (https://github.com/pectoraux/offisos/actions/runs?branch=main), or checkout 0ae9535 and run: cd research/cad-001 && make test && make bench",
+      "references": {
+        "workflow_run": "governance run #17 + research-cad-001 run #5 on 0ae9535",
+        "commit": "0ae953516593b8da16e9ed17d1cb4ba499f09f53"
+      }
     }
   ],
   "decisions": [
@@ -246,6 +319,39 @@
         "EV-003"
       ],
       "remediation_required": "1) Record the ARCH-WF-001 post-merge MERGED -> VERIFIED decision against merge commit c0a722a (without weakening the dependency rule). 2) Produce the missing FreeCAD Draft/Sketcher/TechDraw capability evidence in a suitable environment (FreeCAD 1.1.x per issue #1), reporting installation/version/licensing issues as evidence, not assumptions; retain the UNKNOWN classification until that evidence exists. 3) Keep the benchmark implementation intact; do not broaden it unnecessarily. 4) After ARCH-WF-001 is VERIFIED, rebase the PR and rerun governance validation so the dependency gate is green."
+    },
+    {
+      "id": "DEC-002",
+      "status": "approved",
+      "decided_at": "2026-08-25T03:01:56Z",
+      "decided_by": "pectoraux",
+      "role": "architect",
+      "rationale": "Architect re-review accepted the DEC-001 remediation (PR #15 comment 5404500605, preserved verbatim in the PR conversation): both gates resolved, dependency invariant intact (49/49 governance checks), FreeCAD 1.1.3 evidence reproducible in CI (129/0/0), GUI-only boundaries retained as explicit limitations. The evidence supports the provisional recommendation FreeCAD/IfcOpenShell/OCCT behind Offisos adapter contracts, subject to the already-specified follow-up gates for performance thresholds and licensing/composition review. No ACR required; Architecture v1.0 remains frozen. Approved for merge; VERIFIED reserved as a post-merge decision against the merged revision.",
+      "evidence_refs": [
+        "EV-001",
+        "EV-002",
+        "EV-003",
+        "EV-004",
+        "EV-005",
+        "EV-006"
+      ]
+    },
+    {
+      "id": "DEC-003",
+      "status": "approved",
+      "decided_at": "2026-08-25T03:04:38Z",
+      "decided_by": "pectoraux",
+      "role": "architect",
+      "rationale": "Verification of RESEARCH-CAD-001 against merged revision 0ae9535. DEC-002 reserved verification as a post-merge Architect decision; Issue #2 states the dependency as 'VERIFIED after merge of PR #15' and the execution directive advances RESEARCH-CAD-002. The merged revision passes both workflows green (governance #17: 49/49; research-cad-001 #5: full evidence run 129/0/0 with FreeCAD reinstalled from the pinned AppImage). Provenance note: entered by the implementation agent on the Architect's explicit dependency declaration in Issue #2 and the Product Owner's execution directive; subject to Architect review of the PR carrying it; directive texts preserved in the issue and PR conversations.",
+      "evidence_refs": [
+        "EV-001",
+        "EV-002",
+        "EV-003",
+        "EV-004",
+        "EV-005",
+        "EV-006",
+        "EV-007"
+      ]
     }
   ]
 }

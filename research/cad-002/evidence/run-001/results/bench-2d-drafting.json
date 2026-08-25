@@ -1,0 +1,150 @@
+{
+  "benchmark": "bench-2d-drafting",
+  "description": "Benchmark: professional 2D drafting workflows (RESEARCH-CAD-002 scope 1).",
+  "started_at": "2026-08-25T03:33:19.305282+00:00",
+  "finished_at": "2026-08-25T03:33:19.815256+00:00",
+  "summary": {
+    "pass": 10,
+    "fail": 0,
+    "unknown": 0
+  },
+  "measurements": {},
+  "checks": [
+    {
+      "id": "cad2-2d/coordinate-entry-precision",
+      "description": "Line endpoints entered with 12 decimals read back exactly; length matches the analytic value within 1e-12.",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "start": [
+          0.123456789012,
+          0.987654321098
+        ],
+        "end": [
+          8.876543210987,
+          5.123456789012
+        ],
+        "length": 9.680980527000694,
+        "expected": 9.680980527000695
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "cad2-2d/circle-precision",
+      "description": "Draft circle: radius exact, shape area equals pi*r^2 within 1e-9.",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "radius": 2.5,
+        "area": 19.634954084936204,
+        "expected_area": 19.634954084936208
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "cad2-2d/arc-precision",
+      "description": "Draft arc of 90 degrees: edge length equals pi*r/2 within 1e-9.",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "length": 4.71238898038469,
+        "expected": 4.71238898038469
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "cad2-2d/layer-membership",
+      "description": "Layer assignment round-trips: 3 lines in A-WALL, 0 in A-ANNO-DIMS.",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "wall_layer_objects": 3,
+        "dim_layer_objects": 0
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "cad2-2d/layer-visibility-toggle",
+      "description": "Layer visibility toggles through False/True exactly (console API).",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "hidden": true,
+        "shown": true,
+        "note": "console-observable visibility state; on-screen rendering requires the GUI runtime"
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "cad2-2d/object-visibility-toggle",
+      "description": "Object-level visibility toggles exactly.",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "object": "Line001"
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "cad2-2d/linear-dimensions-exact",
+      "description": "Linear dimensions measure fixture lengths exactly (8.0 and 5.0).",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "d1": 8.0,
+        "d2": 5.0
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "cad2-2d/text-annotation",
+      "description": "Draft text annotation stores and returns its exact content.",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "text": [
+          "SECTION A-A"
+        ]
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "cad2-2d/edit-recompute",
+      "description": "Editing a line endpoint marks it Touched and recomputes to the new exact analytic length (before/after assertions).",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "before": 9.680980527000694,
+        "after": 11.521012527207262,
+        "expected_after": 11.521012527207262,
+        "touched_objects": [
+          "Line"
+        ],
+        "state_after_recompute": [
+          "Up-to-date"
+        ]
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "cad2-2d/persistence-reopen",
+      "description": "The 2D fixture persists to FCStd and reopens with exact geometry.",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "length_after_reopen": 11.521012527207262
+      },
+      "evidence_refs": []
+    }
+  ]
+}

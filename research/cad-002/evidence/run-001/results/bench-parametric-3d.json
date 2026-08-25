@@ -1,0 +1,149 @@
+{
+  "benchmark": "bench-parametric-3d",
+  "description": "Benchmark: 3D parametric modeling (RESEARCH-CAD-002 scope 2+3).",
+  "started_at": "2026-08-25T03:33:20.625512+00:00",
+  "finished_at": "2026-08-25T03:33:20.870379+00:00",
+  "summary": {
+    "pass": 10,
+    "fail": 0,
+    "unknown": 0
+  },
+  "measurements": {},
+  "checks": [
+    {
+      "id": "cad2-p3d/primitive-parametric-edit",
+      "description": "Part::Box Length edit 2.0 -> 5.0: volume changes from exactly 24.0 to exactly 60.0 (before/after assertions).",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "volume_before": 23.999999999999996,
+        "volume_after": 60.0,
+        "touched_objects": [
+          "Box"
+        ],
+        "state_after_recompute": [
+          "Up-to-date"
+        ]
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "cad2-p3d/partdesign-pad",
+      "description": "PartDesign Body + constrained sketch + Pad: solid volume is exactly the profile area x pad length (4x3x2 = 24.0).",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "volume": 24.0,
+        "expected": 24.0
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "cad2-p3d/dimension-propagation-through-chain",
+      "description": "Sketch datum edit 4.0 -> 6.0 propagates sketch -> pad: volume changes from exactly 24.0 to exactly 36.0 (6x3x2).",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "before": 24.0,
+        "after": 36.0
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "cad2-p3d/pad-length-edit",
+      "description": "Pad length edit 2.0 -> 3.0 propagates to exactly 54.0 (6x3x3).",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "after": 54.0
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "cad2-p3d/pocket-subtraction",
+      "description": "PartDesign Pocket removes an exact cylinder volume from the pad (54 - pi*0.25*1 within 1e-6).",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "volume": 53.21460183660255,
+        "expected": 53.214601836602554
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "cad2-p3d/pocket-edit-propagation",
+      "description": "Editing the pocket circle radius 0.5 -> 0.8 propagates to the exact new volume (54 - pi*0.64 within 1e-6).",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "volume": 51.98938070170254,
+        "expected": 51.98938070170253
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "cad2-p3d/dependency-recompute-states",
+      "description": "Editing the base sketch marks the sketch (and dependents) Touched; a full recompute restores Up-to-date states and returns a positive recomputed-object count.",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "touched_after_edit": {
+          "Profile": [
+            "Touched"
+          ]
+        },
+        "recompute_count": 4,
+        "any_invalid": []
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "cad2-p3d/recompute-result-exact",
+      "description": "After the revert edit (DistanceX 6.0 -> 4.0) and recompute, the pad volume returns to exactly 4 x 3 x 3 = 36.0 (deterministic regeneration; pad length is 3.0 from the earlier edit).",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "volume": 35.99999999999999,
+        "expected": 36.0
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "cad2-p3d/failure-invalid-parameter",
+      "description": "Setting an invalid (negative) length leaves the object in the Invalid state (detected, typed; no crash, no fake geometry).",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "state": [
+          "Touched",
+          "Invalid"
+        ],
+        "note": "Part::Box accepts the assignment but recompute flags Invalid; the failure is detectable via State"
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "cad2-p3d/failure-recovery",
+      "description": "Correcting the parameter recovers the object to Up-to-date with the exact expected volume (2.0).",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "state": [
+          "Up-to-date"
+        ],
+        "volume": 1.9999999999999996
+      },
+      "evidence_refs": []
+    }
+  ]
+}

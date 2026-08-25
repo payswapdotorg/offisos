@@ -1,0 +1,144 @@
+{
+  "benchmark": "bench-constraints",
+  "description": "Benchmark: geometric constraints deep-dive (RESEARCH-CAD-002 scope 1+3).",
+  "started_at": "2026-08-25T03:33:20.405342+00:00",
+  "finished_at": "2026-08-25T03:33:20.625459+00:00",
+  "summary": {
+    "pass": 9,
+    "fail": 0,
+    "unknown": 0
+  },
+  "measurements": {},
+  "checks": [
+    {
+      "id": "cad2-constraints/rectangle-full-constraint",
+      "description": "Rectangle with geometric + dimensional + origin constraints solves successfully (solver rc 0) and reports FullyConstrained (DoF = 0).",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "solve_rc": 0,
+        "fully_constrained": true
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "cad2-constraints/datum-edit-propagation",
+      "description": "Editing DistanceX 4.0 -> 6.5 re-solves: width becomes exactly 6.5 while the height constraint still holds at exactly 3.0.",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "width_before": 4.0,
+        "width_after": 6.5,
+        "height_before": 3.0,
+        "height_after": 3.0
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "cad2-constraints/corner-follows-edit",
+      "description": "The top-right corner follows the edit exactly ((6.5, 3.0)) while the origin-anchored corners stay fixed.",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "top_right": [
+          6.5,
+          3.0
+        ]
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "cad2-constraints/tangent-line-circle",
+      "description": "Fully constrained tangency: the horizontal line is forced to y = +2.0 EXACTLY (distance from center equals radius; solver converges with FullyConstrained).",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "solve_rc": 0,
+        "fully_constrained": true,
+        "line_y": 2.0,
+        "radius": 2.0
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "cad2-constraints/tangent-underconstrained-finding",
+      "description": "FINDING: an UNDERCONSTRAINED tangent sketch can converge (solve rc 0) with the line NOT yet at the tangency distance (observed y != |r|). Implication: Offisos adapters must treat solver success and geometric satisfaction as separate assertions, and constrain sketches fully before relying on tangency.",
+      "status": "pass",
+      "epistemic": "OBSERVED",
+      "tolerance": null,
+      "details": {
+        "solve_rc": 0,
+        "line_y": 2.2349671920072005,
+        "radius": 2.0,
+        "tangency_error": 0.2349671920072005
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "cad2-constraints/perpendicular-corner-exact",
+      "description": "Perpendicular constraint solves the shared corner to exactly (4, 0) and the vertical edge end to exactly (4, 3).",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "joint": [
+          4.0,
+          0.0
+        ],
+        "vertical_end": [
+          4.0,
+          3.0
+        ]
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "cad2-constraints/equal-length-propagation",
+      "description": "With an Equal constraint, editing the single length datum 3.0 -> 5.0 changes BOTH lines to exactly 5.0 (before/after assertions; the solver may slide the unanchored line, so lengths are measured point-to-point).",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "line1_before": 3.0,
+        "line2_before": 3.0,
+        "line1_after": 5.0,
+        "line2_after": 5.0
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "cad2-constraints/conflict-detection",
+      "description": "Adding a second conflicting dimension on the same measured distance is detected: solver reports conflicts/redundancy (DoF changes, non-empty detection lists).",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "dof_before": 0,
+        "dof_after": -3,
+        "conflicting": [
+          2,
+          3
+        ],
+        "redundant_after": [],
+        "redundant_before": []
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "cad2-constraints/invalid-datum-typed-rejection",
+      "description": "Zero and negative unsigned Distance datums are rejected with typed ValueError (no silent acceptance).",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "zero_rejected": true,
+        "negative_rejected": true
+      },
+      "evidence_refs": []
+    }
+  ]
+}

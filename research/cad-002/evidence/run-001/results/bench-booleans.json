@@ -1,0 +1,163 @@
+{
+  "benchmark": "bench-booleans",
+  "description": "Benchmark: boolean operations and transforms (RESEARCH-CAD-002 scope 2).",
+  "started_at": "2026-08-25T03:33:20.870444+00:00",
+  "finished_at": "2026-08-25T03:33:21.120320+00:00",
+  "summary": {
+    "pass": 11,
+    "fail": 0,
+    "unknown": 0
+  },
+  "measurements": {},
+  "checks": [
+    {
+      "id": "cad2-bool/scripted-fuse",
+      "description": "Scripted fuse of two 2x2x2 boxes with 1x1x2 overlap: exactly 8 + 8 - 2 = 14 m^3.",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "volume": 13.999999999999998,
+        "expected": 14.0
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "cad2-bool/scripted-cut",
+      "description": "Scripted cut removes exactly the 2 m^3 overlap: 8 - 2 = 6 m^3.",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "volume": 5.999999999999998,
+        "expected": 6.0
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "cad2-bool/scripted-common",
+      "description": "Scripted intersection returns exactly the 2 m^3 overlap.",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "volume": 1.9999999999999996,
+        "expected": 2.0
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "cad2-bool/scripted-curved-cut",
+      "description": "Cylinder drill through a plate: exact analytic volume (18 - pi*0.25*0.5 within 1e-9).",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "volume": 17.607300918301274,
+        "expected": 17.607300918301277
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "cad2-bool/disjoint-fuse-topology",
+      "description": "Fusing disjoint solids yields a 2-solid shape with the exact total volume (2.0): topology change is measurable, not silent.",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "solids": 2,
+        "volume": 2.000000000000001
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "cad2-bool/parametric-cut-object",
+      "description": "Part::Cut document object: exact analytic volume (72 - 2*pi within 1e-6).",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "volume": 65.71681469282042,
+        "expected": 65.7168146928204
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "cad2-bool/parametric-propagation",
+      "description": "Editing the base Length 6.0 -> 8.0 propagates through Part::Cut to the exact new volume (96 - 2*pi within 1e-6).",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "before": 65.71681469282042,
+        "after": 89.7168146928204,
+        "expected_after": 89.7168146928204
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "cad2-bool/parametric-tool-propagation",
+      "description": "Editing the tool radius 1.0 -> 0.5 propagates to the exact new volume (96 - pi*0.5 within 1e-6).",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "after": 94.42920367320508,
+        "expected": 94.42920367320511
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "cad2-bool/placement-rotation-vertex-exact",
+      "description": "Placement with 90-degree Z rotation and translation moves the origin vertex to exactly (10, 20, 30) within 1e-12.",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "nearest_vertex": [
+          10.0,
+          20.0,
+          30.0
+        ]
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "cad2-bool/placement-rotated-extents",
+      "description": "Rotated extents are exact: x in [7, 10], y in [20, 22] (width/depth swap under 90-degree rotation).",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "x_range": [
+          7.0,
+          10.0
+        ],
+        "y_range": [
+          20.0,
+          22.0
+        ]
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "cad2-bool/matrix-transform-extents",
+      "description": "Matrix move+rotate on a unit box: extents move to x in [-1, 0], y in [5, 6] exactly (rotation about the moved origin).",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "x_range": [
+          -0.9999999999999997,
+          3.67394039744206e-16
+        ],
+        "y_range": [
+          5.0,
+          6.0
+        ],
+        "note": "transformGeometry rotates about the origin after the move, exactly as matrix composition specifies"
+      },
+      "evidence_refs": []
+    }
+  ]
+}

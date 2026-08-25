@@ -1,0 +1,110 @@
+{
+  "benchmark": "bench-assemblies",
+  "description": "Benchmark: reusable components and assemblies (RESEARCH-CAD-002 scope 2).",
+  "started_at": "2026-08-25T03:33:21.120382+00:00",
+  "finished_at": "2026-08-25T03:33:21.352971+00:00",
+  "summary": {
+    "pass": 7,
+    "fail": 0,
+    "unknown": 0
+  },
+  "measurements": {
+    "medium_assembly_creation_s": 0.0025,
+    "medium_assembly_recompute_s": 0.0004,
+    "medium_assembly_instances": 100,
+    "medium_assembly_document_objects": 109
+  },
+  "checks": [
+    {
+      "id": "cad2-asm/link-volume-exact",
+      "description": "App::Link instance carries the exact source volume (24.0).",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "volume": 23.999999999999996
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "cad2-asm/link-placement-honored",
+      "description": "The link's placement is honored: instance vertices span x in [10, 12] exactly.",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "x_range": [
+          10.0,
+          12.0
+        ]
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "cad2-asm/source-edit-propagation",
+      "description": "Editing the source Length 2.0 -> 5.0 propagates into the linked instance: exact new volume (60.0) and moved extents.",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "volume_after": 60.0
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "cad2-asm/link-array",
+      "description": "A single App::Link with ElementCount=5 exposes the exact combined shape volume (5 x 60 = 300 within 1e-9).",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "elements": 5,
+        "volume": 300.0
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "cad2-asm/medium-assembly-robustness",
+      "description": "Medium assembly of 100 independently placed links: every instance has the exact unit volume, no Invalid states, robust recompute.",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "instances": 100,
+        "all_volumes_exact": true,
+        "invalid_objects": [],
+        "creation_s": 0.0025,
+        "recompute_s": 0.0004,
+        "document_objects": 109
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "cad2-asm/instance-placement-exact",
+      "description": "Instance 42 placement is exactly (4, 8, 0) with a 180-degree rotation (deterministic fixture layout).",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "base": [
+          4.0,
+          8.0,
+          0.0
+        ],
+        "rotation_angle_deg": 180.0
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "cad2-asm/assembly-wide-propagation",
+      "description": "Editing the shared source propagates to all 100 instances: every volume is exactly 2.0 after one recompute.",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "all_instances_updated": true
+      },
+      "evidence_refs": []
+    }
+  ]
+}

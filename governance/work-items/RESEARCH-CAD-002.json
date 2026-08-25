@@ -1,0 +1,127 @@
+{
+  "id": "RESEARCH-CAD-002",
+  "title": "Benchmark FreeCAD/OpenCascade 2D and 3D CAD capabilities",
+  "issue": 2,
+  "objective": "Produce reproducible empirical evidence for the core CAD capability layer using the current FreeCAD/OpenCascade candidate: professional 2D drafting workflows (precision/coordinate entry, snapping/object inference, layers/visibility, dimensions/annotations, geometric constraints, edit/recompute), 3D geometry (parametric primitives, booleans, transforms/placements, reusable components/assemblies, medium-model robustness), parametric behavior (constrained sketch edit, dimension change propagation, dependency/recompute, failure behavior), and automation/API determinism. This work item does not decide the final CAD/BIM foundation and does not implement a production editor.",
+  "architecture_version": "1.0",
+  "requirements": [
+    "CAD-001",
+    "CAD-002"
+  ],
+  "dependencies": [
+    "RESEARCH-CAD-001"
+  ],
+  "acceptance_criteria": [
+    "Every scoped capability has an executable or manually reproducible test procedure.",
+    "At least one representative workflow passes end-to-end for 2D drafting and one for 3D parametric modeling.",
+    "Precision behavior is measured with explicit tolerances rather than described qualitatively.",
+    "Constraint/edit/recompute behavior is demonstrated with before/after assertions.",
+    "Boolean and transform operations have deterministic geometric assertions.",
+    "Performance measurements include the fixture characteristics and environment.",
+    "All material limitations are documented instead of being silently worked around.",
+    "Results are sufficient to support, reject, or defer the CAD geometry candidate under the frozen adapter architecture."
+  ],
+  "non_goals": [
+    "No production CAD UI.",
+    "No modification of the frozen Construction Graph architecture.",
+    "No conclusion that FreeCAD is the final engine.",
+    "No licensing approval (separate evidence item)."
+  ],
+  "risk_assumptions": [
+    "Reuse strategy: the harness and adapter conventions proven in RESEARCH-CAD-001 are vendored/adapted into research/cad-002 so this evidence package is independently reproducible without cross-work-item runtime coupling.",
+    "Interactive snapping and TechDraw SVG/PDF export were established as GUI-only in RESEARCH-CAD-001; this benchmark measures the console-observable snapping surface (parameter system, object-inference APIs, adapter-level snapping) and records the GUI boundary explicitly.",
+    "FCStd files embed timestamps; byte-level export determinism is expected to fail and is recorded as a finding (semantic determinism is asserted instead).",
+    "spec/work-items.md still carries the older RESEARCH-CAD-002 definition (IFC/openBIM fidelity benchmark, RESEARCH-CAD-003 in the issue numbering); this record follows the GitHub issue #2 definition, consistent with the divergence flag recorded in ARCH-WF-001/RESEARCH-CAD-001."
+  ],
+  "evidence_requirements": [
+    "Deterministic benchmark suite covering the four scope areas with exact FreeCAD/OCC versions and build environment recorded.",
+    "Reproducible fixtures stored in a reproducible format (deterministic parameters; no randomness).",
+    "Procedure and commands/scripts to reproduce each result.",
+    "Quantitative measurements: operation time, model size, object count, recompute time, peak memory where measurable.",
+    "Distinguished native FreeCAD/OCC behavior vs Offisos adapter behavior.",
+    "Recorded failures, unsupported operations, precision limitations and nondeterministic behavior."
+  ],
+  "state": "PR_OPEN",
+  "transitions": [
+    {
+      "from": "DRAFT",
+      "to": "READY",
+      "at": "2026-08-24T19:19:11Z",
+      "actor": "pectoraux",
+      "role": "architect",
+      "reason": "Work item fully specified in GitHub issue #2 (objective, execution directive, scope, evidence requirements, acceptance criteria, non-goals, architect gate).",
+      "references": {
+        "issue": 2
+      }
+    },
+    {
+      "from": "READY",
+      "to": "ASSIGNED",
+      "at": "2026-08-25T03:08:00Z",
+      "actor": "pectoraux",
+      "role": "product-owner",
+      "reason": "Assigned to the Z.ai implementation agent after the merge of RESEARCH-CAD-001 (merge commit 0ae9535, PR #15) with the directive to focus on professional 2D drafting workflows, snapping/layers/dimensions/constraints, 3D solids and booleans, parametric editing and recompute, automation/API determinism, and quantitative precision and performance evidence; explicitly not deciding the final CAD engine or implementing a production CAD editor.",
+      "references": {
+        "issue": 2,
+        "assignee": "z-ai-implementation-agent"
+      }
+    },
+    {
+      "from": "ASSIGNED",
+      "to": "IMPLEMENTING",
+      "at": "2026-08-25T03:10:08Z",
+      "actor": "z-ai-implementation-agent",
+      "role": "implementer",
+      "reason": "Implementation started on branch work/research-cad-002-cad-benchmark: CAD-002 evidence package with vendored harness/runner conventions from RESEARCH-CAD-001, a CAD operation adapter contract (process-isolated FreeCAD engine), and benchmark modules for 2D drafting, snapping surface, Sketcher constraints, parametric 3D (Part/PartDesign), booleans, transforms/placements, assemblies (App::Link), automation determinism and performance."
+    },
+    {
+      "from": "IMPLEMENTING",
+      "to": "PR_OPEN",
+      "at": "2026-08-25T03:35:00Z",
+      "actor": "z-ai-implementation-agent",
+      "role": "implementer",
+      "reason": "Evidence package complete; opened the focused PR for RESEARCH-CAD-002 with five focused commits (harness+runner+adapter, eight benchmark modules, evidence run-001 + findings report, CI + deterministic tests, governance record).",
+      "references": {
+        "pr": 16,
+        "commit": "c67c7eb6f5d6e1169b0cc04c0e021ab075b33db6"
+      }
+    }
+  ],
+  "evidence": [
+    {
+      "id": "EV-001",
+      "type": "automated-test-suite",
+      "description": "Deterministic CI test suite for the CAD-002 benchmark: 10 tests running the full benchmark in-process (zero failures and zero unknowns required; critical capability checks asserted per scope area: 2D drafting end-to-end, snapping surface, constraints incl. solver findings, 3D parametric end-to-end, booleans/transforms, assemblies, automation determinism, performance measurements), 0 failures.",
+      "produced_at": "2026-08-25T03:34:24Z",
+      "reproducible": true,
+      "reproduction": "cd research/cad-002 && python3 -m pip install -r requirements.txt && make test (FreeCAD installed per requirements.txt)",
+      "references": {
+        "pr": 16
+      }
+    },
+    {
+      "id": "EV-002",
+      "type": "inspectable-artifact",
+      "description": "Committed evidence run research/cad-002/evidence/run-001/: 69 pass / 0 fail / 0 unknown across eight benchmark modules with FreeCAD 1.1.3 provenance (official pinned AppImage, SHA256 3a853eb6...) in the environment snapshot; per-benchmark JSON results and summary.",
+      "produced_at": "2026-08-25T03:31:00Z",
+      "reproducible": true,
+      "reproduction": "cd research/cad-002 && make bench",
+      "references": {
+        "artifact_path": "research/cad-002/evidence/run-001",
+        "pr": 16
+      }
+    },
+    {
+      "id": "EV-003",
+      "type": "ci-run",
+      "description": "research-cad-002 workflow on the PR head: pinned FreeCAD AppImage install (SHA256-verified), deterministic test gate (zero failures/unknowns) and full evidence run with artifact upload.",
+      "produced_at": "2026-08-25T03:35:00Z",
+      "reproducible": true,
+      "reproduction": "Inspect the research-cad-002 workflow checks on the PR",
+      "references": {
+        "workflow_run": "research-cad-002 workflow on PR #16",
+        "pr": 16
+      }
+    }
+  ]
+}
