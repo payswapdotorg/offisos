@@ -40,7 +40,7 @@
     "IDS validation workflow (positive and negative controls); BCF toolchain probe evidence.",
     "Exact IfcOpenShell/IfcTester/schema/runtime versions recorded; runtime and output-size measurements."
   ],
-  "state": "PR_OPEN",
+  "state": "VERIFYING",
   "transitions": [
     {
       "from": "DRAFT",
@@ -138,6 +138,22 @@
         "pr": 19,
         "commit": "7459430a41c9c5f881542caa1d92a8bab64999ce"
       }
+    },
+    {
+      "from": "PR_OPEN",
+      "to": "VERIFYING",
+      "at": "2026-08-25T05:25:06Z",
+      "actor": "github-actions",
+      "role": "automation",
+      "reason": "Revalidated CI on the rebased PR #19 head b9be0f7: governance run #26 completed success with 71/71 checks \u2014 the inherited protected-paths/manifest consistency failure is cleared ('Protected-path manifest valid (8 pattern(s)) for architecture 1.1') \u2014 and research-cad-003 run #3 completed success (pinned toolchain, 9/9 deterministic tests, full 64/0/0 evidence run, artifact upload). Corrected evidence package re-submitted for Architect re-review.",
+      "references": {
+        "evidence": [
+          "EV-001",
+          "EV-002",
+          "EV-003",
+          "EV-004"
+        ]
+      }
     }
   ],
   "evidence": [
@@ -174,6 +190,19 @@
       "references": {
         "workflow_run": "research-cad-003 workflow on PR #17",
         "pr": 19
+      }
+    },
+    {
+      "id": "EV-004",
+      "type": "ci-run",
+      "description": "DEC-001 remediation CI on the rebased PR #19 head b9be0f7: governance run #26 (pull_request, completed 2026-08-25T05:24:48Z) passed 71/71 checks including the previously failing consistency check (manifest valid for architecture 1.1 after the PR #20 repair merged as 4a7b595; main green again via governance run #25 on the repair merge commit); research-cad-003 run #3 (completed 2026-08-25T05:25:06Z) passed with the pinned toolchain, 9/9 deterministic tests and the full 64/0/0 evidence run with artifact upload. The work item retains Architecture v1.0 per the directive.",
+      "produced_at": "2026-08-25T05:25:06Z",
+      "reproducible": true,
+      "reproduction": "Inspect governance run #26 and research-cad-003 run #3 on PR #19 head b9be0f7, or run locally: npm run governance -- validate (repo root) and cd research/cad-003 && make test && make bench",
+      "references": {
+        "workflow_run": "governance #26 + research-cad-003 #3 on b9be0f7",
+        "pr": 19,
+        "commit": "b9be0f7b866b5ec744a0716af467745a4e41a31a"
       }
     }
   ],
