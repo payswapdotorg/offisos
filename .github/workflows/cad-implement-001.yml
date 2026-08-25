@@ -5,10 +5,12 @@ on:
     branches: [main]
     paths:
       - "app/**"
+      - "apps/web/**"
       - ".github/workflows/cad-implement-001.yml"
   pull_request:
     paths:
       - "app/**"
+      - "apps/web/**"
       - ".github/workflows/cad-implement-001.yml"
 
 # CAD-IMPLEMENT-001: shared CAD/BIM application shell (Web + Electron) per
@@ -17,6 +19,16 @@ on:
 # workflow proves: Web/Electron parity, document serialization/versioning,
 # transport independence, dummy-adapter operation, undo/redo, CI
 # reproducibility, and no engine coupling (LOCK-018 static check).
+#
+# Two jobs, intentionally isolated:
+#   - shell:    proves the canonical app/ contracts (50 tests, typecheck,
+#               forbidden-imports static check). Dependencies are the root
+#               toolchain only; this job does NOT install apps/web/'s deps.
+#   - web-host: proves the deployable Next.js 16 Web host (apps/web/) lints +
+#               typechecks against the canonical contracts via the tsconfig
+#               `paths` alias `@offisos/cad-app-shell/* -> ../../app/src/*`
+#               (single source of truth — no duplicated contract copy in
+#               apps/web/). LOCK-017/019 honored at the host surface.
 
 jobs:
   shell:
@@ -38,7 +50,7 @@ jobs:
       - name: Typecheck app shell
         run: node_modules/.bin/tsc --noEmit -p app/tsconfig.json
 
-      - name: App shell deterministic test suite (42 tests)
+      - name: App shell deterministic test suite (50 tests)
         working-directory: app
         run: node --import tsx --test "test/*.test.ts"
 
@@ -53,3 +65,36 @@ jobs:
           name: cad-implement-001-evidence
           path: app/src
           if-no-files-found: warn
+
+  # web-host: the deployable Next.js 16 Web host (apps/web/). Imports the
+  # canonical @offisos/cad-app-shell contracts via tsconfig paths (single
+  # source of truth). This job proves the Web host lints + typechecks
+  # against the canonical contracts (LOCK-017/019 honored at the host
+  # surface). It is isolated from the `shell` job (separate node_modules,
+  # separate npm install) — the canonical app/ toolchain never sees the
+  # Web host's deps.
+  web-host:
+    name: Web host (Next.js 16, lint + typecheck)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: apps/web/package.json
+
+      - name: Install Web host deps
+        working-directory: apps/web
+        run: npm install
+
+      - name: Web host lint (ESLint)
+        working-directory: apps/web
+        run: npm run lint
+
+      - name: Web host typecheck (tsc --noEmit)
+        working-directory: apps/web
+        run: npx tsc --noEmit
