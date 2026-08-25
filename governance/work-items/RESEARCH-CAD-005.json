@@ -52,7 +52,7 @@
     "Representative workloads compared across at least three fixture scales.",
     "Clear statement where measurements are not comparable because of different execution environments."
   ],
-  "state": "IMPLEMENTING",
+  "state": "PR_OPEN",
   "transitions": [
     {
       "from": "DRAFT",
@@ -84,8 +84,46 @@
       "actor": "z-ai-implementation-agent",
       "role": "implementer",
       "reason": "Implementation started on branch work/research-cad-005-perf-robustness: RESEARCH-CAD-004 completion recorded first (DEC-002 approved + MERGED 93c5211 with EV-006 green-run evidence); building the tiered fixture corpus, the measurement harness with engine-vs-adapter separation, the robustness scenarios and the adapter/worker operational-behavior audit."
+    },
+    {
+      "from": "IMPLEMENTING",
+      "to": "PR_OPEN",
+      "at": "2026-08-25T11:35:00Z",
+      "actor": "z-ai-implementation-agent",
+      "role": "implementer",
+      "reason": "Evidence package complete; opening the focused PR for RESEARCH-CAD-005 (two focused commits: benchmark package + evidence run-001, governance record). Local validation: benchmark 83/0/0, deterministic tests 21/21, governance suite 58/58, typecheck clean; the validator reports exactly the one documented dependency-gate failure (RESEARCH-CAD-004 MERGED at 93c5211, VERIFIED reserved for the Architect) with the resolution path stated in the record's risk flags.",
+      "references": {
+        "evidence": [
+          "EV-001",
+          "EV-002"
+        ]
+      }
     }
   ],
-  "evidence": [],
+  "evidence": [
+    {
+      "id": "EV-001",
+      "type": "benchmark-artifact",
+      "description": "Local full evidence run of the RESEARCH-CAD-005 benchmark (research/cad-005/evidence/run-001): 83 pass / 0 fail / 0 unknown across ten modules — fixture tiers, IFC engine operations (open/export/query with engine-vs-adapter split), OCCT booleans/tessellation/STEP-IO incl. the multi-tool boolean scaling cliff, FreeCAD document lifecycle in process-isolated FreeCADCmd (cold start 82-114ms, open/edit/recompute/save/reopen at 40/240/840-object tiers with child peak RSS), semantic+quantity extraction scaling, repeated-run variance (CV 4.1%/1.9%/0.9%) and result determinism, robustness (malformed input, typed failures, corruption, durable-write), cancellation (in-process non-preemptability proof, subprocess cancel/timeout, recovery), isolation (parent never imports FreeCAD, thread non-parallelism, resource exhaustion in both modes), and the adapter/worker constraint synthesis with the recommendation (b) viable with explicit constraints. Environment snapshot attached (2-core Xeon, pinned ifcopenshell 0.8.5 / OCCT 7.8.1.1 / FreeCAD 1.1.3).",
+      "produced_at": "2026-08-25T11:20:01Z",
+      "reproducible": true,
+      "reproduction": "cd research/cad-005 && make bench (CAD005_REPEATS=5 CAD005_DETERMINISM_REPEATS=10; resumable, CAD005_FRESH=1 resets); CI reproduces on push/PR via .github/workflows/research-cad-005.yml with artifact upload",
+      "references": {
+        "path": "research/cad-005/evidence/run-001/",
+        "artifact_path": "research/cad-005/report.md"
+      }
+    },
+    {
+      "id": "EV-002",
+      "type": "automated-test-suite",
+      "description": "Deterministic correctness gate for the benchmark machinery: 21/21 tests pass in ~7s (small tiers only, bounded repeats) — fixture structural determinism, engine/adapter split statistics, domain-index extraction, malformed-input typed failures + recovery, truncated-IFC partial-model detection, controlled-mutation lineage, durable-write atomicity, OCCT boolean/tessellation/STEP roundtrips, degenerate-primitive typed rejection, FreeCAD isolated-run identity, typed timeout, document roundtrip, cancellation without partial artifacts, resource exhaustion typed and isolated.",
+      "produced_at": "2026-08-25T11:30:00Z",
+      "reproducible": true,
+      "reproduction": "cd research/cad-005 && make test (requires the pinned toolchain; FreeCAD-dependent tests run when FreeCADCmd is available — CI installs the pinned AppImage)",
+      "references": {
+        "path": "research/cad-005/tests/test_benchmark_suite.py"
+      }
+    }
+  ],
   "decisions": []
 }
