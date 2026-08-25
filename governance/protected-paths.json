@@ -1,6 +1,6 @@
 {
-  "notes": "Architecture-controlled paths for Architecture v1.0. Changes to these locations are protected: they require an Architecture Change Request (ACR) and must not be carried silently by an implementation PR. The check-protected command fails the build when a changed file matches a pattern below. The full ACR template/lifecycle is owned by ARCH-WF-002; until it lands, ANY protected-path change is rejected. This manifest is itself architecture-controlled.",
-  "architecture_version": "1.0",
+  "notes": "Architecture-controlled paths for Architecture v1.1. Changes to these locations are protected: they require an Architecture Change Request (ACR) and must not be carried silently by an implementation PR. The check-protected command fails the build when a changed file matches a pattern below. The full ACR template/lifecycle is owned by ARCH-WF-002; until it lands, ANY protected-path change is rejected. This manifest is itself architecture-controlled.",
+  "architecture_version": "1.1",
   "patterns": [
     {
       "pattern": "spec/architecture.md",
