@@ -1,0 +1,211 @@
+{
+  "benchmark": "bench-roundtrip",
+  "description": "Benchmark: IFC round-trip semantic comparison (RESEARCH-CAD-003 scope 4).",
+  "started_at": "2026-08-25T04:39:55.352813+00:00",
+  "finished_at": "2026-08-25T04:39:55.417104+00:00",
+  "summary": {
+    "pass": 13,
+    "fail": 0,
+    "unknown": 0
+  },
+  "measurements": {},
+  "checks": [
+    {
+      "id": "cad3-roundtrip/semantic-zero-drift",
+      "description": "Export -> re-import introduces ZERO semantic drift: no added or removed elements and no changed fields relative to the pre-export snapshot.",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "bytes": 26361,
+        "added": [],
+        "removed": [],
+        "changed": []
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "cad3-roundtrip/identity-survival",
+      "description": "All Offisos domain identities survive the round trip exactly.",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "before": 13,
+        "after": 13
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "cad3-roundtrip/class-survival",
+      "description": "IFC classes are preserved for every element across the round trip.",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {},
+      "evidence_refs": []
+    },
+    {
+      "id": "cad3-roundtrip/globalid-survival",
+      "description": "GlobalIds are preserved across the export/re-import cycle (provenance continuity for the same logical file).",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {},
+      "evidence_refs": []
+    },
+    {
+      "id": "cad3-roundtrip/relationships-survival",
+      "description": "Voids/fills/containment/aggregation relationship counts are preserved exactly.",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "before": {
+          "voids": 4,
+          "fills": 4,
+          "containment": 1,
+          "aggregation": 4
+        },
+        "after": {
+          "voids": 4,
+          "fills": 4,
+          "containment": 1,
+          "aggregation": 4
+        }
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "cad3-roundtrip/units-survival",
+      "description": "The METRE project length unit is preserved exactly.",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "units": {
+          "length": {
+            "name": "METRE",
+            "prefix": null
+          }
+        }
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "cad3-roundtrip/placement-survival",
+      "description": "Object placement translations are preserved exactly for every element.",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {},
+      "evidence_refs": []
+    },
+    {
+      "id": "cad3-roundtrip/mutation-visible",
+      "description": "The pre-export mutation is visible after re-import: wall-south FireRating is REI90 with boolean/reals intact.",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "fire_rating": "REI90",
+        "lineage": {
+          "operation": "property-change",
+          "domain_id": "off:cad3:wall:south",
+          "pset": "Pset_WallCommon",
+          "property": "FireRating",
+          "before": "REI60",
+          "after": "REI90"
+        }
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "cad3-roundtrip/quantity-survival",
+      "description": "Every quantity set value survives the round trip within 1e-9 (across all walls, the slab and both spaces).",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {},
+      "evidence_refs": []
+    },
+    {
+      "id": "cad3-roundtrip/geometry-extrusion-depth",
+      "description": "GUARANTEED geometry invariant: the wall SweptSolid extrusion depth equals the fixture wall height (3.0 m) after the round trip.",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": 1e-09,
+      "details": {
+        "measured": 3.0,
+        "expected": 3.0,
+        "delta": 0.0
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "cad3-roundtrip/geometry-opening-count",
+      "description": "GUARANTEED geometry invariant: the semantic opening count (4) is preserved with voids relationships intact.",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "openings": 4
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "cad3-roundtrip/geometry-not-guaranteed",
+      "description": "NOT GUARANTEED (explicit): tessellated mesh equivalence, face/edge ordering and BRep byte-equality across export/re-import. These are engine-internal representations; the benchmark asserts semantic + quantity invariants instead. Geometry provenance is recorded as opaque lineage in the Construction Graph mapping.",
+      "status": "pass",
+      "epistemic": "OBSERVED",
+      "tolerance": null,
+      "details": {
+        "guaranteed": [
+          "extrusion depth",
+          "opening/void semantics",
+          "quantity values",
+          "placement translations"
+        ],
+        "not_guaranteed": [
+          "tessellation equality",
+          "face/edge ordering",
+          "BRep byte equality"
+        ]
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "cad3-roundtrip/lossiness-classification",
+      "description": "Field classification from the measured round-trip diff: zero LOSSY fields observed for the fixture corpus; geometry contents are OPAQUE-LINEAGE by design; the recorded UNSUPPORTED set is schema-scoped (IFC4X3-only entities in IFC4).",
+      "status": "pass",
+      "epistemic": "OBSERVED",
+      "tolerance": null,
+      "details": {
+        "classification": {
+          "PRESERVED": [
+            "domain identity (Pset_OffisosIdentity.DomainId/DomainKind/ModelRevision)",
+            "IFC class",
+            "element name",
+            "typed property values (IfcLabel/IfcBoolean/IfcReal)",
+            "quantity set values",
+            "project length unit",
+            "object placements (translation components)",
+            "voids/fills/containment/aggregation relationship counts",
+            "door/window OverallWidth/OverallHeight"
+          ],
+          "LOSSY": [],
+          "UNSUPPORTED": [
+            "IFC4X3_ONLY entities in an IFC4 file (schema-scoped by design)"
+          ],
+          "INFERRED": [
+            "none: no inferred values are promoted to observed facts in this pipeline"
+          ],
+          "OPAQUE-LINEAGE": [
+            "geometry representation contents (recorded as representation references; BRep/tessellation contents are engine-opaque and validated through quantity invariants, not byte comparison)"
+          ]
+        }
+      },
+      "evidence_refs": []
+    }
+  ]
+}

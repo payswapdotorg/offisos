@@ -1,0 +1,203 @@
+{
+  "benchmark": "bench-mutation",
+  "description": "Benchmark: controlled mutation (RESEARCH-CAD-003 scope 3).",
+  "started_at": "2026-08-25T04:39:55.259528+00:00",
+  "finished_at": "2026-08-25T04:39:55.352728+00:00",
+  "summary": {
+    "pass": 9,
+    "fail": 0,
+    "unknown": 0
+  },
+  "measurements": {},
+  "checks": [
+    {
+      "id": "cad3-mutate/property-surgical",
+      "description": "FireRating REI60 -> REI120 on wall-north changes exactly one element and exactly the properties field; every other element is semantically unchanged.",
+      "status": "pass",
+      "epistemic": "ADAPTER",
+      "tolerance": null,
+      "details": {
+        "changed": {
+          "off:cad3:wall:north": [
+            "properties"
+          ]
+        },
+        "lineage": {
+          "operation": "property-change",
+          "domain_id": "off:cad3:wall:north",
+          "pset": "Pset_WallCommon",
+          "property": "FireRating",
+          "before": "REI60",
+          "after": "REI120"
+        }
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "cad3-mutate/property-lineage",
+      "description": "The mutation records source-to-result lineage (operation, domain id, pset, property, before, after).",
+      "status": "pass",
+      "epistemic": "ADAPTER",
+      "tolerance": null,
+      "details": {
+        "lineage": {
+          "operation": "property-change",
+          "domain_id": "off:cad3:wall:north",
+          "pset": "Pset_WallCommon",
+          "property": "FireRating",
+          "before": "REI60",
+          "after": "REI120"
+        }
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "cad3-mutate/placement-surgical",
+      "description": "Moving wall-east by (5, 1) changes exactly that element and exactly the placement field.",
+      "status": "pass",
+      "epistemic": "ADAPTER",
+      "tolerance": null,
+      "details": {
+        "changed": {
+          "off:cad3:wall:east": [
+            "placement"
+          ]
+        },
+        "lineage": {
+          "operation": "placement-change",
+          "domain_id": "off:cad3:wall:east",
+          "before": [
+            10.0,
+            0.0,
+            0.0
+          ],
+          "after": [
+            15.0,
+            1.0,
+            0.0
+          ],
+          "delta": [
+            5.0,
+            1.0,
+            0.0
+          ]
+        }
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "cad3-mutate/placement-value-exact",
+      "description": "The placement change is exactly (10, 0, 0) -> (15, 1, 0).",
+      "status": "pass",
+      "epistemic": "ADAPTER",
+      "tolerance": null,
+      "details": {
+        "move": {
+          "before": [
+            10.0,
+            0.0,
+            0.0
+          ],
+          "after": [
+            15.0,
+            1.0,
+            0.0
+          ]
+        }
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "cad3-mutate/create-surgical",
+      "description": "Creating one wall adds exactly one element with its identity; nothing else changes.",
+      "status": "pass",
+      "epistemic": "ADAPTER",
+      "tolerance": null,
+      "details": {
+        "added": [
+          "off:cad3:wall:added"
+        ],
+        "lineage": {
+          "operation": "create-wall",
+          "domain_id": "off:cad3:wall:added",
+          "name": "wall-added"
+        }
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "cad3-mutate/create-identity-and-props",
+      "description": "The created wall carries its domain identity, FireRating REI30 and a 6 m wall representation at (20, 0, 0).",
+      "status": "pass",
+      "epistemic": "ADAPTER",
+      "tolerance": null,
+      "details": {
+        "element": {
+          "domain_id": "off:cad3:wall:added",
+          "fire_rating": "REI30",
+          "placement": [
+            20.0,
+            0.0,
+            0.0
+          ]
+        }
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "cad3-mutate/delete-surgical",
+      "description": "Deleting wall-interior-2 removes exactly that element; every other element is unchanged.",
+      "status": "pass",
+      "epistemic": "ADAPTER",
+      "tolerance": null,
+      "details": {
+        "removed": [
+          "off:cad3:wall:interior-2"
+        ],
+        "lineage": {
+          "operation": "delete-wall",
+          "domain_id": "off:cad3:wall:interior-2",
+          "name": "wall-interior-2"
+        }
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "cad3-mutate/delete-relationship-cleanup",
+      "description": "Deleting the wall removes its containment (relationship counts drop by the element's relationships; openings of other walls untouched).",
+      "status": "pass",
+      "epistemic": "ADAPTER",
+      "tolerance": null,
+      "details": {
+        "before": {
+          "voids": 4,
+          "fills": 4,
+          "containment": 1,
+          "aggregation": 4
+        },
+        "after": {
+          "voids": 4,
+          "fills": 4,
+          "containment": 1,
+          "aggregation": 4
+        }
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "cad3-mutate/persist-through-export",
+      "description": "All four mutations persist through export/re-import with zero additional semantic drift.",
+      "status": "pass",
+      "epistemic": "ADAPTER",
+      "tolerance": null,
+      "details": {
+        "diff": {
+          "added": [],
+          "removed": [],
+          "changed": []
+        }
+      },
+      "evidence_refs": []
+    }
+  ]
+}

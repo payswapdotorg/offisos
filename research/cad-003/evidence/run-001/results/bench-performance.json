@@ -1,0 +1,80 @@
+{
+  "benchmark": "bench-performance",
+  "description": "Benchmark: runtime and output-size measurements (RESEARCH-CAD-003).",
+  "started_at": "2026-08-25T04:39:56.084321+00:00",
+  "finished_at": "2026-08-25T04:39:56.144789+00:00",
+  "summary": {
+    "pass": 4,
+    "fail": 0,
+    "unknown": 0
+  },
+  "measurements": {
+    "fixture_build_s": 0.0325,
+    "extraction_s": 0.0076,
+    "two_mutations_s": 0.0022,
+    "export_s": 0.0021,
+    "reimport_s": 0.0026,
+    "compare_s": 0.007,
+    "graph_mapping_s": 0.0,
+    "ifc_bytes": 26362,
+    "element_count": 17,
+    "graph_nodes": 13,
+    "ids_validation_s": 0.0048,
+    "peak_rss_mib": 187.3
+  },
+  "checks": [
+    {
+      "id": "cad3-perf/pipeline-timings",
+      "description": "Full pipeline (build, extract, mutate x2, export, re-import, extract, compare, graph-map) completes with recorded timings; the round trip shows zero semantic drift.",
+      "status": "pass",
+      "epistemic": "OBSERVED",
+      "tolerance": null,
+      "details": {
+        "fixture_build_s": 0.0325,
+        "extraction_s": 0.0076,
+        "two_mutations_s": 0.0022,
+        "export_s": 0.0021,
+        "reimport_s": 0.0026,
+        "extract2_s": null,
+        "compare_s": 0.007,
+        "graph_mapping_s": 0.0
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "cad3-perf/output-sizes",
+      "description": "Output sizes recorded for the representative fixture (6 walls, 4 openings, slab, 2 spaces, 5 pset families + qtos per wall).",
+      "status": "pass",
+      "epistemic": "OBSERVED",
+      "tolerance": null,
+      "details": {
+        "ifc_bytes": 26362,
+        "element_count": 17,
+        "graph_nodes": 13
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "cad3-perf/ids-validation",
+      "description": "IDS validation of the fixture completes with a recorded timing.",
+      "status": "pass",
+      "epistemic": "OBSERVED",
+      "tolerance": null,
+      "details": {
+        "ids_validation_s": 0.0048
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "cad3-perf/peak-memory",
+      "description": "Peak resident memory recorded for the benchmark process.",
+      "status": "pass",
+      "epistemic": "OBSERVED",
+      "tolerance": null,
+      "details": {
+        "peak_rss_mib": 187.3
+      },
+      "evidence_refs": []
+    }
+  ]
+}

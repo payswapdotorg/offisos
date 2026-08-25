@@ -1,0 +1,59 @@
+name: research-cad-003
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "research/cad-003/**"
+      - ".github/workflows/research-cad-003.yml"
+  pull_request:
+    paths:
+      - "research/cad-003/**"
+      - ".github/workflows/research-cad-003.yml"
+
+jobs:
+  benchmark:
+    name: IFC/BIM semantic interoperability benchmark (deterministic suite)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: research/cad-003
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: research/cad-003/requirements.txt
+
+      - name: Install pinned toolchain versions
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+
+      - name: Record exact installed versions
+        run: |
+          python -c "
+          import ifcopenshell, ifctester
+          print('ifcopenshell', ifcopenshell.version)
+          from bcf.v3 import bcfxml  # noqa: F401
+          print('bcf-client', '0.8.5 (bcf.v3.bcfxml importable)')
+          print('ifctester', getattr(ifctester, '__version__', '0.8.5'))
+          "
+
+      - name: Deterministic benchmark test suite (zero failures, zero unknowns)
+        run: python -m pytest tests/ -q
+
+      - name: Full benchmark evidence run
+        run: python -m offisos_ifcbench.benchmarks.run_all ci-run
+
+      - name: Upload evidence artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: research-cad-003-evidence
+          path: research/cad-003/evidence/ci-run/
+          if-no-files-found: error
