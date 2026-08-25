@@ -1,9 +1,10 @@
 # ConstructionOS Architecture
 
-**Version:** 1.0
+**Version:** 1.1
 **Status:** FROZEN
-**Effective date:** 2026-08-24
+**Effective date:** 2026-08-25
 **Scope:** Product/platform architecture for the ConstructionOS platform.
+**Change basis:** ACR-002 — CAD/BIM Web and Desktop Client Topology.
 
 ## 1. Purpose
 
@@ -137,9 +138,9 @@ External parties/systems include:
 
 ## 5. Runtime topology
 
-The initial runtime is a modular monolith with background workers.
+The initial runtime remains a modular monolith with background/native workers. CAD/BIM additionally has an explicit cross-platform client topology.
 
-### Core application
+### 5.1 Core application
 
 Owns:
 
@@ -153,7 +154,7 @@ Owns:
 - extension registry;
 - API gateway.
 
-### Worker classes
+### 5.2 Worker classes
 
 Native or isolated workers handle:
 
@@ -169,6 +170,70 @@ Native or isolated workers handle:
 - scheduled analytics.
 
 Heavy native engines must communicate with the core through stable worker contracts.
+
+### 5.3 CAD/BIM client topology
+
+The CAD/BIM application is implemented for both web and desktop/Electron from one shared renderer/editor core.
+
+```text
+                    CAD/BIM Renderer Core
+                             │
+              ┌──────────────┴──────────────┐
+              │                             │
+        Electron Host                  Web Host
+              │                             │
+        Native/Desktop                HTTP/WebSocket
+          Transport                    Transport
+              │                             │
+              └──────────────┬──────────────┘
+                             │
+                       CAD/BIM App API
+                             │
+                       CAD/BIM Engine
+                             │
+          ┌──────────────────┼──────────────────┐
+          │                  │                  │
+    Geometry Engine       BIM Engine         File Engine
+      FreeCAD/OCCT      IfcOpenShell/IFC    IFC/STEP/DXF/FCStd
+          │                  │                  │
+          └──────────────────┴──────────────────┘
+                             │
+                    CADDocument Model
+                             │
+                    Construction Graph
+```
+
+The renderer/editor core is platform-independent and communicates with the host through a stable capability and command/query contract. The Electron host exposes explicitly allowlisted native capabilities and may run heavy CAD/BIM engines locally. The Web host uses authenticated HTTP/WebSocket/domain APIs and may delegate heavy CAD/BIM processing to backend workers.
+
+### 5.4 CADDocument versus Construction Graph
+
+`CADDocument` is the canonical working representation of an open CAD/BIM artifact for the editor. It provides:
+
+- document-local object identity;
+- editor state;
+- command/undo/redo semantics;
+- model tree/state required by the editor;
+- source artifact lineage;
+- format/version metadata.
+
+`CADDocument` is **not** the canonical project/asset system of record.
+
+Construction Graph remains authoritative for cross-application domain identity and project state. Model/document versions, element identities, quantities and consequential domain changes are mapped into the Construction Graph through explicit versioned contracts/events.
+
+### 5.5 Host/engine separation
+
+The renderer must not directly depend on:
+
+- Electron APIs;
+- browser-specific transport APIs;
+- FreeCAD APIs;
+- OpenCascade APIs;
+- IfcOpenShell APIs;
+- file-format package internals.
+
+These are exposed through host, capability and engine/file adapter contracts.
+
+The same semantic command/query contract must be testable through both the Web Host and Electron Host.
 
 ## 6. Storage
 
@@ -223,7 +288,7 @@ Use mature open-source foundations where license-compatible, with narrow-patch a
 
 ### CAD/BIM
 
-CAD geometry and BIM semantics are separated. The system may use FreeCAD/OpenCascade/IfcOpenShell or another compatible engine behind an adapter. IFC/openBIM semantics belong to the platform BIM layer and Construction Graph, not solely to the editor.
+CAD geometry and BIM semantics are separated. The CAD/BIM application uses the shared web/desktop renderer topology defined in Section 5.3. FreeCAD/OpenCascade/IfcOpenShell or another compatible engine remains behind adapters. IFC/openBIM semantics belong to the platform BIM layer and Construction Graph, not solely to the editor. The CADDocument is the editor's canonical working document, while Construction Graph remains the canonical project/asset domain model.
 
 ### Project
 
@@ -236,6 +301,8 @@ The graph connects:
 `Project → Site → Building → Model → Element → Quantity → Cost → RFQ → Bid → Contract → Schedule → Construction → Inspection → Condition → Maintenance → Outcome`
 
 The same entities can be accessed by UI, API, agents and extensions.
+
+For CAD/BIM, a `CADDocument`/model version is an editor/file representation that maps to Graph entities through stable domain contracts and provenance. It is not itself the authoritative Graph.
 
 ## 10. Event-driven integration
 
@@ -291,9 +358,13 @@ Historical replay reconstructs the information state available at time T and eva
 
 Collaboration is project-wide. Real-time collaborative editing may use CRDT technology for text/cells/presence, while BIM, estimates, RFQs, bids and regulated/financial objects use versioned domain transactions and approvals.
 
+CADDocument editing must use the same versioned/document transaction contract regardless of web or Electron host. Host-local state may accelerate rendering and interaction but is not authoritative project state.
+
 ## 16. Multi-tenancy and security
 
 Tenant, organization, project, role and resource boundaries are enforced server-side. Commercial data such as internal estimates and competitor bids is subject to stronger confidentiality controls than ordinary project data. External subcontractors use scoped external sessions when needed.
+
+Electron native capabilities are explicitly allowlisted and isolated. Web clients never receive native process/filesystem privileges. Native CAD/BIM workers communicate through authenticated, capability-scoped transport contracts.
 
 ## 17. Extension architecture
 
@@ -313,6 +384,8 @@ Supported patterns include:
 - usage metering;
 - SDKs.
 
+The CAD/BIM application uses the same public/domain capability contracts as other first-party clients where appropriate; web and Electron are two hosts over the same semantic application boundary.
+
 ## 19. Development workflow authority
 
 The development workflow is derived from WorkflowOS:
@@ -326,12 +399,13 @@ A failed verification or requested change returns the work item to implementatio
 This version does not freeze:
 
 - a specific cloud vendor;
-- a specific CAD kernel implementation;
+- a single final CAD kernel implementation;
 - a specific project engine;
 - a specific graph database;
 - a single AI provider/model;
 - a specific CRDT implementation;
 - a specific search engine;
+- a specific desktop framework beyond the explicitly required Electron host for the CAD/BIM application;
 - a specific deployment topology beyond the modular-monolith-first constraint.
 
-Those choices remain adapter-level decisions unless later promoted into the architecture by ADR and architecture version change.
+The web/Electron host topology and shared CAD/BIM renderer/API boundary are now architectural requirements. The underlying CAD/BIM engine remains replaceable behind the adapter boundary.
