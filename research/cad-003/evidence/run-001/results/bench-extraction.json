@@ -1,0 +1,167 @@
+{
+  "benchmark": "bench-extraction",
+  "description": "Benchmark: semantic extraction (RESEARCH-CAD-003 scope 2).",
+  "started_at": "2026-08-25T04:39:55.201892+00:00",
+  "finished_at": "2026-08-25T04:39:55.259457+00:00",
+  "summary": {
+    "pass": 9,
+    "fail": 0,
+    "unknown": 0
+  },
+  "measurements": {},
+  "checks": [
+    {
+      "id": "cad3-extract/determinism",
+      "description": "Extracting the same file twice produces identical snapshots (sorted keys, rounded placements).",
+      "status": "pass",
+      "epistemic": "ADAPTER",
+      "tolerance": null,
+      "details": {},
+      "evidence_refs": []
+    },
+    {
+      "id": "cad3-extract/identity-coverage",
+      "description": "Every wall/slab/space/door/window carries an Offisos domain id via the identity property set (stable mapping into the ConstructionOS model boundary).",
+      "status": "pass",
+      "epistemic": "ADAPTER",
+      "tolerance": null,
+      "details": {
+        "element_count": 13,
+        "domain_ids": [
+          "off:cad3:slab:ground",
+          "off:cad3:space:bedroom",
+          "off:cad3:space:living",
+          "off:cad3:wall:east",
+          "off:cad3:wall:interior-1",
+          "off:cad3:wall:interior-1:door-1"
+        ]
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "cad3-extract/identity-not-in-properties",
+      "description": "The identity property set is consumed as identity metadata, not mixed into domain properties (no Pset_OffisosIdentity.* keys in the extracted properties).",
+      "status": "pass",
+      "epistemic": "ADAPTER",
+      "tolerance": null,
+      "details": {
+        "property_keys": [
+          "Pset_OffisosProject.PhaseCode",
+          "Pset_OffisosProject.WorkPackage",
+          "Pset_OffisosProject.ZoneIdentifier",
+          "Pset_WallCommon.FireRating",
+          "Pset_WallCommon.IsExternal",
+          "Pset_WallCommon.LoadBearing",
+          "Pset_WallCommon.ThermalTransmittance"
+        ]
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "cad3-extract/class-name-provenance",
+      "description": "Each element records its IFC class, name and engine GlobalId as provenance (engine ids are provenance, never canonical).",
+      "status": "pass",
+      "epistemic": "ADAPTER",
+      "tolerance": null,
+      "details": {
+        "sample": {
+          "off:cad3:wall:north": [
+            "IfcWall",
+            "wall-north",
+            "2hL2WCCWD31eB"
+          ],
+          "off:cad3:wall:south": [
+            "IfcWall",
+            "wall-south",
+            "3bAvuGrIPAueA"
+          ],
+          "off:cad3:wall:east": [
+            "IfcWall",
+            "wall-east",
+            "1kg92pqnL9A9v"
+          ]
+        }
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "cad3-extract/property-coverage",
+      "description": "Property extraction covers Pset_WallCommon (4 typed values) and the custom project property set (3 values) for the north wall.",
+      "status": "pass",
+      "epistemic": "ADAPTER",
+      "tolerance": null,
+      "details": {
+        "extracted": [
+          "Pset_OffisosProject.PhaseCode",
+          "Pset_OffisosProject.WorkPackage",
+          "Pset_OffisosProject.ZoneIdentifier",
+          "Pset_WallCommon.FireRating",
+          "Pset_WallCommon.IsExternal",
+          "Pset_WallCommon.LoadBearing",
+          "Pset_WallCommon.ThermalTransmittance"
+        ]
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "cad3-extract/quantity-coverage",
+      "description": "Quantity extraction covers the full Qto_WallCommon set (GrossVolume, NetVolume, GrossSideArea, NetSideArea, Height, Length, Width).",
+      "status": "pass",
+      "epistemic": "ADAPTER",
+      "tolerance": null,
+      "details": {
+        "extracted": [
+          "GrossSideArea",
+          "GrossVolume",
+          "Height",
+          "Length",
+          "NetSideArea",
+          "NetVolume",
+          "Width"
+        ]
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "cad3-extract/relationships",
+      "description": "Relationship extraction reports voids=4, fills=4, containment=1, aggregation=4 (exact fixture semantics).",
+      "status": "pass",
+      "epistemic": "ADAPTER",
+      "tolerance": null,
+      "details": {
+        "relationships": {
+          "voids": 4,
+          "fills": 4,
+          "containment": 1,
+          "aggregation": 4
+        }
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "cad3-extract/representation-reference",
+      "description": "Extraction records placements exactly, and representation references are reachable (wall-north: 1 representation item (SweptSolid)).",
+      "status": "pass",
+      "epistemic": "ADAPTER",
+      "tolerance": null,
+      "details": {
+        "placement": [
+          0.0,
+          8.0,
+          0.0
+        ],
+        "representation_items": 1
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "cad3-extract/globalid-stable-in-file",
+      "description": "GlobalIds are stable across file write/read cycles of the same logical file (relevant for provenance continuity).",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {},
+      "evidence_refs": []
+    }
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "written_at": "2026-08-25T04:39:56.152909+00:00",
+  "benchmarks": [
+    "bench-fixture",
+    "bench-extraction",
+    "bench-mutation",
+    "bench-roundtrip",
+    "bench-cg-mapping",
+    "bench-ids-bcf",
+    "bench-performance"
+  ],
+  "totals": {
+    "pass": 64,
+    "fail": 0,
+    "unknown": 0
+  },
+  "exit_code": 0
+}

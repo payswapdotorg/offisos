@@ -1,0 +1,225 @@
+{
+  "id": "RESEARCH-CAD-003",
+  "title": "Benchmark IFC/BIM semantic interoperability with IfcOpenShell",
+  "issue": 3,
+  "objective": "Produce reproducible evidence that the current IFC/BIM interoperability candidate (IfcOpenShell) can preserve and manipulate construction semantics across import, edit, export and round-trip workflows \u2014 IFC fixture, semantic extraction, controlled mutation, export, re-import, semantic comparison and Construction Graph mapping \u2014 without making the IFC library or engine-native model the canonical Construction Graph. IDS validation exercised with the IfcTester toolchain; BCF tested only if the toolchain supports it without material custom implementation.",
+  "architecture_version": "1.0",
+  "requirements": [
+    "IFC-001",
+    "IFC-002"
+  ],
+  "dependencies": [
+    "RESEARCH-CAD-001"
+  ],
+  "acceptance_criteria": [
+    "At least one representative IFC fixture completes import -> semantic extraction -> controlled mutation -> export -> re-import.",
+    "Semantic assertions prove which identities, classes, relationships, properties, quantities, units, and placements survive the round trip.",
+    "At least one deliberate mutation is shown to update the intended semantic object without silently altering unrelated objects.",
+    "Geometry-related round-trip assertions are explicit about what is and is not guaranteed.",
+    "The mapping into the Construction Graph is documented and reproducible, including provenance and unsupported-field handling.",
+    "Any lossy conversion or schema limitation is visible in the evidence report.",
+    "Results support, reject, or defer the candidate under the frozen adapter architecture."
+  ],
+  "non_goals": [
+    "No production BIM editor.",
+    "No decision that IFC is the complete internal representation for all ConstructionOS workflows.",
+    "No replacement of the Construction Graph with IFC entities.",
+    "No final legal approval based solely on this issue."
+  ],
+  "risk_assumptions": [
+    "BCF toolchain limitation (probed, recorded as evidence): no installable BCF library exists in this environment \u2014 the PyPI 'bcf' distribution is unrelated firmware tooling (ftdi/flasher modules), and ifcopenshell 0.8.x does not bundle an ifcopenshell.bcf module. Issue #3 makes BCF conditional on toolchain support without material custom implementation, so BCF remains untested and is recorded as a limitation, not an engine failure.",
+    "IDS toolchain: IfcTester 0.8.5 (pip-installable, ifcopenshell-affiliated) provides IDS authoring and validation and is used in-process.",
+    "The ifcopenshell-ids 0.8.0 PyPI distribution is a broken partial mirror of ifcopenshell 0.8.0 with no ids module (wheel inspection evidence); it corrupts a co-installed ifcopenshell 0.8.5 and is NOT used.",
+    "spec/work-items.md still carries the older RESEARCH-CAD-003 definition (CAD-to-Construction-Graph prototype, RESEARCH-CAD-004 in the issue numbering); this record follows the GitHub issue #3 definition per the established divergence flag."
+  ],
+  "evidence_requirements": [
+    "Deterministic pipeline benchmark: fixture -> extraction -> controlled mutation -> export -> re-import -> semantic comparison -> Construction Graph mapping.",
+    "Semantic assertions for identity, IFC class, relationships, properties, quantities, units, placements and supported geometry invariants.",
+    "Narrow-patch mutation proof with lineage recording.",
+    "Construction Graph mapping proof with engine-id non-canonicality, provenance and explicit lossy/unsupported/inferred/opaque-lineage classification.",
+    "IDS validation workflow (positive and negative controls); BCF toolchain probe evidence.",
+    "Exact IfcOpenShell/IfcTester/schema/runtime versions recorded; runtime and output-size measurements."
+  ],
+  "state": "VERIFYING",
+  "transitions": [
+    {
+      "from": "DRAFT",
+      "to": "READY",
+      "at": "2026-08-24T19:19:11Z",
+      "actor": "pectoraux",
+      "role": "architect",
+      "reason": "Work item fully specified in GitHub issue #3 (objective, six-part scope, evidence requirements, acceptance criteria, non-goals, architect gate).",
+      "references": {
+        "issue": 3
+      }
+    },
+    {
+      "from": "READY",
+      "to": "ASSIGNED",
+      "at": "2026-08-25T04:24:56Z",
+      "actor": "pectoraux",
+      "role": "product-owner",
+      "reason": "Execution directive after the merge of RESEARCH-CAD-002 (merge commit da85d8d): RESEARCH-CAD-003 assigned to the Z.ai implementation agent with focus on the BIM semantic layer pipeline (IFC fixture -> extraction -> controlled mutation -> export -> re-import -> semantic comparison -> Construction Graph mapping), proving identities, IFC classes, relationships, properties, quantities, units, placements, provenance, lossiness and Graph independence; IDS/BCF interoperability where practical. No production BIM editor and no final engine-selection decision.",
+      "references": {
+        "issue": 3,
+        "assignee": "z-ai-implementation-agent"
+      }
+    },
+    {
+      "from": "ASSIGNED",
+      "to": "IMPLEMENTING",
+      "at": "2026-08-25T04:24:56Z",
+      "actor": "z-ai-implementation-agent",
+      "role": "implementer",
+      "reason": "Implementation started on branch work/research-cad-003-ifc-benchmark: vendored harness conventions, deterministic IFC fixture corpus builder, semantic extraction/mutation/round-trip/comparison pipeline, Construction Graph mapping proof, IDS validation via IfcTester, BCF toolchain probe evidence, performance measurements."
+    },
+    {
+      "from": "IMPLEMENTING",
+      "to": "PR_OPEN",
+      "at": "2026-08-25T04:42:00Z",
+      "actor": "z-ai-implementation-agent",
+      "role": "implementer",
+      "reason": "Evidence package complete; opening PR #19 for RESEARCH-CAD-003 (three focused commits: pipeline/fixture/CG-mapping, seven benchmark modules, evidence+report+CI+tests).",
+      "references": {
+        "pr": 19,
+        "commit": "840331084929f3f6e2a601fd96026f4f723ec4cf"
+      }
+    },
+    {
+      "from": "PR_OPEN",
+      "to": "VERIFYING",
+      "at": "2026-08-25T04:43:39Z",
+      "actor": "github-actions",
+      "role": "automation",
+      "reason": "research-cad-003 workflow run #2 on PR head 7c1c7db completed success (pinned toolchain, 9/9 deterministic tests, full 64/0/0 evidence run, artifact upload). Governance run #23 reports 70/71: the single failure is the protected-paths/manifest consistency check INHERITED from main (Architecture v1.1 merge 3c3172b advanced the version registry to 1.1 without updating the manifest target; governance run #21 on main itself failed on the same check). The defect and resolution options were documented on the PR.",
+      "references": {
+        "evidence": [
+          "EV-001",
+          "EV-002",
+          "EV-003"
+        ]
+      }
+    },
+    {
+      "from": "VERIFYING",
+      "to": "ARCHITECT_REVIEW",
+      "at": "2026-08-25T05:14:51Z",
+      "actor": "pectoraux",
+      "role": "architect",
+      "reason": "Architect took up review of the RESEARCH-CAD-003 evidence package on PR #19.",
+      "references": {
+        "evidence": [
+          "EV-001",
+          "EV-002",
+          "EV-003"
+        ]
+      }
+    },
+    {
+      "from": "ARCHITECT_REVIEW",
+      "to": "IMPLEMENTING",
+      "at": "2026-08-25T05:14:51Z",
+      "actor": "pectoraux",
+      "role": "architect",
+      "reason": "Architect review of PR #19: changes requested (comment 5405704039). The IFC/BIM implementation is strong (64/0/0 evidence, surgical mutations, semantic round-trip, Construction Graph independence, IDS validation, BCF round-trip) and is NOT the blocker.",
+      "failure_reason": "The inherited architecture-governance defect on main: Architecture v1.1 is active (architecture-versions.json) but governance/protected-paths.json still targets architecture 1.0, failing the governance consistency check. Remediation: repair the manifest/registry consistency in a focused architecture-governance change, then rebase PR #19 and rerun governance. The work item must retain Architecture v1.0 (do not rewrite its version merely to make validation pass). Keep IDS/BCF toolchain findings explicit. Do not claim final IFC/BIM verification yet.",
+      "references": {
+        "decision": "DEC-001"
+      }
+    },
+    {
+      "from": "IMPLEMENTING",
+      "to": "PR_OPEN",
+      "at": "2026-08-25T05:24:00Z",
+      "actor": "z-ai-implementation-agent",
+      "role": "implementer",
+      "reason": "DEC-001 remediation complete: the focused architecture-governance repair (PR #20, one-line protected-paths manifest alignment to active Architecture v1.1 \u2014 the mechanical completion of the approved ACR-002) was merged as 4a7b595 per the Architect directive, turning main green (governance run #25 success); PR #19 rebased onto the repaired main. Local revalidation: 71/71 governance checks (consistency check now green), 9/9 deterministic tests. The work item retains Architecture v1.0 per remediation item 2; IDS/BCF toolchain findings remain explicit; no verification claimed.",
+      "references": {
+        "pr": 19,
+        "commit": "7459430a41c9c5f881542caa1d92a8bab64999ce"
+      }
+    },
+    {
+      "from": "PR_OPEN",
+      "to": "VERIFYING",
+      "at": "2026-08-25T05:25:06Z",
+      "actor": "github-actions",
+      "role": "automation",
+      "reason": "Revalidated CI on the rebased PR #19 head b9be0f7: governance run #26 completed success with 71/71 checks \u2014 the inherited protected-paths/manifest consistency failure is cleared ('Protected-path manifest valid (8 pattern(s)) for architecture 1.1') \u2014 and research-cad-003 run #3 completed success (pinned toolchain, 9/9 deterministic tests, full 64/0/0 evidence run, artifact upload). Corrected evidence package re-submitted for Architect re-review.",
+      "references": {
+        "evidence": [
+          "EV-001",
+          "EV-002",
+          "EV-003",
+          "EV-004"
+        ]
+      }
+    }
+  ],
+  "evidence": [
+    {
+      "id": "EV-001",
+      "type": "automated-test-suite",
+      "description": "Deterministic CI test suite: 9 tests running the full benchmark in-process (zero failures and zero unknowns required; critical capability checks asserted per scope area: fixture corpus, extraction, mutation, round trip, CG mapping, IDS/BCF, performance measurements).",
+      "produced_at": "2026-08-25T04:41:16Z",
+      "reproducible": true,
+      "reproduction": "cd research/cad-003 && python3 -m pip install -r requirements.txt && make test",
+      "references": {
+        "pr": 19
+      }
+    },
+    {
+      "id": "EV-002",
+      "type": "inspectable-artifact",
+      "description": "Committed evidence run research/cad-003/evidence/run-001/: 64 pass / 0 fail / 0 unknown across seven benchmark modules (fixture, extraction, mutation, roundtrip, cg-mapping, ids-bcf, performance) with the exact toolchain snapshot (ifcopenshell 0.8.5, IfcTester 0.8.5, bcf-client 0.8.5).",
+      "produced_at": "2026-08-25T04:39:00Z",
+      "reproducible": true,
+      "reproduction": "cd research/cad-003 && make bench",
+      "references": {
+        "artifact_path": "research/cad-003/evidence/run-001",
+        "pr": 19
+      }
+    },
+    {
+      "id": "EV-003",
+      "type": "ci-run",
+      "description": "research-cad-003 workflow on the PR head: pinned pip toolchain install, version recording, deterministic test gate (zero failures/unknowns) and full evidence run with artifact upload.",
+      "produced_at": "2026-08-25T04:42:00Z",
+      "reproducible": true,
+      "reproduction": "Inspect the research-cad-003 workflow checks on the PR",
+      "references": {
+        "workflow_run": "research-cad-003 workflow on PR #17",
+        "pr": 19
+      }
+    },
+    {
+      "id": "EV-004",
+      "type": "ci-run",
+      "description": "DEC-001 remediation CI on the rebased PR #19 head b9be0f7: governance run #26 (pull_request, completed 2026-08-25T05:24:48Z) passed 71/71 checks including the previously failing consistency check (manifest valid for architecture 1.1 after the PR #20 repair merged as 4a7b595; main green again via governance run #25 on the repair merge commit); research-cad-003 run #3 (completed 2026-08-25T05:25:06Z) passed with the pinned toolchain, 9/9 deterministic tests and the full 64/0/0 evidence run with artifact upload. The work item retains Architecture v1.0 per the directive.",
+      "produced_at": "2026-08-25T05:25:06Z",
+      "reproducible": true,
+      "reproduction": "Inspect governance run #26 and research-cad-003 run #3 on PR #19 head b9be0f7, or run locally: npm run governance -- validate (repo root) and cd research/cad-003 && make test && make bench",
+      "references": {
+        "workflow_run": "governance #26 + research-cad-003 #3 on b9be0f7",
+        "pr": 19,
+        "commit": "b9be0f7b866b5ec744a0716af467745a4e41a31a"
+      }
+    }
+  ],
+  "decisions": [
+    {
+      "id": "DEC-001",
+      "status": "changes_requested",
+      "decided_at": "2026-08-25T05:14:51Z",
+      "decided_by": "pectoraux",
+      "role": "architect",
+      "rationale": "PR #19's IFC/BIM evidence is substantially strong and the research workflow is green, but approval is blocked by the governance inconsistency introduced by the Architecture v1.1 (ACR-002) merge: architecture-versions.json is active 1.1 while protected-paths.json still targets 1.0. The failure originates from the ACR-002 merge, not this work item. No architecture change is requested for the IFC semantic layer; Architecture v1.1 remains active but the governance consistency defect must be corrected before this work item can proceed to approval.",
+      "evidence_refs": [
+        "EV-001",
+        "EV-002",
+        "EV-003"
+      ],
+      "remediation_required": "1) Repair the manifest/registry consistency in a focused architecture-governance PR (do not weaken or bypass the check), then rebase PR #19 and rerun governance. 2) Preserve the work-item version: RESEARCH-CAD-003 retains Architecture v1.0 unless its implementation genuinely depends on v1.1. 3) Keep the IDS/BCF findings explicit, including the broken ifcopenshell-ids mirror and the unrelated PyPI bcf package as toolchain findings, not architectural blockers. 4) Do not claim final IFC/BIM verification until the governance defect is cleared and the corrected PR is revalidated."
+    }
+  ]
+}

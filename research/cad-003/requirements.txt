@@ -1,0 +1,17 @@
+# RESEARCH-CAD-003 benchmark — exact tested versions
+# Python 3.12 required; install with:
+#   python3 -m pip install -r requirements.txt
+ifcopenshell==0.8.5
+IfcTester==0.8.5        # IDS authoring/validation; also provides bcf-client 0.8.5 (BCF-XML v3 handler)
+numpy==2.1.3
+pytest==9.0.2
+
+# Toolchain notes (probed, recorded in report.md):
+# - IfcTester 0.8.5 is the IfcOpenShell-affiliated IDS tester; its dependency
+#   chain provides bcf-client 0.8.5 (module bcf.v3.bcfxml) used for the BCF
+#   issue/reference workflow.
+# - The PyPI distribution "ifcopenshell-ids" (0.8.0) is a broken partial
+#   mirror of ifcopenshell 0.8.0 with no ids module; it corrupts a
+#   co-installed ifcopenshell 0.8.5 and must NOT be installed.
+# - The PyPI distribution "bcf" (1.9.1) is unrelated firmware tooling
+#   (ftdi/flasher modules) and must NOT be used.

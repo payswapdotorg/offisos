@@ -41,7 +41,7 @@
     "Distinguished native FreeCAD/OCC behavior vs Offisos adapter behavior.",
     "Recorded failures, unsupported operations, precision limitations and nondeterministic behavior."
   ],
-  "state": "PR_OPEN",
+  "state": "MERGED",
   "transitions": [
     {
       "from": "DRAFT",
@@ -85,6 +85,58 @@
         "pr": 16,
         "commit": "c67c7eb6f5d6e1169b0cc04c0e021ab075b33db6"
       }
+    },
+    {
+      "from": "PR_OPEN",
+      "to": "VERIFYING",
+      "at": "2026-08-25T03:37:22Z",
+      "actor": "github-actions",
+      "role": "automation",
+      "reason": "research-cad-002 workflow run #1 on PR head 70e776c completed success (pinned FreeCAD install, 10/10 deterministic tests, full 69/0/0 evidence run, artifact upload); governance run #18 green. Evidence package submitted for Architect review.",
+      "references": {
+        "evidence": [
+          "EV-001",
+          "EV-002",
+          "EV-003"
+        ]
+      }
+    },
+    {
+      "from": "VERIFYING",
+      "to": "ARCHITECT_REVIEW",
+      "at": "2026-08-25T04:15:28Z",
+      "actor": "pectoraux",
+      "role": "architect",
+      "reason": "Architect took up review of the RESEARCH-CAD-002 evidence package on PR #16.",
+      "references": {
+        "evidence": [
+          "EV-001",
+          "EV-002",
+          "EV-003"
+        ]
+      }
+    },
+    {
+      "from": "ARCHITECT_REVIEW",
+      "to": "APPROVED",
+      "at": "2026-08-25T04:15:28Z",
+      "actor": "pectoraux",
+      "role": "architect",
+      "reason": "DEC-001: PR #16 satisfies the RESEARCH-CAD-002 acceptance criteria (review comment 5405031838): executable coverage of all scoped capabilities with explicit tolerances and before/after assertions; process-isolated adapter behavior; documented determinism limitations; explicit failure findings; pinned SHA256-verified FreeCAD 1.1.3; independent CI reproduction on head 70e776c (governance run 32805815297 and research-cad-002 run 32805815364 green). No ACR required; Architecture v1.0 remains frozen. The feasibility recommendation is accepted as inferred, not a final engine selection. Approved for merge; post-merge verification remains a separate Architect decision bound to the merge revision.",
+      "references": {
+        "decision": "DEC-001"
+      }
+    },
+    {
+      "from": "APPROVED",
+      "to": "MERGED",
+      "at": "2026-08-25T04:15:32Z",
+      "actor": "pectoraux",
+      "role": "product-owner",
+      "reason": "Product Owner merged PR #16 into main as merge commit da85d8d0431907df890fb5c1749dab0dcf7a218d ('Merge RESEARCH-CAD-002 after Architect approval'). Governance workflow run #19 and research-cad-002 workflow run #2 both completed success on the merge commit.",
+      "references": {
+        "merge_commit": "da85d8d0431907df890fb5c1749dab0dcf7a218d"
+      }
     }
   ],
   "evidence": [
@@ -122,6 +174,33 @@
         "workflow_run": "research-cad-002 workflow on PR #16",
         "pr": 16
       }
+    },
+    {
+      "id": "EV-004",
+      "type": "ci-run",
+      "description": "Both workflows green on merge commit da85d8d0431907df890fb5c1749dab0dcf7a218d: governance run #19 (completed 2026-08-25T04:15:51Z) and research-cad-002 run #2 (completed 2026-08-25T04:16:24Z, pinned FreeCAD reinstall + full benchmark). VERIFIED is deliberately NOT recorded: the Architect's approval explicitly reserves post-merge verification as a separate decision bound to the merge revision, and no verification directive has been issued for RESEARCH-CAD-002.",
+      "produced_at": "2026-08-25T04:16:24Z",
+      "reproducible": true,
+      "reproduction": "Inspect runs on merge commit da85d8d on main, or checkout da85d8d and run: cd research/cad-002 && make test && make bench",
+      "references": {
+        "workflow_run": "governance #19 + research-cad-002 #2 on da85d8d",
+        "commit": "da85d8d0431907df890fb5c1749dab0dcf7a218d"
+      }
+    }
+  ],
+  "decisions": [
+    {
+      "id": "DEC-001",
+      "status": "approved",
+      "decided_at": "2026-08-25T04:15:28Z",
+      "decided_by": "pectoraux",
+      "role": "architect",
+      "rationale": "PR #16 satisfies the RESEARCH-CAD-002 acceptance criteria on the evidence presented (review comment 5405031838, preserved verbatim in the PR conversation). The recommendation to continue with FreeCAD/OpenCascade behind the adapter boundary is accepted as an inferred feasibility conclusion, not a final engine-selection decision. RESEARCH-CAD-006, RESEARCH-CAD-003 and licensing/composition remain separate gates. Approved for merge; post-merge verification is a separate Architect decision bound to the merge revision (not yet issued).",
+      "evidence_refs": [
+        "EV-001",
+        "EV-002",
+        "EV-003"
+      ]
     }
   ]
 }

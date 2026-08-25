@@ -1,0 +1,176 @@
+{
+  "benchmark": "bench-cg-mapping",
+  "description": "Benchmark: Construction Graph mapping proof (RESEARCH-CAD-003 scope 5).",
+  "started_at": "2026-08-25T04:39:55.417181+00:00",
+  "finished_at": "2026-08-25T04:39:55.554972+00:00",
+  "summary": {
+    "pass": 8,
+    "fail": 0,
+    "unknown": 0
+  },
+  "measurements": {},
+  "checks": [
+    {
+      "id": "cad3-graph/node-coverage",
+      "description": "The graph revision contains one canonical node per non-opening element (6 walls + 1 slab + 2 spaces + 2 doors + 2 windows = 13) with openings recorded as void lineage instead.",
+      "status": "pass",
+      "epistemic": "ADAPTER",
+      "tolerance": null,
+      "details": {
+        "nodes": 13,
+        "void_lineage": 4
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "cad3-graph/provenance-per-node",
+      "description": "Every node records provenance: source engine, engine GlobalId, IFC class, model revision and identity-resolution method.",
+      "status": "pass",
+      "epistemic": "ADAPTER",
+      "tolerance": null,
+      "details": {
+        "sample": {
+          "source_engine": "ifcopenshell",
+          "source_engine_id": "367QDtHhX7DQg1tMHUqffd",
+          "source_ifc_class": "IfcSlab",
+          "model_revision": "fixture-v1",
+          "identity_resolution": "identity-pset"
+        },
+        "provenance_ok": true
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "cad3-graph/engine-ids-unstable-across-regeneration",
+      "description": "DIRECT OBSERVATION: two independent builds of the same fixture produce DISJOINT GlobalId sets \u2014 engine ids cannot be canonical identity.",
+      "status": "pass",
+      "epistemic": "OBSERVED",
+      "tolerance": null,
+      "details": {
+        "build_a_sample": [
+          "0Mc1mEuPvAlBz_qCyxqLPA",
+          "0pw6F8$dL4of0862yFYssU"
+        ],
+        "build_b_sample": [
+          "0DoSgMygf87Q2ejK79vl6k",
+          "0K_yzjSBr21wm_JBxBrNS8"
+        ]
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "cad3-graph/canonical-ids-stable-across-regeneration",
+      "description": "Canonical node ids (domain identities) are IDENTICAL across regeneration while engine GlobalIds are disjoint \u2014 the Graph is independent of engine identity.",
+      "status": "pass",
+      "epistemic": "ADAPTER",
+      "tolerance": null,
+      "details": {
+        "node_count": 13
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "cad3-graph/stable-across-roundtrip",
+      "description": "The graph revision is structurally identical across export/re-import (no added/removed nodes).",
+      "status": "pass",
+      "epistemic": "ADAPTER",
+      "tolerance": null,
+      "details": {
+        "diff": {
+          "added": [],
+          "removed": [],
+          "unchanged": [
+            "off:cad3:slab:ground",
+            "off:cad3:space:bedroom",
+            "off:cad3:space:living",
+            "off:cad3:wall:east",
+            "off:cad3:wall:interior-1",
+            "off:cad3:wall:interior-1:door-1",
+            "off:cad3:wall:interior-2",
+            "off:cad3:wall:north",
+            "off:cad3:wall:north:window-1",
+            "off:cad3:wall:south",
+            "off:cad3:wall:south:door-1",
+            "off:cad3:wall:south:window-2",
+            "off:cad3:wall:west"
+          ]
+        }
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "cad3-graph/provenance-continuous-across-roundtrip",
+      "description": "Node provenance (engine GlobalIds) is continuous across the export/re-import cycle \u2014 lineage survives round trips.",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {},
+      "evidence_refs": []
+    },
+    {
+      "id": "cad3-graph/diff-detects-exact-changes",
+      "description": "The graph diff detects exactly the created and deleted walls (added=[wall:extra], removed=[wall:interior-2]) \u2014 the mapping tracks real semantic changes, not just file bytes.",
+      "status": "pass",
+      "epistemic": "ADAPTER",
+      "tolerance": null,
+      "details": {
+        "diff": {
+          "added": [
+            "off:cad3:wall:extra"
+          ],
+          "removed": [
+            "off:cad3:wall:interior-2"
+          ],
+          "unchanged": [
+            "off:cad3:slab:ground",
+            "off:cad3:space:bedroom",
+            "off:cad3:space:living",
+            "off:cad3:wall:east",
+            "off:cad3:wall:interior-1",
+            "off:cad3:wall:interior-1:door-1",
+            "off:cad3:wall:north",
+            "off:cad3:wall:north:window-1",
+            "off:cad3:wall:south",
+            "off:cad3:wall:south:door-1",
+            "off:cad3:wall:south:window-2",
+            "off:cad3:wall:west"
+          ]
+        }
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "cad3-graph/field-classification",
+      "description": "The mapping documents field handling: PRESERVED (identity, class, name, typed properties, quantities, units, placements, relationships), OPAQUE-LINEAGE (geometry representation contents \u2014 validated through quantity invariants), UNSUPPORTED (IFC4X3-only entities in IFC4, schema-scoped), INFERRED (none).",
+      "status": "pass",
+      "epistemic": "ADAPTER",
+      "tolerance": null,
+      "details": {
+        "classification": {
+          "PRESERVED": [
+            "domain identity (Pset_OffisosIdentity.DomainId/DomainKind/ModelRevision)",
+            "IFC class",
+            "element name",
+            "typed property values (IfcLabel/IfcBoolean/IfcReal)",
+            "quantity set values",
+            "project length unit",
+            "object placements (translation components)",
+            "voids/fills/containment/aggregation relationship counts",
+            "door/window OverallWidth/OverallHeight"
+          ],
+          "LOSSY": [],
+          "UNSUPPORTED": [
+            "IFC4X3_ONLY entities in an IFC4 file (schema-scoped by design)"
+          ],
+          "INFERRED": [
+            "none: no inferred values are promoted to observed facts in this pipeline"
+          ],
+          "OPAQUE-LINEAGE": [
+            "geometry representation contents (recorded as representation references; BRep/tessellation contents are engine-opaque and validated through quantity invariants, not byte comparison)"
+          ]
+        }
+      },
+      "evidence_refs": []
+    }
+  ]
+}

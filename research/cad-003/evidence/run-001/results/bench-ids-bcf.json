@@ -1,0 +1,145 @@
+{
+  "benchmark": "bench-ids-bcf",
+  "description": "Benchmark: IDS/BCF interoperability (RESEARCH-CAD-003 scope 6).",
+  "started_at": "2026-08-25T04:39:55.555115+00:00",
+  "finished_at": "2026-08-25T04:39:56.084262+00:00",
+  "summary": {
+    "pass": 9,
+    "fail": 0,
+    "unknown": 0
+  },
+  "measurements": {
+    "bcf_bytes": 1636
+  },
+  "checks": [
+    {
+      "id": "cad3-ids/required-property-exists",
+      "description": "IDS positive control: requiring Pset_WallCommon.FireRating on all walls PASSES (all 6 applicable walls declare it).",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "applicable": 6,
+        "passed": 6,
+        "failed": 0
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "cad3-ids/value-discrimination",
+      "description": "IDS per-entity discrimination: the REI60 requirement applies to 6 walls; exactly 2 pass (north, south) and 4 fail (REI90/REI30 walls) \u2014 the spec status is False because a requirement must hold for EVERY applicable entity. This is correct validator semantics, not a defect.",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "applicable": 6,
+        "passed": 2,
+        "failed": 4
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "cad3-ids/negative-control-value",
+      "description": "IDS negative control: the REI120 requirement fails for ALL 6 walls (none hold REI120) \u2014 the validator is not a rubber stamp.",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "failed": 6
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "cad3-ids/negative-control-missing",
+      "description": "IDS negative control: requiring a property the model does not carry (AcousticRating) fails every applicable wall \u2014 missing data is detected, never silently passed.",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "failed": 6
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "cad3-ids/mutation-tracking",
+      "description": "IDS validation reflects the controlled mutation: wall-north moves from FAILED to PASSED on the REI120 requirement after FireRating REI60 -> REI120 \u2014 mutations are visible to IDS consumers, per-entity.",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "lineage": {
+          "operation": "property-change",
+          "domain_id": "off:cad3:wall:north",
+          "pset": "Pset_WallCommon",
+          "property": "FireRating",
+          "before": "REI60",
+          "after": "REI120"
+        },
+        "north_failed_before": true,
+        "north_passed_after": true,
+        "passed_after": 1
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "cad3-ids/specification-xml-roundtrip",
+      "description": "The IDS specification itself round-trips through XML: to_string -> from_string -> validate yields the same positive result (all 6 walls pass).",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "xml_bytes": 1131
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "cad3-bcf/issue-reference-workflow",
+      "description": "BCF issue/reference workflow (bcf-client 0.8.5): a topic with a viewpoint referencing wall-north by IfcGuid and an architect comment round-trips through the .bcf container exactly \u2014 topic metadata, comment and the IFC element reference all survive.",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "topic": "Verify fire rating on north wall",
+        "topic_type": "Issue",
+        "topic_status": "Open",
+        "referenced_ifc_guid": [
+          "1YOeg3BG930hphE1TMdHrM"
+        ],
+        "target_ifc_guid": "1YOeg3BG930hphE1TMdHrM",
+        "comments": [
+          [
+            "Checked against IDS: REI60 verified.",
+            "architect"
+          ]
+        ],
+        "bcf_bytes": 1636
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "cad3-bcf/reference-resolves-to-ifc",
+      "description": "The BCF-referenced IfcGuid resolves back to the exact IFC element (wall-north) in the source model \u2014 the BCF <-> IFC reference bridge is bidirectional.",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "resolved_name": "wall-north",
+        "resolved_class": "IfcWall"
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "cad3-ids-bcf/toolchain-provenance",
+      "description": "Toolchain recorded: IfcTester 0.8.5 (IDS authoring/validation, XML round-trip) and bcf-client 0.8.5 (BCF-XML v3 handler, provided through the IfcTester dependency chain) \u2014 the same 0.8.5 line as ifcopenshell itself.",
+      "status": "pass",
+      "epistemic": "OBSERVED",
+      "tolerance": null,
+      "details": {
+        "ifctester": "0.8.5",
+        "bcf_client": "0.8.5 (bcf.v3.bcfxml)",
+        "ifcopenshell": "0.8.5"
+      },
+      "evidence_refs": []
+    }
+  ]
+}
