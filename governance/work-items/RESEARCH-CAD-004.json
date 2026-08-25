@@ -209,10 +209,10 @@
     {
       "from": "MERGED",
       "to": "VERIFIED",
-      "at": "2026-08-25T12:10:00Z",
+      "at": "2026-08-25T16:58:37Z",
       "actor": "pectoraux",
       "role": "architect",
-      "reason": "Post-merge verification against merged revision 93c52111c292839d87b4d09b17a1686b8779f478, as reserved by EV-006 ('VERIFIED remains a separate post-merge Architect decision') and directed by the Architect disposition on PR #22 (CHANGES REQUESTED — governance dependency only; the CAD-005 benchmark substantively approved; relayed by the Product Owner): 'CAD-004 must be formally VERIFIED against merge commit 93c52111... before CAD-005 can clear its dependency gate.' Basis: merge commit 93c5211 passes both workflows green — governance run #34 (id 32835645938, completed 2026-08-25T10:08:24Z) and research-cad-004 run #6 (id 32835645918, completed 2026-08-25T10:08:52Z), which reinstalled the pinned toolchain and reproduced the full 46 pass / 0 fail / 0 unknown evidence run on the merged tree; the evidence package EV-001..EV-007 is intact and revision-bound. Recorded by the implementer on the explicit directive per the RESEARCH-CAD-001 DEC-003 provenance convention, subject to the Architect's review of the PR carrying it.",
+      "reason": "Post-merge verification against merged revision 93c52111c292839d87b4d09b17a1686b8779f478, as reserved by EV-006 ('VERIFIED remains a separate post-merge Architect decision') and directed by the Architect disposition on PR #22 (CHANGES REQUESTED — governance dependency only; disposition comment 5413846520, 2026-08-25T16:58:37Z; the CAD-005 benchmark substantively approved): 'CAD-004 must be formally VERIFIED against merge commit 93c52111... before CAD-005 can clear its dependency gate.' Basis: merge commit 93c5211 passes both workflows green — governance run #34 (id 32835645938, completed 2026-08-25T10:08:24Z) and research-cad-004 run #6 (id 32835645918, completed 2026-08-25T10:08:52Z), which reinstalled the pinned toolchain and reproduced the full 46 pass / 0 fail / 0 unknown evidence run on the merged tree; the evidence package EV-001..EV-007 is intact and revision-bound. Recorded by the implementer on the explicit directive per the RESEARCH-CAD-001 DEC-003 provenance convention, subject to the Architect's review of the PR carrying it.",
       "references": {
         "decision": "DEC-003",
         "evidence": [
@@ -305,7 +305,7 @@
     {
       "id": "EV-007",
       "type": "ci-run",
-      "description": "Post-merge verification basis directed by the Architect disposition on PR #22 (CHANGES REQUESTED — governance dependency only, relayed by the Product Owner, 2026-08-25T12:10:00Z): both workflows green on merge commit 93c52111c292839d87b4d09b17a1686b8779f478 — governance workflow run #34 (https://github.com/pectoraux/offisos/actions/runs/32835645938, push, completed 2026-08-25T10:08:24Z) and research-cad-004 workflow run #6 (https://github.com/pectoraux/offisos/actions/runs/32835645918, push, completed 2026-08-25T10:08:52Z; reinstalled the pinned toolchain and reproduced the full 46/0/0 evidence run on the merged tree, artifact uploaded). Serves as the qualifying revision-bound evidence for the VERIFIED entry.",
+      "description": "Post-merge verification basis directed by the Architect disposition on PR #22 (CHANGES REQUESTED — governance dependency only, disposition comment 5413846520, 2026-08-25T16:58:37Z): both workflows green on merge commit 93c52111c292839d87b4d09b17a1686b8779f478 — governance workflow run #34 (https://github.com/pectoraux/offisos/actions/runs/32835645938, push, completed 2026-08-25T10:08:24Z) and research-cad-004 workflow run #6 (https://github.com/pectoraux/offisos/actions/runs/32835645918, push, completed 2026-08-25T10:08:52Z; reinstalled the pinned toolchain and reproduced the full 46/0/0 evidence run on the merged tree, artifact uploaded). Serves as the qualifying revision-bound evidence for the VERIFIED entry.",
       "produced_at": "2026-08-25T10:08:52Z",
       "reproducible": true,
       "reproduction": "Inspect runs 32835645938 and 32835645918 on merge commit 93c5211 on main, or checkout 93c5211 and run: npm run governance -- validate && cd research/cad-004 && make test && make bench",
@@ -349,10 +349,10 @@
     {
       "id": "DEC-003",
       "status": "approved",
-      "decided_at": "2026-08-25T12:10:00Z",
+      "decided_at": "2026-08-25T16:58:37Z",
       "decided_by": "pectoraux",
       "role": "architect",
-      "rationale": "Post-merge verification of RESEARCH-CAD-004 against merge commit 93c52111c292839d87b4d09b17a1686b8779f478, as directed by the Architect disposition on PR #22 (CHANGES REQUESTED — governance dependency only; the CAD-005 benchmark substantively approved; CAD-004 to be formally VERIFIED against 93c5211 before CAD-005 can clear its dependency gate; relayed by the Product Owner). Both workflows are green on the merge revision (governance run #34 and research-cad-004 run #6); the evidence package EV-001..EV-007 is intact and revision-bound. Recorded by the implementer on the explicit directive per the RESEARCH-CAD-001 DEC-003 provenance convention, subject to the Architect's review of the PR carrying it.",
+      "rationale": "Post-merge verification of RESEARCH-CAD-004 against merge commit 93c52111c292839d87b4d09b17a1686b8779f478, as directed by the Architect disposition on PR #22 (CHANGES REQUESTED — governance dependency only; disposition comment 5413846520, 2026-08-25T16:58:37Z; the CAD-005 benchmark substantively approved; CAD-004 to be formally VERIFIED against 93c5211 before CAD-005 can clear its dependency gate). Both workflows are green on the merge revision (governance run #34 and research-cad-004 run #6); the evidence package EV-001..EV-007 is intact and revision-bound. Recorded by the implementer on the explicit directive per the RESEARCH-CAD-001 DEC-003 provenance convention, subject to the Architect's review of the PR carrying it.",
       "evidence_refs": [
         "EV-001",
         "EV-002",
