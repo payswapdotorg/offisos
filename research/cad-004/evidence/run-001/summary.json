@@ -1,0 +1,18 @@
+{
+  "written_at": "2026-08-25T07:02:23.051530+00:00",
+  "benchmarks": [
+    "bench-fixture",
+    "bench-extraction",
+    "bench-provenance",
+    "bench-propagation",
+    "bench-graph",
+    "bench-downstream",
+    "bench-performance"
+  ],
+  "totals": {
+    "pass": 46,
+    "fail": 0,
+    "unknown": 0
+  },
+  "exit_code": 0
+}

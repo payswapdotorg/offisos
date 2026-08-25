@@ -1,0 +1,134 @@
+{
+  "benchmark": "bench-extraction",
+  "description": "Benchmark: quantity extraction (RESEARCH-CAD-004 scope 2).",
+  "started_at": "2026-08-25T07:02:21.912353+00:00",
+  "finished_at": "2026-08-25T07:02:22.067698+00:00",
+  "summary": {
+    "pass": 8,
+    "fail": 0,
+    "unknown": 0
+  },
+  "measurements": {},
+  "checks": [
+    {
+      "id": "cad4-extract/determinism",
+      "description": "Extracting the same file twice produces identical snapshots (all records, values, states and provenance).",
+      "status": "pass",
+      "epistemic": "ADAPTER",
+      "tolerance": null,
+      "details": {},
+      "evidence_refs": []
+    },
+    {
+      "id": "cad4-extract/regeneration-determinism",
+      "description": "Two independent builds of model version v1 produce identical quantity snapshots (engine GlobalIds excluded from the comparison \u2014 they are per-build provenance, proven unstable in bench_graph).",
+      "status": "pass",
+      "epistemic": "OBSERVED",
+      "tolerance": null,
+      "details": {},
+      "evidence_refs": []
+    },
+    {
+      "id": "cad4-extract/dual-path-agreement",
+      "description": "ENGINE INDEPENDENCE: quantities computed from the file's ACTUAL geometry through the OCCT BRep path (boolean cuts + mass properties) equal the pure-Python analytic reference within 1e-6 for every wall \u2014 the quantity layer does not depend on a single engine path.",
+      "status": "pass",
+      "epistemic": "OBSERVED",
+      "tolerance": null,
+      "details": {
+        "off:cad4:wall:north": {
+          "brep_net": 8.46,
+          "analytic_net": 8.46,
+          "brep_gross": 9.0,
+          "analytic_gross": 9.0
+        },
+        "off:cad4:wall:south": {
+          "brep_net": 7.83,
+          "analytic_net": 7.83,
+          "brep_gross": 9.0,
+          "analytic_gross": 9.0
+        },
+        "off:cad4:wall:east": {
+          "brep_net": 7.2,
+          "analytic_net": 7.199999999999999,
+          "brep_gross": 7.2,
+          "analytic_gross": 7.199999999999999
+        },
+        "off:cad4:wall:west": {
+          "brep_net": 7.2,
+          "analytic_net": 7.199999999999999,
+          "brep_gross": 7.2,
+          "analytic_gross": 7.199999999999999
+        }
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "cad4-extract/weight-calculation",
+      "description": "CALCULATED mass quantities (BRep net volume x density parameter 2400 kg/m^3) equal the analytic expectations within 1e-3.",
+      "status": "pass",
+      "epistemic": "CALCULATED",
+      "tolerance": null,
+      "details": {},
+      "evidence_refs": []
+    },
+    {
+      "id": "cad4-extract/epistemic-states",
+      "description": "Extraction distinguishes OBSERVED (stored quantity sets + filling attributes), CALCULATED (BRep geometry + weight + filling area) and UNKNOWN (ghost wall) \u2014 all three states present in one snapshot.",
+      "status": "pass",
+      "epistemic": "ADAPTER",
+      "tolerance": null,
+      "details": {
+        "state_counts": {
+          "OBSERVED": 44,
+          "CALCULATED": 15,
+          "UNKNOWN": 4
+        }
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "cad4-extract/provenance-method-distinction",
+      "description": "OBSERVED records cite the file's quantity sets; CALCULATED records cite the occt-brep method with parameters (density, unit scale, profile extents).",
+      "status": "pass",
+      "epistemic": "ADAPTER",
+      "tolerance": null,
+      "details": {
+        "observed_method": "file-qtos+occt-brep",
+        "calculated_method": "occt-brep",
+        "calculated_parameters": {
+          "density_kg_m3": 2400.0,
+          "unit_scale_file_to_m": 1.0,
+          "profile_extents_m": [
+            10.0,
+            0.3
+          ],
+          "extrusion_depth_m": 3.0
+        }
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "cad4-extract/mixed-unit-conversion",
+      "description": "MIXED UNITS: the MILLIMETRE-authored fixture produces IDENTICAL BRep quantity records to the METRE fixture after explicit conversion (factor 0.001 recorded in every record's provenance: geometry values, extrusion depths AND placement translations).",
+      "status": "pass",
+      "epistemic": "ADAPTER",
+      "tolerance": null,
+      "details": {
+        "unit_scale_recorded": 0.001,
+        "brep_records_match": true
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "cad4-extract/mixed-unit-raw-values",
+      "description": "The mm fixture's raw file values are genuinely in file units (extrusion depth 3000 = 3.0 m x 1000) \u2014 the conversion is exercised, not vacuous.",
+      "status": "pass",
+      "epistemic": "OBSERVED",
+      "tolerance": null,
+      "details": {
+        "raw_depth": 3000.0
+      },
+      "evidence_refs": []
+    }
+  ]
+}

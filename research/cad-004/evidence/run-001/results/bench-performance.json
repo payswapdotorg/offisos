@@ -1,0 +1,55 @@
+{
+  "benchmark": "bench-performance",
+  "description": "Benchmark: runtime and fixture characteristics (RESEARCH-CAD-004).",
+  "started_at": "2026-08-25T07:02:22.728419+00:00",
+  "finished_at": "2026-08-25T07:02:22.897448+00:00",
+  "summary": {
+    "pass": 2,
+    "fail": 0,
+    "unknown": 0
+  },
+  "measurements": {
+    "model_build_v1_s": 0.017,
+    "extraction_v1_s": 0.025,
+    "graph_mapping_s": 0.0001,
+    "downstream_derivation_s": 0.0002,
+    "build_extract_v2_v3_s": 0.082,
+    "mixed_unit_extract_s": 0.041,
+    "ifc_bytes_v1": 16736,
+    "quantity_records_v1": 63,
+    "graph_nodes_v1": 10,
+    "estimate_line_items_v1": 13,
+    "rfq_scopes_v1": 3,
+    "quantity_records_v1_mm": 63,
+    "peak_rss_mib": 434.9
+  },
+  "checks": [
+    {
+      "id": "cad4-perf/pipeline-timings",
+      "description": "Full pipeline timings recorded: model build, quantity extraction (OBSERVED + BRep), graph mapping, downstream derivation, version chain, mixed-unit extraction.",
+      "status": "pass",
+      "epistemic": "OBSERVED",
+      "tolerance": null,
+      "details": {
+        "model_build_v1_s": 0.017,
+        "extraction_v1_s": 0.025,
+        "graph_mapping_s": 0.0001,
+        "downstream_derivation_s": 0.0002,
+        "build_extract_v2_v3_s": 0.082,
+        "mixed_unit_extract_s": 0.041
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "cad4-perf/peak-memory",
+      "description": "Peak resident memory of the benchmark process recorded.",
+      "status": "pass",
+      "epistemic": "OBSERVED",
+      "tolerance": null,
+      "details": {
+        "peak_rss_mib": 434.9
+      },
+      "evidence_refs": []
+    }
+  ]
+}

@@ -1,0 +1,162 @@
+{
+  "benchmark": "bench-downstream",
+  "description": "Benchmark: downstream estimate/RFQ contract readiness (scope 6).",
+  "started_at": "2026-08-25T07:02:22.597503+00:00",
+  "finished_at": "2026-08-25T07:02:22.728363+00:00",
+  "summary": {
+    "pass": 9,
+    "fail": 0,
+    "unknown": 0
+  },
+  "measurements": {},
+  "checks": [
+    {
+      "id": "cad4-down/deterministic-derivation",
+      "description": "Deriving the estimate from the same snapshot twice produces IDENTICAL line items (stable line ids of the form EST:<domain_id>#<quantity>@<version> \u2014 identity survives re-derivation).",
+      "status": "pass",
+      "epistemic": "ADAPTER",
+      "tolerance": null,
+      "details": {
+        "line_count": 13
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "cad4-down/amounts-and-provenance",
+      "description": "Every line item amount is exactly quantity x unit rate, and every line item carries its quantity-record provenance reference (traceable to model version + element + extraction method).",
+      "status": "pass",
+      "epistemic": "ADAPTER",
+      "tolerance": null,
+      "details": {
+        "rate_table_entries": 6,
+        "sample": {
+          "EST:off:cad4:slab:ground#GrossVolume@v1": [
+            20.0,
+            600.0,
+            12000.0
+          ],
+          "EST:off:cad4:space:living#GrossFloorArea@v1": [
+            69.56,
+            24.0,
+            1669.44
+          ],
+          "EST:off:cad4:wall:east#BRepNetVolume@v1": [
+            7.2,
+            650.0,
+            4680.0
+          ]
+        }
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "cad4-down/exact-amount-spot-check",
+      "description": "Spot check: wall-north BRepNetVolume (8.46 m^3) x 650 EUR/m^3 = 5499.00 EUR exactly.",
+      "status": "pass",
+      "epistemic": "CALCULATED",
+      "tolerance": null,
+      "details": {
+        "line": "EST:off:cad4:wall:north#BRepNetVolume@v1",
+        "amount": 5499.0
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "cad4-down/unknown-never-priced",
+      "description": "EPISTEMIC HONESTY DOWNSTREAM: the ghost wall's UNKNOWN quantity produces NO estimate line item \u2014 no price is ever derived from a value the system does not have.",
+      "status": "pass",
+      "epistemic": "ADAPTER",
+      "tolerance": null,
+      "details": {
+        "ghost_lines": []
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "cad4-down/rfq-scope-grouping",
+      "description": "Line items group into deterministic RFQ scopes (structural / fenestration / fit-out) with exact totals; regrouping is reproducible.",
+      "status": "pass",
+      "epistemic": "ADAPTER",
+      "tolerance": null,
+      "details": {
+        "RFQ-FENESTRATION": {
+          "lines": 3,
+          "total": 2160.0
+        },
+        "RFQ-FITOUT": {
+          "lines": 1,
+          "total": 1669.44
+        },
+        "RFQ-STRUCTURAL": {
+          "lines": 9,
+          "total": 40050.66
+        }
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "cad4-down/scope-total-exact",
+      "description": "Scope totals are exact sums of their line items (RFQ-STRUCTURAL v1 total verified).",
+      "status": "pass",
+      "epistemic": "CALCULATED",
+      "tolerance": null,
+      "details": {
+        "structural_total": 40050.66
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "cad4-down/rfq-impact-v1-v2",
+      "description": "v1 -> v2 (wall-north geometry change) impacts EXACTLY RFQ-STRUCTURAL: the changed line items are wall-north's volume and weight lines; fenestration and fit-out scopes are unimpacted.",
+      "status": "pass",
+      "epistemic": "ADAPTER",
+      "tolerance": null,
+      "details": {
+        "impacted": [
+          "RFQ-STRUCTURAL"
+        ],
+        "unimpacted": [
+          "RFQ-FENESTRATION",
+          "RFQ-FITOUT"
+        ],
+        "changed_lines": [
+          "EST:off:cad4:wall:north#BRepNetVolume",
+          "EST:off:cad4:wall:north#BRepWeight"
+        ]
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "cad4-down/rfq-impact-v2-v3",
+      "description": "v2 -> v3 (window widening + host-wall volume change) impacts EXACTLY RFQ-FENESTRATION and RFQ-STRUCTURAL (window area line + host wall volume/weight lines); fit-out remains unimpacted; the property-only wall-east change produces no line change.",
+      "status": "pass",
+      "epistemic": "ADAPTER",
+      "tolerance": null,
+      "details": {
+        "impacted": [
+          "RFQ-FENESTRATION",
+          "RFQ-STRUCTURAL"
+        ],
+        "changed_lines": [
+          "EST:off:cad4:wall:south#BRepNetVolume",
+          "EST:off:cad4:wall:south#BRepWeight",
+          "EST:off:cad4:wall:south:window-2#OverallArea"
+        ]
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "cad4-down/window-line-delta-exact",
+      "description": "The window glazing line moves by exactly the quantity delta x rate: (1.5 - 1.2) x 1.5 m^2 x 320 EUR/m^2 = +144.00 EUR.",
+      "status": "pass",
+      "epistemic": "CALCULATED",
+      "tolerance": null,
+      "details": {
+        "before": 576.0,
+        "after": 720.0,
+        "delta": 144.0
+      },
+      "evidence_refs": []
+    }
+  ]
+}

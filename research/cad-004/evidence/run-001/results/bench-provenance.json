@@ -1,0 +1,92 @@
+{
+  "benchmark": "bench-provenance",
+  "description": "Benchmark: provenance and versioning (RESEARCH-CAD-004 scope 3).",
+  "started_at": "2026-08-25T07:02:22.067765+00:00",
+  "finished_at": "2026-08-25T07:02:22.293399+00:00",
+  "summary": {
+    "pass": 7,
+    "fail": 0,
+    "unknown": 0
+  },
+  "measurements": {},
+  "checks": [
+    {
+      "id": "cad4-prov/provenance-completeness",
+      "description": "Every quantity record carries: model version, element domain identity, engine id (engine path) or explicit analytic-reference marker, extraction method, engine version. CALCULATED records additionally carry parameters (density, unit scale).",
+      "status": "pass",
+      "epistemic": "ADAPTER",
+      "tolerance": null,
+      "details": {
+        "record_count": 63,
+        "missing": []
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "cad4-prov/engine-version-recorded",
+      "description": "The engine version in provenance matches the actual engine (ifcopenshell 0.8.5).",
+      "status": "pass",
+      "epistemic": "ADAPTER",
+      "tolerance": null,
+      "details": {
+        "recorded": "ifcopenshell 0.8.5",
+        "actual": "ifcopenshell 0.8.5"
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "cad4-prov/revision-new-state-not-mutation",
+      "description": "Extracting the v2 revision does NOT mutate the v1 snapshot: the v1 records (record ids, values, provenance) are byte-identical after the v2 extraction \u2014 history is immutable, revisions are new states.",
+      "status": "pass",
+      "epistemic": "ADAPTER",
+      "tolerance": null,
+      "details": {},
+      "evidence_refs": []
+    },
+    {
+      "id": "cad4-prov/version-history-coexists",
+      "description": "All three model-version snapshots coexist with distinct version stamps on every record; record ids encode the version (<element>#<quantity>@<version>).",
+      "status": "pass",
+      "epistemic": "ADAPTER",
+      "tolerance": null,
+      "details": {
+        "snapshot_sizes": {
+          "v1": 63,
+          "v2": 63,
+          "v3": 63
+        }
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "cad4-prov/reproducible-re-extraction",
+      "description": "Re-extraction from the persisted v1 file (write -> reopen -> extract) reproduces the original snapshot EXACTLY, including engine GlobalIds in provenance (stable within one file).",
+      "status": "pass",
+      "epistemic": "OBSERVED",
+      "tolerance": null,
+      "details": {},
+      "evidence_refs": []
+    },
+    {
+      "id": "cad4-prov/historical-replay",
+      "description": "The v1 quantity state remains fully replayable after later revisions (v2, v3) exist \u2014 rebuilding/re-extracting v1 yields the same records (engine ids excluded: per-build).",
+      "status": "pass",
+      "epistemic": "OBSERVED",
+      "tolerance": null,
+      "details": {},
+      "evidence_refs": []
+    },
+    {
+      "id": "cad4-prov/element-identity-link",
+      "description": "The provenance engine_id of a quantity record resolves to the exact source element in the model file (GlobalId match) \u2014 every quantity is traceable to its source element.",
+      "status": "pass",
+      "epistemic": "ADAPTER",
+      "tolerance": null,
+      "details": {
+        "record_engine_id": "2baVTMMHDC9QPMIDeMjsRM",
+        "element_global_id": "2baVTMMHDC9QPMIDeMjsRM"
+      },
+      "evidence_refs": []
+    }
+  ]
+}
