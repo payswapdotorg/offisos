@@ -1,0 +1,110 @@
+{
+  "benchmark": "bench-performance",
+  "description": "Benchmark: quantitative performance (RESEARCH-CAD-002 evidence reqs).",
+  "started_at": "2026-08-25T03:33:23.498570+00:00",
+  "finished_at": "2026-08-25T03:33:24.046741+00:00",
+  "summary": {
+    "pass": 6,
+    "fail": 0,
+    "unknown": 0
+  },
+  "measurements": {
+    "perf_100_features_creation_s": 0.078,
+    "perf_100_features_full_recompute_s": 0.0045,
+    "perf_feature_document_objects": 100,
+    "perf_incremental_recompute_s": 0.0002,
+    "perf_incremental_recomputed_count": 1,
+    "perf_partdesign_chain_recompute_s": 0.0032,
+    "perf_step_export_s": 0.0628,
+    "perf_step_import_s": 0.1856,
+    "perf_step_bytes": 579358,
+    "perf_step_solids": 100,
+    "perf_fcstd_save_s": 0.0366,
+    "perf_fcstd_bytes": 98108,
+    "perf_peak_rss_mib": 107.9
+  },
+  "checks": [
+    {
+      "id": "cad2-perf/feature-document",
+      "description": "Document with 100 parametric features: creation and full recompute complete, every volume exact.",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "features": 100,
+        "creation_s": 0.078,
+        "full_recompute_s": 0.0045,
+        "document_objects": 100
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "cad2-perf/incremental-recompute",
+      "description": "Editing one parameter touches exactly that feature; the incremental recompute is cheaper than the full recompute.",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "touched": [
+          "B050"
+        ],
+        "recomputed_count": 1,
+        "incremental_recompute_s": 0.0002,
+        "full_recompute_s": 0.0045
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "cad2-perf/partdesign-chain-recompute",
+      "description": "Sketch datum edit propagates through the PartDesign chain with the exact expected volume change (24.0 -> 36.0) and a recorded recompute time.",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "volume_before": 24.0,
+        "volume_after": 36.0,
+        "chain_recompute_s": 0.0032
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "cad2-perf/step-io",
+      "description": "STEP export/import of 100 solids completes with recorded timings and file size; the import returns the exact object count.",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "solids": 100,
+        "export_s": 0.0628,
+        "import_s": 0.1856,
+        "step_bytes": 579358,
+        "bytes_per_solid": 5793
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "cad2-perf/fcstd-save",
+      "description": "FCStd save of the full fixture completes with recorded timing and size.",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "save_s": 0.0366,
+        "fcstd_bytes": 98108,
+        "document_objects": 111
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "cad2-perf/peak-memory",
+      "description": "Peak resident memory of the FreeCAD benchmark process recorded.",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "peak_rss_mib": 107.9
+      },
+      "evidence_refs": []
+    }
+  ]
+}

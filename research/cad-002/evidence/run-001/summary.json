@@ -1,0 +1,19 @@
+{
+  "written_at": "2026-08-25T03:33:24.148939+00:00",
+  "benchmarks": [
+    "bench-2d-drafting",
+    "bench-snapping",
+    "bench-constraints",
+    "bench-parametric-3d",
+    "bench-booleans",
+    "bench-assemblies",
+    "bench-automation",
+    "bench-performance"
+  ],
+  "totals": {
+    "pass": 69,
+    "fail": 0,
+    "unknown": 0
+  },
+  "exit_code": 0
+}

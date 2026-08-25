@@ -1,0 +1,129 @@
+{
+  "benchmark": "bench-snapping",
+  "description": "Benchmark: snapping and object inference surface (RESEARCH-CAD-002 scope 1).",
+  "started_at": "2026-08-25T03:33:19.815346+00:00",
+  "finished_at": "2026-08-25T03:33:20.405280+00:00",
+  "summary": {
+    "pass": 8,
+    "fail": 0,
+    "unknown": 0
+  },
+  "measurements": {},
+  "checks": [
+    {
+      "id": "cad2-snap/parameter-system",
+      "description": "Draft snap parameters (objectSnap, gridSnap, gridSpacing, snapRange) read/write exactly through the console parameter system.",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "objectSnap": true,
+        "gridSnap": true,
+        "gridSpacing": 0.25,
+        "snapRange": 0.1
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "cad2-snap/native-nearest-distance",
+      "description": "Part.distToShape reports the exact nearest distance from a point to a solid (6.0 point to box face at x=4 -> 2.0).",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "distance": 2.0,
+        "expected": 2.0
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "cad2-snap/native-nearest-point",
+      "description": "The nearest-point query returns the exact point on the face (4, 0, 0).",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "nearest": [
+          4.0,
+          0.0,
+          0.0
+        ]
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "cad2-snap/adapter-endpoint-snap",
+      "description": "Endpoint snapping via vertex distance query lands exactly on (8, 0).",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "snapped": [
+          8.0,
+          0.0
+        ],
+        "distance": 1.4142135643560438e-07
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "cad2-snap/adapter-midpoint-snap",
+      "description": "Midpoint snapping via edge parametrization lands exactly on (4, 0).",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "midpoint": [
+          4.0,
+          0.0
+        ]
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "cad2-snap/adapter-intersection-snap",
+      "description": "Intersection snapping via distToShape on crossing edges reports distance 0 with the exact crossing point (4, 0).",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "distance": 0.0,
+        "crossing": [
+          4.0,
+          0.0
+        ],
+        "note": "edge.common() computes overlap, not crossing; distToShape is the correct native query"
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "cad2-snap/adapter-grid-snap",
+      "description": "Grid snapping at the configured 0.25 m spacing is exact.",
+      "status": "pass",
+      "epistemic": "NATIVE",
+      "tolerance": null,
+      "details": {
+        "snapped": [
+          1.25,
+          2.75
+        ],
+        "spacing": 0.25
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "cad2-snap/gui-boundary",
+      "description": "FINDING: in console mode FreeCADGui imports only as a stub with no GUI API (no getMainWindow/activeDocument) and TechDrawGui cannot load at all. The geometry queries that snapping needs are fully console-capable (checked above); only the interactive snap toolbar/highlight UX layer requires the GUI runtime.",
+      "status": "pass",
+      "epistemic": "OBSERVED",
+      "tolerance": null,
+      "details": {
+        "freecadgui_stub_without_api": true,
+        "techdrawgui_loadable": false,
+        "console_capable_layer": "geometry queries + parameter state",
+        "gui_only_layer": "interactive snap toolbar/highlight"
+      },
+      "evidence_refs": []
+    }
+  ]
+}
