@@ -40,7 +40,7 @@
     "IDS validation workflow (positive and negative controls); BCF toolchain probe evidence.",
     "Exact IfcOpenShell/IfcTester/schema/runtime versions recorded; runtime and output-size measurements."
   ],
-  "state": "MERGED",
+  "state": "VERIFIED",
   "transitions": [
     {
       "from": "DRAFT",
@@ -192,6 +192,26 @@
       "references": {
         "merge_commit": "f1f900e750cf0b1e6617309a494b4fec34a18953"
       }
+    },
+    {
+      "from": "MERGED",
+      "to": "VERIFIED",
+      "at": "2026-08-25T09:45:00Z",
+      "actor": "pectoraux",
+      "role": "architect",
+      "reason": "Post-merge verification against merged revision f1f900e750cf0b1e6617309a494b4fec34a18953, as reserved by DEC-002 ('VERIFIED reserved as the post-merge Architect decision against the merged revision') and directed by the Architect disposition on PR #21 (comment 5408555197): 'formally post-merge verify ... CAD-003 against f1f900e'. Basis: merge commit f1f900e passes both workflows green \u2014 governance run #28 (id 32817353722, completed 2026-08-25T06:31:55Z, 71/71 checks) and research-cad-003 run #5 (id 32817353714, completed 2026-08-25T06:32:15Z), which reinstalled the pinned toolchain and reproduced the full 64 pass / 0 fail / 0 unknown evidence run on the merged tree; the evidence package EV-001..EV-006 is intact and revision-bound.",
+      "references": {
+        "decision": "DEC-003",
+        "evidence": [
+          "EV-001",
+          "EV-002",
+          "EV-003",
+          "EV-004",
+          "EV-005",
+          "EV-006"
+        ],
+        "commit": "f1f900e750cf0b1e6617309a494b4fec34a18953"
+      }
     }
   ],
   "evidence": [
@@ -254,6 +274,18 @@
         "workflow_run": "governance #28 + research-cad-003 #5 on f1f900e",
         "commit": "f1f900e750cf0b1e6617309a494b4fec34a18953"
       }
+    },
+    {
+      "id": "EV-006",
+      "type": "ci-run",
+      "description": "Post-merge verification basis directed by the Architect disposition on PR #21 (comment 5408555197, 2026-08-25T09:45:00Z): both workflows green on merge commit f1f900e750cf0b1e6617309a494b4fec34a18953 \u2014 governance workflow run #28 (https://github.com/pectoraux/offisos/actions/runs/32817353722, push, completed 2026-08-25T06:31:55Z, 71/71 checks) and research-cad-003 workflow run #5 (https://github.com/pectoraux/offisos/actions/runs/32817353714, push, completed 2026-08-25T06:32:15Z; reinstalled the pinned toolchain and reproduced the full 64/0/0 evidence run on the merged tree, artifact uploaded). Serves as the qualifying revision-bound evidence for the VERIFIED entry.",
+      "produced_at": "2026-08-25T06:32:15Z",
+      "reproducible": true,
+      "reproduction": "Inspect runs 32817353722 and 32817353714 on merge commit f1f900e on main, or checkout f1f900e and run: npm run governance -- validate && cd research/cad-003 && make test && make bench",
+      "references": {
+        "workflow_run": "governance #28 (32817353722) + research-cad-003 #5 (32817353714) on f1f900e",
+        "commit": "f1f900e750cf0b1e6617309a494b4fec34a18953"
+      }
     }
   ],
   "decisions": [
@@ -283,6 +315,22 @@
         "EV-002",
         "EV-003",
         "EV-004"
+      ]
+    },
+    {
+      "id": "DEC-003",
+      "status": "approved",
+      "decided_at": "2026-08-25T09:45:00Z",
+      "decided_by": "pectoraux",
+      "role": "architect",
+      "rationale": "Verification of RESEARCH-CAD-003 against merged revision f1f900e. DEC-002 reserved verification as a post-merge Architect decision against the merged revision; the Architect disposition on PR #21 (comment 5408555197) now directs: 'formally post-merge verify CAD-002 against da85d8d and CAD-003 against f1f900e'. The merged revision passes both workflows green (governance run #28 with 71/71 checks; research-cad-003 run #5 with the full 64 pass / 0 fail / 0 unknown evidence run reproduced on the merged tree). Provenance note: entered by the implementation agent on the Architect's explicit disposition recorded verbatim on PR #21 (comment 5408555197, relayed by the Product Owner); subject to Architect review of the PR carrying it.",
+      "evidence_refs": [
+        "EV-001",
+        "EV-002",
+        "EV-003",
+        "EV-004",
+        "EV-005",
+        "EV-006"
       ]
     }
   ]

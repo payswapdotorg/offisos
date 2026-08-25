@@ -41,7 +41,7 @@
     "Distinguished native FreeCAD/OCC behavior vs Offisos adapter behavior.",
     "Recorded failures, unsupported operations, precision limitations and nondeterministic behavior."
   ],
-  "state": "MERGED",
+  "state": "VERIFIED",
   "transitions": [
     {
       "from": "DRAFT",
@@ -137,6 +137,25 @@
       "references": {
         "merge_commit": "da85d8d0431907df890fb5c1749dab0dcf7a218d"
       }
+    },
+    {
+      "from": "MERGED",
+      "to": "VERIFIED",
+      "at": "2026-08-25T09:45:00Z",
+      "actor": "pectoraux",
+      "role": "architect",
+      "reason": "Post-merge verification against merged revision da85d8d0431907df890fb5c1749dab0dcf7a218d, as reserved by DEC-001 ('post-merge verification is a separate Architect decision bound to the merge revision') and directed by the Architect disposition on PR #21 (comment 5408555197): 'formally post-merge verify CAD-002 against da85d8d'. Basis: merge commit da85d8d passes both workflows green \u2014 governance run #19 (id 32808276169, completed 2026-08-25T04:15:51Z) and research-cad-002 run #2 (id 32808276157, completed 2026-08-25T04:16:24Z), which reinstalled the pinned SHA256-verified FreeCAD 1.1.3 AppImage and reproduced the full 69 pass / 0 fail / 0 unknown evidence run on the merged tree; the evidence package EV-001..EV-005 is intact and revision-bound.",
+      "references": {
+        "decision": "DEC-002",
+        "evidence": [
+          "EV-001",
+          "EV-002",
+          "EV-003",
+          "EV-004",
+          "EV-005"
+        ],
+        "commit": "da85d8d0431907df890fb5c1749dab0dcf7a218d"
+      }
     }
   ],
   "evidence": [
@@ -186,6 +205,18 @@
         "workflow_run": "governance #19 + research-cad-002 #2 on da85d8d",
         "commit": "da85d8d0431907df890fb5c1749dab0dcf7a218d"
       }
+    },
+    {
+      "id": "EV-005",
+      "type": "ci-run",
+      "description": "Post-merge verification basis directed by the Architect disposition on PR #21 (comment 5408555197, 2026-08-25T09:45:00Z): both workflows green on merge commit da85d8d0431907df890fb5c1749dab0dcf7a218d \u2014 governance workflow run #19 (https://github.com/pectoraux/offisos/actions/runs/32808276169, push, completed 2026-08-25T04:15:51Z) and research-cad-002 workflow run #2 (https://github.com/pectoraux/offisos/actions/runs/32808276157, push, completed 2026-08-25T04:16:24Z; reinstalled the pinned FreeCAD 1.1.3 AppImage and reproduced the full 69/0/0 evidence run on the merged tree, artifact uploaded). Serves as the qualifying revision-bound evidence for the VERIFIED entry.",
+      "produced_at": "2026-08-25T04:16:24Z",
+      "reproducible": true,
+      "reproduction": "Inspect runs 32808276169 and 32808276157 on merge commit da85d8d on main, or checkout da85d8d and run: npm run governance -- validate && cd research/cad-002 && make test && make bench",
+      "references": {
+        "workflow_run": "governance #19 (32808276169) + research-cad-002 #2 (32808276157) on da85d8d",
+        "commit": "da85d8d0431907df890fb5c1749dab0dcf7a218d"
+      }
     }
   ],
   "decisions": [
@@ -200,6 +231,21 @@
         "EV-001",
         "EV-002",
         "EV-003"
+      ]
+    },
+    {
+      "id": "DEC-002",
+      "status": "approved",
+      "decided_at": "2026-08-25T09:45:00Z",
+      "decided_by": "pectoraux",
+      "role": "architect",
+      "rationale": "Verification of RESEARCH-CAD-002 against merged revision da85d8d. DEC-001 reserved verification as a post-merge Architect decision bound to the merge revision; the Architect disposition on PR #21 (comment 5408555197) now directs: 'formally post-merge verify CAD-002 against da85d8d and CAD-003 against f1f900e'. The merged revision passes both workflows green (governance run #19; research-cad-002 run #2 with the full 69 pass / 0 fail / 0 unknown evidence run reproduced on the merged tree from the pinned FreeCAD 1.1.3 AppImage). Provenance note: entered by the implementation agent on the Architect's explicit disposition recorded verbatim on PR #21 (comment 5408555197, relayed by the Product Owner); subject to Architect review of the PR carrying it.",
+      "evidence_refs": [
+        "EV-001",
+        "EV-002",
+        "EV-003",
+        "EV-004",
+        "EV-005"
       ]
     }
   ]
