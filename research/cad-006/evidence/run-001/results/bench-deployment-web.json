@@ -1,0 +1,76 @@
+{
+  "benchmark": "bench-deployment-web",
+  "description": "Benchmark: web deployment model analysis (RESEARCH-CAD-006 item 4).",
+  "started_at": "2026-08-25T19:44:35.505468+00:00",
+  "finished_at": "2026-08-25T19:44:35.505480+00:00",
+  "summary": {
+    "pass": 5,
+    "fail": 0,
+    "unknown": 0
+  },
+  "measurements": {},
+  "checks": [
+    {
+      "id": "deployment/web/tested-path-documented",
+      "description": "The tested web deployment path is documented: headless server-side execution (FreeCADCmd/OCCT/IfcOpenShell in worker processes) with geometry streamed to the browser as tessellated meshes; no native CAD code is shipped to the browser in the tested configuration.",
+      "status": "pass",
+      "epistemic": "OBSERVED",
+      "tolerance": null,
+      "details": {
+        "tested_path": "Headless server-side execution: FreeCADCmd / OCCT (via OCP) / IfcOpenShell run in worker processes; geometry is streamed to the browser as tessellated meshes; no native CAD code is shipped to the browser in the tested configuration."
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "deployment/web/wasm-not-tested-recorded",
+      "description": "The WASM/in-browser-native path is explicitly recorded as NOT TESTED in CAD-001..005. OCCT has an emscripten/WASM build path, but cadquery-ocp WASM and IfcOpenShell WASM were not exercised. The tested web path is server-side only.",
+      "status": "pass",
+      "epistemic": "OBSERVED",
+      "tolerance": null,
+      "details": {
+        "wasm_note": "OCCT has an emscripten/WASM build path; cadquery-ocp WASM and IfcOpenShell WASM were NOT tested in CAD-001..005. The tested web path is server-side, not in-browser WASM."
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "deployment/web/lgpl-posture-documented",
+      "description": "The LGPL posture for the web model is documented: pure network SaaS deployment is not 'distribution' under the LGPL (no Section 4 combined-works trigger); a downloadable web client bundling LGPL native code would trigger Section 4, and the adapter boundary preserves user-replaceability.",
+      "status": "pass",
+      "epistemic": "OBSERVED",
+      "tolerance": null,
+      "details": {
+        "lgpl_posture": "Pure network SaaS deployment does not constitute 'distribution' under the LGPL; Section 4 (combined works) obligations are not triggered for server-side-only use. If a downloadable web client bundles LGPL native code (e.g. a WASM OCCT build), Section 4 applies and the adapter boundary preserves user-replaceability."
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "deployment/web/no-lgpl-native-in-browser-tested",
+      "description": "In the tested web configuration, no LGPL native code runs in the browser \u2014 the browser receives only tessellated meshes from the server-side workers. LGPL obligations attach to the server-side workers, not the browser payload, in this configuration.",
+      "status": "pass",
+      "epistemic": "OBSERVED",
+      "tolerance": null,
+      "details": {
+        "browser_payload": "tessellated meshes (geometry, not native code)",
+        "lgpl_components_location": "server-side worker processes (FreeCADCmd/OCCT/IfcOpenShell)"
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "deployment/web/conditional-review-flag",
+      "description": "The review flag for the web model is CONDITIONAL: review is required only for a distributable web client that bundles LGPL native code (e.g. a WASM OCCT build). Pure SaaS deployment needs no distribution-time LGPL review.",
+      "status": "pass",
+      "epistemic": "INFERRED",
+      "tolerance": null,
+      "details": {
+        "flag": "no-concern-for-pure-saas; review-required-for-distributable-web-client",
+        "severity": "review-required-conditional",
+        "no_concern_for": "pure network SaaS (server-side-only LGPL use)",
+        "review_required_for": "downloadable web client bundling LGPL native code"
+      },
+      "evidence_refs": [
+        "deployment/web/lgpl-posture-documented",
+        "deployment/web/no-lgpl-native-in-browser-tested"
+      ]
+    }
+  ]
+}

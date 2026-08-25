@@ -1,0 +1,113 @@
+{
+  "captured_at": "2026-08-25T19:44:35.505601+00:00",
+  "python": "3.12.13 (main, Jul 18 2026, 17:02:19) [Clang 22.1.3 ]",
+  "platform": "Linux-5.10.134-013.8.3.kangaroo.al8.x86_64-x86_64-with-glibc2.41",
+  "machine": "x86_64",
+  "gate": "RESEARCH-CAD-006",
+  "note": "Records/inventory benchmark: versions are asserted from the authoritative pinned sources (CAD-001 requirements.txt, the CAD-001..005 environment.json snapshots and the FreeCAD AppImage SHA256 manifest), cross-checked against the currently-importable distribution metadata where present. The CAD/BIM engines are NOT exercised by this gate.",
+  "installed_metadata": {
+    "ifcopenshell": null,
+    "cadquery": {
+      "version": "2.6.1",
+      "license_field": "Apache Public License 2.0",
+      "home_page": "https://github.com/CadQuery/cadquery"
+    },
+    "cadquery-ocp": {
+      "version": "7.8.1.1.post1",
+      "license_field": "",
+      "home_page": ""
+    },
+    "ezdxf": {
+      "version": "1.4.3",
+      "license_field": "",
+      "home_page": ""
+    },
+    "numpy": {
+      "version": "2.1.3",
+      "license_field": "Copyright (c) 2005-2024, NumPy Developers.\n All rights reserved.\n\n Redistribution and use in source and binary forms, wi",
+      "home_page": ""
+    },
+    "pytest": {
+      "version": "9.0.2",
+      "license_field": "",
+      "home_page": ""
+    }
+  },
+  "cad001_requirements_pins": {
+    "ifcopenshell": "0.8.5",
+    "cadquery": "2.6.1",
+    "ezdxf": "1.4.3",
+    "numpy": "2.1.3",
+    "pytest": "9.0.2"
+  },
+  "snapshot_cross_reference": {
+    "cad-001": {
+      "packages": {
+        "ifcopenshell": "0.8.5",
+        "cadquery": "2.6.1",
+        "cadquery-ocp": "7.8.1.1.post1",
+        "numpy": "2.1.3",
+        "ezdxf": "1.4.3"
+      },
+      "python": "3.12.13 (main, Jul 18 2026, 17:02:19) [Clang 22.1.3 ]",
+      "ifcopenshell": null,
+      "occt_version": "7.8.1.1.post1"
+    },
+    "cad-002": {
+      "packages": {
+        "ifcopenshell": "0.8.5",
+        "cadquery": "2.6.1",
+        "cadquery-ocp": "7.8.1.1.post1",
+        "numpy": "2.1.3",
+        "ezdxf": "1.4.3"
+      },
+      "python": "3.12.13 (main, Jul 18 2026, 17:02:19) [Clang 22.1.3 ]",
+      "ifcopenshell": null,
+      "occt_version": "7.8.1.1.post1"
+    },
+    "cad-003": {
+      "packages": {
+        "ifcopenshell": "0.8.5",
+        "cadquery": "2.6.1",
+        "cadquery-ocp": "7.8.1.1.post1",
+        "numpy": "2.1.3",
+        "ezdxf": "1.4.3"
+      },
+      "python": "3.12.13 (main, Jul 18 2026, 17:02:19) [Clang 22.1.3 ]",
+      "ifcopenshell": null,
+      "occt_version": "7.8.1.1.post1"
+    },
+    "cad-004": {
+      "packages": {
+        "ifcopenshell": "0.8.5",
+        "cadquery": "2.6.1",
+        "cadquery-ocp": "7.8.1.1.post1",
+        "numpy": "2.1.3",
+        "ezdxf": "1.4.3"
+      },
+      "python": "3.12.13 (main, Jul 18 2026, 17:02:19) [Clang 22.1.3 ]",
+      "ifcopenshell": null,
+      "occt_version": "7.8.1.1.post1"
+    },
+    "cad-005": {
+      "packages": {
+        "ifcopenshell": "0.8.5",
+        "cadquery": "2.6.1",
+        "cadquery-ocp": "7.8.1.1.post1",
+        "numpy": "2.1.3",
+        "ezdxf": "1.4.3"
+      },
+      "python": "3.12.13 (main, Jul 18 2026, 17:02:19) [Clang 22.1.3 ]",
+      "ifcopenshell": "0.8.5",
+      "occt_version": "7.8.1.1.post1"
+    }
+  },
+  "occt_runtime_version": "7.8.1.1.post1",
+  "freecad_appimage_manifest": {
+    "source": "research/cad-001/requirements.txt (committed pinned-toolchain provenance)",
+    "version": "1.1.3",
+    "sha256": "3a853eb69ee595f779f2255dbf80a765926981d8ff68903cefee4dfb03a8f5ef",
+    "expected_sha256": "3a853eb69ee595f779f2255dbf80a765926981d8ff68903cefee4dfb03a8f5ef",
+    "matches_expected": true
+  }
+}

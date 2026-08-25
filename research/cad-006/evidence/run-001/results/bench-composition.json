@@ -1,0 +1,200 @@
+{
+  "benchmark": "bench-composition",
+  "description": "Benchmark: composition flags for LICENSE-001 (RESEARCH-CAD-006 item 3).",
+  "started_at": "2026-08-25T19:44:35.505421+00:00",
+  "finished_at": "2026-08-25T19:44:35.505454+00:00",
+  "summary": {
+    "pass": 5,
+    "fail": 0,
+    "unknown": 0
+  },
+  "measurements": {
+    "composition_matrix_entries": 8
+  },
+  "checks": [
+    {
+      "id": "composition/copyleft-components-flagged",
+      "description": "Every copyleft (LGPL) component in the tested stack is flagged with its composition constraint for the LICENSE-001 review.",
+      "status": "pass",
+      "epistemic": "OBSERVED",
+      "tolerance": null,
+      "details": {
+        "copyleft_flags": [
+          {
+            "component": "ifcopenshell",
+            "version": "0.8.5",
+            "license": "LGPL-3.0-or-later",
+            "flag": "LGPL-3.0-or-later. Section 4 (combined works) review required for distributable compositions; the frozen adapter/process boundary preserves user-replaceability. Pure network SaaS use is not 'distribution' and does not trigger Section 4.",
+            "severity": "review-required-for-distribution"
+          },
+          {
+            "component": "occt",
+            "version": "7.8.1",
+            "license": "LGPL-2.1-or-later WITH OCCT-LINKING-EXCEPTION",
+            "flag": "LGPL-2.1-with-exception. Dynamic linking / separate-process use preserves the exception; static linking or modification triggers copyleft review. The frozen adapter boundary keeps OCCT as a separately-loaded dynamic component (user-replaceable).",
+            "severity": "review-required-for-static-linking"
+          },
+          {
+            "component": "freecad",
+            "version": "1.1.3",
+            "license": "LGPL-2.1-or-later",
+            "flag": "LGPL-2.1-or-later application embedding OCCT; distributed as a self-contained AppImage (already dynamically composed). User-replaceable as a unit (swap the AppImage); LGPL obligations satisfied by AppImage separability plus a written offer for the corresponding source for the LGPL portions.",
+            "severity": "review-required-for-attribution"
+          }
+        ]
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "composition/permissive-components-identified",
+      "description": "Every permissive-license component is identified (no copyleft concern from these components).",
+      "status": "pass",
+      "epistemic": "OBSERVED",
+      "tolerance": null,
+      "details": {
+        "permissive_flags": [
+          {
+            "component": "cadquery-ocp",
+            "version": "7.8.1.1.post1",
+            "license": "Apache-2.0",
+            "flag": "Apache-2.0 permissive bindings; the WRAPPED OCCT carries its own LGPL-2.1-with-exception license (see occt). No standalone copyleft concern from the bindings themselves.",
+            "severity": "informational"
+          },
+          {
+            "component": "cadquery",
+            "version": "2.6.1",
+            "license": "Apache-2.0",
+            "flag": "Apache-2.0 permissive; no copyleft concern.",
+            "severity": "informational"
+          },
+          {
+            "component": "ezdxf",
+            "version": "1.4.3",
+            "license": "MIT",
+            "flag": "MIT permissive; no copyleft concern.",
+            "severity": "informational"
+          },
+          {
+            "component": "numpy",
+            "version": "2.1.3",
+            "license": "BSD-3-Clause",
+            "flag": "BSD-3-Clause permissive; no copyleft concern.",
+            "severity": "informational"
+          },
+          {
+            "component": "python",
+            "version": "3.12.13",
+            "license": "PSF-2.0 (Python Software Foundation License)",
+            "flag": "PSF-2.0 permissive (GPL-compatible); no copyleft concern.",
+            "severity": "informational"
+          }
+        ]
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "composition/flag-matrix-complete",
+      "description": "The composition flag matrix is complete: every component carries an explicit flag and severity for the LICENSE-001 review.",
+      "status": "pass",
+      "epistemic": "OBSERVED",
+      "tolerance": null,
+      "details": {
+        "matrix": [
+          {
+            "component": "ifcopenshell",
+            "version": "0.8.5",
+            "license": "LGPL-3.0-or-later",
+            "flag": "LGPL-3.0-or-later. Section 4 (combined works) review required for distributable compositions; the frozen adapter/process boundary preserves user-replaceability. Pure network SaaS use is not 'distribution' and does not trigger Section 4.",
+            "severity": "review-required-for-distribution"
+          },
+          {
+            "component": "occt",
+            "version": "7.8.1",
+            "license": "LGPL-2.1-or-later WITH OCCT-LINKING-EXCEPTION",
+            "flag": "LGPL-2.1-with-exception. Dynamic linking / separate-process use preserves the exception; static linking or modification triggers copyleft review. The frozen adapter boundary keeps OCCT as a separately-loaded dynamic component (user-replaceable).",
+            "severity": "review-required-for-static-linking"
+          },
+          {
+            "component": "cadquery-ocp",
+            "version": "7.8.1.1.post1",
+            "license": "Apache-2.0",
+            "flag": "Apache-2.0 permissive bindings; the WRAPPED OCCT carries its own LGPL-2.1-with-exception license (see occt). No standalone copyleft concern from the bindings themselves.",
+            "severity": "informational"
+          },
+          {
+            "component": "cadquery",
+            "version": "2.6.1",
+            "license": "Apache-2.0",
+            "flag": "Apache-2.0 permissive; no copyleft concern.",
+            "severity": "informational"
+          },
+          {
+            "component": "ezdxf",
+            "version": "1.4.3",
+            "license": "MIT",
+            "flag": "MIT permissive; no copyleft concern.",
+            "severity": "informational"
+          },
+          {
+            "component": "numpy",
+            "version": "2.1.3",
+            "license": "BSD-3-Clause",
+            "flag": "BSD-3-Clause permissive; no copyleft concern.",
+            "severity": "informational"
+          },
+          {
+            "component": "freecad",
+            "version": "1.1.3",
+            "license": "LGPL-2.1-or-later",
+            "flag": "LGPL-2.1-or-later application embedding OCCT; distributed as a self-contained AppImage (already dynamically composed). User-replaceable as a unit (swap the AppImage); LGPL obligations satisfied by AppImage separability plus a written offer for the corresponding source for the LGPL portions.",
+            "severity": "review-required-for-attribution"
+          },
+          {
+            "component": "python",
+            "version": "3.12.13",
+            "license": "PSF-2.0 (Python Software Foundation License)",
+            "flag": "PSF-2.0 permissive (GPL-compatible); no copyleft concern.",
+            "severity": "informational"
+          }
+        ]
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "composition/no-approval-recorded",
+      "description": "This gate approves NO composition. The composition decision owner is LICENSE-001 (the open-source composition and licensing gate), per spec/work-items.md. This benchmark produces the inventory and flags FOR that gate; it does not decide.",
+      "status": "pass",
+      "epistemic": "INFERRED",
+      "tolerance": null,
+      "details": {
+        "decision_owner": "LICENSE-001 (not this gate)",
+        "scope_per_issue_6": "exact-version licensing/composition EVIDENCE only; no legal approval or production packaging change implied"
+      },
+      "evidence_refs": [
+        "composition/copyleft-components-flagged",
+        "composition/permissive-components-identified",
+        "composition/flag-matrix-complete"
+      ]
+    },
+    {
+      "id": "composition/no-gpl-contamination-path",
+      "description": "No GPL (strong-copyleft) component is present in the tested stack, so no GPL-contamination path exists from the CAD/BIM stack into a closed-source composition. All copyleft present is LGPL (weak, user-replaceable behind the frozen adapter boundary).",
+      "status": "pass",
+      "epistemic": "INFERRED",
+      "tolerance": null,
+      "details": {
+        "pure_gpl": [],
+        "lgpl_components": [
+          "ifcopenshell",
+          "occt",
+          "freecad"
+        ],
+        "mechanism": "the frozen adapter/process boundary (Architecture v1.1) isolates the LGPL components, preserving user-replaceability \u2014 see bench_replacement_path."
+      },
+      "evidence_refs": [
+        "composition/copyleft-components-flagged",
+        "composition/no-approval-recorded"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,182 @@
+{
+  "benchmark": "bench-versions",
+  "description": "Benchmark: exact tested-version recording (RESEARCH-CAD-006 item 1).",
+  "started_at": "2026-08-25T19:44:35.455942+00:00",
+  "finished_at": "2026-08-25T19:44:35.493998+00:00",
+  "summary": {
+    "pass": 5,
+    "fail": 0,
+    "unknown": 0
+  },
+  "measurements": {
+    "version:ifcopenshell": "0.8.5",
+    "version:occt": "7.8.1",
+    "version:cadquery-ocp": "7.8.1.1.post1",
+    "version:cadquery": "2.6.1",
+    "version:ezdxf": "1.4.3",
+    "version:numpy": "2.1.3",
+    "version:freecad": "1.1.3",
+    "version:python": "3.12.13",
+    "freecad_appimage_sha256": "3a853eb69ee595f779f2255dbf80a765926981d8ff68903cefee4dfb03a8f5ef"
+  },
+  "checks": [
+    {
+      "id": "versions/recorded",
+      "description": "Every tested component has an exact version recorded from the authoritative pinned sources (CAD-001 requirements.txt + the CAD-001..005 committed environment.json snapshots + the FreeCAD AppImage SHA256 manifest).",
+      "status": "pass",
+      "epistemic": "OBSERVED",
+      "tolerance": null,
+      "details": {
+        "recorded_versions": {
+          "ifcopenshell": "0.8.5",
+          "occt": "7.8.1",
+          "cadquery-ocp": "7.8.1.1.post1",
+          "cadquery": "2.6.1",
+          "ezdxf": "1.4.3",
+          "numpy": "2.1.3",
+          "freecad": "1.1.3",
+          "python": "3.12.13"
+        }
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "versions/pin-snapshot-consistency",
+      "description": "The CAD-001 requirements.txt pins are consistent with the committed environment.json snapshots across CAD-001..005 (the tested versions are internally consistent across the evidence corpus).",
+      "status": "pass",
+      "epistemic": "OBSERVED",
+      "tolerance": null,
+      "details": {
+        "ifcopenshell": {
+          "pin": "0.8.5",
+          "snapshots": {
+            "cad-001": "0.8.5",
+            "cad-002": "0.8.5",
+            "cad-003": "0.8.5",
+            "cad-004": "0.8.5",
+            "cad-005": "0.8.5"
+          }
+        },
+        "cadquery": {
+          "pin": "2.6.1",
+          "snapshots": {
+            "cad-001": "2.6.1",
+            "cad-002": "2.6.1",
+            "cad-003": "2.6.1",
+            "cad-004": "2.6.1",
+            "cad-005": "2.6.1"
+          }
+        },
+        "cadquery-ocp": {
+          "pin": null,
+          "snapshots": {
+            "cad-001": "7.8.1.1.post1",
+            "cad-002": "7.8.1.1.post1",
+            "cad-003": "7.8.1.1.post1",
+            "cad-004": "7.8.1.1.post1",
+            "cad-005": "7.8.1.1.post1"
+          }
+        },
+        "ezdxf": {
+          "pin": "1.4.3",
+          "snapshots": {
+            "cad-001": "1.4.3",
+            "cad-002": "1.4.3",
+            "cad-003": "1.4.3",
+            "cad-004": "1.4.3",
+            "cad-005": "1.4.3"
+          }
+        },
+        "numpy": {
+          "pin": "2.1.3",
+          "snapshots": {
+            "cad-001": "2.1.3",
+            "cad-002": "2.1.3",
+            "cad-003": "2.1.3",
+            "cad-004": "2.1.3",
+            "cad-005": "2.1.3"
+          }
+        }
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "versions/live-cross-check",
+      "description": "For every importable distribution, the installed version matches the recorded tested version. Non-importable components in this evidence-collection environment are asserted from the authoritative pinned sources (not coerced).",
+      "status": "pass",
+      "epistemic": "OBSERVED",
+      "tolerance": null,
+      "details": {
+        "live_cross_check": {
+          "ifcopenshell": {
+            "tested_version": "0.8.5",
+            "live_installed": null,
+            "match": "n/a (not importable in this env; asserted from pinned source)"
+          },
+          "occt": {
+            "tested_version": "7.8.1",
+            "live_installed": null,
+            "match": "n/a (not importable in this env; asserted from pinned source)"
+          },
+          "cadquery-ocp": {
+            "tested_version": "7.8.1.1.post1",
+            "live_installed": "7.8.1.1.post1",
+            "match": true
+          },
+          "cadquery": {
+            "tested_version": "2.6.1",
+            "live_installed": "2.6.1",
+            "match": true
+          },
+          "ezdxf": {
+            "tested_version": "1.4.3",
+            "live_installed": "1.4.3",
+            "match": true
+          },
+          "numpy": {
+            "tested_version": "2.1.3",
+            "live_installed": "2.1.3",
+            "match": true
+          },
+          "freecad": {
+            "tested_version": "1.1.3",
+            "live_installed": null,
+            "match": "n/a (not importable in this env; asserted from pinned source)"
+          },
+          "python": {
+            "tested_version": "3.12.13",
+            "live_installed": null,
+            "match": "n/a (not importable in this env; asserted from pinned source)"
+          }
+        }
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "versions/freecad-appimage-hash",
+      "description": "The FreeCAD 1.1.3 AppImage SHA256 recorded in the inventory matches the committed manifest (integrity of the tested native bundle).",
+      "status": "pass",
+      "epistemic": "OBSERVED",
+      "tolerance": null,
+      "details": {
+        "expected_sha256": "3a853eb69ee595f779f2255dbf80a765926981d8ff68903cefee4dfb03a8f5ef",
+        "manifest_sha256": "3a853eb69ee595f779f2255dbf80a765926981d8ff68903cefee4dfb03a8f5ef",
+        "manifest_path": null
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "versions/occt-via-binding",
+      "description": "The OCCT version (7.8.1) is derived from the cadquery-ocp binding distribution version (7.8.1.1.post1) \u2014 a CALCULATED fact, not a direct measurement of the OCCT shared library.",
+      "status": "pass",
+      "epistemic": "CALCULATED",
+      "tolerance": null,
+      "details": {
+        "binding_version": "7.8.1.1.post1",
+        "derived_occt": "7.8.1",
+        "recorded_occt": "7.8.1"
+      },
+      "evidence_refs": []
+    }
+  ]
+}

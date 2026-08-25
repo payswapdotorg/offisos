@@ -1,0 +1,67 @@
+name: research-cad-006
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "research/cad-006/**"
+      - ".github/workflows/research-cad-006.yml"
+  pull_request:
+    paths:
+      - "research/cad-006/**"
+      - ".github/workflows/research-cad-006.yml"
+
+# RESEARCH-CAD-006 is a records/inventory benchmark: it reads exact tested
+# versions from the authoritative pinned sources committed in the repo
+# (CAD-001 requirements.txt, the CAD-001..005 environment.json snapshots,
+# and the FreeCAD AppImage SHA256 manifest) and cross-checks the
+# currently-importable distribution metadata. It does NOT exercise the
+# CAD/BIM engines, so the heavy toolchain (ifcopenshell/OCCT/FreeCAD) is
+# not installed here — those exact versions are asserted from the committed
+# snapshots, not re-installed.
+
+jobs:
+  benchmark:
+    name: CAD/BIM licensing/composition evidence (deterministic suite)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: research/cad-006
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: research/cad-006/requirements.txt
+
+      - name: Install pinned toolchain (pytest only; engines asserted from snapshots)
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+
+      - name: Record cross-check environment
+        run: |
+          python -c "
+          import importlib.metadata as md
+          for d in ('cadquery','cadquery-ocp','ezdxf','numpy','pytest'):
+              try: print(d, md.version(d))
+              except md.PackageNotFoundError: print(d, 'not installed in CI env (version asserted from committed snapshots)')
+          "
+
+      - name: Deterministic benchmark test suite (zero failures, zero unknowns)
+        run: python -m pytest tests/ -q
+
+      - name: Full benchmark evidence run
+        run: python -m offisos_licbench.benchmarks.run_all ci-run
+
+      - name: Upload evidence artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: research-cad-006-evidence
+          path: research/cad-006/evidence/ci-run/
+          if-no-files-found: error

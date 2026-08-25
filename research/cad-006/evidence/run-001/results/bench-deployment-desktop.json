@@ -1,0 +1,92 @@
+{
+  "benchmark": "bench-deployment-desktop",
+  "description": "Benchmark: Electron/desktop deployment model analysis (RESEARCH-CAD-006 item 5).",
+  "started_at": "2026-08-25T19:44:35.505489+00:00",
+  "finished_at": "2026-08-25T19:44:35.505502+00:00",
+  "summary": {
+    "pass": 6,
+    "fail": 0,
+    "unknown": 0
+  },
+  "measurements": {
+    "electron_license": "MIT (Electron = MIT; Chromium BSD/MIT-derived; Node MIT)"
+  },
+  "checks": [
+    {
+      "id": "deployment/desktop/tested-path-documented",
+      "description": "The tested desktop deployment path is documented: the CAD/BIM stack (OCCT/IfcOpenShell/FreeCAD) runs as native worker processes spawned by an Electron host. FreeCAD was tested via the official AppImage (a self-contained native bundle).",
+      "status": "pass",
+      "epistemic": "OBSERVED",
+      "tolerance": null,
+      "details": {
+        "tested_path": "The CAD/BIM stack (OCCT/IfcOpenShell/FreeCAD) runs as native worker processes spawned by an Electron host. FreeCAD was tested via the official AppImage (a self-contained native bundle)."
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "deployment/desktop/electron-license-recorded",
+      "description": "The Electron host license is recorded: MIT (Electron = MIT; Chromium is BSD/MIT-derived; Node is MIT). No copyleft concern from the host stack itself.",
+      "status": "pass",
+      "epistemic": "OBSERVED",
+      "tolerance": null,
+      "details": {
+        "electron_license": "MIT (Electron = MIT; Chromium BSD/MIT-derived; Node MIT)"
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "deployment/desktop/lgpl-posture-documented",
+      "description": "The LGPL posture for the desktop model is documented: desktop distribution bundles LGPL-2.1 (OCCT, FreeCAD) and LGPL-3.0 (IfcOpenShell) components. The LGPL requires the user's right to replace the LGPL portions (dynamic/separate-process linking + a written offer for the corresponding source for 3 years). The frozen adapter boundary (Architecture v1.1) isolates the LGPL components behind a process/adapter boundary.",
+      "status": "pass",
+      "epistemic": "OBSERVED",
+      "tolerance": null,
+      "details": {
+        "lgpl_posture": "Desktop distribution bundles LGPL-2.1 (OCCT, FreeCAD) and LGPL-3.0 (IfcOpenShell) components. The LGPL requires the user's right to replace the LGPL portions (dynamic linking / separate files plus a written offer for the corresponding source for 3 years). The frozen adapter boundary (Architecture v1.1) isolates the LGPL components behind a process/adapter boundary, enabling user-replaceability without exposing proprietary adapter code. Static linking of LGPL code into closed-source code would require object files / relinking capability; the tested path uses dynamic/separate-process composition, which avoids this."
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "deployment/desktop/adapter-boundary-is-compliance-mechanism",
+      "description": "The frozen adapter boundary (Architecture v1.1) is the architectural LGPL-compliance mechanism for the desktop model: it isolates the LGPL components so user-replaceability is preserved without exposing proprietary adapter code. (Inferred from the adapter-replacement proof in RESEARCH-CAD-001 item 9 \u2014 see bench_replacement_path.)",
+      "status": "pass",
+      "epistemic": "INFERRED",
+      "tolerance": null,
+      "details": {
+        "adapter_boundary_version": "1.1 (FROZEN)",
+        "mechanism": "LGPL components run behind a process/adapter boundary; engines are confined to engines/; swapping requires implementing the CadBimAdapter contract only."
+      },
+      "evidence_refs": [
+        "deployment/desktop/lgpl-posture-documented",
+        "replacement/adapter-boundary-v1.1-frozen"
+      ]
+    },
+    {
+      "id": "deployment/desktop/no-static-linking-of-lgpl-into-closed-source",
+      "description": "Explicit constraint: no static linking of LGPL code into closed-source code in the tested path. The tested path uses dynamic/separate-process composition (FreeCAD as a self-contained AppImage; OCCT/IfcOpenShell as separate worker processes), which avoids the LGPL static-linking obligation (object files / relinking capability). Static linking of LGPL into closed-source code would require that obligation and is flagged review-required if ever attempted.",
+      "status": "pass",
+      "epistemic": "OBSERVED",
+      "tolerance": null,
+      "details": {
+        "tested_composition": "dynamic / separate-process (AppImage + worker processes)",
+        "flag": "review-required; adapter-boundary-is-the-compliance-mechanism; dynamic-or-separate-process-linking-required (no static linking of LGPL into closed-source code)",
+        "severity": "review-required",
+        "constraint": "no static linking of LGPL into closed-source code"
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "deployment/desktop/freecad-appimage-separable",
+      "description": "FreeCAD is distributed as a self-contained AppImage (a user-replaceable unit: swap the AppImage file). LGPL obligations for the FreeCAD-embedded OCCT are satisfied by AppImage separability plus a written offer for the corresponding source for the LGPL portions.",
+      "status": "pass",
+      "epistemic": "OBSERVED",
+      "tolerance": null,
+      "details": {
+        "freecad_version": "1.1.3",
+        "distribution": "Official Linux x86_64 AppImage (py311)",
+        "sha256": "3a853eb69ee595f779f2255dbf80a765926981d8ff68903cefee4dfb03a8f5ef",
+        "separability": "AppImage is a single replaceable file (user can swap the whole unit)"
+      },
+      "evidence_refs": []
+    }
+  ]
+}

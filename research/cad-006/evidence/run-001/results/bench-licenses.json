@@ -1,0 +1,188 @@
+{
+  "benchmark": "bench-licenses",
+  "description": "Benchmark: license identification + metadata cross-check (RESEARCH-CAD-006 item 2).",
+  "started_at": "2026-08-25T19:44:35.494034+00:00",
+  "finished_at": "2026-08-25T19:44:35.505383+00:00",
+  "summary": {
+    "pass": 4,
+    "fail": 0,
+    "unknown": 0
+  },
+  "measurements": {
+    "license:ifcopenshell": "LGPL-3.0-or-later",
+    "license:occt": "LGPL-2.1-or-later WITH OCCT-LINKING-EXCEPTION",
+    "license:cadquery-ocp": "Apache-2.0",
+    "license:cadquery": "Apache-2.0",
+    "license:ezdxf": "MIT",
+    "license:numpy": "BSD-3-Clause",
+    "license:freecad": "LGPL-2.1-or-later",
+    "license:python": "PSF-2.0 (Python Software Foundation License)"
+  },
+  "checks": [
+    {
+      "id": "licenses/identified",
+      "description": "Every tested component has an identified license and an upstream reference, drawn from stable upstream statements.",
+      "status": "pass",
+      "epistemic": "OBSERVED",
+      "tolerance": null,
+      "details": {
+        "inventory": {
+          "ifcopenshell": {
+            "license": "LGPL-3.0-or-later",
+            "upstream": "https://ifcopenshell.org",
+            "license_explanation": "IfcOpenShell is Free Software under LGPL-3.0-or-later (with OCCT-based geometry components)."
+          },
+          "occt": {
+            "license": "LGPL-2.1-or-later WITH OCCT-LINKING-EXCEPTION",
+            "upstream": "https://github.com/Open-Cascade-SAS/OCCT",
+            "license_explanation": "Open CASCADE Technology: LGPL-2.1-or-later with an exception permitting use under a broader set of terms for the library itself."
+          },
+          "cadquery-ocp": {
+            "license": "Apache-2.0",
+            "upstream": "https://github.com/CadQuery/OCP",
+            "license_explanation": "OCP are Apache-2.0-licensed pybind11 bindings of OCCT; the wrapped OCCT library carries its own license (see occt)."
+          },
+          "cadquery": {
+            "license": "Apache-2.0",
+            "upstream": "https://github.com/CadQuery/cadquery",
+            "license_explanation": "Used only as the distribution channel for OCP in the tested stack; its parametric API is not exercised."
+          },
+          "ezdxf": {
+            "license": "MIT",
+            "upstream": "https://github.com/mozman/ezdxf",
+            "license_explanation": "DXF read/write library evaluated for the 2D drafting representation gap (layers, dimensions)."
+          },
+          "numpy": {
+            "license": "BSD-3-Clause",
+            "upstream": "https://numpy.org",
+            "license_explanation": "Numeric dependency of ifcopenshell/ocp shape building."
+          },
+          "freecad": {
+            "license": "LGPL-2.1-or-later",
+            "upstream": "https://github.com/FreeCAD/FreeCAD",
+            "license_explanation": "FreeCAD application + Sketcher/Draft/TechDraw: LGPL-2.1-or-later, embedding OCCT."
+          },
+          "python": {
+            "license": "PSF-2.0 (Python Software Foundation License)",
+            "upstream": "https://www.python.org",
+            "license_explanation": "CPython reference interpreter; the AppImage bundles py311."
+          }
+        }
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "licenses/spdx-classification",
+      "description": "Every tested component's license is classified as copyleft or permissive (SPDX-style classification).",
+      "status": "pass",
+      "epistemic": "CALCULATED",
+      "tolerance": null,
+      "details": {
+        "classification": {
+          "ifcopenshell": {
+            "license": "LGPL-3.0-or-later",
+            "class": "weak-copyleft"
+          },
+          "occt": {
+            "license": "LGPL-2.1-or-later WITH OCCT-LINKING-EXCEPTION",
+            "class": "weak-copyleft-with-exception"
+          },
+          "cadquery-ocp": {
+            "license": "Apache-2.0",
+            "class": "permissive"
+          },
+          "cadquery": {
+            "license": "Apache-2.0",
+            "class": "permissive"
+          },
+          "ezdxf": {
+            "license": "MIT",
+            "class": "permissive"
+          },
+          "numpy": {
+            "license": "BSD-3-Clause",
+            "class": "permissive"
+          },
+          "freecad": {
+            "license": "LGPL-2.1-or-later",
+            "class": "weak-copyleft"
+          },
+          "python": {
+            "license": "PSF-2.0 (Python Software Foundation License)",
+            "class": "permissive"
+          }
+        }
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "licenses/metadata-cross-check",
+      "description": "Every tested component has a recorded license metadata cross-check entry. The upstream fact is authoritative; short, empty or non-importable metadata fields do not override it (recorded honestly, not coerced).",
+      "status": "pass",
+      "epistemic": "OBSERVED",
+      "tolerance": null,
+      "details": {
+        "metadata_cross_check": {
+          "ifcopenshell": {
+            "upstream_license": "LGPL-3.0-or-later",
+            "metadata_license_field": null,
+            "agreement": "n/a (not importable in this env)"
+          },
+          "occt": {
+            "upstream_license": "LGPL-2.1-or-later WITH OCCT-LINKING-EXCEPTION",
+            "metadata_license_field": null,
+            "agreement": "n/a (not importable in this env)"
+          },
+          "cadquery-ocp": {
+            "upstream_license": "Apache-2.0",
+            "metadata_license_field": "",
+            "agreement": "empty-metadata-field-upstream-authoritative"
+          },
+          "cadquery": {
+            "upstream_license": "Apache-2.0",
+            "metadata_license_field": "Apache Public License 2.0",
+            "agreement": true
+          },
+          "ezdxf": {
+            "upstream_license": "MIT",
+            "metadata_license_field": "",
+            "agreement": "empty-metadata-field-upstream-authoritative"
+          },
+          "numpy": {
+            "upstream_license": "BSD-3-Clause",
+            "metadata_license_field": "Copyright (c) 2005-2024, NumPy Developers.\n All rights reserved.\n\n Redistribution and use in source and binary forms, wi",
+            "agreement": false
+          },
+          "freecad": {
+            "upstream_license": "LGPL-2.1-or-later",
+            "metadata_license_field": null,
+            "agreement": "n/a (not importable in this env)"
+          },
+          "python": {
+            "upstream_license": "PSF-2.0 (Python Software Foundation License)",
+            "metadata_license_field": null,
+            "agreement": "n/a (not importable in this env)"
+          }
+        }
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "licenses/no-strong-gpl-in-tested-stack",
+      "description": "No strong-copyleft GPL component is present in the tested CAD/BIM stack (all copyleft present is LGPL \u2014 weak copyleft, user-replaceable behind the adapter boundary). OpenProject (GPLv3) is in the Project scope, NOT the CAD/BIM tested stack.",
+      "status": "pass",
+      "epistemic": "OBSERVED",
+      "tolerance": null,
+      "details": {
+        "pure_gpl_components": [],
+        "lgpl_components": [
+          "ifcopenshell",
+          "occt",
+          "freecad"
+        ],
+        "scope_note": "OpenProject (GPLv3) is a Project-scope candidate, not part of the CAD/BIM tested stack."
+      },
+      "evidence_refs": []
+    }
+  ]
+}
