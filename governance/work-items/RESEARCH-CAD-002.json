@@ -83,7 +83,7 @@
       "reason": "Evidence package complete; opened the focused PR for RESEARCH-CAD-002 with five focused commits (harness+runner+adapter, eight benchmark modules, evidence run-001 + findings report, CI + deterministic tests, governance record).",
       "references": {
         "pr": 16,
-        "commit": "HEAD"
+        "commit": "c67c7eb6f5d6e1169b0cc04c0e021ab075b33db6"
       }
     }
   ],
