@@ -108,6 +108,30 @@
         "artifact_path": ".github/workflows/cad-implement-001.yml",
         "commit": "0fd5cd8e86fa54a00dc04b9e9b01f043924f54c4"
       }
+    },
+    {
+      "id": "EV-003",
+      "type": "automated-test-suite",
+      "description": "Milestone-2 advancement (Architect execution directive on Issue #24, 'usable CAD workspace'): additive contract changes extending the App API v1 with document.create (resets to a fresh empty document, mints a new entity_id via randomUUID), document.setSelection + document.getSelection (ephemeral editor selection — orthogonal to the versioned snapshot, NOT in the snapshot, NOT in the version-id derivation, NOT in the parity content hash per §5.5, so two hosts with different selections still converge to the same content hash), and document.save (persists the snapshot through the file adapter, returns file bytes as number[] for the JSON wire). The CADDocument gains a #selection backing field + setSelection; cleared on open/create (new document context), survives undo/redo. No breaking changes — the existing 42 tests stay green; 8 new tests added (test/selection-create-save.test.ts): create resets + fresh entity id + cleared selection; setSelection non-versioned + does not push undo; selection orthogonal to parity hash (genuinely-different selections → identical content hash); selection survives undo/redo; save round-trips versioned content (version_id + version_number + elements preserved); create honors explicit overrides; setSelection rejects non-string ids; create->edit->save->open->edit->undo->redo end-to-end on the Web transport. Total suite 50/50 green, typecheck clean, governance validator 104/104 exit 0, check-protected green (records+app only, no protected path touched), rules.ts untouched — the dependency invariant is satisfied legitimately, not weakened. LOCK-018 forbidden-import static check still green (no Electron/browser/FreeCAD/OCCT/IfcOpenShell in src/contracts, src/renderer, src/app-api, src/caddocument). LOCK-019 honored (CADDocument is editor rep, NOT the Construction Graph; the UI explicitly notes this boundary).",
+      "produced_at": "2026-08-25T21:05:00Z",
+      "reproducible": true,
+      "reproduction": "cd app && npx tsc --noEmit && npm test  (50 tests pass, exit 0); governance: npx tsx ../tools/governance/src/cli.ts validate (104/104 exit 0) + npx tsx ../tools/governance/src/cli.ts check-protected --base origin/main (1/1 PASS).",
+      "references": {
+        "commit": "6a1a373a89722dce01cbaa9a8cfa198978be6403",
+        "path": "app/test/selection-create-save.test.ts"
+      }
+    },
+    {
+      "id": "EV-004",
+      "type": "inspectable-artifact",
+      "description": "Usable CAD workspace Web host surface (milestone-2): a Next.js 16 (App Router) project at /home/z/my-project serves the Web host surface at the single user-visible route /. The advanced contracts (16 files from commit 6a1a373, byte-identical modulo a spec-mandated .js-strip sed pass for the Next.js bundler moduleResolution) are copied under src/cad/ (contracts, caddocument, app-api, adapters/dummy, + optional renderer — server-side only, they use node:crypto). A Next.js App Router API route at /api/cad (runtime=nodejs, module-level singleton AppApiHandler with the DummyAdapterBundle) IS the Web transport endpoint — POST accepts a WireEnvelope {api:'1', body:CommandQueryRequest} or a bare CommandQueryRequest and returns the CommandQueryResponse; GET convenience returns the current getState snapshot. The client page.tsx ('use client', shadcn/ui + lucide-react + Tailwind 4, NO indigo/blue) is a usable CAD workspace: SVG canvas (viewBox 0 0 800 600, responsive, grid + selection highlight), controls (New/Open/Save/Add Box/Add Circle/Delete Selected/Undo/Redo with ≥44px touch targets + aria-labels), a version panel (entity_id/version_id/version_number/canUndo/canRedo/commandDepth/format/lineage, monospace hashes), a selection card, and an explicit 'Construction Graph boundary' note (LOCK-019). The client speaks ONLY the wire contract via fetch(/api/cad) — it imports NO module that transitively imports node:crypto (contracts/app-api.ts ok/types+ok/err; caddocument/app-api/adapters/renderer forbidden on the client, used only server-side). Layout: min-h-screen flex-col root + mt-auto footer (sticky-footer-perfect: sticks on short viewports, pushes down on overflow). Mobile-first responsive (grid-cols-1 lg:grid-cols-3, stacks on mobile, no horizontal scroll). Self-verified with Agent Browser (9/9 checks pass: render, add box, add circle, click-select, undo, redo, save download, new, open round-trip, sticky-footer, mobile-responsive). ESLint exit 0 clean. The same AppApiHandler + CADDocument + dummy adapter run server-side here as the Web host surface; Web/Electron parity is proven by the Offisos repo's host-parity test (50/50 green at 6a1a373) — no Electron host was built in the Next.js project (it IS the Web host surface; Electron parity is already proven by the Offisos tests).",
+      "produced_at": "2026-08-25T21:15:00Z",
+      "reproducible": true,
+      "reproduction": "The Next.js project lives at /home/z/my-project (independent git history from the Offisos repo). Dev server on port 3000 (bun run dev). Visit / in a browser; exercise New → Add Box → click-select → Undo → Redo → Save → Open. Lint: cd /home/z/my-project && bun run lint (exit 0). The 16 contract files under src/cad/ are byte-identical to /home/z/offisos-verify/app/src/ @ 6a1a373 modulo the .js-strip sed pass (relative imports only; node:crypto preserved).",
+      "references": {
+        "commit": "6a1a373a89722dce01cbaa9a8cfa198978be6403",
+        "path": "/home/z/my-project"
+      }
     }
   ]
 }
