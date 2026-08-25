@@ -1,6 +1,6 @@
 # ConstructionOS — Specification Package
 
-**Architecture Version:** 1.0
+**Architecture Version:** 1.1
 **Status:** FROZEN
 **Working product codename:** ConstructionOS
 **Purpose:** Authoritative architecture, requirements, implementation work plan, dependency graph, and development governance for the Construction Operating System.
@@ -13,9 +13,11 @@ WorkflowOS itself describes this pattern as: frozen architecture → requirement
 
 ## What is frozen now
 
-The architecture freezes the **interfaces, domain boundaries, invariants, and external-engine abstraction strategy**. It does not freeze a specific CAD kernel, project-management engine, AI provider, collaboration implementation, cloud vendor, or graph database when those choices remain behind an explicit adapter contract.
+Architecture v1.1 freezes the **interfaces, domain boundaries, invariants, external-engine abstraction strategy, and the CAD/BIM web/desktop client topology**. It does not freeze a specific CAD kernel implementation, project-management engine, AI provider, collaboration implementation, cloud vendor, or graph database when those choices remain behind an explicit adapter contract.
 
-This is deliberate. The project can start development while high-risk compatibility candidates are still being proven through bounded feasibility work items.
+For CAD/BIM, web and Electron/desktop clients share one renderer/editor core and semantic command/query contract. Host transports are platform-specific; CAD/BIM engines and file engines remain replaceable behind adapters. The CADDocument editor model is not the Construction Graph.
+
+This is deliberate. The project can continue development while high-risk compatibility candidates are still being proven through bounded feasibility work items.
 
 ## Product mission
 

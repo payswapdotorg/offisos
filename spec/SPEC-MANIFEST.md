@@ -1,6 +1,6 @@
 # ConstructionOS Spec Manifest
 
-Architecture v1.0 FROZEN.
+Architecture v1.1 FROZEN.
 
 Core files:
 - 00-readme.md
@@ -23,4 +23,7 @@ Core files:
 - sources.md
 - adr/*.md
 
-Generated: 2026-08-24
+Architecture change requests:
+- `governance/architecture-changes/ACR-002-cad-bim-web-desktop-client-topology.md`
+
+Generated: 2026-08-25
