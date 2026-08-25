@@ -1,6 +1,6 @@
 # ConstructionOS Architecture Lock
 
-**Architecture version:** 1.0
+**Architecture version:** 1.1
 **Status:** FROZEN
 **Authority:** This document and `architecture.md` are the authoritative architectural rules until a new architecture version is approved.
 
@@ -69,6 +69,18 @@ Predictions, benchmarks and historical backtests must record the data snapshot u
 ### LOCK-016 — Shared domain APIs
 
 Native applications, AI agents, extensions and public API consumers use the same domain contracts.
+
+### LOCK-017 — Shared CAD/BIM renderer core
+
+The CAD/BIM web and desktop applications share one renderer/editor core and one semantic command/query contract. Platform-specific hosts provide transport and capabilities but do not duplicate CAD/BIM domain behavior.
+
+### LOCK-018 — CAD/BIM host/engine separation
+
+The CAD/BIM renderer may not directly depend on Electron, browser APIs, FreeCAD, OpenCascade or IfcOpenShell. Host concerns and engine concerns are exposed through explicit capability/adapter contracts.
+
+### LOCK-019 — CADDocument is not the Construction Graph
+
+CADDocument is the canonical working representation for an open CAD/BIM artifact, with versioning and provenance, but Construction Graph remains the canonical project/asset domain system of record. CADDocument identity must not replace Construction Graph identity.
 
 ## 2. Development workflow lock
 
@@ -156,4 +168,4 @@ Modules communicate through explicit interfaces/events rather than reaching into
 
 FROZEN.
 
-The architecture intentionally freezes contracts and invariants while leaving engine implementations replaceable until feasibility gates are completed.
+Architecture v1.1 adds the CAD/BIM shared web/desktop client topology defined by ACR-002 while preserving all v1.0 domain invariants and adapter boundaries.
