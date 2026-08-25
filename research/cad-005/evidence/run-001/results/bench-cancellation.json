@@ -1,0 +1,98 @@
+{
+  "benchmark": "bench-cancellation",
+  "description": "Benchmark: cancellation, interruption, and timeout behavior.",
+  "started_at": "2026-08-25T11:19:52.072933+00:00",
+  "finished_at": "2026-08-25T11:19:58.875406+00:00",
+  "summary": {
+    "pass": 5,
+    "fail": 0,
+    "unknown": 0
+  },
+  "measurements": {
+    "in_process_cancellation": {
+      "holes": 225,
+      "baseline_duration_s": 1.2013,
+      "cancelled_attempt_duration_s": 0.9743,
+      "request_to_flag_observation_s": 0.0462,
+      "result_volume_m3": 2.747611,
+      "note": "GIL/OCCT note: the cancel-request timestamp itself can be delayed by GIL contention while the native call runs \u2014 the decisive datum is that the native call's duration is unchanged by the cancellation request (no preemption)"
+    },
+    "subprocess_cancellation": {
+      "returncode": -15,
+      "term_to_dead_s": 0.0155,
+      "killed_after_grace": false,
+      "produced_results": false,
+      "cancel_total_wall_s": 1.018,
+      "doc_target_exists_after_cancel": false
+    },
+    "timeout": {
+      "budget_s": 2.0,
+      "fired_after_s": 2.005,
+      "script": "timeout-test"
+    }
+  },
+  "checks": [
+    {
+      "id": "cancellation/in-process-non-preemptable",
+      "description": "Measured proof: with a cancel flag requested during a long native OCCT call, the call's duration is unchanged from its baseline (no preemption) and the flag is only observed after the call completes. In-process cancellation of engine calls is not possible \u2014 the adapter/worker boundary MUST enforce cancellation at the process level.",
+      "status": "pass",
+      "epistemic": "OBSERVED",
+      "tolerance": null,
+      "details": {
+        "baseline_duration_s": 1.2013,
+        "cancelled_attempt_duration_s": 0.9743,
+        "request_to_flag_observation_s": 0.0462,
+        "durations_equal_within_50pct": true
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "cancellation/subprocess-cancel",
+      "description": "A long FreeCAD engine operation is cancelled by killing the worker process group (SIGTERM, escalation to SIGKILL after grace): the process dies quickly, no partial artifact is committed at the target path, and the parent survives.",
+      "status": "pass",
+      "epistemic": "OBSERVED",
+      "tolerance": null,
+      "details": {
+        "term_to_dead_s": 0.0155,
+        "returncode": -15,
+        "partial_artifact_committed": false
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "cancellation/timeout-enforced",
+      "description": "A large-operation timeout fires as a typed EngineTimeout at the process boundary: the runaway engine process is killed and the typed error reaches the caller (never an unbounded hang).",
+      "status": "pass",
+      "epistemic": "OBSERVED",
+      "tolerance": null,
+      "details": {
+        "fired_after_s": 2.005,
+        "typed": "EngineTimeout"
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "cancellation/recovery",
+      "description": "After cancellation and timeout kills, the next engine subprocess run starts and completes normally (worker restart recovery).",
+      "status": "pass",
+      "epistemic": "OBSERVED",
+      "tolerance": null,
+      "details": {
+        "process_wall_ms": 81.977
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "cancellation/interruption-no-partial-artifact",
+      "description": "A build interrupted mid-flight commits no partial FCStd at the target path (data-loss prevention under interruption; combined with the atomic-rename pattern proven in bench_robustness).",
+      "status": "pass",
+      "epistemic": "OBSERVED",
+      "tolerance": null,
+      "details": {
+        "target_exists": false,
+        "term_to_dead_s": 0.0154
+      },
+      "evidence_refs": []
+    }
+  ]
+}

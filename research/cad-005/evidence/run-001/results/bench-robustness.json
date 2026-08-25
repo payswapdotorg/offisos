@@ -1,0 +1,230 @@
+{
+  "benchmark": "bench-robustness",
+  "description": "Benchmark: failure, recovery, and corruption detection.",
+  "started_at": "2026-08-25T11:19:51.443335+00:00",
+  "finished_at": "2026-08-25T11:19:52.071532+00:00",
+  "summary": {
+    "pass": 17,
+    "fail": 0,
+    "unknown": 0
+  },
+  "measurements": {
+    "failed_op/degenerate_volume": 0.0
+  },
+  "checks": [
+    {
+      "id": "robustness/malformed-truncated/typed-failure-or-adapter-validation",
+      "description": "A truncated STEP file is either refused with a typed AdapterFailure, or (measured engine behavior: lazy STEP parsing) it opens 'successfully' as a SILENTLY PARTIAL model and the ADAPTER's structural validation detects the partial state (wall count < expected). Engine-side truncation detection is absent \u2014 the adapter MUST validate structure: an explicit operational constraint for the worker boundary.",
+      "status": "pass",
+      "epistemic": "OBSERVED",
+      "tolerance": null,
+      "details": {
+        "engine_refused": false,
+        "typed_failure": null,
+        "walls_in_truncated_model": 7,
+        "walls_expected": 12,
+        "adapter_structural_validation_detected": true
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "robustness/malformed-truncated/recovery",
+      "description": "After the malformed-truncated failure, a valid IFC open succeeds in the same process (failed-operation recovery).",
+      "status": "pass",
+      "epistemic": "OBSERVED",
+      "tolerance": null,
+      "details": {
+        "walls_after_recovery": 12
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "robustness/malformed-garbage/typed-failure",
+      "description": "A garbage-byte file is refused with a typed AdapterFailure(malformed_input).",
+      "status": "pass",
+      "epistemic": "OBSERVED",
+      "tolerance": null,
+      "details": {
+        "kind": "malformed_input",
+        "message": "engine refused to open IFC file: Unable to parse IFC SPF header",
+        "recoverable": true,
+        "cause": "Error('Unable to parse IFC SPF header')",
+        "path": "/tmp/tmp67_eqb15/garbage.ifc",
+        "engine_exception_type": "Error"
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "robustness/malformed-garbage/recovery",
+      "description": "After the malformed-garbage failure, a valid IFC open succeeds in the same process (failed-operation recovery).",
+      "status": "pass",
+      "epistemic": "OBSERVED",
+      "tolerance": null,
+      "details": {
+        "walls_after_recovery": 12
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "robustness/malformed-wrong-schema/typed-failure",
+      "description": "A file with an unsupported schema header is refused with a typed AdapterFailure (or the engine rejects the unsupported schema) \u2014 never a silent mis-parse.",
+      "status": "pass",
+      "epistemic": "OBSERVED",
+      "tolerance": null,
+      "details": {
+        "kind": "malformed_input",
+        "message": "engine refused to open IFC file: Unsupported schema: IFC9X_RC",
+        "recoverable": true,
+        "cause": "SchemaError('Unsupported schema: IFC9X_RC')",
+        "path": "/tmp/tmp67_eqb15/wrong-schema.ifc",
+        "engine_exception_type": "SchemaError"
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "robustness/malformed-wrong-schema/recovery",
+      "description": "After the malformed-wrong-schema failure, a valid IFC open succeeds in the same process (failed-operation recovery).",
+      "status": "pass",
+      "epistemic": "OBSERVED",
+      "tolerance": null,
+      "details": {
+        "walls_after_recovery": 12
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "robustness/malformed-dangling-ref/behavior-recorded",
+      "description": "A dangling entity reference is either typed by the adapter or explicitly recorded as tolerated by the engine's lazy entity resolution \u2014 the outcome is a recorded datum, never a silent corruption.",
+      "status": "pass",
+      "epistemic": "OBSERVED",
+      "tolerance": null,
+      "details": {
+        "outcome": "tolerated-by-engine",
+        "typed": null
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "robustness/malformed-dangling-ref/recovery",
+      "description": "After the malformed-dangling-ref failure, a valid IFC open succeeds in the same process (failed-operation recovery).",
+      "status": "pass",
+      "epistemic": "OBSERVED",
+      "tolerance": null,
+      "details": {
+        "walls_after_recovery": 12
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "robustness/degenerate-primitive/typed-engine-rejection",
+      "description": "OCCT rejects a degenerate (zero-height) primitive with a typed Standard_DomainError \u2014 the failure mode is a typed engine exception, never a silent bad solid.",
+      "status": "pass",
+      "epistemic": "OBSERVED",
+      "tolerance": null,
+      "details": {
+        "exception_type": "Standard_DomainError",
+        "message": ""
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "robustness/geometry-failure/typed-at-adapter-boundary",
+      "description": "The adapter boundary converts engine geometry exceptions into typed AdapterFailure(engine_error, recoverable) \u2014 the LOCK-003 adapter contract obligation exercised on a real engine failure.",
+      "status": "pass",
+      "epistemic": "ADAPTER",
+      "tolerance": null,
+      "details": {
+        "kind": "engine_error",
+        "message": "engine rejected degenerate primitive",
+        "recoverable": true,
+        "cause": "Standard_DomainError('')",
+        "engine_exception_type": "Standard_DomainError"
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "robustness/degenerate-solid/volume-is-zero",
+      "description": "A face-only (solid-degenerate) shape reports zero volume \u2014 the failure mode is detected by the quantity path, not silently priced.",
+      "status": "pass",
+      "epistemic": "OBSERVED",
+      "tolerance": null,
+      "details": {
+        "volume": 0.0
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "robustness/bad-boolean/recovery",
+      "description": "After the degenerate-tool rejection and adapter typing, a valid complex boolean succeeds in the same process.",
+      "status": "pass",
+      "epistemic": "OBSERVED",
+      "tolerance": null,
+      "details": {
+        "holes": 9,
+        "volume": 3.181904
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "robustness/corrupt-ifc/detected-or-recorded",
+      "description": "A corrupted on-disk IFC artifact is detected by the engine (on open or on use) or its tolerance is recorded as an explicit datum \u2014 silent corruption is never assumed away.",
+      "status": "pass",
+      "epistemic": "OBSERVED",
+      "tolerance": null,
+      "details": {
+        "detected": false,
+        "tolerated": true,
+        "walls": 12
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "robustness/corrupt-step/behavior-recorded",
+      "description": "Corrupted STEP artifacts: NUL-byte corruption mid-file is TOLERATED by the OCCT reader (recorded datum \u2014 silent tolerance), while truncation is REFUSED with a typed IFSelect_RetFail. Artifact validation therefore cannot rely on the reader alone \u2014 checksums at the Offisos artifact boundary are required (operational constraint).",
+      "status": "pass",
+      "epistemic": "OBSERVED",
+      "tolerance": null,
+      "details": {
+        "nul_corruption_detected_by_reader": false,
+        "truncation_detected_by_reader": true,
+        "note": "NUL tolerance is the honest recorded engine behavior; the durable-write + checksum layer at the adapter boundary is the detection mechanism for it"
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "robustness/corrupt-fcstd/behavior-recorded",
+      "description": "A corrupted FCStd artifact reopen attempt inside the isolated engine process is recorded: FreeCAD either refuses it or reports the failure \u2014 the subprocess isolates the parent from the failure either way.",
+      "status": "pass",
+      "epistemic": "OBSERVED",
+      "tolerance": null,
+      "details": {
+        "ok": true,
+        "error": ""
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "robustness/durable-write/original-intact-after-crash",
+      "description": "The durable-write pattern (temp file + atomic rename) preserves the original artifact when the writer dies mid-write: the target is untouched and the partial write lives only in the temp file.",
+      "status": "pass",
+      "epistemic": "ADAPTER",
+      "tolerance": null,
+      "details": {
+        "original_intact": true,
+        "partial_write_in_temp_only": true
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "robustness/durable-write/commit-atomic",
+      "description": "The commit step is atomic: after os.replace the target holds the complete new artifact and the temp file is gone.",
+      "status": "pass",
+      "epistemic": "ADAPTER",
+      "tolerance": null,
+      "details": {
+        "committed": true
+      },
+      "evidence_refs": []
+    }
+  ]
+}

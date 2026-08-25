@@ -1,0 +1,896 @@
+{
+  "benchmark": "bench-engine-occt",
+  "description": "Benchmark: OCCT geometry engine operations scaling.",
+  "started_at": "2026-08-25T11:15:49.756361+00:00",
+  "finished_at": "2026-08-25T11:19:17.225811+00:00",
+  "summary": {
+    "pass": 15,
+    "fail": 0,
+    "unknown": 0
+  },
+  "measurements": {
+    "boolean_cut_chain": {
+      "small": {
+        "operation": "boolean_cut_chain[small]",
+        "boundary": "ENGINE = BRepAlgoAPI_Cut of a small box from each primitive (sequential chain); ADAPTER = per-result validation (solid/face counts, volume) + record assembly",
+        "repeats": 5,
+        "actual_repeats": 5,
+        "engine_ms": {
+          "min": 181.768,
+          "median": 182.695,
+          "mean": 183.802,
+          "max": 186.779,
+          "stdev": 2.098,
+          "samples": [
+            186.779,
+            182.588,
+            182.695,
+            185.179,
+            181.768
+          ]
+        },
+        "adapter_ms": {
+          "min": 9.021,
+          "median": 9.986,
+          "mean": 9.853,
+          "max": 10.175,
+          "stdev": 0.474,
+          "samples": [
+            9.021,
+            9.964,
+            9.986,
+            10.122,
+            10.175
+          ]
+        },
+        "total_ms": {
+          "min": 191.943,
+          "median": 192.681,
+          "mean": 193.655,
+          "max": 195.8,
+          "stdev": 1.761,
+          "samples": [
+            195.8,
+            192.552,
+            192.681,
+            195.302,
+            191.943
+          ]
+        },
+        "adapter_share_of_total_median": 0.0518,
+        "tier": "small",
+        "booleans": 12,
+        "primitives": 24,
+        "throughput_booleans_per_s": 128.5
+      },
+      "medium": {
+        "operation": "boolean_cut_chain[medium]",
+        "boundary": "ENGINE = BRepAlgoAPI_Cut of a small box from each primitive (sequential chain); ADAPTER = per-result validation (solid/face counts, volume) + record assembly",
+        "repeats": 5,
+        "actual_repeats": 5,
+        "engine_ms": {
+          "min": 831.246,
+          "median": 879.303,
+          "mean": 865.774,
+          "max": 898.441,
+          "stdev": 32.125,
+          "samples": [
+            898.441,
+            831.501,
+            879.303,
+            831.246,
+            888.381
+          ]
+        },
+        "adapter_ms": {
+          "min": 46.548,
+          "median": 50.102,
+          "mean": 49.955,
+          "max": 51.84,
+          "stdev": 2.082,
+          "samples": [
+            46.548,
+            51.421,
+            50.102,
+            51.84,
+            49.865
+          ]
+        },
+        "total_ms": {
+          "min": 882.922,
+          "median": 929.404,
+          "mean": 915.729,
+          "max": 944.989,
+          "stdev": 30.381,
+          "samples": [
+            944.989,
+            882.922,
+            929.404,
+            883.085,
+            938.246
+          ]
+        },
+        "adapter_share_of_total_median": 0.0539,
+        "tier": "medium",
+        "booleans": 60,
+        "primitives": 120,
+        "throughput_booleans_per_s": 133.6
+      },
+      "large": {
+        "operation": "boolean_cut_chain[large]",
+        "boundary": "ENGINE = BRepAlgoAPI_Cut of a small box from each primitive (sequential chain); ADAPTER = per-result validation (solid/face counts, volume) + record assembly",
+        "repeats": 2,
+        "actual_repeats": 2,
+        "engine_ms": {
+          "min": 2756.274,
+          "median": 2876.1,
+          "mean": 2876.1,
+          "max": 2995.927,
+          "stdev": 169.46,
+          "samples": [
+            2995.927,
+            2756.274
+          ]
+        },
+        "adapter_ms": {
+          "min": 177.075,
+          "median": 180.226,
+          "mean": 180.226,
+          "max": 183.377,
+          "stdev": 4.456,
+          "samples": [
+            177.075,
+            183.377
+          ]
+        },
+        "total_ms": {
+          "min": 2939.65,
+          "median": 3056.326,
+          "mean": 3056.326,
+          "max": 3173.002,
+          "stdev": 165.004,
+          "samples": [
+            3173.002,
+            2939.65
+          ]
+        },
+        "adapter_share_of_total_median": 0.059,
+        "tier": "large",
+        "booleans": 200,
+        "primitives": 480,
+        "throughput_booleans_per_s": 160.2
+      }
+    },
+    "plate_with_holes": {
+      "small": {
+        "operation": "plate_with_holes[small]",
+        "boundary": "ENGINE = single multi-tool BRepAlgoAPI_Cut (plate minus grid of hole cylinders); ADAPTER = volume validation against analytic expectation + record assembly",
+        "repeats": 5,
+        "actual_repeats": 5,
+        "engine_ms": {
+          "min": 121.76,
+          "median": 124.339,
+          "mean": 123.873,
+          "max": 125.019,
+          "stdev": 1.287,
+          "samples": [
+            121.76,
+            125.019,
+            123.621,
+            124.339,
+            124.625
+          ]
+        },
+        "adapter_ms": {
+          "min": 5.538,
+          "median": 6.083,
+          "mean": 6.131,
+          "max": 6.563,
+          "stdev": 0.408,
+          "samples": [
+            5.538,
+            6.083,
+            6.563,
+            6.005,
+            6.464
+          ]
+        },
+        "total_ms": {
+          "min": 127.299,
+          "median": 130.344,
+          "mean": 130.003,
+          "max": 131.102,
+          "stdev": 1.569,
+          "samples": [
+            127.299,
+            131.102,
+            130.184,
+            130.344,
+            131.088
+          ]
+        },
+        "adapter_share_of_total_median": 0.0467,
+        "tier": "small",
+        "holes": 25,
+        "analytic_volume": 3.149735
+      },
+      "medium": {
+        "operation": "plate_with_holes[medium]",
+        "boundary": "ENGINE = single multi-tool BRepAlgoAPI_Cut (plate minus grid of hole cylinders); ADAPTER = volume validation against analytic expectation + record assembly",
+        "repeats": 5,
+        "actual_repeats": 5,
+        "engine_ms": {
+          "min": 487.901,
+          "median": 492.21,
+          "mean": 494.848,
+          "max": 504.283,
+          "stdev": 6.508,
+          "samples": [
+            504.283,
+            487.901,
+            498.47,
+            492.21,
+            491.376
+          ]
+        },
+        "adapter_ms": {
+          "min": 21.937,
+          "median": 22.701,
+          "mean": 22.593,
+          "max": 23.12,
+          "stdev": 0.508,
+          "samples": [
+            21.937,
+            23.001,
+            23.12,
+            22.701,
+            22.207
+          ]
+        },
+        "total_ms": {
+          "min": 510.902,
+          "median": 514.911,
+          "mean": 517.441,
+          "max": 526.221,
+          "stdev": 6.292,
+          "samples": [
+            526.221,
+            510.902,
+            521.59,
+            514.911,
+            513.584
+          ]
+        },
+        "adapter_share_of_total_median": 0.0441,
+        "tier": "medium",
+        "holes": 100,
+        "analytic_volume": 2.998938
+      },
+      "large": {
+        "operation": "plate_with_holes[large]",
+        "boundary": "ENGINE = single multi-tool BRepAlgoAPI_Cut (plate minus grid of hole cylinders); ADAPTER = volume validation against analytic expectation + record assembly",
+        "repeats": 2,
+        "actual_repeats": 2,
+        "engine_ms": {
+          "min": 4594.141,
+          "median": 4624.349,
+          "mean": 4624.349,
+          "max": 4654.556,
+          "stdev": 42.72,
+          "samples": [
+            4594.141,
+            4654.556
+          ]
+        },
+        "adapter_ms": {
+          "min": 148.135,
+          "median": 152.815,
+          "mean": 152.815,
+          "max": 157.495,
+          "stdev": 6.618,
+          "samples": [
+            148.135,
+            157.495
+          ]
+        },
+        "total_ms": {
+          "min": 4742.277,
+          "median": 4777.164,
+          "mean": 4777.164,
+          "max": 4812.051,
+          "stdev": 49.338,
+          "samples": [
+            4742.277,
+            4812.051
+          ]
+        },
+        "adapter_share_of_total_median": 0.032,
+        "tier": "large",
+        "holes": 400,
+        "analytic_volume": 2.395752
+      }
+    },
+    "tessellate": {
+      "small": {
+        "operation": "tessellate_plate[small]",
+        "boundary": "ENGINE = BRepMesh_IncrementalMesh + per-face triangulation retrieval; ADAPTER = triangle counting (the view-preparation bookkeeping). Headless proxy for the GUI render pipeline \u2014 GUI rendering itself is unmeasurable in console mode (recorded limitation)",
+        "repeats": 5,
+        "actual_repeats": 5,
+        "engine_ms": {
+          "min": 5.977,
+          "median": 6.277,
+          "mean": 10.338,
+          "max": 26.972,
+          "stdev": 9.3,
+          "samples": [
+            26.972,
+            6.133,
+            5.977,
+            6.329,
+            6.277
+          ]
+        },
+        "adapter_ms": {
+          "min": 0.002,
+          "median": 0.002,
+          "mean": 0.002,
+          "max": 0.003,
+          "stdev": 0.001,
+          "samples": [
+            0.003,
+            0.002,
+            0.002,
+            0.002,
+            0.002
+          ]
+        },
+        "total_ms": {
+          "min": 5.979,
+          "median": 6.279,
+          "mean": 10.34,
+          "max": 26.975,
+          "stdev": 9.301,
+          "samples": [
+            26.975,
+            6.135,
+            5.979,
+            6.331,
+            6.279
+          ]
+        },
+        "adapter_share_of_total_median": 0.0003,
+        "tier": "small",
+        "holes_in_plate": 25,
+        "linear_deflection": 0.1,
+        "angular_deflection": 0.5,
+        "first_sample_engine_ms": 26.97212299972307,
+        "triangles": 2712,
+        "throughput_triangles_per_s": 100548.3
+      },
+      "medium": {
+        "operation": "tessellate_plate[medium]",
+        "boundary": "ENGINE = BRepMesh_IncrementalMesh + per-face triangulation retrieval; ADAPTER = triangle counting (the view-preparation bookkeeping). Headless proxy for the GUI render pipeline \u2014 GUI rendering itself is unmeasurable in console mode (recorded limitation)",
+        "repeats": 5,
+        "actual_repeats": 5,
+        "engine_ms": {
+          "min": 29.344,
+          "median": 42.785,
+          "mean": 65.219,
+          "max": 179.308,
+          "stdev": 64.181,
+          "samples": [
+            179.308,
+            44.896,
+            29.344,
+            29.764,
+            42.785
+          ]
+        },
+        "adapter_ms": {
+          "min": 0.002,
+          "median": 0.003,
+          "mean": 0.003,
+          "max": 0.004,
+          "stdev": 0.001,
+          "samples": [
+            0.003,
+            0.004,
+            0.002,
+            0.003,
+            0.004
+          ]
+        },
+        "total_ms": {
+          "min": 29.346,
+          "median": 42.788,
+          "mean": 65.222,
+          "max": 179.311,
+          "stdev": 64.181,
+          "samples": [
+            179.311,
+            44.9,
+            29.346,
+            29.767,
+            42.788
+          ]
+        },
+        "adapter_share_of_total_median": 0.0001,
+        "tier": "medium",
+        "holes_in_plate": 100,
+        "linear_deflection": 0.1,
+        "angular_deflection": 0.5,
+        "first_sample_engine_ms": 179.30765700293705,
+        "triangles": 10812,
+        "throughput_triangles_per_s": 60298.6
+      },
+      "large": {
+        "operation": "tessellate_plate[large]",
+        "boundary": "ENGINE = BRepMesh_IncrementalMesh + per-face triangulation retrieval; ADAPTER = triangle counting (the view-preparation bookkeeping). Headless proxy for the GUI render pipeline \u2014 GUI rendering itself is unmeasurable in console mode (recorded limitation)",
+        "repeats": 2,
+        "actual_repeats": 2,
+        "engine_ms": {
+          "min": 286.196,
+          "median": 1403.025,
+          "mean": 1403.025,
+          "max": 2519.853,
+          "stdev": 1579.434,
+          "samples": [
+            2519.853,
+            286.196
+          ]
+        },
+        "adapter_ms": {
+          "min": 0.003,
+          "median": 0.003,
+          "mean": 0.003,
+          "max": 0.004,
+          "stdev": 0.001,
+          "samples": [
+            0.003,
+            0.004
+          ]
+        },
+        "total_ms": {
+          "min": 286.2,
+          "median": 1403.028,
+          "mean": 1403.028,
+          "max": 2519.856,
+          "stdev": 1579.433,
+          "samples": [
+            2519.856,
+            286.2
+          ]
+        },
+        "adapter_share_of_total_median": 0.0,
+        "tier": "large",
+        "holes_in_plate": 400,
+        "linear_deflection": 0.1,
+        "angular_deflection": 0.5,
+        "first_sample_engine_ms": 2519.852944999002,
+        "triangles": 43132,
+        "throughput_triangles_per_s": 17116.9
+      }
+    },
+    "step_io": {
+      "small": {
+        "operation": "step_write_read[small]",
+        "boundary": "ENGINE = STEPControl write + read (serialization and parse of the primitive corpus); ADAPTER = post-read validation (solid count + volume conservation check)",
+        "repeats": 5,
+        "actual_repeats": 5,
+        "engine_ms": {
+          "min": 93.671,
+          "median": 94.601,
+          "mean": 95.98,
+          "max": 100.914,
+          "stdev": 2.959,
+          "samples": [
+            100.914,
+            93.671,
+            94.203,
+            94.601,
+            96.512
+          ]
+        },
+        "adapter_ms": {
+          "min": 93.358,
+          "median": 95.533,
+          "mean": 95.538,
+          "max": 97.772,
+          "stdev": 1.861,
+          "samples": [
+            93.358,
+            97.772,
+            94.081,
+            96.947,
+            95.533
+          ]
+        },
+        "total_ms": {
+          "min": 188.284,
+          "median": 191.547,
+          "mean": 191.518,
+          "max": 194.271,
+          "stdev": 2.14,
+          "samples": [
+            194.271,
+            191.443,
+            188.284,
+            191.547,
+            192.045
+          ]
+        },
+        "adapter_share_of_total_median": 0.4987,
+        "tier": "small",
+        "shapes": 24,
+        "file_size_bytes": null
+      },
+      "medium": {
+        "operation": "step_write_read[medium]",
+        "boundary": "ENGINE = STEPControl write + read (serialization and parse of the primitive corpus); ADAPTER = post-read validation (solid count + volume conservation check)",
+        "repeats": 5,
+        "actual_repeats": 5,
+        "engine_ms": {
+          "min": 1562.02,
+          "median": 1592.309,
+          "mean": 1589.813,
+          "max": 1630.29,
+          "stdev": 28.914,
+          "samples": [
+            1592.309,
+            1602.37,
+            1630.29,
+            1562.02,
+            1562.076
+          ]
+        },
+        "adapter_ms": {
+          "min": 388.638,
+          "median": 391.311,
+          "mean": 392.964,
+          "max": 403.704,
+          "stdev": 6.164,
+          "samples": [
+            389.192,
+            391.311,
+            403.704,
+            391.976,
+            388.638
+          ]
+        },
+        "total_ms": {
+          "min": 1950.714,
+          "median": 1981.501,
+          "mean": 1982.777,
+          "max": 2033.994,
+          "stdev": 33.912,
+          "samples": [
+            1981.501,
+            1993.681,
+            2033.994,
+            1953.996,
+            1950.714
+          ]
+        },
+        "adapter_share_of_total_median": 0.1975,
+        "tier": "medium",
+        "shapes": 120,
+        "file_size_bytes": null
+      },
+      "large": {
+        "operation": "step_write_read[large]",
+        "boundary": "ENGINE = STEPControl write + read (serialization and parse of the primitive corpus); ADAPTER = post-read validation (solid count + volume conservation check)",
+        "repeats": 2,
+        "actual_repeats": 2,
+        "engine_ms": {
+          "min": 22488.256,
+          "median": 22516.341,
+          "mean": 22516.341,
+          "max": 22544.427,
+          "stdev": 39.719,
+          "samples": [
+            22544.427,
+            22488.256
+          ]
+        },
+        "adapter_ms": {
+          "min": 1466.638,
+          "median": 1469.8,
+          "mean": 1469.8,
+          "max": 1472.962,
+          "stdev": 4.472,
+          "samples": [
+            1466.638,
+            1472.962
+          ]
+        },
+        "total_ms": {
+          "min": 23961.218,
+          "median": 23986.142,
+          "mean": 23986.142,
+          "max": 24011.065,
+          "stdev": 35.247,
+          "samples": [
+            24011.065,
+            23961.218
+          ]
+        },
+        "adapter_share_of_total_median": 0.0613,
+        "tier": "large",
+        "shapes": 480,
+        "file_size_bytes": null
+      }
+    },
+    "occt_memory": {
+      "small": {
+        "hwm_before_mb": 652.3,
+        "hwm_after_mb": 652.56,
+        "hwm_growth_mb": 0.26,
+        "rss_before_mb": 652.3,
+        "rss_after_mb": 652.56,
+        "semantics": "VmHWM is a process-lifetime monotonic high-water mark; hwm_growth is the additional peak grown by the phase, not a phase-local peak",
+        "primitives": 24,
+        "total_cut_volume_m3": 48.6697
+      },
+      "medium": {
+        "hwm_before_mb": 665.2,
+        "hwm_after_mb": 665.41,
+        "hwm_growth_mb": 0.21,
+        "rss_before_mb": 651.23,
+        "rss_after_mb": 652.04,
+        "semantics": "VmHWM is a process-lifetime monotonic high-water mark; hwm_growth is the additional peak grown by the phase, not a phase-local peak",
+        "primitives": 120,
+        "total_cut_volume_m3": 243.3485
+      },
+      "large": {
+        "hwm_before_mb": 782.67,
+        "hwm_after_mb": 784.03,
+        "hwm_growth_mb": 1.36,
+        "rss_before_mb": 660.3,
+        "rss_after_mb": 722.36,
+        "semantics": "VmHWM is a process-lifetime monotonic high-water mark; hwm_growth is the additional peak grown by the phase, not a phase-local peak",
+        "primitives": 480,
+        "total_cut_volume_m3": 973.3942
+      }
+    },
+    "multi_tool_boolean_scaling_cliff": {
+      "holes_to_seconds": {
+        "100": 0.459,
+        "225": 1.0668,
+        "400": 4.5831,
+        "500": 97.2817
+      },
+      "ms_per_hole": {
+        "100": 4.59,
+        "225": 4.7413,
+        "400": 11.4577,
+        "500": 194.5634
+      },
+      "cliff_ratio_500_over_400": 21.23,
+      "skipped_reason": null,
+      "workload": "plate 8x4x0.1 with r=0.08 hole grid, one BRepAlgoAPI_Cut with N cylinder tools"
+    },
+    "boolean_per_primitive_engine_ms": {
+      "small": 7.6123,
+      "medium": 7.3275,
+      "large": 5.9919
+    }
+  },
+  "checks": [
+    {
+      "id": "boolean/multi-tool-scaling-cliff-recorded",
+      "description": "Superlinear multi-tool boolean scaling recorded: per-hole cost grows with tool count and the 500-tool point is 21.23x the 400-tool time \u2014 a concrete stress-boundary datum identifying where the engine becomes materially slower. Operational constraint: decompose large multi-tool booleans into bounded batches (and/or enforce per-op timeouts), rather than issuing unbounded single boolean calls.",
+      "status": "pass",
+      "epistemic": "OBSERVED",
+      "tolerance": null,
+      "details": {
+        "holes_to_seconds": {
+          "100": 0.459,
+          "225": 1.0668,
+          "400": 4.5831,
+          "500": 97.2817
+        },
+        "ms_per_hole": {
+          "100": 4.59,
+          "225": 4.7413,
+          "400": 11.4577,
+          "500": 194.5634
+        },
+        "cliff_ratio_500_over_400": 21.23,
+        "superlinear_per_hole_growth": true,
+        "skipped_reason": null
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "boolean/small/measured",
+      "description": "Boolean cut chain measured at small tier (12 booleans) with engine/adapter split and distribution.",
+      "status": "pass",
+      "epistemic": "OBSERVED",
+      "tolerance": null,
+      "details": {
+        "engine_ms_median": 182.695,
+        "throughput_booleans_per_s": 128.5,
+        "adapter_share": 0.0518
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "plate-holes/small/correct-and-measured",
+      "description": "Plate-with-25-holes stress boolean measured; validated volume matches the analytic expectation.",
+      "status": "pass",
+      "epistemic": "OBSERVED",
+      "tolerance": null,
+      "details": {
+        "holes": 25,
+        "engine_ms_median": 124.339,
+        "analytic_volume": 3.149735
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "tessellate/small/measured",
+      "description": "Tessellation (headless geometry-preparation proxy for the view pipeline) measured at small tier: 2712 triangles.",
+      "status": "pass",
+      "epistemic": "OBSERVED",
+      "tolerance": null,
+      "details": {
+        "triangles": 2712,
+        "engine_ms_median": 6.277,
+        "throughput_triangles_per_s": 100548.3,
+        "limitation": "GUI render pipeline not measurable headless; tessellation is the stated proxy"
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "step-io/small/measured",
+      "description": "STEP write+read measured at small tier with post-read volume conservation validation.",
+      "status": "pass",
+      "epistemic": "OBSERVED",
+      "tolerance": null,
+      "details": {
+        "engine_ms_median": 94.601,
+        "shapes": 24,
+        "file_size_bytes": null
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "boolean/medium/measured",
+      "description": "Boolean cut chain measured at medium tier (60 booleans) with engine/adapter split and distribution.",
+      "status": "pass",
+      "epistemic": "OBSERVED",
+      "tolerance": null,
+      "details": {
+        "engine_ms_median": 879.303,
+        "throughput_booleans_per_s": 133.6,
+        "adapter_share": 0.0539
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "plate-holes/medium/correct-and-measured",
+      "description": "Plate-with-100-holes stress boolean measured; validated volume matches the analytic expectation.",
+      "status": "pass",
+      "epistemic": "OBSERVED",
+      "tolerance": null,
+      "details": {
+        "holes": 100,
+        "engine_ms_median": 492.21,
+        "analytic_volume": 2.998938
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "tessellate/medium/measured",
+      "description": "Tessellation (headless geometry-preparation proxy for the view pipeline) measured at medium tier: 10812 triangles.",
+      "status": "pass",
+      "epistemic": "OBSERVED",
+      "tolerance": null,
+      "details": {
+        "triangles": 10812,
+        "engine_ms_median": 42.785,
+        "throughput_triangles_per_s": 60298.6,
+        "limitation": "GUI render pipeline not measurable headless; tessellation is the stated proxy"
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "step-io/medium/measured",
+      "description": "STEP write+read measured at medium tier with post-read volume conservation validation.",
+      "status": "pass",
+      "epistemic": "OBSERVED",
+      "tolerance": null,
+      "details": {
+        "engine_ms_median": 1592.309,
+        "shapes": 120,
+        "file_size_bytes": null
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "boolean/large/measured",
+      "description": "Boolean cut chain measured at large tier (200 booleans) with engine/adapter split and distribution.",
+      "status": "pass",
+      "epistemic": "OBSERVED",
+      "tolerance": null,
+      "details": {
+        "engine_ms_median": 2876.1,
+        "throughput_booleans_per_s": 160.2,
+        "adapter_share": 0.059
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "plate-holes/large/correct-and-measured",
+      "description": "Plate-with-400-holes stress boolean measured; validated volume matches the analytic expectation.",
+      "status": "pass",
+      "epistemic": "OBSERVED",
+      "tolerance": null,
+      "details": {
+        "holes": 400,
+        "engine_ms_median": 4624.349,
+        "analytic_volume": 2.395752
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "tessellate/large/measured",
+      "description": "Tessellation (headless geometry-preparation proxy for the view pipeline) measured at large tier: 43132 triangles.",
+      "status": "pass",
+      "epistemic": "OBSERVED",
+      "tolerance": null,
+      "details": {
+        "triangles": 43132,
+        "engine_ms_median": 1403.025,
+        "throughput_triangles_per_s": 17116.9,
+        "limitation": "GUI render pipeline not measurable headless; tessellation is the stated proxy"
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "step-io/large/measured",
+      "description": "STEP write+read measured at large tier with post-read volume conservation validation.",
+      "status": "pass",
+      "epistemic": "OBSERVED",
+      "tolerance": null,
+      "details": {
+        "engine_ms_median": 22516.341,
+        "shapes": 480,
+        "file_size_bytes": null
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "boolean/per-primitive-cost-recorded",
+      "description": "Per-primitive engine boolean cost recorded for all tiers (median engine ms / primitive count).",
+      "status": "pass",
+      "epistemic": "CALCULATED",
+      "tolerance": null,
+      "details": {
+        "small": 7.6123,
+        "medium": 7.3275,
+        "large": 5.9919
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "occt/memory-recorded",
+      "description": "Peak resident memory growth recorded for the full OCCT geometry workload (primitives + boolean chain + stress plate + tessellation) at every tier.",
+      "status": "pass",
+      "epistemic": "OBSERVED",
+      "tolerance": null,
+      "details": {
+        "small": {
+          "hwm_growth_mb": 0.26
+        },
+        "medium": {
+          "hwm_growth_mb": 0.21
+        },
+        "large": {
+          "hwm_growth_mb": 1.36
+        }
+      },
+      "evidence_refs": []
+    }
+  ]
+}

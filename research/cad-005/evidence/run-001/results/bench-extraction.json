@@ -1,0 +1,412 @@
+{
+  "benchmark": "bench-extraction",
+  "description": "Benchmark: semantic and quantity extraction scaling.",
+  "started_at": "2026-08-25T11:19:39.959052+00:00",
+  "finished_at": "2026-08-25T11:19:45.042240+00:00",
+  "summary": {
+    "pass": 7,
+    "fail": 0,
+    "unknown": 0
+  },
+  "measurements": {
+    "semantic_extraction": {
+      "small": {
+        "operation": "semantic_extraction[small]",
+        "boundary": "ENGINE = ifcopenshell get_psets over every element (property machinery); ADAPTER = Offisos snapshot assembly (domain ids, provenance, class mapping) + canonical JSON serialization",
+        "repeats": 5,
+        "actual_repeats": 5,
+        "engine_ms": {
+          "min": 3.842,
+          "median": 3.974,
+          "mean": 4.141,
+          "max": 4.791,
+          "stdev": 0.388,
+          "samples": [
+            4.791,
+            4.202,
+            3.974,
+            3.896,
+            3.842
+          ]
+        },
+        "adapter_ms": {
+          "min": 4.397,
+          "median": 4.467,
+          "mean": 4.558,
+          "max": 4.782,
+          "stdev": 0.164,
+          "samples": [
+            4.782,
+            4.679,
+            4.465,
+            4.467,
+            4.397
+          ]
+        },
+        "total_ms": {
+          "min": 8.239,
+          "median": 8.438,
+          "mean": 8.699,
+          "max": 9.573,
+          "stdev": 0.545,
+          "samples": [
+            9.573,
+            8.88,
+            8.438,
+            8.363,
+            8.239
+          ]
+        },
+        "adapter_share_of_total_median": 0.5294,
+        "tier": "small",
+        "elements": 41,
+        "throughput_elements_per_s": 4282.8
+      },
+      "medium": {
+        "operation": "semantic_extraction[medium]",
+        "boundary": "ENGINE = ifcopenshell get_psets over every element (property machinery); ADAPTER = Offisos snapshot assembly (domain ids, provenance, class mapping) + canonical JSON serialization",
+        "repeats": 5,
+        "actual_repeats": 5,
+        "engine_ms": {
+          "min": 22.905,
+          "median": 23.378,
+          "mean": 23.647,
+          "max": 25.417,
+          "stdev": 1.012,
+          "samples": [
+            25.417,
+            23.42,
+            23.378,
+            23.114,
+            22.905
+          ]
+        },
+        "adapter_ms": {
+          "min": 26.101,
+          "median": 26.267,
+          "mean": 26.613,
+          "max": 27.728,
+          "stdev": 0.671,
+          "samples": [
+            26.75,
+            27.728,
+            26.22,
+            26.101,
+            26.267
+          ]
+        },
+        "total_ms": {
+          "min": 49.171,
+          "median": 49.598,
+          "mean": 50.26,
+          "max": 52.167,
+          "stdev": 1.336,
+          "samples": [
+            52.167,
+            51.148,
+            49.598,
+            49.215,
+            49.171
+          ]
+        },
+        "adapter_share_of_total_median": 0.5296,
+        "tier": "medium",
+        "elements": 237,
+        "throughput_elements_per_s": 4543.1
+      },
+      "large": {
+        "operation": "semantic_extraction[large]",
+        "boundary": "ENGINE = ifcopenshell get_psets over every element (property machinery); ADAPTER = Offisos snapshot assembly (domain ids, provenance, class mapping) + canonical JSON serialization",
+        "repeats": 2,
+        "actual_repeats": 2,
+        "engine_ms": {
+          "min": 470.242,
+          "median": 476.852,
+          "mean": 476.852,
+          "max": 483.461,
+          "stdev": 9.347,
+          "samples": [
+            483.461,
+            470.242
+          ]
+        },
+        "adapter_ms": {
+          "min": 537.644,
+          "median": 565.608,
+          "mean": 565.608,
+          "max": 593.571,
+          "stdev": 39.546,
+          "samples": [
+            593.571,
+            537.644
+          ]
+        },
+        "total_ms": {
+          "min": 1007.887,
+          "median": 1042.46,
+          "mean": 1042.46,
+          "max": 1077.033,
+          "stdev": 48.894,
+          "samples": [
+            1077.033,
+            1007.887
+          ]
+        },
+        "adapter_share_of_total_median": 0.5426,
+        "tier": "large",
+        "elements": 4830,
+        "throughput_elements_per_s": 4484.5
+      }
+    },
+    "quantity_extraction": {
+      "small": {
+        "operation": "quantity_extraction[small]",
+        "boundary": "ENGINE = qto reads (get_psets qtos_only) + OCCT BRep volume properties of every wall gross solid; ADAPTER = QuantityRecord construction with provenance and version stamping",
+        "repeats": 5,
+        "actual_repeats": 5,
+        "engine_ms": {
+          "min": 3.635,
+          "median": 3.751,
+          "mean": 3.785,
+          "max": 4.078,
+          "stdev": 0.181,
+          "samples": [
+            4.078,
+            3.751,
+            3.818,
+            3.635,
+            3.643
+          ]
+        },
+        "adapter_ms": {
+          "min": 2.087,
+          "median": 2.134,
+          "mean": 2.132,
+          "max": 2.2,
+          "stdev": 0.044,
+          "samples": [
+            2.2,
+            2.087,
+            2.134,
+            2.102,
+            2.137
+          ]
+        },
+        "total_ms": {
+          "min": 5.737,
+          "median": 5.838,
+          "mean": 5.917,
+          "max": 6.278,
+          "stdev": 0.217,
+          "samples": [
+            6.278,
+            5.838,
+            5.952,
+            5.737,
+            5.779
+          ]
+        },
+        "adapter_share_of_total_median": 0.3655,
+        "tier": "small",
+        "walls": 12,
+        "throughput_walls_per_s": 1911.4
+      },
+      "medium": {
+        "operation": "quantity_extraction[medium]",
+        "boundary": "ENGINE = qto reads (get_psets qtos_only) + OCCT BRep volume properties of every wall gross solid; ADAPTER = QuantityRecord construction with provenance and version stamping",
+        "repeats": 5,
+        "actual_repeats": 5,
+        "engine_ms": {
+          "min": 21.304,
+          "median": 21.383,
+          "mean": 21.426,
+          "max": 21.669,
+          "stdev": 0.14,
+          "samples": [
+            21.304,
+            21.669,
+            21.383,
+            21.382,
+            21.394
+          ]
+        },
+        "adapter_ms": {
+          "min": 12.08,
+          "median": 12.161,
+          "mean": 12.186,
+          "max": 12.296,
+          "stdev": 0.086,
+          "samples": [
+            12.296,
+            12.247,
+            12.161,
+            12.08,
+            12.145
+          ]
+        },
+        "total_ms": {
+          "min": 33.462,
+          "median": 33.544,
+          "mean": 33.612,
+          "max": 33.916,
+          "stdev": 0.177,
+          "samples": [
+            33.6,
+            33.916,
+            33.544,
+            33.462,
+            33.54
+          ]
+        },
+        "adapter_share_of_total_median": 0.3625,
+        "tier": "medium",
+        "walls": 72,
+        "throughput_walls_per_s": 2142.9
+      },
+      "large": {
+        "operation": "quantity_extraction[large]",
+        "boundary": "ENGINE = qto reads (get_psets qtos_only) + OCCT BRep volume properties of every wall gross solid; ADAPTER = QuantityRecord construction with provenance and version stamping",
+        "repeats": 2,
+        "actual_repeats": 2,
+        "engine_ms": {
+          "min": 457.356,
+          "median": 501.564,
+          "mean": 501.564,
+          "max": 545.772,
+          "stdev": 62.519,
+          "samples": [
+            545.772,
+            457.356
+          ]
+        },
+        "adapter_ms": {
+          "min": 246.664,
+          "median": 247.164,
+          "mean": 247.164,
+          "max": 247.663,
+          "stdev": 0.706,
+          "samples": [
+            246.664,
+            247.663
+          ]
+        },
+        "total_ms": {
+          "min": 705.019,
+          "median": 748.727,
+          "mean": 748.727,
+          "max": 792.436,
+          "stdev": 61.813,
+          "samples": [
+            792.436,
+            705.019
+          ]
+        },
+        "adapter_share_of_total_median": 0.3301,
+        "tier": "large",
+        "walls": 1500,
+        "throughput_walls_per_s": 1892.9
+      }
+    },
+    "semantic_extraction_per_element_ms": {
+      "small": 0.2058,
+      "medium": 0.2093,
+      "large": 0.2158
+    }
+  },
+  "checks": [
+    {
+      "id": "semantic-extraction/small/measured",
+      "description": "Semantic extraction measured at small tier (41 elements) with engine/adapter split, distribution and throughput.",
+      "status": "pass",
+      "epistemic": "OBSERVED",
+      "tolerance": null,
+      "details": {
+        "engine_ms_median": 3.974,
+        "adapter_ms_median": 4.467,
+        "adapter_share": 0.5294,
+        "throughput_elements_per_s": 4282.8
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "quantity-extraction/small/measured",
+      "description": "Quantity extraction measured at small tier (12 walls) with engine/adapter split (qto + BRep vs record assembly) and throughput.",
+      "status": "pass",
+      "epistemic": "OBSERVED",
+      "tolerance": null,
+      "details": {
+        "engine_ms_median": 3.751,
+        "adapter_ms_median": 2.134,
+        "throughput_walls_per_s": 1911.4
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "semantic-extraction/medium/measured",
+      "description": "Semantic extraction measured at medium tier (237 elements) with engine/adapter split, distribution and throughput.",
+      "status": "pass",
+      "epistemic": "OBSERVED",
+      "tolerance": null,
+      "details": {
+        "engine_ms_median": 23.378,
+        "adapter_ms_median": 26.267,
+        "adapter_share": 0.5296,
+        "throughput_elements_per_s": 4543.1
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "quantity-extraction/medium/measured",
+      "description": "Quantity extraction measured at medium tier (72 walls) with engine/adapter split (qto + BRep vs record assembly) and throughput.",
+      "status": "pass",
+      "epistemic": "OBSERVED",
+      "tolerance": null,
+      "details": {
+        "engine_ms_median": 21.383,
+        "adapter_ms_median": 12.161,
+        "throughput_walls_per_s": 2142.9
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "semantic-extraction/large/measured",
+      "description": "Semantic extraction measured at large tier (4830 elements) with engine/adapter split, distribution and throughput.",
+      "status": "pass",
+      "epistemic": "OBSERVED",
+      "tolerance": null,
+      "details": {
+        "engine_ms_median": 476.852,
+        "adapter_ms_median": 565.608,
+        "adapter_share": 0.5426,
+        "throughput_elements_per_s": 4484.5
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "quantity-extraction/large/measured",
+      "description": "Quantity extraction measured at large tier (1500 walls) with engine/adapter split (qto + BRep vs record assembly) and throughput.",
+      "status": "pass",
+      "epistemic": "OBSERVED",
+      "tolerance": null,
+      "details": {
+        "engine_ms_median": 501.564,
+        "adapter_ms_median": 247.164,
+        "throughput_walls_per_s": 1892.9
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "semantic-extraction/per-element-cost-recorded",
+      "description": "Per-element semantic extraction cost recorded for all tiers.",
+      "status": "pass",
+      "epistemic": "CALCULATED",
+      "tolerance": null,
+      "details": {
+        "small": 0.2058,
+        "medium": 0.2093,
+        "large": 0.2158
+      },
+      "evidence_refs": []
+    }
+  ]
+}

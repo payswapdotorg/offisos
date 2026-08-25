@@ -1,0 +1,157 @@
+{
+  "benchmark": "bench-determinism",
+  "description": "Benchmark: repeated-run variance and determinism.",
+  "started_at": "2026-08-25T11:19:45.051450+00:00",
+  "finished_at": "2026-08-25T11:19:51.430449+00:00",
+  "summary": {
+    "pass": 6,
+    "fail": 0,
+    "unknown": 0
+  },
+  "measurements": {
+    "timing_variance": {
+      "repeats": 10,
+      "ifc_open": {
+        "median_ms": 31.899,
+        "mean_ms": 32.124,
+        "stdev_ms": 1.323,
+        "cv": 0.041193,
+        "samples_ms": [
+          31.187,
+          32.263,
+          32.798,
+          31.043,
+          31.535,
+          35.215,
+          32.653,
+          32.584,
+          30.634,
+          31.333
+        ]
+      },
+      "semantic_extraction": {
+        "median_ms": 26.354,
+        "mean_ms": 26.221,
+        "stdev_ms": 0.497,
+        "cv": 0.018959,
+        "samples_ms": [
+          25.845,
+          26.817,
+          26.486,
+          26.342,
+          26.366,
+          25.201,
+          25.927,
+          26.616,
+          26.709,
+          25.904
+        ]
+      },
+      "boolean_chain": {
+        "median_ms": 415.92,
+        "mean_ms": 415.808,
+        "stdev_ms": 3.864,
+        "cv": 0.009294,
+        "samples_ms": [
+          419.814,
+          411.239,
+          418.409,
+          414.46,
+          422.405,
+          417.278,
+          412.213,
+          410.425,
+          415.116,
+          416.724
+        ]
+      }
+    }
+  },
+  "checks": [
+    {
+      "id": "determinism/timing-variance-measured",
+      "description": "Repeated-run timing variance measured over 10 identical runs for three representative operations (medians, stdevs, coefficients of variation and full sample lists recorded).",
+      "status": "pass",
+      "epistemic": "OBSERVED",
+      "tolerance": null,
+      "details": {
+        "cv": {
+          "ifc_open": 0.041193,
+          "semantic_extraction": 0.018959,
+          "boolean_chain": 0.009294
+        }
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "determinism/timings-are-distributed-not-constant",
+      "description": "Timing samples form a distribution (CV > 0) \u2014 recorded as the datum rather than hidden behind a single best-case number.",
+      "status": "pass",
+      "epistemic": "OBSERVED",
+      "tolerance": null,
+      "details": {
+        "cv": {
+          "ifc_open": 0.041193,
+          "semantic_extraction": 0.018959,
+          "boolean_chain": 0.009294
+        }
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "determinism/extraction-result-byte-identical",
+      "description": "Semantic extraction output is byte-identical across repeated runs of the same fixture (deterministic operation).",
+      "status": "pass",
+      "epistemic": "OBSERVED",
+      "tolerance": null,
+      "details": {
+        "runs": 3,
+        "identical": true,
+        "size_bytes": 49486
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "determinism/occt-volume-identical",
+      "description": "OCCT boolean result volume is identical across repeated runs of the same construction (deterministic geometry kernel).",
+      "status": "pass",
+      "epistemic": "OBSERVED",
+      "tolerance": null,
+      "details": {
+        "volumes": [
+          3.071320365,
+          3.071320365,
+          3.071320365
+        ],
+        "holes": 64
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "determinism/quantity-records-identical",
+      "description": "Quantity record values are identical across repeated extractions (deterministic operation).",
+      "status": "pass",
+      "epistemic": "OBSERVED",
+      "tolerance": null,
+      "details": {
+        "runs": 3,
+        "records": 1068,
+        "identical": true
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "determinism/globalids-nondeterministic-across-regeneration",
+      "description": "IFC GlobalIds are regenerated per build (disjoint across two regenerations of the identical fixture definition) \u2014 engine nondeterminism restated as an explicit datum; Offisos domain ids are the canonical identity (Architecture v1.1 GRAPH invariant, LOCK on engine-id non-canonicity).",
+      "status": "pass",
+      "epistemic": "OBSERVED",
+      "tolerance": null,
+      "details": {
+        "guids_run1": 12,
+        "guids_run2": 12,
+        "disjoint": true
+      },
+      "evidence_refs": []
+    }
+  ]
+}
