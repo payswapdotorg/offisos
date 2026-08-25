@@ -42,7 +42,7 @@
     "Epistemic distinction of OBSERVED/CALCULATED/UNKNOWN quantity states.",
     "Runtime and fixture characteristics recorded."
   ],
-  "state": "VERIFYING",
+  "state": "ARCHITECT_REVIEW",
   "transitions": [
     {
       "from": "DRAFT",
@@ -156,6 +156,23 @@
           "EV-004"
         ]
       }
+    },
+    {
+      "from": "VERIFYING",
+      "to": "ARCHITECT_REVIEW",
+      "at": "2026-08-25T09:47:33Z",
+      "actor": "pectoraux",
+      "role": "architect",
+      "reason": "Per the Architect disposition on PR #21 (comment 5408555197, 2026-08-25T09:45:00Z): with CAD-002 VERIFIED against da85d8d and CAD-003 VERIFIED against f1f900e (dependency gates released by the directed post-merge verification decisions, invariant unchanged), the branch \u2014 confirmed up to date with main (f1f900e) \u2014 reruns both workflows fully green: governance run #32 (58/58 tests; validator 82/82 with exit 0, the dependency gate green for the first time on this PR; protected-paths check executed and green) and research-cad-004 run #4 (9/9 deterministic tests; full 46 pass / 0 fail / 0 unknown evidence run). The CAD-004 evidence package proceeds to approval review as directed.",
+      "references": {
+        "evidence": [
+          "EV-001",
+          "EV-002",
+          "EV-003",
+          "EV-004",
+          "EV-005"
+        ]
+      }
     }
   ],
   "evidence": [
@@ -205,6 +222,19 @@
         "workflow_run": "governance #30 + research-cad-004 #2 on ec740cc",
         "pr": 21,
         "commit": "ec740ccff9c45c4bf078541c0aef15e76e4baebb"
+      }
+    },
+    {
+      "id": "EV-005",
+      "type": "ci-run",
+      "description": "Dependency-gate release and full revalidation on the rebased PR #21 head a035d3e per the Architect disposition (comment 5408555197): governance run #32 (pull_request, completed 2026-08-25T09:46:55Z) \u2014 deterministic governance test suite 58/58 GREEN; validator 82/82 GREEN with exit 0 for the first time on this PR (CAD-002 VERIFIED against da85d8d and CAD-003 VERIFIED against f1f900e recorded per the directive; the dependency invariant itself unchanged, rules.ts untouched in this cycle); protected-paths check executed and GREEN (previously skipped behind the validate failure). research-cad-004 run #4 (pull_request, completed 2026-08-25T09:47:33Z) \u2014 pinned toolchain (ifcopenshell 0.8.5, cadquery-ocp 7.8.1.1.post1), 9/9 deterministic tests, full evidence run 46 pass / 0 fail / 0 unknown, artifact uploaded.",
+      "produced_at": "2026-08-25T09:47:33Z",
+      "reproducible": true,
+      "reproduction": "Inspect governance run 32833764151 and research-cad-004 run 32833764205 on PR #21 head a035d3e, or run locally: npm test (58/58), npm run governance -- validate (82/82, exit 0), npm run governance -- check-protected --base main, and cd research/cad-004 && make test && make bench (46/0/0)",
+      "references": {
+        "workflow_run": "governance #32 (32833764151) + research-cad-004 #4 (32833764205) on a035d3e",
+        "pr": 21,
+        "commit": "a035d3e6e2ff897f8558eb5c55c365b46e419eb6"
       }
     }
   ],
