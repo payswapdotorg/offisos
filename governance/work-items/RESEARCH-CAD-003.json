@@ -82,7 +82,7 @@
       "reason": "Evidence package complete; opening the focused PR for RESEARCH-CAD-003 (three focused commits: pipeline/fixture/CG-mapping, seven benchmark modules, evidence+report+CI+tests).",
       "references": {
         "pr": 17,
-        "commit": "PLACEHOLDER"
+        "commit": "840331084929f3f6e2a601fd96026f4f723ec4cf"
       }
     }
   ],
