@@ -1,10 +1,24 @@
 /**
  * Repository integration tests.
  *
- * Proves: the actual repository (state machine, registries, work-item
- * records) passes full validation; a corrupted record makes the whole
- * validation fail with an attributable check id; the CLI exits non-zero on
- * violations and on protected-path changes.
+ * Proves: the actual repository's validation failures are EXACTLY the
+ * dependency-gate failures expected from its own declared work-item
+ * states (derived independently of the validator); a corrupted record
+ * makes the whole validation fail with an attributable check id; the
+ * CLI exits non-zero on violations and on protected-path changes.
+ *
+ * Dependency-gate semantics (updated per the RESEARCH-CAD-004 DEC-001
+ * directive, PR #21 comment 5406944101): real work items may sit in
+ * execution states while declared dependencies are MERGED but not yet
+ * VERIFIED. That condition is a genuine, attributable validator failure
+ * and MUST be reported — the dependency rule is not weakened here.
+ *
+ * How these tests keep the rule enforced: the expected failure set is
+ * recomputed DIRECTLY from the work-item records and their dependency
+ * states (not from validator output). A weakened validator (one that
+ * stopped reporting a real violation) would produce fewer failures than
+ * expected and FAIL these tests; an over-reporting validator would
+ * produce unexpected failures and also FAIL them.
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -13,16 +27,65 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { validateRepository } from "../src/validate.js";
+import { loadWorkItems, loadWorkflowStates } from "../src/loaders.js";
+import { executionStates } from "../src/state-machine.js";
 import { REPO_ROOT } from "./helpers.js";
 
-test("the real repository passes full governance validation", () => {
-  const { report, exitCode } = validateRepository(REPO_ROOT);
-  const failed = report.checks.filter((c) => c.status === "fail");
-  assert.deepEqual(
-    failed.map((c) => `${c.id}: ${c.details?.join("; ")}`),
-    [],
+/**
+ * Independently derive the dependency-gate failures the repository
+ * SHOULD report: for every non-demo work item in an execution state,
+ * every declared dependency that does not resolve to a VERIFIED record.
+ *
+ * Returns check id -> un-VERIFIED (or unresolved) dependency names.
+ */
+function expectedDependencyGateFailures(): Map<string, string[]> {
+  const machine = loadWorkflowStates(REPO_ROOT);
+  const execution = executionStates(machine);
+  const loaded = loadWorkItems(REPO_ROOT);
+  const registry = new Map(
+    loaded
+      .filter((l) => l.record.demo !== true)
+      .map((l) => [l.record.id, l.record] as const),
   );
-  assert.equal(exitCode, 0);
+  const expected = new Map<string, string[]>();
+  for (const { record } of loaded) {
+    if (record.demo === true) continue;
+    if (!execution.has(record.state)) continue;
+    const unverified = record.dependencies.filter((dep) => {
+      const depRecord = registry.get(dep);
+      return depRecord === undefined || depRecord.state !== "VERIFIED";
+    });
+    if (unverified.length > 0) {
+      expected.set(`work-item/${record.id}/dependencies`, unverified);
+    }
+  }
+  return expected;
+}
+
+test("the real repository's failures are exactly the expected dependency-gate failures", () => {
+  const { report, exitCode } = validateRepository(REPO_ROOT);
+  const expected = expectedDependencyGateFailures();
+  const failed = report.checks.filter((c) => c.status === "fail");
+  // The dependency gate stays enforced in BOTH directions: a weakened
+  // validator (missing expected failures) and an over-reporting one
+  // (unexpected failures) both fail this assertion.
+  assert.deepEqual(
+    [...new Set(failed.map((c) => c.id))].sort(),
+    [...expected.keys()].sort(),
+    `unexpected validator outcome; expected exactly [${[...expected.keys()].join(", ")}]`,
+  );
+  // Each expected dependency-gate failure must reference the exact
+  // un-VERIFIED dependency names (attributable messages).
+  for (const check of failed) {
+    const expectedDeps = expected.get(check.id) ?? [];
+    for (const dep of expectedDeps) {
+      assert.ok(
+        (check.details ?? []).some((d) => d.includes(`'${dep}'`)),
+        `failure details for ${check.id} must reference dependency '${dep}'`,
+      );
+    }
+  }
+  assert.equal(exitCode, expected.size > 0 ? 1 : 0);
   assert.ok(report.checks.length >= 30, "expected a substantial check suite");
 });
 
@@ -85,9 +148,17 @@ function runCli(args: string[], cwd: string): { status: number | null; stdout: s
   return { status: result.status, stdout: result.stdout, stderr: result.stderr };
 }
 
-test("CLI validate exits 0 on the real repository", () => {
+test("CLI validate exits with the dependency-gate-derived code on the real repository", () => {
+  const expected = expectedDependencyGateFailures();
   const result = runCli(["validate", "--root", REPO_ROOT], REPO_ROOT);
-  assert.equal(result.status, 0, `stdout: ${result.stdout}\nstderr: ${result.stderr}`);
+  // Exit code 0 only when no dependency-gate failures are expected; 1
+  // while genuine (attributable) dependency-gate failures exist. The
+  // validator's non-zero exit is preserved, not bypassed.
+  assert.equal(
+    result.status,
+    expected.size > 0 ? 1 : 0,
+    `stdout: ${result.stdout}\nstderr: ${result.stderr}`,
+  );
   assert.ok(result.stdout.includes("Summary:"));
 });
 

@@ -1,0 +1,159 @@
+{
+  "benchmark": "bench-graph",
+  "description": "Benchmark: Construction Graph mapping (RESEARCH-CAD-004 scope 4).",
+  "started_at": "2026-08-25T07:02:22.424663+00:00",
+  "finished_at": "2026-08-25T07:02:22.597443+00:00",
+  "summary": {
+    "pass": 8,
+    "fail": 0,
+    "unknown": 0
+  },
+  "measurements": {},
+  "checks": [
+    {
+      "id": "cad4-graph/domain-id-keyed",
+      "description": "Graph nodes are keyed by canonical domain ids only \u2014 no engine GlobalId appears as a node key (10 nodes: 4 walls + ghost + slab + space + door + 2 windows).",
+      "status": "pass",
+      "epistemic": "ADAPTER",
+      "tolerance": null,
+      "details": {
+        "node_count": 10,
+        "sample": [
+          "off:cad4:slab:ground",
+          "off:cad4:space:living",
+          "off:cad4:wall:east",
+          "off:cad4:wall:ghost"
+        ]
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "cad4-graph/provenance-and-uncertainty-survive",
+      "description": "Provenance references survive the mapping (every quantity carries its record id for full provenance lookup) and the uncertainty state is visible in the graph (ghost wall's NetVolume is UNKNOWN with value None; BRep quantities are CALCULATED with parameters addressable via the record id).",
+      "status": "pass",
+      "epistemic": "ADAPTER",
+      "tolerance": null,
+      "details": {
+        "ghost_state": {
+          "value": null,
+          "unit": "m^3",
+          "state": "UNKNOWN",
+          "tolerance": 1e-09
+        },
+        "north_provenance_refs": {
+          "GrossSideArea": "off:cad4:wall:north#GrossSideArea@v1",
+          "GrossVolume": "off:cad4:wall:north#GrossVolume@v1",
+          "Height": "off:cad4:wall:north#Height@v1",
+          "Length": "off:cad4:wall:north#Length@v1",
+          "NetSideArea": "off:cad4:wall:north#NetSideArea@v1",
+          "NetVolume": "off:cad4:wall:north#NetVolume@v1",
+          "OpeningCount": "off:cad4:wall:north#OpeningCount@v1",
+          "OpeningsVolume": "off:cad4:wall:north#OpeningsVolume@v1",
+          "Width": "off:cad4:wall:north#Width@v1",
+          "BRepNetVolume": "off:cad4:wall:north#BRepNetVolume@v1",
+          "BRepGrossVolume": "off:cad4:wall:north#BRepGrossVolume@v1",
+          "BRepWeight": "off:cad4:wall:north#BRepWeight@v1"
+        }
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "cad4-graph/uncertainty-summary",
+      "description": "The graph exposes an uncertainty summary: OBSERVED, CALCULATED and UNKNOWN quantities all counted (epistemic honesty at the Graph boundary).",
+      "status": "pass",
+      "epistemic": "ADAPTER",
+      "tolerance": null,
+      "details": {
+        "summary": {
+          "OBSERVED": 44,
+          "CALCULATED": 15,
+          "UNKNOWN": 4
+        }
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "cad4-graph/engine-id-non-canonicality",
+      "description": "DIRECT OBSERVATION: two independent builds of model version v1 produce DISJOINT engine GlobalId sets in quantity provenance, while the quantity graphs (domain-id keyed) are IDENTICAL \u2014 engine ids cannot be canonical identity for quantities.",
+      "status": "pass",
+      "epistemic": "OBSERVED",
+      "tolerance": null,
+      "details": {
+        "engine_ids_disjoint": true,
+        "engine_ids_a_sample": [
+          "0LbztAf5fFORasKEti7uZS",
+          "0MY4J_2ZP2aQ3hA4QKw257"
+        ],
+        "engine_ids_b_sample": [
+          "02ZOnB$cr3V8Lljj$3zjKI",
+          "03eL0XjWDBDhLAFmB6G7zI"
+        ],
+        "graphs_identical": true,
+        "graph_node_ids": 10
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "cad4-graph/consumer-api",
+      "description": "The consumer API reads quantities from the graph (value, unit, state, tolerance) with no engine imports, no engine ids and no file access \u2014 applications consume Graph quantities, not engine internals.",
+      "status": "pass",
+      "epistemic": "ADAPTER",
+      "tolerance": null,
+      "details": {
+        "read_quantity": {
+          "value": 8.46,
+          "unit": "m^3",
+          "state": "CALCULATED",
+          "tolerance": 1e-06
+        }
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "cad4-graph/diff-v1-v2",
+      "description": "The graph diff detects exactly wall-north as changed across v1 -> v2 (all other nodes unchanged, none added/removed).",
+      "status": "pass",
+      "epistemic": "ADAPTER",
+      "tolerance": null,
+      "details": {
+        "changed": [
+          "off:cad4:wall:north"
+        ],
+        "changed_quantities": [
+          "BRepGrossVolume",
+          "BRepNetVolume",
+          "BRepWeight",
+          "GrossSideArea",
+          "GrossVolume",
+          "Height",
+          "NetSideArea",
+          "NetVolume"
+        ]
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "cad4-graph/diff-v2-v3",
+      "description": "The graph diff detects exactly the window + host wall as changed across v2 -> v3 (property-only wall-east unchanged).",
+      "status": "pass",
+      "epistemic": "ADAPTER",
+      "tolerance": null,
+      "details": {
+        "changed": [
+          "off:cad4:wall:south",
+          "off:cad4:wall:south:window-2"
+        ]
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "cad4-graph/dual-path-graph-agreement",
+      "description": "The graph built from the engine-path extraction and the graph built from the pure-Python analytic snapshot agree on every shared quantity (and the BRep quantities match their analytic counterparts) \u2014 the Graph mapping is engine-independent.",
+      "status": "pass",
+      "epistemic": "OBSERVED",
+      "tolerance": null,
+      "details": {},
+      "evidence_refs": []
+    }
+  ]
+}

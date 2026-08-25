@@ -1,0 +1,257 @@
+{
+  "id": "RESEARCH-CAD-004",
+  "title": "Prove model-to-quantity extraction and Construction Graph mapping",
+  "issue": 4,
+  "objective": "Demonstrate that representative CAD/BIM model data can be transformed into deterministic, provenance-preserving quantity records and canonical Construction Graph objects, propagating controlled changes to downstream estimate/RFQ contract boundaries, without making the source engine or IFC representation the system of record. Evidence target: CAD/BIM Model Version -> Quantity Records -> Construction Graph -> Downstream Estimate/RFQ Contracts.",
+  "architecture_version": "1.1",
+  "requirements": [
+    "QTY-001",
+    "QTY-002",
+    "GRAPH-001"
+  ],
+  "dependencies": [
+    "RESEARCH-CAD-001",
+    "RESEARCH-CAD-002",
+    "RESEARCH-CAD-003"
+  ],
+  "acceptance_criteria": [
+    "A representative fixture completes model -> quantity -> Construction Graph mapping with deterministic numerical assertions.",
+    "At least five quantity types or measurement classes are demonstrated where applicable to the fixture.",
+    "A controlled model revision produces an exact, explainable quantity delta.",
+    "Unchanged elements retain stable canonical identity and unchanged quantity state.",
+    "Provenance, versioning and uncertainty metadata survive the mapping.",
+    "The resulting Graph objects are sufficient for downstream estimate/RFQ interfaces without direct engine coupling.",
+    "Any lossiness, ambiguity, unsupported geometry, unit limitations, or tolerance issues are explicitly documented.",
+    "Results support, reject, or defer the candidate quantity/Graph integration under the frozen architecture."
+  ],
+  "non_goals": [
+    "No production quantity engine.",
+    "No production estimate or RFQ implementation.",
+    "No architecture change."
+  ],
+  "risk_assumptions": [
+    "DEPENDENCY-GATE FLAG: per issue #4 this work item depends on RESEARCH-CAD-001 (VERIFIED), RESEARCH-CAD-002 (MERGED, VERIFIED not yet issued) and RESEARCH-CAD-003 (MERGED as f1f900e with green runs #28/#5, VERIFIED explicitly reserved by DEC-002 and not yet issued). The validator's dependency invariant will therefore report exactly two failing checks until the Architect records the pending verification decisions. The invariant is NOT weakened silently; resolution path: Architect records VERIFIED for CAD-002 and CAD-003 against their merge revisions, then governance validation turns fully green (all evidence is attached to the merge commits). RESOLUTION (2026-08-25T09:45:00Z, PR #21 comment 5408555197): the Architect directed the formal post-merge verification of CAD-002 against da85d8d and CAD-003 against f1f900e; both MERGED->VERIFIED transitions are recorded in this revision (DEC-002/DEC-003 in their records, entered by the implementer on the explicit directive per the RESEARCH-CAD-001 DEC-003 provenance convention). The dependency invariant now evaluates green with no rule change.",
+    "Architecture version: this record targets v1.1 per the execution directive ('Architecture: v1.1 frozen'); the work item was created after v1.1 became active, so unlike RESEARCH-CAD-003 it binds to the active version. The issue body's 'v1.0 remains frozen' text predates the ACR-002 merge.",
+    "Mixed-unit fixture: ifcopenshell's default project length unit is MILLIMETRE (CAD-001 finding); the mixed-unit demonstration uses this behavior deliberately, with explicit conversion factors recorded in quantity provenance.",
+    "Downstream estimate/RFQ coverage is CONTRACT-LEVEL ONLY (typed interface dataclasses and deterministic derivations as evidence), per the non-goals."
+  ],
+  "evidence_requirements": [
+    "Deterministic benchmark suite covering the six issue scopes: fixture corpus (mixed units, instanced elements, revisions), extraction (rules/tolerances, measured-vs-calculated-vs-unsupported), provenance/versioning (immutable historical states, reproducible re-extraction), Construction Graph mapping (domain-id keyed, lineage preserved), change propagation (exact deltas, unchanged-element identity, change records), downstream readiness (estimate/RFQ contract evidence).",
+    "Exact fixture definitions and expected quantities stored in the repository.",
+    "Numerical assertions with explicit tolerances and units.",
+    "Epistemic distinction of OBSERVED/CALCULATED/UNKNOWN quantity states.",
+    "Runtime and fixture characteristics recorded."
+  ],
+  "state": "ARCHITECT_REVIEW",
+  "transitions": [
+    {
+      "from": "DRAFT",
+      "to": "READY",
+      "at": "2026-08-24T19:19:11Z",
+      "actor": "pectoraux",
+      "role": "architect",
+      "reason": "Work item fully specified in GitHub issue #4 (objective, six-part scope, evidence requirements, acceptance criteria, non-goals).",
+      "references": {
+        "issue": 4
+      }
+    },
+    {
+      "from": "READY",
+      "to": "ASSIGNED",
+      "at": "2026-08-25T06:41:05Z",
+      "actor": "pectoraux",
+      "role": "product-owner",
+      "reason": "Execution directive: RESEARCH-CAD-004 assigned to the Z.ai implementation agent with the evidence target 'CAD/BIM Model Version -> Quantity Records -> Construction Graph -> Downstream Estimate/RFQ Contracts' and explicit proof for quantity determinism, units/tolerances, provenance, version history, uncertainty, controlled deltas, unchanged-element identity and engine-independent Graph mapping. Architecture v1.1 frozen. No production quantity engine or Estimate/RFQ implementation.",
+      "references": {
+        "issue": 4,
+        "assignee": "z-ai-implementation-agent"
+      }
+    },
+    {
+      "from": "ASSIGNED",
+      "to": "IMPLEMENTING",
+      "at": "2026-08-25T06:41:05Z",
+      "actor": "z-ai-implementation-agent",
+      "role": "implementer",
+      "reason": "Implementation started on branch work/research-cad-004-quantities: quantity-record core (dual-path extraction: OCCT BRep + analytic reference), model-version fixture corpus with controlled revisions and a mixed-unit variant, provenance/versioning, Construction Graph quantity mapping with a consumer API, downstream estimate/RFQ contract evidence, and deterministic benchmarks."
+    },
+    {
+      "from": "IMPLEMENTING",
+      "to": "PR_OPEN",
+      "at": "2026-08-25T07:04:30Z",
+      "actor": "z-ai-implementation-agent",
+      "role": "implementer",
+      "reason": "Evidence package complete; opening the focused PR for RESEARCH-CAD-004 (three focused commits: quantity-record core + fixtures + graph + downstream contracts, seven benchmark modules, evidence + report + CI + tests).",
+      "references": {
+        "pr": 21,
+        "commit": "e99265e18eff72eae9405bc8d9ceecb3c3f38e4c"
+      }
+    },
+    {
+      "from": "PR_OPEN",
+      "to": "VERIFYING",
+      "at": "2026-08-25T07:05:39Z",
+      "actor": "github-actions",
+      "role": "automation",
+      "reason": "research-cad-004 workflow run #1 on PR head 4a49b35 completed success (pinned toolchain, 9/9 deterministic tests, full 46/0/0 evidence run, artifact upload); governance run #29: validator 81/82 with exactly the two documented dependency-gate failures (CAD-002/CAD-003 MERGED-not-VERIFIED), governance test suite 56/58 with two stale repository-integration expectations.",
+      "references": {
+        "evidence": [
+          "EV-001",
+          "EV-002",
+          "EV-003"
+        ]
+      }
+    },
+    {
+      "from": "VERIFYING",
+      "to": "ARCHITECT_REVIEW",
+      "at": "2026-08-25T07:23:42Z",
+      "actor": "pectoraux",
+      "role": "architect",
+      "reason": "Architect took up review of the RESEARCH-CAD-004 evidence package on PR #21.",
+      "references": {
+        "evidence": [
+          "EV-001",
+          "EV-002",
+          "EV-003"
+        ]
+      }
+    },
+    {
+      "from": "ARCHITECT_REVIEW",
+      "to": "IMPLEMENTING",
+      "at": "2026-08-25T07:23:42Z",
+      "actor": "pectoraux",
+      "role": "architect",
+      "reason": "Architect review of PR #21: changes requested (comment 5406944101). The CAD-004 research benchmark is strong and its research workflow is green, but the PR cannot be approved because the governance workflow is genuinely red on the PR merge ref.",
+      "failure_reason": "Governance test suite 56/58: two stale repository-integration tests ('the real repository passes full governance validation' and 'CLI validate exits 0 on the real repository') still assert zero validation failures on the real repository, while the validator correctly reports CAD-002 and CAD-003 as MERGED rather than VERIFIED. Remediation: update the tests to match the canonical dependency-gate semantics now exercised by real work items WITHOUT weakening the dependency rule; preserve the explicit validator failures for CAD-002/CAD-003 until the Architect performs the post-merge verification decisions; governance suite must reach 58/58; rerun the CAD-004 benchmark workflow and bind final evidence to the exact PR-head commit/run.",
+      "references": {
+        "decision": "DEC-001"
+      }
+    },
+    {
+      "from": "IMPLEMENTING",
+      "to": "PR_OPEN",
+      "at": "2026-08-25T07:30:07Z",
+      "actor": "z-ai-implementation-agent",
+      "role": "implementer",
+      "reason": "DEC-001 remediation complete and pushed to PR #21: the governance repository-integration tests now derive their expected dependency-gate failures independently from the work-item records (execution-state records x un-VERIFIED dependencies) and require the validator's actual failures to match exactly with attributable messages. The dependency rule is not weakened \u2014 verified adversarially: with the CAD-004 dependency check suppressed in rules.ts, both updated tests fail. The validator's 81/82 outcome (two preserved CAD-002/CAD-003 dependency failures) is retained per directive item 2.",
+      "references": {
+        "pr": 21,
+        "commit": "ec740ccff9c45c4bf078541c0aef15e76e4baebb"
+      }
+    },
+    {
+      "from": "PR_OPEN",
+      "to": "VERIFYING",
+      "at": "2026-08-25T07:30:58Z",
+      "actor": "github-actions",
+      "role": "automation",
+      "reason": "Remediation validation on PR #21 fix head ec740cc: governance run #30 \u2014 the deterministic governance test suite step is GREEN with 58/58 (the previously failing repository-integration expectations now match the dependency-gate semantics) while the validator step reports the directed, preserved 81/82 (exactly the two attributable CAD-002/CAD-003 dependency-gate failures, exit 1 retained, not bypassed); research-cad-004 run #2 GREEN (pinned toolchain, 9/9 deterministic tests, full 46/0/0 evidence run, artifact upload). Corrected evidence package re-submitted for Architect re-review.",
+      "references": {
+        "evidence": [
+          "EV-001",
+          "EV-002",
+          "EV-003",
+          "EV-004"
+        ]
+      }
+    },
+    {
+      "from": "VERIFYING",
+      "to": "ARCHITECT_REVIEW",
+      "at": "2026-08-25T09:47:33Z",
+      "actor": "pectoraux",
+      "role": "architect",
+      "reason": "Per the Architect disposition on PR #21 (comment 5408555197, 2026-08-25T09:45:00Z): with CAD-002 VERIFIED against da85d8d and CAD-003 VERIFIED against f1f900e (dependency gates released by the directed post-merge verification decisions, invariant unchanged), the branch \u2014 confirmed up to date with main (f1f900e) \u2014 reruns both workflows fully green: governance run #32 (58/58 tests; validator 82/82 with exit 0, the dependency gate green for the first time on this PR; protected-paths check executed and green) and research-cad-004 run #4 (9/9 deterministic tests; full 46 pass / 0 fail / 0 unknown evidence run). The CAD-004 evidence package proceeds to approval review as directed.",
+      "references": {
+        "evidence": [
+          "EV-001",
+          "EV-002",
+          "EV-003",
+          "EV-004",
+          "EV-005"
+        ]
+      }
+    }
+  ],
+  "evidence": [
+    {
+      "id": "EV-001",
+      "type": "automated-test-suite",
+      "description": "Deterministic CI test suite: 9 tests running the full benchmark in-process (zero failures and zero unknowns required; critical capability checks asserted per issue-#4 scope area: fixture corpus, extraction, provenance/versioning, propagation, graph mapping, downstream contracts, performance measurements).",
+      "produced_at": "2026-08-25T07:02:00Z",
+      "reproducible": true,
+      "reproduction": "cd research/cad-004 && python3 -m pip install -r requirements.txt && make test",
+      "references": {
+        "pr": 21
+      }
+    },
+    {
+      "id": "EV-002",
+      "type": "inspectable-artifact",
+      "description": "Committed evidence run research/cad-004/evidence/run-001/: 46 pass / 0 fail / 0 unknown across seven benchmark modules with the exact toolchain snapshot (ifcopenshell 0.8.5, cadquery-ocp 7.8.1.1.post1).",
+      "produced_at": "2026-08-25T07:02:30Z",
+      "reproducible": true,
+      "reproduction": "cd research/cad-004 && make bench",
+      "references": {
+        "artifact_path": "research/cad-004/evidence/run-001",
+        "pr": 21
+      }
+    },
+    {
+      "id": "EV-003",
+      "type": "ci-run",
+      "description": "research-cad-004 workflow on the PR head: pinned toolchain install, version recording, deterministic test gate (zero failures/unknowns) and full evidence run with artifact upload.",
+      "produced_at": "2026-08-25T07:04:30Z",
+      "reproducible": true,
+      "reproduction": "Inspect the research-cad-004 workflow checks on the PR",
+      "references": {
+        "workflow_run": "research-cad-004 workflow on the PR",
+        "pr": 21
+      }
+    },
+    {
+      "id": "EV-004",
+      "type": "ci-run",
+      "description": "DEC-001 remediation CI on PR #21 fix head ec740cc: governance run #30 (pull_request, completed 2026-08-25T07:30:29Z) \u2014 deterministic governance test suite 58/58 GREEN (repository-integration expectations updated to derive expected dependency-gate failures from work-item records; adversarially verified to fail when the dependency check is suppressed in the validator), validator step reporting the directed 81/82 with exactly the two preserved CAD-002/CAD-003 dependency-gate failures (non-zero exit retained per directive item 2 \u2014 the failures persist until the Architect's post-merge verification decisions); research-cad-004 run #2 (completed 2026-08-25T07:30:58Z) GREEN with 9/9 deterministic tests and the full 46 pass / 0 fail / 0 unknown evidence run. Gate-enforcement adversarial proof: suppressing the CAD-004 dependency check in rules.ts makes both updated tests fail (5/7 locally) \u2014 the tests enforce the dependency rule in the weakened-validator direction.",
+      "produced_at": "2026-08-25T07:30:58Z",
+      "reproducible": true,
+      "reproduction": "Inspect governance run #30 and research-cad-004 run #2 on PR #21 head ec740cc. Locally: npm test (58/58) and npm run governance -- validate (81/82, exit 1 with the two attributable CAD-002/CAD-003 dependency failures). Adversarial gate proof: temporarily suppress the CAD-004 dependency failure in tools/governance/src/rules.ts and re-run tools/governance/test/repo-integration.test.ts \u2014 both dependency-gate tests must fail.",
+      "references": {
+        "workflow_run": "governance #30 + research-cad-004 #2 on ec740cc",
+        "pr": 21,
+        "commit": "ec740ccff9c45c4bf078541c0aef15e76e4baebb"
+      }
+    },
+    {
+      "id": "EV-005",
+      "type": "ci-run",
+      "description": "Dependency-gate release and full revalidation on the rebased PR #21 head a035d3e per the Architect disposition (comment 5408555197): governance run #32 (pull_request, completed 2026-08-25T09:46:55Z) \u2014 deterministic governance test suite 58/58 GREEN; validator 82/82 GREEN with exit 0 for the first time on this PR (CAD-002 VERIFIED against da85d8d and CAD-003 VERIFIED against f1f900e recorded per the directive; the dependency invariant itself unchanged, rules.ts untouched in this cycle); protected-paths check executed and GREEN (previously skipped behind the validate failure). research-cad-004 run #4 (pull_request, completed 2026-08-25T09:47:33Z) \u2014 pinned toolchain (ifcopenshell 0.8.5, cadquery-ocp 7.8.1.1.post1), 9/9 deterministic tests, full evidence run 46 pass / 0 fail / 0 unknown, artifact uploaded.",
+      "produced_at": "2026-08-25T09:47:33Z",
+      "reproducible": true,
+      "reproduction": "Inspect governance run 32833764151 and research-cad-004 run 32833764205 on PR #21 head a035d3e, or run locally: npm test (58/58), npm run governance -- validate (82/82, exit 0), npm run governance -- check-protected --base main, and cd research/cad-004 && make test && make bench (46/0/0)",
+      "references": {
+        "workflow_run": "governance #32 (32833764151) + research-cad-004 #4 (32833764205) on a035d3e",
+        "pr": 21,
+        "commit": "a035d3e6e2ff897f8558eb5c55c365b46e419eb6"
+      }
+    }
+  ],
+  "decisions": [
+    {
+      "id": "DEC-001",
+      "status": "changes_requested",
+      "decided_at": "2026-08-25T07:23:42Z",
+      "decided_by": "pectoraux",
+      "role": "architect",
+      "rationale": "The CAD-004 research benchmark itself is strong (46/46 checks, research workflow green), but PR #21 cannot be approved because the governance workflow is genuinely red: beyond the two documented dependency checks, the governance test suite is 56/58 with two failing repository-integration tests whose expectations predate real work items exercising the dependency gate. No architecture change is required; Architecture v1.1 remains frozen and the dependency invariant must not be bypassed.",
+      "evidence_refs": [
+        "EV-001",
+        "EV-002",
+        "EV-003"
+      ],
+      "remediation_required": "1) Update the governance repository-integration tests so expectations match the canonical dependency-gate semantics now exercised by real work items, without weakening the dependency rule. 2) Preserve the explicit validator failures for CAD-002/CAD-003 until the Architect performs their post-merge verification decisions. 3) Re-run the full governance suite (must be 58/58, with the validator still reporting the two attributable dependency failures when appropriate). 4) Re-run the CAD-004 benchmark workflow and bind the final evidence to the exact PR-head commit/run."
+    }
+  ]
+}

@@ -1,0 +1,107 @@
+{
+  "benchmark": "bench-propagation",
+  "description": "Benchmark: change propagation (RESEARCH-CAD-004 scope 5).",
+  "started_at": "2026-08-25T07:02:22.293455+00:00",
+  "finished_at": "2026-08-25T07:02:22.424604+00:00",
+  "summary": {
+    "pass": 6,
+    "fail": 0,
+    "unknown": 0
+  },
+  "measurements": {},
+  "checks": [
+    {
+      "id": "cad4-prop/exact-delta-v1-v2",
+      "description": "Controlled revision v1 -> v2 (wall-north Height 3.0 -> 3.5) produces the EXACT analytic deltas on every quantity measure of that wall (volume +1.5 m^3 = 10 x 0.3 x 0.5; side areas +5.0 m^2; weight +3600 kg) across both the OBSERVED and BRep record paths.",
+      "status": "pass",
+      "epistemic": "CALCULATED",
+      "tolerance": null,
+      "details": {
+        "changed_elements": [
+          "off:cad4:wall:north"
+        ],
+        "deltas": "all exact"
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "cad4-prop/unchanged-element-identity",
+      "description": "UNCHANGED-ELEMENT IDENTITY: every element not touched by the v1 -> v2 edit (9 of 10, incl. the ghost wall with its UNKNOWN state) retains its canonical identity (present in both snapshots with the identical quantity surface) AND its full quantity state (identical values, units and epistemic states).",
+      "status": "pass",
+      "epistemic": "ADAPTER",
+      "tolerance": null,
+      "details": {
+        "untouched_count": 9,
+        "violations": "none"
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "cad4-prop/exact-delta-v2-v3",
+      "description": "Controlled revision v2 -> v3 (south window width 1.2 -> 1.5) produces the EXACT deltas: window area +0.45 m^2, host wall net volume -0.135 m^3 (0.3 x 1.5 x 0.3), net side area -0.45 m^2, weight -324 kg \u2014 across OBSERVED and BRep paths.",
+      "status": "pass",
+      "epistemic": "CALCULATED",
+      "tolerance": null,
+      "details": {
+        "changed_elements": [
+          "off:cad4:wall:south",
+          "off:cad4:wall:south:window-2"
+        ],
+        "deltas": "all exact"
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "cad4-prop/property-only-no-quantity-delta",
+      "description": "NEGATIVE CONTROL: wall-east's FireRating change (REI90 -> REI120, a property-only edit in v3) produces NO quantity delta \u2014 wall-east remains in the unchanged set with its full quantity state intact. Quantity records respond to geometry, not unrelated properties.",
+      "status": "pass",
+      "epistemic": "ADAPTER",
+      "tolerance": null,
+      "details": {
+        "wall_east_status": "unchanged"
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "cad4-prop/change-record-emitted",
+      "description": "A change record (the domain-event equivalent) is emitted per revision: event type, from/to versions, changed element ids, changed quantity refs, unchanged count \u2014 deterministic and consumable without engine access.",
+      "status": "pass",
+      "epistemic": "ADAPTER",
+      "tolerance": null,
+      "details": {
+        "change_record": {
+          "event": "QuantityStateChanged",
+          "from_version": "v2",
+          "to_version": "v3",
+          "changed_elements": [
+            "off:cad4:wall:south",
+            "off:cad4:wall:south:window-2"
+          ],
+          "untouched_elements": [
+            "off:cad4:slab:ground",
+            "off:cad4:space:living",
+            "off:cad4:wall:east",
+            "off:cad4:wall:ghost",
+            "off:cad4:wall:north",
+            "off:cad4:wall:north:window-1",
+            "off:cad4:wall:south:door-1",
+            "off:cad4:wall:west"
+          ],
+          "untouched_element_count": 8,
+          "added_quantity_refs": [],
+          "removed_quantity_refs": []
+        }
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "cad4-prop/change-record-deterministic",
+      "description": "The change record is deterministic: the same diff always emits the identical record.",
+      "status": "pass",
+      "epistemic": "ADAPTER",
+      "tolerance": null,
+      "details": {},
+      "evidence_refs": []
+    }
+  ]
+}
