@@ -40,7 +40,7 @@
     "IDS validation workflow (positive and negative controls); BCF toolchain probe evidence.",
     "Exact IfcOpenShell/IfcTester/schema/runtime versions recorded; runtime and output-size measurements."
   ],
-  "state": "IMPLEMENTING",
+  "state": "PR_OPEN",
   "transitions": [
     {
       "from": "DRAFT",
@@ -125,6 +125,18 @@
       "failure_reason": "The inherited architecture-governance defect on main: Architecture v1.1 is active (architecture-versions.json) but governance/protected-paths.json still targets architecture 1.0, failing the governance consistency check. Remediation: repair the manifest/registry consistency in a focused architecture-governance change, then rebase PR #19 and rerun governance. The work item must retain Architecture v1.0 (do not rewrite its version merely to make validation pass). Keep IDS/BCF toolchain findings explicit. Do not claim final IFC/BIM verification yet.",
       "references": {
         "decision": "DEC-001"
+      }
+    },
+    {
+      "from": "IMPLEMENTING",
+      "to": "PR_OPEN",
+      "at": "2026-08-25T05:24:00Z",
+      "actor": "z-ai-implementation-agent",
+      "role": "implementer",
+      "reason": "DEC-001 remediation complete: the focused architecture-governance repair (PR #20, one-line protected-paths manifest alignment to active Architecture v1.1 \u2014 the mechanical completion of the approved ACR-002) was merged as 4a7b595 per the Architect directive, turning main green (governance run #25 success); PR #19 rebased onto the repaired main. Local revalidation: 71/71 governance checks (consistency check now green), 9/9 deterministic tests. The work item retains Architecture v1.0 per remediation item 2; IDS/BCF toolchain findings remain explicit; no verification claimed.",
+      "references": {
+        "pr": 19,
+        "commit": "7459430a41c9c5f881542caa1d92a8bab64999ce"
       }
     }
   ],
