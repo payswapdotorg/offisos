@@ -1,0 +1,126 @@
+{
+  "id": "RESEARCH-CAD-003",
+  "title": "Benchmark IFC/BIM semantic interoperability with IfcOpenShell",
+  "issue": 3,
+  "objective": "Produce reproducible evidence that the current IFC/BIM interoperability candidate (IfcOpenShell) can preserve and manipulate construction semantics across import, edit, export and round-trip workflows \u2014 IFC fixture, semantic extraction, controlled mutation, export, re-import, semantic comparison and Construction Graph mapping \u2014 without making the IFC library or engine-native model the canonical Construction Graph. IDS validation exercised with the IfcTester toolchain; BCF tested only if the toolchain supports it without material custom implementation.",
+  "architecture_version": "1.0",
+  "requirements": [
+    "IFC-001",
+    "IFC-002"
+  ],
+  "dependencies": [
+    "RESEARCH-CAD-001"
+  ],
+  "acceptance_criteria": [
+    "At least one representative IFC fixture completes import -> semantic extraction -> controlled mutation -> export -> re-import.",
+    "Semantic assertions prove which identities, classes, relationships, properties, quantities, units, and placements survive the round trip.",
+    "At least one deliberate mutation is shown to update the intended semantic object without silently altering unrelated objects.",
+    "Geometry-related round-trip assertions are explicit about what is and is not guaranteed.",
+    "The mapping into the Construction Graph is documented and reproducible, including provenance and unsupported-field handling.",
+    "Any lossy conversion or schema limitation is visible in the evidence report.",
+    "Results support, reject, or defer the candidate under the frozen adapter architecture."
+  ],
+  "non_goals": [
+    "No production BIM editor.",
+    "No decision that IFC is the complete internal representation for all ConstructionOS workflows.",
+    "No replacement of the Construction Graph with IFC entities.",
+    "No final legal approval based solely on this issue."
+  ],
+  "risk_assumptions": [
+    "BCF toolchain limitation (probed, recorded as evidence): no installable BCF library exists in this environment \u2014 the PyPI 'bcf' distribution is unrelated firmware tooling (ftdi/flasher modules), and ifcopenshell 0.8.x does not bundle an ifcopenshell.bcf module. Issue #3 makes BCF conditional on toolchain support without material custom implementation, so BCF remains untested and is recorded as a limitation, not an engine failure.",
+    "IDS toolchain: IfcTester 0.8.5 (pip-installable, ifcopenshell-affiliated) provides IDS authoring and validation and is used in-process.",
+    "The ifcopenshell-ids 0.8.0 PyPI distribution is a broken partial mirror of ifcopenshell 0.8.0 with no ids module (wheel inspection evidence); it corrupts a co-installed ifcopenshell 0.8.5 and is NOT used.",
+    "spec/work-items.md still carries the older RESEARCH-CAD-003 definition (CAD-to-Construction-Graph prototype, RESEARCH-CAD-004 in the issue numbering); this record follows the GitHub issue #3 definition per the established divergence flag."
+  ],
+  "evidence_requirements": [
+    "Deterministic pipeline benchmark: fixture -> extraction -> controlled mutation -> export -> re-import -> semantic comparison -> Construction Graph mapping.",
+    "Semantic assertions for identity, IFC class, relationships, properties, quantities, units, placements and supported geometry invariants.",
+    "Narrow-patch mutation proof with lineage recording.",
+    "Construction Graph mapping proof with engine-id non-canonicality, provenance and explicit lossy/unsupported/inferred/opaque-lineage classification.",
+    "IDS validation workflow (positive and negative controls); BCF toolchain probe evidence.",
+    "Exact IfcOpenShell/IfcTester/schema/runtime versions recorded; runtime and output-size measurements."
+  ],
+  "state": "PR_OPEN",
+  "transitions": [
+    {
+      "from": "DRAFT",
+      "to": "READY",
+      "at": "2026-08-24T19:19:11Z",
+      "actor": "pectoraux",
+      "role": "architect",
+      "reason": "Work item fully specified in GitHub issue #3 (objective, six-part scope, evidence requirements, acceptance criteria, non-goals, architect gate).",
+      "references": {
+        "issue": 3
+      }
+    },
+    {
+      "from": "READY",
+      "to": "ASSIGNED",
+      "at": "2026-08-25T04:24:56Z",
+      "actor": "pectoraux",
+      "role": "product-owner",
+      "reason": "Execution directive after the merge of RESEARCH-CAD-002 (merge commit da85d8d): RESEARCH-CAD-003 assigned to the Z.ai implementation agent with focus on the BIM semantic layer pipeline (IFC fixture -> extraction -> controlled mutation -> export -> re-import -> semantic comparison -> Construction Graph mapping), proving identities, IFC classes, relationships, properties, quantities, units, placements, provenance, lossiness and Graph independence; IDS/BCF interoperability where practical. No production BIM editor and no final engine-selection decision.",
+      "references": {
+        "issue": 3,
+        "assignee": "z-ai-implementation-agent"
+      }
+    },
+    {
+      "from": "ASSIGNED",
+      "to": "IMPLEMENTING",
+      "at": "2026-08-25T04:24:56Z",
+      "actor": "z-ai-implementation-agent",
+      "role": "implementer",
+      "reason": "Implementation started on branch work/research-cad-003-ifc-benchmark: vendored harness conventions, deterministic IFC fixture corpus builder, semantic extraction/mutation/round-trip/comparison pipeline, Construction Graph mapping proof, IDS validation via IfcTester, BCF toolchain probe evidence, performance measurements."
+    },
+    {
+      "from": "IMPLEMENTING",
+      "to": "PR_OPEN",
+      "at": "2026-08-25T04:42:00Z",
+      "actor": "z-ai-implementation-agent",
+      "role": "implementer",
+      "reason": "Evidence package complete; opening the focused PR for RESEARCH-CAD-003 (three focused commits: pipeline/fixture/CG-mapping, seven benchmark modules, evidence+report+CI+tests).",
+      "references": {
+        "pr": 17,
+        "commit": "PLACEHOLDER"
+      }
+    }
+  ],
+  "evidence": [
+    {
+      "id": "EV-001",
+      "type": "automated-test-suite",
+      "description": "Deterministic CI test suite: 9 tests running the full benchmark in-process (zero failures and zero unknowns required; critical capability checks asserted per scope area: fixture corpus, extraction, mutation, round trip, CG mapping, IDS/BCF, performance measurements).",
+      "produced_at": "2026-08-25T04:41:16Z",
+      "reproducible": true,
+      "reproduction": "cd research/cad-003 && python3 -m pip install -r requirements.txt && make test",
+      "references": {
+        "pr": 17
+      }
+    },
+    {
+      "id": "EV-002",
+      "type": "inspectable-artifact",
+      "description": "Committed evidence run research/cad-003/evidence/run-001/: 64 pass / 0 fail / 0 unknown across seven benchmark modules (fixture, extraction, mutation, roundtrip, cg-mapping, ids-bcf, performance) with the exact toolchain snapshot (ifcopenshell 0.8.5, IfcTester 0.8.5, bcf-client 0.8.5).",
+      "produced_at": "2026-08-25T04:39:00Z",
+      "reproducible": true,
+      "reproduction": "cd research/cad-003 && make bench",
+      "references": {
+        "artifact_path": "research/cad-003/evidence/run-001",
+        "pr": 17
+      }
+    },
+    {
+      "id": "EV-003",
+      "type": "ci-run",
+      "description": "research-cad-003 workflow on the PR head: pinned pip toolchain install, version recording, deterministic test gate (zero failures/unknowns) and full evidence run with artifact upload.",
+      "produced_at": "2026-08-25T04:42:00Z",
+      "reproducible": true,
+      "reproduction": "Inspect the research-cad-003 workflow checks on the PR",
+      "references": {
+        "workflow_run": "research-cad-003 workflow on PR #17",
+        "pr": 17
+      }
+    }
+  ]
+}
