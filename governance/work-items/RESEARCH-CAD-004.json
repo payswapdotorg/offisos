@@ -1,0 +1,128 @@
+{
+  "id": "RESEARCH-CAD-004",
+  "title": "Prove model-to-quantity extraction and Construction Graph mapping",
+  "issue": 4,
+  "objective": "Demonstrate that representative CAD/BIM model data can be transformed into deterministic, provenance-preserving quantity records and canonical Construction Graph objects, propagating controlled changes to downstream estimate/RFQ contract boundaries, without making the source engine or IFC representation the system of record. Evidence target: CAD/BIM Model Version -> Quantity Records -> Construction Graph -> Downstream Estimate/RFQ Contracts.",
+  "architecture_version": "1.1",
+  "requirements": [
+    "QTY-001",
+    "QTY-002",
+    "GRAPH-001"
+  ],
+  "dependencies": [
+    "RESEARCH-CAD-001",
+    "RESEARCH-CAD-002",
+    "RESEARCH-CAD-003"
+  ],
+  "acceptance_criteria": [
+    "A representative fixture completes model -> quantity -> Construction Graph mapping with deterministic numerical assertions.",
+    "At least five quantity types or measurement classes are demonstrated where applicable to the fixture.",
+    "A controlled model revision produces an exact, explainable quantity delta.",
+    "Unchanged elements retain stable canonical identity and unchanged quantity state.",
+    "Provenance, versioning and uncertainty metadata survive the mapping.",
+    "The resulting Graph objects are sufficient for downstream estimate/RFQ interfaces without direct engine coupling.",
+    "Any lossiness, ambiguity, unsupported geometry, unit limitations, or tolerance issues are explicitly documented.",
+    "Results support, reject, or defer the candidate quantity/Graph integration under the frozen architecture."
+  ],
+  "non_goals": [
+    "No production quantity engine.",
+    "No production estimate or RFQ implementation.",
+    "No architecture change."
+  ],
+  "risk_assumptions": [
+    "DEPENDENCY-GATE FLAG: per issue #4 this work item depends on RESEARCH-CAD-001 (VERIFIED), RESEARCH-CAD-002 (MERGED, VERIFIED not yet issued) and RESEARCH-CAD-003 (MERGED as f1f900e with green runs #28/#5, VERIFIED explicitly reserved by DEC-002 and not yet issued). The validator's dependency invariant will therefore report exactly two failing checks until the Architect records the pending verification decisions. The invariant is NOT weakened silently; resolution path: Architect records VERIFIED for CAD-002 and CAD-003 against their merge revisions, then governance validation turns fully green (all evidence is attached to the merge commits).",
+    "Architecture version: this record targets v1.1 per the execution directive ('Architecture: v1.1 frozen'); the work item was created after v1.1 became active, so unlike RESEARCH-CAD-003 it binds to the active version. The issue body's 'v1.0 remains frozen' text predates the ACR-002 merge.",
+    "Mixed-unit fixture: ifcopenshell's default project length unit is MILLIMETRE (CAD-001 finding); the mixed-unit demonstration uses this behavior deliberately, with explicit conversion factors recorded in quantity provenance.",
+    "Downstream estimate/RFQ coverage is CONTRACT-LEVEL ONLY (typed interface dataclasses and deterministic derivations as evidence), per the non-goals."
+  ],
+  "evidence_requirements": [
+    "Deterministic benchmark suite covering the six issue scopes: fixture corpus (mixed units, instanced elements, revisions), extraction (rules/tolerances, measured-vs-calculated-vs-unsupported), provenance/versioning (immutable historical states, reproducible re-extraction), Construction Graph mapping (domain-id keyed, lineage preserved), change propagation (exact deltas, unchanged-element identity, change records), downstream readiness (estimate/RFQ contract evidence).",
+    "Exact fixture definitions and expected quantities stored in the repository.",
+    "Numerical assertions with explicit tolerances and units.",
+    "Epistemic distinction of OBSERVED/CALCULATED/UNKNOWN quantity states.",
+    "Runtime and fixture characteristics recorded."
+  ],
+  "state": "PR_OPEN",
+  "transitions": [
+    {
+      "from": "DRAFT",
+      "to": "READY",
+      "at": "2026-08-24T19:19:11Z",
+      "actor": "pectoraux",
+      "role": "architect",
+      "reason": "Work item fully specified in GitHub issue #4 (objective, six-part scope, evidence requirements, acceptance criteria, non-goals).",
+      "references": {
+        "issue": 4
+      }
+    },
+    {
+      "from": "READY",
+      "to": "ASSIGNED",
+      "at": "2026-08-25T06:41:05Z",
+      "actor": "pectoraux",
+      "role": "product-owner",
+      "reason": "Execution directive: RESEARCH-CAD-004 assigned to the Z.ai implementation agent with the evidence target 'CAD/BIM Model Version -> Quantity Records -> Construction Graph -> Downstream Estimate/RFQ Contracts' and explicit proof for quantity determinism, units/tolerances, provenance, version history, uncertainty, controlled deltas, unchanged-element identity and engine-independent Graph mapping. Architecture v1.1 frozen. No production quantity engine or Estimate/RFQ implementation.",
+      "references": {
+        "issue": 4,
+        "assignee": "z-ai-implementation-agent"
+      }
+    },
+    {
+      "from": "ASSIGNED",
+      "to": "IMPLEMENTING",
+      "at": "2026-08-25T06:41:05Z",
+      "actor": "z-ai-implementation-agent",
+      "role": "implementer",
+      "reason": "Implementation started on branch work/research-cad-004-quantities: quantity-record core (dual-path extraction: OCCT BRep + analytic reference), model-version fixture corpus with controlled revisions and a mixed-unit variant, provenance/versioning, Construction Graph quantity mapping with a consumer API, downstream estimate/RFQ contract evidence, and deterministic benchmarks."
+    },
+    {
+      "from": "IMPLEMENTING",
+      "to": "PR_OPEN",
+      "at": "2026-08-25T07:04:30Z",
+      "actor": "z-ai-implementation-agent",
+      "role": "implementer",
+      "reason": "Evidence package complete; opening the focused PR for RESEARCH-CAD-004 (three focused commits: quantity-record core + fixtures + graph + downstream contracts, seven benchmark modules, evidence + report + CI + tests).",
+      "references": {
+        "pr": 21,
+        "commit": "e99265e18eff72eae9405bc8d9ceecb3c3f38e4c"
+      }
+    }
+  ],
+  "evidence": [
+    {
+      "id": "EV-001",
+      "type": "automated-test-suite",
+      "description": "Deterministic CI test suite: 9 tests running the full benchmark in-process (zero failures and zero unknowns required; critical capability checks asserted per issue-#4 scope area: fixture corpus, extraction, provenance/versioning, propagation, graph mapping, downstream contracts, performance measurements).",
+      "produced_at": "2026-08-25T07:02:00Z",
+      "reproducible": true,
+      "reproduction": "cd research/cad-004 && python3 -m pip install -r requirements.txt && make test",
+      "references": {
+        "pr": 21
+      }
+    },
+    {
+      "id": "EV-002",
+      "type": "inspectable-artifact",
+      "description": "Committed evidence run research/cad-004/evidence/run-001/: 46 pass / 0 fail / 0 unknown across seven benchmark modules with the exact toolchain snapshot (ifcopenshell 0.8.5, cadquery-ocp 7.8.1.1.post1).",
+      "produced_at": "2026-08-25T07:02:30Z",
+      "reproducible": true,
+      "reproduction": "cd research/cad-004 && make bench",
+      "references": {
+        "artifact_path": "research/cad-004/evidence/run-001",
+        "pr": 21
+      }
+    },
+    {
+      "id": "EV-003",
+      "type": "ci-run",
+      "description": "research-cad-004 workflow on the PR head: pinned toolchain install, version recording, deterministic test gate (zero failures/unknowns) and full evidence run with artifact upload.",
+      "produced_at": "2026-08-25T07:04:30Z",
+      "reproducible": true,
+      "reproduction": "Inspect the research-cad-004 workflow checks on the PR",
+      "references": {
+        "workflow_run": "research-cad-004 workflow on the PR",
+        "pr": 21
+      }
+    }
+  ]
+}
