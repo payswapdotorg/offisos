@@ -13,20 +13,31 @@ export const APP_API_VERSION = "1" as const;
 export type AppApiVersion = typeof APP_API_VERSION;
 
 // --- Command names (mutating; idempotency-supported) ---
+// `document.create` resets to a fresh empty document (new entity id, root
+// version, cleared selection). `document.setSelection` mutates the ephemeral
+// editor selection WITHOUT bumping the document version or pushing an undo
+// entry (selection is non-versioned editor state, §5.4). `document.save`
+// persists the snapshot through the file adapter and returns file bytes.
 export type CommandName =
+  | "document.create"
   | "document.open"
   | "document.applyEdit"
+  | "document.setSelection"
   | "document.undo"
   | "document.redo"
   | "document.serialize"
-  | "document.deserialize";
+  | "document.deserialize"
+  | "document.save";
 
 // --- Query names (non-mutating) ---
+// `document.getSelection` returns the ephemeral editor selection (orthogonal
+// to the versioned snapshot, so it does not affect the parity hash, §5.5).
 export type QueryName =
   | "document.getState"
   | "document.getVersion"
   | "document.canUndo"
-  | "document.canRedo";
+  | "document.canRedo"
+  | "document.getSelection";
 
 export interface Command {
   readonly type: "command";

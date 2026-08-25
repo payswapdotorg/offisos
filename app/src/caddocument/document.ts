@@ -44,6 +44,11 @@ export class CADDocument {
   private readonly undoStack: UndoEntry[] = [];
   private readonly redoStack: UndoEntry[] = [];
   private readonly createdBy: string;
+  /** Ephemeral editor selection (§5.4 editor state). Orthogonal to the
+   *  versioned document content: it is NOT included in the snapshot, NOT in
+   *  the version-id derivation, and NOT in the parity content hash (§5.5).
+   *  Survives undo/redo; cleared on open/create (new document context). */
+  #selection: string[] = [];
 
   private constructor(
     version: VersionMeta,
@@ -52,6 +57,7 @@ export class CADDocument {
     formatVersion: string,
     lineage: Iterable<string>,
     createdBy: string,
+    selection: Iterable<string>,
   ) {
     this.version = version;
     for (const e of elements) this.elements.set(e.id, e);
@@ -59,9 +65,10 @@ export class CADDocument {
     this.formatVersion = formatVersion;
     this.sourceArtifactLineage = [...lineage];
     this.createdBy = createdBy;
+    this.#selection = [...selection];
   }
 
-  /** Open a snapshot: load state, set version, clear undo/redo. */
+  /** Open a snapshot: load state, set version, clear undo/redo + selection. */
   static open(snapshot: CADDocumentSnapshot, createdBy: string): CADDocument {
     return new CADDocument(
       snapshot.version,
@@ -70,13 +77,14 @@ export class CADDocument {
       snapshot.formatVersion,
       snapshot.sourceArtifactLineage,
       createdBy,
+      [],
     );
   }
 
   /** Create an empty document (root version). */
   static empty(entityId: string, format: string, formatVersion: string, createdBy: string): CADDocument {
     const root = rootVersion(entityId, createdBy, null, FIXED_NOW);
-    return new CADDocument(root, [], format, formatVersion, [], createdBy);
+    return new CADDocument(root, [], format, formatVersion, [], createdBy, []);
   }
 
   get canUndo(): boolean {
@@ -87,6 +95,14 @@ export class CADDocument {
   }
   get commandDepth(): number {
     return this.undoStack.length;
+  }
+  /** Current ephemeral editor selection (orthogonal to the versioned snapshot). */
+  get selection(): readonly string[] {
+    return this.#selection;
+  }
+  /** Replace the editor selection. Does NOT bump the version or push undo. */
+  setSelection(ids: readonly string[]): void {
+    this.#selection = [...ids];
   }
 
   /** Apply an edit, bump version, push inverse onto undo stack, clear redo.

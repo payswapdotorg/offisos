@@ -12,6 +12,8 @@
  * never sees the adapter bundle — only the App API does.
  */
 
+import { createHash } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import type {
   Command,
   CommandQueryRequest,
@@ -74,10 +76,14 @@ export class AppApiHandler {
 
   private async handleCommand(command: Command): Promise<CommandQueryResponse> {
     switch (command.name) {
+      case "document.create":
+        return this.cmdCreate(command.payload);
       case "document.open":
         return this.cmdOpen(command.payload);
       case "document.applyEdit":
         return this.cmdApplyEdit(command.payload);
+      case "document.setSelection":
+        return this.cmdSetSelection(command.payload);
       case "document.undo":
         return this.cmdUndo();
       case "document.redo":
@@ -86,11 +92,31 @@ export class AppApiHandler {
         return this.cmdSerialize();
       case "document.deserialize":
         return this.cmdDeserialize(command.payload);
+      case "document.save":
+        return this.cmdSave();
       default: {
         const _exhaustive: never = command.name;
         return err("unknown_command", `unknown command: ${JSON.stringify(_exhaustive)}`);
       }
     }
+  }
+
+  private async cmdCreate(payload: unknown): Promise<CommandQueryResponse> {
+    const p = (payload ?? {}) as {
+      entityId?: string;
+      format?: string;
+      formatVersion?: string;
+      createdBy?: string;
+    } | null;
+    if (p === null || typeof p !== "object") {
+      return err("bad_payload", "create payload must be an object", true);
+    }
+    const entityId = typeof p.entityId === "string" && p.entityId.length > 0 ? p.entityId : randomUUID();
+    const format = typeof p.format === "string" ? p.format : this.options.format;
+    const formatVersion = typeof p.formatVersion === "string" ? p.formatVersion : this.options.formatVersion;
+    const createdBy = typeof p.createdBy === "string" ? p.createdBy : this.options.createdBy;
+    this.doc = CADDocument.empty(entityId, format, formatVersion, createdBy);
+    return ok(this.doc.snapshot());
   }
 
   private async cmdOpen(payload: unknown): Promise<CommandQueryResponse> {
@@ -159,6 +185,30 @@ export class AppApiHandler {
     return ok(this.doc.snapshot());
   }
 
+  private async cmdSetSelection(payload: unknown): Promise<CommandQueryResponse> {
+    const p = payload as { ids?: unknown } | null;
+    if (p === null || typeof p !== "object" || !Array.isArray(p.ids)) {
+      return err("bad_payload", "setSelection requires ids array", true);
+    }
+    const ids = p.ids as unknown[];
+    if (!ids.every((x) => typeof x === "string")) {
+      return err("bad_payload", "setSelection ids must all be strings", true);
+    }
+    this.doc.setSelection(ids as string[]);
+    return ok({ selection: [...this.doc.selection] });
+  }
+
+  private async cmdSave(): Promise<CommandQueryResponse> {
+    try {
+      const bytes = await this.adapters.file.write(this.doc.snapshot());
+      // The wire contract is JSON; Uint8Array survives the wire as a plain
+      // number[]. Return both forms for caller convenience.
+      return ok({ bytes: Array.from(bytes), format: this.doc.snapshot().format });
+    } catch (e) {
+      return err("file_write_failed", `file adapter write failed: ${(e as Error).message}`, false);
+    }
+  }
+
   // --- Queries ------------------------------------------------------------
 
   private async handleQuery(query: Query): Promise<CommandQueryResponse> {
@@ -171,6 +221,8 @@ export class AppApiHandler {
         return ok(this.doc.canUndo);
       case "document.canRedo":
         return ok(this.doc.canRedo);
+      case "document.getSelection":
+        return ok([...this.doc.selection]);
       default: {
         const _exhaustive: never = query.name;
         return err("unknown_query", `unknown query: ${JSON.stringify(_exhaustive)}`);

@@ -10,6 +10,15 @@
 import type { CommandName, QueryName } from "../contracts/app-api.js";
 
 export const COMMAND_PAYLOAD_SCHEMAS: Readonly<Record<CommandName, object>> = {
+  "document.create": {
+    type: "object",
+    properties: {
+      entityId: { type: "string" },
+      format: { type: "string" },
+      formatVersion: { type: "string" },
+      createdBy: { type: "string" },
+    },
+  },
   "document.open": {
     type: "object",
     properties: {
@@ -33,6 +42,13 @@ export const COMMAND_PAYLOAD_SCHEMAS: Readonly<Record<CommandName, object>> = {
     },
     required: ["edit"],
   },
+  "document.setSelection": {
+    type: "object",
+    properties: {
+      ids: { type: "array", items: { type: "string" } },
+    },
+    required: ["ids"],
+  },
   "document.undo": { type: "object", properties: {} },
   "document.redo": { type: "object", properties: {} },
   "document.serialize": { type: "object", properties: {} },
@@ -41,6 +57,7 @@ export const COMMAND_PAYLOAD_SCHEMAS: Readonly<Record<CommandName, object>> = {
     properties: { text: { type: "string" } },
     required: ["text"],
   },
+  "document.save": { type: "object", properties: {} },
 };
 
 export const QUERY_PAYLOAD_SCHEMAS: Readonly<Record<QueryName, object>> = {
@@ -48,6 +65,7 @@ export const QUERY_PAYLOAD_SCHEMAS: Readonly<Record<QueryName, object>> = {
   "document.getVersion": { type: "object", properties: {} },
   "document.canUndo": { type: "object", properties: {} },
   "document.canRedo": { type: "object", properties: {} },
+  "document.getSelection": { type: "object", properties: {} },
 };
 
 export const WIRE_ENVELOPE_SCHEMA = {
