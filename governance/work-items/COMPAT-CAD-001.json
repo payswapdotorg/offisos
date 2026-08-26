@@ -64,6 +64,18 @@
         "commit": "4683aedf00e5f7ea3aa30fd772d8f0b31c56d875",
         "artifact_path": "apps/electron/dist/smoke-drafting-result.json"
       }
+    },
+    {
+      "id": "EV-003",
+      "type": "ci-run",
+      "description": "Pre-merge drafting CI green on the exact PR head 5eb0597: compat-cad-001 run 33010907857 (drafting-shell 190 tests on the OCCT 7.8.1.1 toolchain + LOCK-018 scan incl. src/drafting + engine pin; web-host-drafting build + dev-server drafting smoke; electron-host-drafting build + 3 regression smokes + the 13-step BrowserWindow drafting smoke) plus ALL regression workflows green on the same head: governance 33010907865, cad-implement-001 33010907797, cad-implement-002 33010907769, cad-implement-003 33010907838, research-cad-007 33010907835.",
+      "produced_at": "2026-08-26T21:35:00Z",
+      "reproducible": true,
+      "references": {
+        "commit": "5eb0597e2cbdb4c29c75de30eb41705553a595c3",
+        "workflow_run": "33010907857",
+        "pr": 38
+      }
     }
   ],
   "decisions": [],
@@ -101,9 +113,27 @@
       "references": {
         "issue": 37
       }
+    },
+    {
+      "from": "IMPLEMENTING",
+      "to": "PR_OPEN",
+      "at": "2026-08-26T21:36:00Z",
+      "actor": "z-ai-implementation-agent",
+      "role": "implementer",
+      "reason": "Evidence package complete and PR #38 opened; all CI workflows green on the PR head.",
+      "references": {
+        "pr": 38,
+        "issue": 37,
+        "evidence": [
+          "EV-001",
+          "EV-002",
+          "EV-003"
+        ],
+        "commit": "5eb0597e2cbdb4c29c75de30eb41705553a595c3"
+      }
     }
   ],
-  "state": "IMPLEMENTING",
+  "state": "PR_OPEN",
   "evidence_requirements": [
     "Deterministic drafting tests with declared tolerances.",
     "Save/open and revision evidence.",
