@@ -190,6 +190,19 @@
         "pr": 25,
         "path": "apps/web"
       }
+    },
+    {
+      "id": "EV-008",
+      "type": "ci-run",
+      "description": "CI workflow fix + green run on ddaca31 (milestone-3 final, this turn). The cad-implement-001.yml workflow FAILED on the first CI run (d4fdfe0, run 32928071710) at the 'App shell deterministic test suite (50 tests)' step with 'Could not find .../app/test/*.test.ts' — the quoted glob string \"test/*.test.ts\" was not expanded by bash (quoted) and Node 20.20.2's --test runner does not expand globs internally. The repo's existing governance.yml workflow uses Node 22 (which supports glob patterns in --test natively) and passes. Fix (commit ddaca31): (1) shell job node-version 20 -> 22 (matches governance.yml, fixes the quoted-glob issue at the source, removes the Node 20 deprecation warning); (2) unquote 'test/*.test.ts' and 'test/no-forbidden-imports.test.ts' so bash expands the glob (works on any Node version, more portable — defence in depth); (3) web-host job node-version 20 -> 22 (consistency + deprecation warning removal); no command change for the web-host job (it passed on Node 20). Both packages (root + app/) declare engines '>=20' so Node 22 is permitted; apps/web/ has no engines constraint. No test code changes; no canonical-contract changes; rules.ts untouched; no protected path touched (check-protected 1/1 PASS, 61 paths). CI re-run on ddaca31 GREEN for BOTH workflows: governance (run 32928891853, conclusion=success, https://github.com/pectoraux/offisos/actions/runs/32928891853) + cad-implement-001 (run 32928891881, conclusion=success, https://github.com/pectoraux/offisos/actions/runs/32928891881 — shell job: 50 tests + forbidden-imports LOCK-018 + typecheck all PASS; web-host job: install + lint + tsc --noEmit all PASS). Local reproducibility verified with the unquoted glob: app 50/50 pass, app forbidden-imports 3/3 pass, governance 104/104 PASS, check-protected 1/1 PASS. Lifecycle state REMAINS PR_OPEN (no state transition triggered by the CI fix — the state was already PR_OPEN from commit 84f5e4e; the CI fix is a non-state-changing follow-up). No APPROVED or VERIFIED claim is made (verification is decided by the Architect per governance/README.md).",
+      "produced_at": "2026-08-26T04:10:00Z",
+      "reproducible": true,
+      "reproduction": "Inspect .github/workflows/cad-implement-001.yml on branch work/cad-implement-001-app-shell @ ddaca31. Reproduce locally: cd /home/z/offisos-verify/app && node --import tsx --test test/*.test.ts (50/50 pass) && node --import tsx --test test/no-forbidden-imports.test.ts (3/3 pass); governance: cd .. && npx tsx tools/governance/src/cli.ts validate (104/104 PASS) && npx tsx tools/governance/src/cli.ts check-protected --base origin/main (1/1 PASS). CI: https://github.com/pectoraux/offisos/actions/runs/32928891881 (cad-implement-001, success) + https://github.com/pectoraux/offisos/actions/runs/32928891853 (governance, success).",
+      "references": {
+        "commit": "ddaca318bf0aee2cf1b240f6d942144f5bac9024",
+        "workflow_run": "32928891881",
+        "path": ".github/workflows/cad-implement-001.yml"
+      }
     }
   ]
 }
