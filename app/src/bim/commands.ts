@@ -125,19 +125,21 @@ export function buildBimCreate(
         break;
       }
       case "bim.door": {
-        const door = withId(makeDoor(input), input.id);
-        const chain = resolveOpeningChain(door.openingId, index);
-        // storyId is DERIVED from the host wall — never trusted from input.
-        entity = withId(
-          makeDoor({ ...input, openingId: door.openingId, storyId: chain.wall.storyId, swing: door.swing, leafThickness: door.leafThickness }),
+        // openingId resolved FIRST (raw), then storyId DERIVED from the host
+        // wall chain — never trusted from input (LOCK-007).
+        const rawOpeningId = requireRawId(input.openingId, index, "door.openingId");
+        const chain = resolveOpeningChain(rawOpeningId, index);
+        const door = withId(
+          makeDoor({ ...input, storyId: chain.wall.storyId, openingId: rawOpeningId }),
           input.id,
         );
+        entity = door;
         break;
       }
       case "bim.window": {
-        const win = withId(makeWindow(input), input.id);
-        const chain = resolveOpeningChain(win.openingId, index);
-        entity = withId(makeWindow({ ...input, openingId: win.openingId, storyId: chain.wall.storyId }), input.id);
+        const rawOpeningId = requireRawId(input.openingId, index, "window.openingId");
+        const chain = resolveOpeningChain(rawOpeningId, index);
+        entity = withId(makeWindow({ ...input, storyId: chain.wall.storyId, openingId: rawOpeningId }), input.id);
         break;
       }
       default:
@@ -183,4 +185,12 @@ export function buildBimCreate(
 function withId<T extends object>(entity: T, id: unknown): T & { id: string } {
   const resolved = typeof id === "string" && id.length > 0 ? id : "";
   return { ...entity, id: resolved };
+}
+
+/** Raw non-empty id extraction with the batch index in the error message. */
+function requireRawId(value: unknown, index: number, path: string): string {
+  if (typeof value !== "string" || value.length === 0) {
+    throw new Error(`entities[${index}]: ${path} must be a non-empty element id`);
+  }
+  return value;
 }

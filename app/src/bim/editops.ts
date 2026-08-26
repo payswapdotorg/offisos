@@ -245,20 +245,35 @@ export function moveBimElements(
 
 // --- Copy ----------------------------------------------------------------------
 
+/**
+ * Copy BIM elements with a declared, itemized hosted cascade.
+ *
+ * `mint` mints the new canonical identities (document authority, §5.4 — the
+ * handler passes CADDocument.mintElementId). Every copy carries a minted id
+ * so hosted references can be RE-PONTED inside the same atomic batch: a wall
+ * copy's openings point at the NEW wall, and fill copies point at the NEW
+ * openings. Hosted cascade copies duplicate their host-frame parameters
+ * verbatim (the wall copy carries the displacement).
+ */
 export function copyBimElements(
   elements: readonly Element[],
   ids: readonly string[],
   dx: number,
   dy: number,
   dz: number,
+  mint: () => string,
 ): BimEditOutcome {
   if (ids.length === 0) return { status: "no-op", reason: "copy: empty selection" };
   if (dx === 0 && dy === 0 && dz === 0) return { status: "no-op", reason: "copy: zero displacement" };
   const map = bimEntities(elements);
   const edits: DocumentEdit[] = [];
   const created: string[] = [];
+  const sources: string[] = [];
+  /** original id → minted copy id (reference re-pointing for cascades). */
+  const remap = new Map<string, string>();
 
-  const copyOne = (entity: BimEntity, shiftDx: number, shiftDy: number, shiftDz: number): void => {
+  const copyOne = (entity: BimEntity, shiftDx: number, shiftDy: number, shiftDz: number): string => {
+    const newId = mint();
     switch (entity.type) {
       case "bim.wall": {
         const copy = makeWall({
@@ -270,8 +285,7 @@ export function copyBimElements(
           baseOffset: entity.baseOffset + shiftDz,
           ...(entity.name !== undefined ? { name: entity.name } : {}),
         });
-        edits.push({ type: "addElement", element: bimEntityToElement({ ...copy, id: "" }) });
-        created.push(entity.id);
+        edits.push({ type: "addElement", element: bimEntityToElement({ ...copy, id: newId }) });
         break;
       }
       case "bim.slab": {
@@ -283,8 +297,7 @@ export function copyBimElements(
           baseOffset: entity.baseOffset + shiftDz,
           ...(entity.name !== undefined ? { name: entity.name } : {}),
         });
-        edits.push({ type: "addElement", element: bimEntityToElement({ ...copy, id: "" }) });
-        created.push(entity.id);
+        edits.push({ type: "addElement", element: bimEntityToElement({ ...copy, id: newId }) });
         break;
       }
       case "bim.space": {
@@ -295,60 +308,97 @@ export function copyBimElements(
           height: entity.height,
           baseOffset: entity.baseOffset + shiftDz,
         });
-        edits.push({ type: "addElement", element: bimEntityToElement({ ...copy, id: "" }) });
-        created.push(entity.id);
+        edits.push({ type: "addElement", element: bimEntityToElement({ ...copy, id: newId }) });
         break;
       }
       case "bim.opening": {
-        const host = requireBimEntity(map, entity.hostId, "copy");
-        if (host.type !== "bim.wall") {
-          throw new Error(`copy: opening '${entity.id}' host '${entity.hostId}' is not a wall (stored props are inconsistent)`);
+        const hostId = remap.get(entity.hostId) ?? entity.hostId;
+        let distance = entity.distance;
+        let sill = entity.sill;
+        if (shiftDx !== 0 || shiftDy !== 0 || shiftDz !== 0) {
+          // STANDALONE copy (explicit selection): moves along the host axis.
+          const host = requireBimEntity(map, entity.hostId, "copy");
+          if (host.type !== "bim.wall") {
+            throw new Error(`copy: opening '${entity.id}' host '${entity.hostId}' is not a wall (stored props are inconsistent)`);
+          }
+          const frame = wallFrame(host);
+          const along = shiftDx * frame.u[0] + shiftDy * frame.u[1];
+          const cross = shiftDx * frame.n[0] + shiftDy * frame.n[1];
+          if (Math.abs(cross) > 1e-9) {
+            throw new Error(
+              `copy: opening '${entity.id}' copies ALONG the host wall axis only — the cross-axis component (${cross.toFixed(12)} mm) must be 0 (unsupported set; no silent approximation)`,
+            );
+          }
+          distance = entity.distance + along;
+          sill = entity.sill + shiftDz;
         }
-        const frame = wallFrame(host);
-        const along = shiftDx * frame.u[0] + shiftDy * frame.u[1];
-        const cross = shiftDx * frame.n[0] + shiftDy * frame.n[1];
-        if (Math.abs(cross) > 1e-9) {
-          throw new Error(
-            `copy: opening '${entity.id}' copies ALONG the host wall axis only — the cross-axis component (${cross.toFixed(12)} mm) must be 0 (unsupported set; no silent approximation)`,
-          );
-        }
+        // HOSTED CASCADE (zero shift): host-frame parameters duplicated
+        // verbatim — the wall copy carries the displacement.
         const copy = makeOpening({
-          hostId: entity.hostId,
-          distance: entity.distance + along,
+          hostId,
+          distance,
           width: entity.width,
           height: entity.height,
-          sill: entity.sill + shiftDz,
+          sill,
           ...(entity.name !== undefined ? { name: entity.name } : {}),
         });
-        edits.push({ type: "addElement", element: bimEntityToElement({ ...copy, id: "" }) });
-        created.push(entity.id);
+        edits.push({ type: "addElement", element: bimEntityToElement({ ...copy, id: newId }) });
         break;
       }
       case "bim.story":
         throw new Error("copy: stories are outside the supported set for copying in this slice (author a new story)");
       case "bim.door":
-      case "bim.window":
-        throw new Error(
-          `copy: '${entity.type}' elements are copied WITH their opening (outside the supported set for direct copies) — copy opening '${entity.openingId}' instead`,
-        );
+      case "bim.window": {
+        // Fills only ever copy as hosted cascades (no own position) — an
+        // explicit fill copy is rejected in the selection loop below.
+        const openingId = remap.get(entity.openingId) ?? entity.openingId;
+        const copy = entity.type === "bim.door"
+          ? makeDoor({
+              openingId,
+              storyId: entity.storyId,
+              swing: entity.swing,
+              leafThickness: entity.leafThickness,
+              ...(entity.name !== undefined ? { name: entity.name } : {}),
+            })
+          : makeWindow({
+              openingId,
+              storyId: entity.storyId,
+              ...(entity.name !== undefined ? { name: entity.name } : {}),
+            });
+        edits.push({ type: "addElement", element: bimEntityToElement({ ...copy, id: newId }) });
+        break;
+      }
     }
+    created.push(newId);
+    sources.push(entity.id);
+    remap.set(entity.id, newId);
+    return newId;
   };
 
   for (const id of ids) {
     const entity = requireBimEntity(map, id, "copy");
+    if (entity.type === "bim.door" || entity.type === "bim.window") {
+      throw new Error(
+        `copy: '${entity.type}' elements are copied WITH their opening (outside the supported set for direct copies) — copy opening '${entity.openingId}' instead`,
+      );
+    }
+    if (entity.type === "bim.story") {
+      throw new Error("copy: stories are outside the supported set for copying in this slice (author a new story)");
+    }
     copyOne(entity, dx, dy, dz);
     if (entity.type === "bim.wall") {
-      // Declared cascade: hosted openings + their fills follow the wall copy.
+      // Declared cascade: hosted openings + their fills follow the wall copy
+      // (host-frame parameters verbatim; references re-pointed via remap).
       for (const opening of hostedOpenings(map, id)) {
-        copyOne(opening, dx, dy, dz);
+        copyOne(opening, 0, 0, 0);
         for (const fill of openingFills(map, opening.id)) {
-          copyOne(fill, dx, dy, dz);
+          copyOne(fill, 0, 0, 0);
         }
       }
     }
     if (entity.type === "bim.opening") {
       for (const fill of openingFills(map, id)) {
-        copyOne(fill, dx, dy, dz);
+        copyOne(fill, 0, 0, 0);
       }
     }
   }
@@ -356,7 +406,7 @@ export function copyBimElements(
   return {
     status: "applied",
     edit: { type: "applyEdits", edits },
-    summary: `copied ${created.length} element(s) (incl. declared hosted cascades): ${created.join(", ")}`,
+    summary: `copied ${created.length} element(s) (${sources.join(", ")} → ${created.join(", ")}${created.length > ids.length ? "; incl. declared hosted cascades" : ""})`,
     createdIds: created,
   };
 }

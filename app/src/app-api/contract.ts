@@ -731,7 +731,7 @@ export class AppApiHandler {
     try {
       const outcome = op === "move"
         ? moveBimElements(this.doc.allElements(), p.ids as string[], p.dx, p.dy, p.dz)
-        : copyBimElements(this.doc.allElements(), p.ids as string[], p.dx, p.dy, p.dz);
+        : copyBimElements(this.doc.allElements(), p.ids as string[], p.dx, p.dy, p.dz, () => this.doc.mintElementId());
       if (outcome.status === "no-op") {
         return ok({ applied: false, reason: outcome.reason, snapshot: this.doc.snapshot() });
       }

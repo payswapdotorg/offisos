@@ -447,6 +447,18 @@ export class CADDocument {
     return minted;
   }
 
+  /** COMPAT-CAD-002: mint a canonical element identity (`el-NNNNNN`, monotonic,
+   *  never reused) WITHOUT adding an element — for composite builders that
+   *  must wire references between batch-created copies (hosted BIM cascades)
+   *  inside ONE atomic batch while identity minting stays a document
+   *  authority (§5.4; mirrors mintLayerId). A minted-but-unused identity is
+   *  burned, never reused. */
+  mintElementId(): string {
+    const minted = `el-${String(this.nextElementSequence).padStart(6, "0")}`;
+    this.nextElementSequence += 1;
+    return minted;
+  }
+
   private applyEdit(edit: DocumentEdit): void {
     switch (edit.type) {
       case "addElement": {
