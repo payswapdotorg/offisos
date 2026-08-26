@@ -82,6 +82,7 @@ const isSmoke = process.argv.includes("--smoke");
 const isGeometrySmoke = process.argv.includes("--smoke-geometry");
 const isModelSmoke = process.argv.includes("--smoke-model");
 const isImpactSmoke = process.argv.includes("--smoke-impact");
+const isDraftingSmoke = process.argv.includes("--smoke-drafting");
 
 function createWindow(): BrowserWindow {
   // app.getAppPath() is the directory containing this package's package.json
@@ -701,7 +702,9 @@ app.whenReady().then(() => {
         ? runModelSmoke(win)
         : isImpactSmoke
           ? runImpactSmoke(win)
-          : null;
+          : isDraftingSmoke
+            ? runDraftingSmoke(win)
+            : null;
   if (smokeRun !== null) {
     smokeRun
       .then(() => {
@@ -741,3 +744,231 @@ app.whenReady().then(() => {
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
 });
+
+/**
+ * COMPAT-CAD-001 / Issue #37: the 2D drafting smoke — the representative
+ * drafting workflow through the FULL Electron chain (BrowserWindow →
+ * window.cad.send preload bridge → ipcMain → ElectronHost/IpcTransport →
+ * shared App API → CADDocument command model). Engine-free: drafting never
+ * touches the geometry engine (the default OCCT bundle stays lazily unused).
+ *
+ * Asserts: layers (default + minted + visibility), entity creation with
+ * canonical minted ids, dimensions (measured values), deterministic snap
+ * through the API, move/copy/delete, trim/extend EXACT coordinates,
+ * undo/redo, and save/open persistence of entities + layers + selection +
+ * settings + revision lineage with identical graph events hash.
+ */
+async function runDraftingSmoke(win: BrowserWindow): Promise<void> {
+  const steps: SmokeStep[] = [];
+
+  await new Promise<void>((resolve) => {
+    win.webContents.once("did-finish-load", () => resolve());
+  });
+
+  const call = async (js: string): Promise<CommandQueryResponse> => {
+    const wrapped = (await win.webContents.executeJavaScript(
+      `(${js}).then((r) => ({ __smokeOk: true, r }), (e) => ({ __smokeOk: false, msg: String(e), stack: String((e && e.stack) || "") }))`,
+    )) as { __smokeOk: true; r: CommandQueryResponse } | { __smokeOk: false; msg: string; stack: string };
+    if (wrapped.__smokeOk !== true) {
+      throw new Error(`renderer call rejected: ${wrapped.msg}\n${wrapped.stack.slice(0, 800)}\nfor script: ${js.slice(0, 200)}`);
+    }
+    return wrapped.r;
+  };
+  const send = (request: CommandQueryRequest): Promise<CommandQueryResponse> =>
+    call(`window.cad.send(${JSON.stringify(request)})`);
+  const cmd = (name: string, payload: unknown) =>
+    send({ type: "command", name: name as never, payload });
+  const qq = (name: string, payload: unknown) =>
+    send({ type: "query", name: name as never, payload });
+
+  type Snapshot = {
+    elements: { id: string; kind: string; props: Record<string, unknown> }[];
+    layers: { id: string; name: string; visible: boolean }[];
+    selection: string[];
+    draftingSettings: { snap: { tolerance: number; enabled: boolean }; view: { pan: number[]; zoom: number } };
+    modelHistory: { revisions: unknown[] };
+    version: { version_id: string };
+  };
+  const state = async (): Promise<Snapshot | null> => {
+    const r = await qq("document.getState", {});
+    return r && r.ok ? (r.value as Snapshot) : null;
+  };
+
+  // 1. Fresh drafting document.
+  const create = await cmd("document.create", { entityId: "compat-cad-001-electron" });
+  steps.push({ step: "document.create(compat-cad-001-electron)", ok: !!(create && create.ok) });
+  const fresh = await state();
+  const layerDefaultOk = !!fresh && fresh.layers.length === 1 && fresh.layers[0]!.id === "0";
+  steps.push({ step: "canonical default layer '0' present", ok: layerDefaultOk });
+
+  // 2. Layer workflow: add 'walls', add + hide 'construction'.
+  const wallsRes = await cmd("drafting.addLayer", { name: "walls", color: "#b91c1c" });
+  const wallsId = wallsRes && wallsRes.ok ? (wallsRes.value as { layerId: string }).layerId : "";
+  const hiddenRes = await cmd("drafting.addLayer", { name: "construction" });
+  const hiddenId = hiddenRes && hiddenRes.ok ? (hiddenRes.value as { layerId: string }).layerId : "";
+  const hideRes = await cmd("drafting.updateLayer", { layerId: hiddenId, patch: { visible: false } });
+  steps.push({
+    step: "layers: minted ly-000001/ly-000002 + visibility toggle",
+    ok: wallsId === "ly-000001" && hiddenId === "ly-000002" && !!(hideRes && hideRes.ok),
+  });
+
+  // 3. Core entities + dimensions in one atomic batch.
+  const createRes = await cmd("drafting.createEntities", {
+    entities: [
+      { type: "line", layer: wallsId, from: [0, 0], to: [100, 0] },
+      { type: "line", layer: wallsId, from: [100, 0], to: [100, 60] },
+      { type: "polyline", layer: wallsId, points: [[0, 0], [0, 60], [100, 60]] },
+      { type: "circle", layer: "0", center: [50, 30], radius: 12 },
+      { type: "arc", layer: "0", center: [50, 30], radius: 20, startAngle: 0, endAngle: Math.PI },
+      { type: "rectangle", layer: wallsId, corner1: [10, 10], corner2: [30, 25] },
+    ],
+  });
+  const created = createRes && createRes.ok ? (createRes.value as { created: string[] }).created : [];
+  steps.push({
+    step: "entities: 6 drafting entities, canonical minted ids el-000001..el-000006",
+    ok: created.length === 6 && created[0] === "el-000001" && created[5] === "el-000006",
+  });
+  const circleId = created[3] ?? "";
+
+  // 4. Dimensions: measured values computed deterministically.
+  const dimRes = await cmd("drafting.createEntities", {
+    entities: [
+      { type: "dim-linear", layer: "0", p1: [0, 0], p2: [100, 0], mode: "aligned", offset: -8 },
+      { type: "dim-radius", layer: "0", target: circleId },
+    ],
+  });
+  const dims = dimRes && dimRes.ok ? (dimRes.value as { created: string[] }).created : [];
+  const afterDims = await state();
+  const dimLinear = afterDims?.elements.find((e) => e.id === dims[0]);
+  const dimRadius = afterDims?.elements.find((e) => e.id === dims[1]);
+  const dimsOk =
+    dims.length === 2 &&
+    dimLinear?.kind === "annotation" && (dimLinear.props.measured as number) === 100 &&
+    (dimRadius?.props.measured as number) === 12;
+  steps.push({ step: "dimensions: aligned=100 exactly, radius=12 exactly (annotation kind)", ok: dimsOk });
+
+  // 5. Deterministic snap through the API: endpoint at the L1/L2 corner.
+  const snapRes = await qq("drafting.snap", { point: [100.4, -0.1], tolerance: 0.5 });
+  const snap = snapRes && snapRes.ok ? (snapRes.value as { snapped: boolean; best: { kind: string; point: number[] } | null }) : null;
+  steps.push({
+    step: "snap: endpoint (100,0) wins the clamped tie",
+    ok: !!snap && snap.snapped === true && snap.best?.kind === "endpoint" && snap.best?.point[0] === 100 && snap.best?.point[1] === 0,
+  });
+  // hidden layers are not snappable
+  const hiddenEnt = await cmd("drafting.createEntities", {
+    entities: [{ type: "line", layer: hiddenId, from: [200, 200], to: [300, 200] }],
+  });
+  const snapHidden = await qq("drafting.snap", { point: [250.2, 200.2], tolerance: 1, kinds: ["on-object"] });
+  const hiddenOk = !!(hiddenEnt && hiddenEnt.ok) && !!(snapHidden && snapHidden.ok) && (snapHidden.value as { best: unknown }).best === null;
+  steps.push({ step: "entities on hidden layers are not snappable", ok: hiddenOk });
+
+  // 6. Move + copy (+ delete the copy).
+  const rectId = created[5] ?? "";
+  const moveRes = await cmd("drafting.move", { ids: [rectId], dx: 5, dy: 5 });
+  const afterMove = await state();
+  const movedRect = afterMove?.elements.find((e) => e.id === rectId);
+  const moveOk = !!(moveRes && moveRes.ok) && JSON.stringify(movedRect?.props.corner1) === JSON.stringify([15, 15]);
+  steps.push({ step: "move: rectangle corner1 → [15,15] exactly", ok: moveOk });
+  const copyRes = await cmd("drafting.copy", { ids: [rectId], dx: 40, dy: 0 });
+  const copyId = copyRes && copyRes.ok ? ((copyRes.value as { created: string[] }).created[0] ?? "") : "";
+  const delRes = await cmd("drafting.delete", { ids: [copyId] });
+  steps.push({ step: "copy mints a new id; delete removes it", ok: /^el-\d{6}$/.test(copyId) && !!(delRes && delRes.ok) });
+
+  // 7. Trim with an EXACT resulting coordinate.
+  const cutRes = await cmd("drafting.createEntities", {
+    entities: [
+      { type: "line", layer: "0", from: [0, 80], to: [120, 80] },
+      { type: "line", layer: "0", from: [60, 60], to: [60, 100] },
+    ],
+  });
+  const cutIds = cutRes && cutRes.ok ? (cutRes.value as { created: string[] }).created : [];
+  const trimRes = await cmd("drafting.trim", { targetId: cutIds[0] ?? "", pick: [90, 80] });
+  const afterTrim = await state();
+  const trimmed = afterTrim?.elements.find((e) => e.id === (cutIds[0] ?? ""));
+  const trimOk =
+    !!(trimRes && trimRes.ok) && (trimRes.value as { applied: boolean }).applied === true &&
+    JSON.stringify(trimmed?.props.to) === JSON.stringify([60, 80]);
+  steps.push({ step: "trim: line shortened to exactly [60,80], identity retained", ok: trimOk });
+
+  // 8. Extend with an EXACT resulting coordinate.
+  const farRes = await cmd("drafting.createEntities", {
+    entities: [{ type: "line", layer: "0", from: [130, -20], to: [130, 20] }],
+  });
+  const farId = farRes && farRes.ok ? (farRes.value as { created: string[] }).created[0] ?? "" : "";
+  const line1 = created[0] ?? "";
+  const extRes = await cmd("drafting.extend", { targetId: line1, pick: [95, 0] });
+  const afterExt = await state();
+  const extended = afterExt?.elements.find((e) => e.id === line1);
+  const extOk =
+    !!(extRes && extRes.ok) && (extRes.value as { applied: boolean }).applied === true &&
+    JSON.stringify(extended?.props.to) === JSON.stringify([130, 0]);
+  steps.push({ step: "extend: line grown to exactly [130,0]", ok: extOk });
+
+  // 9. Undo/redo through the command model.
+  const undoRes = await cmd("document.undo", {});
+  const afterUndo = await state();
+  const redoRes = await cmd("document.redo", {});
+  const afterRedo = await state();
+  const undoOk =
+    !!(undoRes && undoRes.ok) && JSON.stringify(afterUndo?.elements.find((e) => e.id === line1)?.props.to) === JSON.stringify([100, 0]) &&
+    !!(redoRes && redoRes.ok) && JSON.stringify(afterRedo?.elements.find((e) => e.id === line1)?.props.to) === JSON.stringify([130, 0]);
+  steps.push({ step: "undo/redo revert + re-apply the extend exactly", ok: undoOk });
+
+  // 10. Settings + selection + full persistence through save/open.
+  await cmd("drafting.setSettings", { settings: { snap: { tolerance: 0.25 }, view: { pan: [12, -4], zoom: 1.75 } } });
+  await cmd("document.setSelection", { ids: [line1, circleId] });
+  const beforeSave = await state();
+  const eventsBefore = await qq("model.getGraphEvents", {});
+  const eventsHashBefore = eventsBefore && eventsBefore.ok ? (eventsBefore.value as { events_hash: string }).events_hash : "";
+  const saveRes = await cmd("document.save", {});
+  // Canonical stringify (sorted keys): the save/open round-trip is canonical
+  // JSON, so raw JSON.stringify key ORDER differs while the data is equal.
+  const canon = (v: unknown): string => {
+    if (v === null || typeof v !== "object") return JSON.stringify(v);
+    if (Array.isArray(v)) return `[${v.map(canon).join(",")}]`;
+    const o = v as Record<string, unknown>;
+    return `{${Object.keys(o).sort().map((k) => `${JSON.stringify(k)}:${canon(o[k])}`).join(",")}}`;
+  };
+  let persistenceOk = false;
+  let persistDetail = "save failed";
+  if (saveRes && saveRes.ok) {
+    const bytes = (saveRes.value as { bytes: number[] }).bytes;
+    const openRes = await cmd("document.open", { source: bytes });
+    if (openRes && openRes.ok) {
+      const reopened = await state();
+      const eventsAfter = await qq("model.getGraphEvents", {});
+      const eventsHashAfter = eventsAfter && eventsAfter.ok ? (eventsAfter.value as { events_hash: string }).events_hash : "";
+      persistenceOk =
+        !!reopened && !!beforeSave &&
+        reopened.elements.length === beforeSave.elements.length &&
+        canon(reopened.elements.map((e) => e.id).sort()) === canon(beforeSave.elements.map((e) => e.id).sort()) &&
+        canon(reopened.layers) === canon(beforeSave.layers) &&
+        canon(reopened.selection) === canon([line1, circleId]) &&
+        reopened.draftingSettings.snap.tolerance === 0.25 &&
+        reopened.draftingSettings.view.zoom === 1.75 &&
+        reopened.modelHistory.revisions.length === beforeSave.modelHistory.revisions.length &&
+        eventsHashAfter === eventsHashBefore;
+      persistDetail = persistenceOk
+        ? `elements=${reopened!.elements.length} revisions=${reopened!.modelHistory.revisions.length} events_hash=${eventsHashBefore.slice(0, 16)}... identical`
+        : "state diverged across save/open";
+    } else {
+      persistDetail = "open failed";
+    }
+  }
+  steps.push({
+    step: "save/open: entities + ids + layers + selection + settings + lineage + events_hash all preserved",
+    ok: persistenceOk,
+    detail: persistDetail,
+  });
+
+  const allOk = steps.every((s) => s.ok);
+  writeSmokeOut({
+    ok: allOk,
+    electronVersion: process.versions.electron,
+    nodeVersion: process.versions.node,
+    chromeVersion: process.versions.chrome,
+    steps,
+    contentHash: null,
+    sceneHash: null,
+  });
+}

@@ -35,7 +35,18 @@ export type CommandName =
   | "document.serialize"
   | "document.deserialize"
   | "document.save"
-  | "geometry.prepare";
+  | "geometry.prepare"
+  // --- COMPAT-CAD-001 (additive, api-contract.md §8): 2D drafting ---
+  | "drafting.createEntities"
+  | "drafting.move"
+  | "drafting.copy"
+  | "drafting.delete"
+  | "drafting.trim"
+  | "drafting.extend"
+  | "drafting.setSettings"
+  | "drafting.addLayer"
+  | "drafting.updateLayer"
+  | "drafting.removeLayer";
 
 // --- Query names (non-mutating) ---
 // `document.getSelection` returns the ephemeral editor selection (orthogonal
@@ -65,7 +76,9 @@ export type QueryName =
   | "model.getHistory"
   | "model.getGraphEvents"
   | "model.replay"
-  | "impact.cascade";
+  | "impact.cascade"
+  // COMPAT-CAD-001 (additive): deterministic snap resolution.
+  | "drafting.snap";
 
 export interface Command {
   readonly type: "command";

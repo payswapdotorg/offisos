@@ -1,0 +1,316 @@
+name: compat-cad-001
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "app/**"
+      - "apps/web/**"
+      - "apps/electron/**"
+      - ".github/workflows/compat-cad-001.yml"
+  pull_request:
+    paths:
+      - "app/**"
+      - "apps/web/**"
+      - "apps/electron/**"
+      - ".github/workflows/compat-cad-001.yml"
+
+# COMPAT-CAD-001: core 2D drafting workflow (Issue #37, Architecture v1.1
+# FROZEN). Proves the drafting milestone on the pinned toolchain:
+#   - drafting-shell: the FULL app suite WITH the real engine installed
+#     (python3 + cadquery-ocp / OCCT 7.8.1.1) — the 139 CAD-001..CAD-007
+#     tests stay green and the 51 new drafting tests (entities / geom2d /
+#     snap / editops / workflow / host-parity) all run; the LOCK-018
+#     forbidden-import scan now covers src/drafting.
+#   - web-host-drafting: the deployable Web host lints + typechecks + builds
+#     and serves the FULL drafting workflow from the running dev server:
+#     layers (default '0' + minted + hidden), 6 entity types + dimensions
+#     through drafting.createEntities, deterministic endpoint snap via the
+#     API, move/copy/trim with EXACT resulting coordinates, undo/redo,
+#     save/open preserving layers + selection + lineage with identical
+#     graph events hash, and drafting settings canonicalization.
+#   - electron-host-drafting: the deployable Electron host builds and runs
+#     FOUR smokes — the engine-free regression smoke, the real-engine
+#     geometry smoke (regression), the model-revisions smoke (regression)
+#     and the new engine-free 2D drafting smoke through a real
+#     BrowserWindow (13 steps, trim/extend exact coordinates, persistence).
+#
+# Engine isolation (LOCK-003/018): drafting never touches the engine — the
+# OCCT kernel runs only inside the adapter's disposable subprocess workers
+# for the regression tests that need it.
+
+jobs:
+  drafting-shell:
+    name: Drafting deterministic suite (OCCT 7.8.1.1 toolchain)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Set up Python (pinned toolchain)
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install the pinned OCCT engine (cadquery-ocp)
+        run: pip install cadquery-ocp==7.8.1.1.post1
+
+      - name: Install root toolchain (tsx + typescript + ajv)
+        run: npm install
+
+      - name: Typecheck app shell (incl. the drafting core)
+        run: node_modules/.bin/tsc --noEmit -p app/tsconfig.json
+
+      - name: "Full app test suite with the real engine (190 tests)"
+        working-directory: app
+        run: node --import tsx --test test/*.test.ts
+
+      - name: Forbidden-import static check (LOCK-018 incl. src/drafting)
+        working-directory: app
+        run: node --import tsx --test test/no-forbidden-imports.test.ts
+
+      - name: Engine availability probe (pin check)
+        working-directory: app
+        run: |
+          echo '{"op":"ping"}' | python3 src/adapters/occt/worker/occt-worker.py
+          echo '{"op":"ping"}' | python3 src/adapters/occt/worker/occt-worker.py | grep -q '"engineVersion":"7.8.1.1.post1"'
+
+      - name: Upload test evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: compat-cad-001-shell-evidence
+          path: app/src
+          if-no-files-found: warn
+
+  web-host-drafting:
+    name: Web host (Next.js 16 + drafting smoke)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/web/package.json
+
+      - name: Set up Python (pinned toolchain)
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install the pinned OCCT engine (cadquery-ocp)
+        run: pip install cadquery-ocp==7.8.1.1.post1
+
+      - name: Install Web host deps
+        working-directory: apps/web
+        run: npm install
+
+      - name: Web host lint (ESLint)
+        working-directory: apps/web
+        run: npm run lint
+
+      - name: Web host typecheck (tsc --noEmit)
+        working-directory: apps/web
+        run: npx tsc --noEmit
+
+      - name: Web host build (next build --webpack)
+        working-directory: apps/web
+        run: npm run build
+
+      - name: Web host drafting smoke (dev server)
+        working-directory: apps/web
+        env:
+          OFFISOS_OCCT_WORKER: ${{ github.workspace }}/app/src/adapters/occt/worker/occt-worker.py
+        run: |
+          npm run dev -- --webpack -p 3000 &
+          DEV_PID=$!
+          for i in $(seq 1 60); do
+            if curl -sS -o /dev/null http://localhost:3000/ 2>/dev/null; then break; fi
+            sleep 2
+          done
+          sleep 3
+          python3 /dev/stdin <<'PYEOF'
+          import json, urllib.request
+
+          def send(body):
+              req = urllib.request.Request(
+                  "http://localhost:3000/api/cad",
+                  data=json.dumps({"api": "1", "body": body}).encode(),
+                  headers={"Content-Type": "application/json"},
+                  method="POST",
+              )
+              with urllib.request.urlopen(req, timeout=60) as r:
+                  return json.loads(r.read())
+
+          def cmd(name, payload): return send({"type": "command", "name": name, "payload": payload})
+          def q(name, payload): return send({"type": "query", "name": name, "payload": payload})
+          ok = lambda r: r.get("ok") is True
+
+          # The representative 2D drafting workflow through the shared App API.
+          assert ok(cmd("document.create", {"entityId": "ci-compat-cad-001"})), "create"
+          r = cmd("drafting.addLayer", {"name": "walls", "color": "#b91c1c"})
+          assert ok(r) and r["value"]["layerId"] == "ly-000001", r
+          r = cmd("drafting.addLayer", {"name": "construction"})
+          assert ok(r) and r["value"]["layerId"] == "ly-000002", r
+          assert ok(cmd("drafting.updateLayer", {"layerId": "ly-000002", "patch": {"visible": False}})), "hide layer"
+          r = cmd("drafting.createEntities", {"entities": [
+              {"type": "line", "layer": "ly-000001", "from": [0, 0], "to": [100, 0]},
+              {"type": "line", "layer": "ly-000001", "from": [100, 0], "to": [100, 60]},
+              {"type": "polyline", "layer": "ly-000001", "points": [[0, 0], [0, 60], [100, 60]]},
+              {"type": "circle", "layer": "0", "center": [50, 30], "radius": 12},
+              {"type": "arc", "layer": "0", "center": [50, 30], "radius": 20, "startAngle": 0, "endAngle": 3.141592653589793},
+              {"type": "rectangle", "layer": "ly-000001", "corner1": [10, 10], "corner2": [30, 25]},
+          ]})
+          assert ok(r) and r["value"]["created"] == ["el-000001", "el-000002", "el-000003", "el-000004", "el-000005", "el-000006"], r["value"]
+          r = cmd("drafting.createEntities", {"entities": [
+              {"type": "dim-linear", "layer": "0", "p1": [0, 0], "p2": [100, 0], "mode": "aligned", "offset": -8},
+              {"type": "dim-radius", "layer": "0", "target": "el-000004"},
+          ]})
+          assert ok(r) and len(r["value"]["created"]) == 2, r
+          els = {e["id"]: e for e in q("document.getState", {})["value"]["elements"]}
+          assert els["el-000007"]["props"]["measured"] == 100.0, els["el-000007"]["props"]
+          assert els["el-000008"]["props"]["measured"] == 12.0, els["el-000008"]["props"]
+
+          r = q("drafting.snap", {"point": [100.4, -0.1], "tolerance": 0.5})
+          assert ok(r) and r["value"]["best"]["kind"] == "endpoint" and r["value"]["best"]["point"] == [100, 0], r["value"]["best"]
+          r = cmd("drafting.createEntities", {"entities": [{"type": "line", "layer": "ly-000002", "from": [200, 200], "to": [300, 200]}]})
+          hidden_id = r["value"]["created"][0]
+          r = q("drafting.snap", {"point": [250.2, 200.2], "tolerance": 1, "kinds": ["on-object"]})
+          assert ok(r) and r["value"]["best"] is None, "hidden layers are not snappable"
+          assert ok(cmd("drafting.delete", {"ids": [hidden_id]}))
+
+          assert ok(cmd("drafting.move", {"ids": ["el-000006"], "dx": 5, "dy": 5}))
+          els = {e["id"]: e for e in q("document.getState", {})["value"]["elements"]}
+          assert els["el-000006"]["props"]["corner1"] == [15, 15], els["el-000006"]["props"]
+          r = cmd("drafting.copy", {"ids": ["el-000006"], "dx": 40, "dy": 0})
+          copy_id = r["value"]["created"][0]
+          assert copy_id.startswith("el-"), copy_id
+          assert ok(cmd("drafting.delete", {"ids": [copy_id]}))
+
+          r = cmd("drafting.createEntities", {"entities": [
+              {"type": "line", "layer": "0", "from": [0, 80], "to": [120, 80]},
+              {"type": "line", "layer": "0", "from": [60, 60], "to": [60, 100]},
+          ]})
+          target = r["value"]["created"][0]
+          r = cmd("drafting.trim", {"targetId": target, "pick": [90, 80]})
+          assert ok(r) and r["value"]["applied"] is True, r
+          els = {e["id"]: e for e in q("document.getState", {})["value"]["elements"]}
+          assert els[target]["props"]["to"] == [60, 80], els[target]["props"]
+          r = cmd("drafting.createEntities", {"entities": [{"type": "line", "layer": "0", "from": [130, -20], "to": [130, 20]}]})
+          r = cmd("drafting.extend", {"targetId": "el-000001", "pick": [95, 0]})
+          assert ok(r) and r["value"]["applied"] is True, r
+          els = {e["id"]: e for e in q("document.getState", {})["value"]["elements"]}
+          assert els["el-000001"]["props"]["to"] == [130, 0], els["el-000001"]["props"]
+
+          assert ok(cmd("document.undo", {}))
+          els = {e["id"]: e for e in q("document.getState", {})["value"]["elements"]}
+          assert els["el-000001"]["props"]["to"] == [100, 0], "undo reverts the extend"
+          assert ok(cmd("document.redo", {}))
+
+          assert ok(cmd("drafting.setSettings", {"settings": {"snap": {"tolerance": 0.25}, "view": {"pan": [12, -4], "zoom": 1.75}}}))
+          assert ok(cmd("document.setSelection", {"ids": ["el-000001", "el-000004"]}))
+          saved = cmd("document.save", {})["value"]["bytes"]
+          events_hash = q("model.getGraphEvents", {})["value"]["events_hash"]
+          r = cmd("document.open", {"source": saved})
+          assert ok(r), r
+          st = r["value"]
+          assert [l["id"] for l in st["layers"]] == ["0", "ly-000001", "ly-000002"], st["layers"]
+          assert st["selection"] == ["el-000001", "el-000004"], st["selection"]
+          assert st["draftingSettings"]["snap"]["tolerance"] == 0.25, st["draftingSettings"]
+          assert st["draftingSettings"]["view"]["zoom"] == 1.75
+          assert st["draftingSettings"]["snap"]["enabled"] is True, "partial settings merge keeps siblings"
+          # versioned commands: 2 addLayer + updateLayer + 3 createEntities + hidden create/delete
+          # + move + copy + delete + cut create + trim + far create + extend + undo + redo = 16
+          assert len(st["modelHistory"]["revisions"]) == 16, len(st["modelHistory"]["revisions"])
+          assert q("model.getGraphEvents", {})["value"]["events_hash"] == events_hash, "events hash identical after reopen"
+          h = q("model.getHistory", {})["value"]
+          assert h["next_layer_sequence"] == 3, h["next_layer_sequence"]
+          r = q("model.replay", {"revision_number": len(st["modelHistory"]["revisions"])})
+          assert ok(r) and r["value"]["verified"] is True, "full-history replay verifies"
+          # engine-free provenance in the graph stream
+          ev = q("model.getGraphEvents", {})["value"]["events"]
+          added = [p for e in ev for p in e["payload"]["elements"] if p["change"] == "added"]
+          assert all(p["engineId"] is None for p in added), "drafting provenance is engine-free"
+          print("WEB HOST DRAFTING SMOKE PASS: layers+entities+dims+snap+move/copy+trim/extend+undo/redo+save/open; events_hash=" + events_hash[:16] + "...")
+          PYEOF
+          kill $DEV_PID || true
+
+  electron-host-drafting:
+    name: Electron host (build + regression smokes + drafting smoke)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/electron/package.json
+
+      - name: Set up Python (pinned toolchain)
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install the pinned OCCT engine (cadquery-ocp)
+        run: pip install cadquery-ocp==7.8.1.1.post1
+
+      - name: Install Electron runtime system libraries (xvfb + chromium deps)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends xvfb \
+            libnss3 libatk1.0-0 libatk-bridge2.0-0 libcups2 libxkbcommon0 \
+            libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 \
+            libpango-1.0-0 libcairo2
+          sudo apt-get install -y --no-install-recommends libasound2t64 || \
+            sudo apt-get install -y --no-install-recommends libasound2
+
+      - name: Install Electron host deps
+        working-directory: apps/electron
+        run: npm install
+
+      - name: Electron host typecheck (tsc --noEmit)
+        working-directory: apps/electron
+        run: npm run typecheck
+
+      - name: Electron host build (esbuild)
+        working-directory: apps/electron
+        run: npm run build
+
+      - name: Engine-free regression smoke (CAD-IMPLEMENT-001)
+        working-directory: apps/electron
+        run: npm run smoke
+
+      - name: Real-engine geometry regression smoke (CAD-IMPLEMENT-002)
+        working-directory: apps/electron
+        env:
+          OFFISOS_OCCT_WORKER: ${{ github.workspace }}/app/src/adapters/occt/worker/occt-worker.py
+        run: npm run smoke:geometry
+
+      - name: Model revisions + Graph bridge regression smoke (CAD-IMPLEMENT-003)
+        working-directory: apps/electron
+        run: npm run smoke:model
+
+      - name: 2D drafting workflow smoke (COMPAT-CAD-001, engine-free)
+        working-directory: apps/electron
+        run: npm run smoke:drafting
+
+      - name: Upload Electron smoke evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: compat-cad-001-electron-smoke
+          path: apps/electron/dist
+          if-no-files-found: warn

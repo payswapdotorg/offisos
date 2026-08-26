@@ -37,3 +37,14 @@ export {
   validateModelHistory,
   verifiedReplay,
 } from "./history.js";
+// COMPAT-CAD-001: drafting workspace state (layers + settings).
+export {
+  DEFAULT_LAYER,
+  DEFAULT_LAYER_ID,
+  SNAP_KIND_PRIORITY,
+  canonicalSnapKinds,
+  defaultDraftingSettings,
+  deriveLayerSequence,
+  validateDraftingSettings,
+  validateLayerRecord,
+} from "./workspace.js";

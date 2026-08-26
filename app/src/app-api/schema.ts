@@ -142,6 +142,129 @@ export const COMMAND_PAYLOAD_SCHEMAS: Readonly<Record<CommandName, object>> = {
       },
     },
   },
+  // --- COMPAT-CAD-001 (additive, api-contract.md §8): 2D drafting surface.
+  // Entity inputs mirror src/drafting/entities.ts (validated strictly by the
+  // handler — the schema is the coarse wire shape).
+  "drafting.createEntities": {
+    type: "object",
+    properties: {
+      entities: {
+        type: "array",
+        minItems: 1,
+        items: {
+          type: "object",
+          properties: {
+            id: { type: "string" },
+            type: {
+              type: "string",
+              enum: ["line", "polyline", "circle", "arc", "rectangle", "dim-linear", "dim-radius"],
+            },
+            layer: { type: "string" },
+            from: { $ref: "#/$defs/vec2" },
+            to: { $ref: "#/$defs/vec2" },
+            points: { type: "array", minItems: 2, items: { $ref: "#/$defs/vec2" } },
+            closed: { type: "boolean" },
+            center: { $ref: "#/$defs/vec2" },
+            radius: { type: "number", exclusiveMinimum: 0 },
+            startAngle: { type: "number" },
+            endAngle: { type: "number" },
+            corner1: { $ref: "#/$defs/vec2" },
+            corner2: { $ref: "#/$defs/vec2" },
+            p1: { $ref: "#/$defs/vec2" },
+            p2: { $ref: "#/$defs/vec2" },
+            mode: { type: "string", enum: ["aligned", "horizontal", "vertical"] },
+            offset: { type: "number" },
+            target: { type: "string" },
+          },
+          required: ["type"],
+        },
+      },
+    },
+    required: ["entities"],
+    $defs: {
+      vec2: { type: "array", items: { type: "number" }, minItems: 2, maxItems: 2 },
+    },
+  },
+  "drafting.move": {
+    type: "object",
+    properties: {
+      ids: { type: "array", minItems: 1, items: { type: "string" } },
+      dx: { type: "number" },
+      dy: { type: "number" },
+    },
+    required: ["ids", "dx", "dy"],
+  },
+  "drafting.copy": {
+    type: "object",
+    properties: {
+      ids: { type: "array", minItems: 1, items: { type: "string" } },
+      dx: { type: "number" },
+      dy: { type: "number" },
+    },
+    required: ["ids", "dx", "dy"],
+  },
+  "drafting.delete": {
+    type: "object",
+    properties: {
+      ids: { type: "array", minItems: 1, items: { type: "string" } },
+    },
+    required: ["ids"],
+  },
+  "drafting.trim": {
+    type: "object",
+    properties: {
+      targetId: { type: "string" },
+      pick: { type: "array", items: { type: "number" }, minItems: 2, maxItems: 2 },
+    },
+    required: ["targetId", "pick"],
+  },
+  "drafting.extend": {
+    type: "object",
+    properties: {
+      targetId: { type: "string" },
+      pick: { type: "array", items: { type: "number" }, minItems: 2, maxItems: 2 },
+    },
+    required: ["targetId", "pick"],
+  },
+  "drafting.setSettings": {
+    type: "object",
+    properties: {
+      settings: { type: "object" },
+    },
+    required: ["settings"],
+  },
+  "drafting.addLayer": {
+    type: "object",
+    properties: {
+      name: { type: "string", minLength: 1 },
+      color: { type: "string", pattern: "^#[0-9a-fA-F]{6}$" },
+      visible: { type: "boolean" },
+    },
+    required: ["name"],
+  },
+  "drafting.updateLayer": {
+    type: "object",
+    properties: {
+      layerId: { type: "string" },
+      patch: {
+        type: "object",
+        properties: {
+          name: { type: "string", minLength: 1 },
+          color: { type: "string", pattern: "^#[0-9a-fA-F]{6}$" },
+          visible: { type: "boolean" },
+        },
+        minProperties: 1,
+      },
+    },
+    required: ["layerId", "patch"],
+  },
+  "drafting.removeLayer": {
+    type: "object",
+    properties: {
+      layerId: { type: "string" },
+    },
+    required: ["layerId"],
+  },
 };
 
 export const QUERY_PAYLOAD_SCHEMAS: Readonly<Record<QueryName, object>> = {
@@ -168,6 +291,26 @@ export const QUERY_PAYLOAD_SCHEMAS: Readonly<Record<QueryName, object>> = {
     properties: {
       revision_number: { type: "number", minimum: 1 },
     },
+  },
+  // COMPAT-CAD-001 (additive): deterministic snap resolution. Tolerance,
+  // kinds and gridSize default to the document's drafting settings.
+  "drafting.snap": {
+    type: "object",
+    properties: {
+      point: { type: "array", items: { type: "number" }, minItems: 2, maxItems: 2 },
+      tolerance: { type: "number", exclusiveMinimum: 0 },
+      kinds: {
+        type: "array",
+        minItems: 1,
+        items: {
+          type: "string",
+          enum: ["endpoint", "intersection", "center", "midpoint", "quadrant", "on-object", "grid"],
+        },
+      },
+      gridSize: { type: "number", exclusiveMinimum: 0 },
+      exclude: { type: "array", items: { type: "string" } },
+    },
+    required: ["point"],
   },
 };
 

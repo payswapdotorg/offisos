@@ -91,6 +91,10 @@ export interface ModelHistory {
    *  (`el-000001`, …). Never reused, so minted identities stay stable and
    *  collision-free across revisions and sessions. */
   readonly next_element_sequence: number;
+  /** COMPAT-CAD-001 (additive + optional): monotonic counter for
+   *  document-minted canonical layer ids (`ly-000001`, …). Never reused —
+   *  mirrors `next_element_sequence`. Absent on legacy histories. */
+  readonly next_layer_sequence?: number;
   /** Append-only revision log (revisions[i].revision_number === i + 1). */
   readonly revisions: readonly ModelRevision[];
 }

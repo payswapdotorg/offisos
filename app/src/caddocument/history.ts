@@ -111,6 +111,9 @@ export interface RecordRevisionInput {
   readonly afterElements: readonly Element[];
   /** Current mint-sequence counter (persisted on the history). */
   readonly nextElementSequence: number;
+  /** COMPAT-CAD-001: current layer mint-sequence counter (persisted on the
+   *  history; never-reused `ly-NNNNNN` identities). */
+  readonly nextLayerSequence: number;
 }
 
 /** Append one immutable revision to a history (returns a NEW frozen
@@ -137,6 +140,7 @@ export function appendRevision(input: RecordRevisionInput): ModelHistory {
     formatVersion: history.formatVersion,
     base: history.base,
     next_element_sequence: Math.max(history.next_element_sequence, input.nextElementSequence),
+    next_layer_sequence: Math.max(history.next_layer_sequence ?? 1, input.nextLayerSequence),
     revisions: deepFreeze([...history.revisions, revision]),
   });
 }
@@ -154,6 +158,7 @@ export function createdHistory(entityId: string, format: string, formatVersion: 
       sourceArtifactLineage: [],
     }),
     next_element_sequence: 1,
+    next_layer_sequence: 1,
     revisions: [],
   });
 }
@@ -179,6 +184,7 @@ export function openedHistory(
       sourceArtifactLineage: [...lineage],
     }),
     next_element_sequence: deriveElementSequence(elements),
+    next_layer_sequence: 1,
     revisions: [],
   });
 }
@@ -196,7 +202,14 @@ export function deriveElementSequence(elements: readonly Element[]): number {
 // --- Deterministic historical replay ----------------------------------------
 
 /** Apply a DocumentEdit to a mutable element map (mirrors CADDocument.applyEdit
- *  semantics; throws on missing operands — no guessed state, LOCK-007). */
+ *  semantics; throws on missing operands — no guessed state, LOCK-007).
+ *
+ *  COMPAT-CAD-001: `applyEdits` batches fold their sub-edits in order;
+ *  layer-table edits (addLayer/updateLayer/removeLayer) are element-set
+ *  NO-OPS by design — the layer table is snapshot-carried workspace
+ *  structure whose lineage lives in the recorded applied edits, and the
+ *  replay/verification contract is the ELEMENT content hash. Their operands
+ *  are still structurally validated (LOCK-007). */
 export function applyEditToElements(map: Map<string, Element>, edit: DocumentEdit): void {
   switch (edit.type) {
     case "addElement": {
@@ -231,9 +244,26 @@ export function applyEditToElements(map: Map<string, Element>, edit: DocumentEdi
       map.set(edit.elementId, { ...el, props: edit.patch });
       break;
     }
+    case "applyEdits": {
+      if (edit.edits.length === 0) throw new Error("replay: applyEdits requires at least one sub-edit");
+      for (const sub of edit.edits) applyEditToElements(map, sub);
+      break;
+    }
+    case "addLayer": {
+      if (edit.layer === undefined) throw new Error("replay: addLayer requires layer");
+      break; // layer-table edit: element-set no-op (see doc comment)
+    }
+    case "updateLayer": {
+      if (edit.layerId === undefined) throw new Error("replay: updateLayer requires layerId");
+      break; // layer-table edit: element-set no-op
+    }
+    case "removeLayer": {
+      if (edit.layerId === undefined) throw new Error("replay: removeLayer requires layerId");
+      break; // layer-table edit: element-set no-op
+    }
     default: {
-      const _exhaustive: never = edit.type;
-      throw new Error(`replay: unreachable edit type: ${_exhaustive}`);
+      const _exhaustive = edit satisfies never;
+      throw new Error(`replay: unreachable edit type: ${JSON.stringify(_exhaustive)}`);
     }
   }
 }
@@ -304,12 +334,31 @@ function isValidDelta(v: unknown): boolean {
 
 function isValidDocumentEdit(v: unknown): boolean {
   if (!isPlainObject(v)) return false;
-  if (v.type !== "addElement" && v.type !== "removeElement" && v.type !== "updateElement" && v.type !== "setProps") {
+  // COMPAT-CAD-001 additive edit types share the structural contract.
+  if (
+    v.type !== "addElement" && v.type !== "removeElement" && v.type !== "updateElement" &&
+    v.type !== "setProps" && v.type !== "applyEdits" &&
+    v.type !== "addLayer" && v.type !== "updateLayer" && v.type !== "removeLayer"
+  ) {
     return false;
   }
   if (v.elementId !== undefined && typeof v.elementId !== "string") return false;
   if (v.element !== undefined && !isPlainObject(v.element)) return false;
   if (v.patch !== undefined && !isPlainObject(v.patch)) return false;
+  if (v.type === "applyEdits") {
+    return Array.isArray(v.edits) && v.edits.length > 0 && v.edits.every((sub) => isValidDocumentEdit(sub));
+  }
+  if (v.type === "addLayer") {
+    if (!isPlainObject(v.layer)) return false;
+    const l = v.layer as Record<string, unknown>;
+    return (
+      typeof l.id === "string" && l.id.length > 0 &&
+      typeof l.name === "string" && typeof l.color === "string" && typeof l.visible === "boolean"
+    );
+  }
+  if (v.type === "updateLayer" || v.type === "removeLayer") {
+    return typeof v.layerId === "string" && v.layerId.length > 0;
+  }
   return true;
 }
 
@@ -350,6 +399,14 @@ export function validateModelHistory(history: unknown): asserts history is Model
     history.next_element_sequence < 1
   ) {
     throw new Error("modelHistory.next_element_sequence must be a positive integer");
+  }
+  if (
+    history.next_layer_sequence !== undefined &&
+    (typeof history.next_layer_sequence !== "number" ||
+      !Number.isInteger(history.next_layer_sequence) ||
+      history.next_layer_sequence < 1)
+  ) {
+    throw new Error("modelHistory.next_layer_sequence must be a positive integer when present");
   }
   if (!Array.isArray(history.revisions)) throw new Error("modelHistory.revisions must be an array");
   for (const [i, rev] of history.revisions.entries()) {

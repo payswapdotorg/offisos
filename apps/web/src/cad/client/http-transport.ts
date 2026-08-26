@@ -347,6 +347,55 @@ export function unwrapSaveBytes(res: CommandQueryResponse): { bytes: number[]; f
   return null;
 }
 
+
+// --- COMPAT-CAD-001: 2D drafting through the shared App API ----------------
+
+export interface DraftingOpResult {
+  applied: boolean;
+  reason?: string;
+  summary?: string;
+  created?: string[];
+}
+
+export async function draftingCreate(entities: unknown[]): Promise<CommandQueryResponse> {
+  return command("drafting.createEntities", { entities });
+}
+
+export async function draftingOp(
+  name: "drafting.move" | "drafting.copy" | "drafting.delete" | "drafting.trim" | "drafting.extend",
+  payload: Record<string, unknown>,
+): Promise<CommandQueryResponse> {
+  return command(name, payload);
+}
+
+export async function draftingAddLayer(payload: { name: string; color?: string }): Promise<CommandQueryResponse> {
+  return command("drafting.addLayer", payload);
+}
+
+export async function draftingUpdateLayer(layerId: string, patch: Record<string, unknown>): Promise<CommandQueryResponse> {
+  return command("drafting.updateLayer", { layerId, patch });
+}
+
+export async function draftingRemoveLayer(layerId: string): Promise<CommandQueryResponse> {
+  return command("drafting.removeLayer", { layerId });
+}
+
+export async function draftingSetSettings(settings: Record<string, unknown>): Promise<CommandQueryResponse> {
+  return command("drafting.setSettings", { settings });
+}
+
+export async function draftingSnap(payload: Record<string, unknown>): Promise<CommandQueryResponse> {
+  return query("drafting.snap", payload);
+}
+
+/** Extract a DraftingOpResult from an ok response (defensive). */
+export function unwrapDraftingOp(res: CommandQueryResponse): DraftingOpResult | null {
+  if (!res.ok) return null;
+  const v = res.value as Partial<DraftingOpResult> | null;
+  if (typeof v !== "object" || v === null || typeof v.applied !== "boolean") return null;
+  return v as DraftingOpResult;
+}
+
 export type {
   CADDocumentSnapshot,
   DocumentEdit,

@@ -2,7 +2,7 @@
   "name": "@offisos/electron-host",
   "version": "0.1.0",
   "private": true,
-  "description": "CAD-IMPLEMENT-001 / Issue #24 remediation (CHANGES_REQUESTED): real Electron host. Electron main -> BrowserWindow -> shared renderer -> native/local IPC transport -> shared CAD App API (AppApiHandler) -> dummy adapter. Mirrors the Web host chain. No FreeCAD/OCCT/IfcOpenShell coupling (LOCK-003/018). Architecture v1.1 FROZEN.",
+  "description": "CAD-IMPLEMENT-001 / Issue #24 remediation (CHANGES_REQUESTED): real Electron host (drafting smoke: COMPAT-CAD-001 / Issue #37). Electron main -> BrowserWindow -> shared renderer -> native/local IPC transport -> shared CAD App API (AppApiHandler) -> dummy adapter. Mirrors the Web host chain. No FreeCAD/OCCT/IfcOpenShell coupling (LOCK-003/018). Architecture v1.1 FROZEN.",
   "main": "dist/main/main.cjs",
   "scripts": {
     "clean": "rm -rf dist",
@@ -12,7 +12,8 @@
     "smoke": "node test/smoke.mjs",
     "smoke:geometry": "node test/smoke-geometry.mjs",
     "smoke:model": "node test/smoke-model.mjs",
-    "smoke:impact": "node test/smoke-impact.mjs"
+    "smoke:impact": "node test/smoke-impact.mjs",
+    "smoke:drafting": "node test/smoke-drafting.mjs"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",

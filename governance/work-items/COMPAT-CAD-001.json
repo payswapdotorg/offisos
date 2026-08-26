@@ -1,0 +1,146 @@
+{
+  "id": "COMPAT-CAD-001",
+  "title": "Core 2D drafting workflow on the verified CAD/BIM foundation",
+  "issue": 37,
+  "architecture_version": "1.1",
+  "requirements": [
+    "CAD-001"
+  ],
+  "dependencies": [
+    "RESEARCH-CAD-007"
+  ],
+  "objective": "Deliver a real, usable 2D drafting workflow on the verified shared CAD/BIM application shell, OCCT geometry adapter, persistent model/revision/Construction Graph bridge and engine-independent semantics: a 2D document/drafting workspace (canvas viewport, persistent layers, visibility/selection state, grid + snap configuration, coordinate entry/display, pan/zoom + persisted view), core drafting entities (line/polyline, circle/arc, rectangle, basic dimensions, entity properties + layer assignment), precision and snapping with declared tolerances and no silent approximation, editing (select/move/copy/delete, trim/extend where supported, property edits, undo/redo through the existing document command model, revision creation through the existing immutable history), persistence and downstream identity (save/open preserves entities, layers, ids, provenance and revision lineage; the Construction Graph bridge keeps using canonical editor/domain ids), with Web/Electron parity through the shared App API.",
+  "acceptance_criteria": [
+    "Representative 2D drafting benchmark can be created, edited, saved, reopened and versioned in Web and Electron.",
+    "Coordinate/precision behavior has deterministic numerical assertions with declared tolerances.",
+    "Layer visibility and entity selection persist through save/open.",
+    "At least one snap workflow is automated and deterministic.",
+    "Undo/redo and immutable revision history are exercised by tests.",
+    "No renderer/application direct imports of OCCT/FreeCAD/IfcOpenShell.",
+    "Construction Graph identity remains independent of engine GlobalIds.",
+    "Web and Electron produce equivalent semantic document/revision results.",
+    "CI reproduces the drafting tests and both host builds.",
+    "Existing CAD/BIM regression and feasibility evidence remains green.",
+    "No protected architecture paths are modified."
+  ],
+  "non_goals": [
+    "No full AutoCAD/Archicad parity.",
+    "No full BIM authoring.",
+    "No production IFC round-trip.",
+    "No advanced parametric constraint solver beyond the bounded drafting scope (dimensions measure at creation; no live re-computation).",
+    "No Project/scheduling implementation or research (explicitly deferred by the Architect).",
+    "No architecture modification (Architecture v1.1 stays frozen).",
+    "No approval or verification claim by implementation."
+  ],
+  "risk_assumptions": [
+    "Issue #37 + directive comment 5430189102 are the authoritative scope; the spec/work-items.md roadmap line for COMPAT-CAD-001 is a shorter summary (benchmark thresholds) — divergence flagged, not silently reconciled.",
+    "The layer table is versioned document STRUCTURE edited through the DocumentEdit command model (addLayer/updateLayer/removeLayer as additive edit types), but revision content hashes and replay verification remain ELEMENT-based: this preserves byte-compatibility with every recorded history from CAD-IMPLEMENT-003 and RESEARCH-CAD-007 (zero risk to existing evidence) at the cost of layer-table lineage living in the recorded applied edits rather than in the content hash; the layer counter next_layer_sequence is persisted on the history so ly- identities are never reused.",
+    "Entity selection persistence through save/open supersedes the legacy 'open clears selection' behavior per the Issue #37 acceptance criteria; the legacy behavior applies only to snapshots without a persisted selection.",
+    "The parity content hash now covers persisted workspace content only (version, format/lineage, elements, layers, drafting settings); model history, selection and ephemeral editor state (undo flags) are excluded by design — existing histories and event streams are unaffected.",
+    "2D drafting is engine-free by design: drafting entities carry engineId null and the drafting core is pure TypeScript inside the LOCK-018-scanned protected set; the OCCT adapter boundary is untouched and governs 3D solids exactly as before.",
+    "Trim/extend support line targets only (the declared supported set for this slice); trim/extend on other entity types fail with a typed drafting_unsupported error, and boundary-less picks return honest no-op reasons.",
+    "Dimensions store measured values computed deterministically at creation (aligned/horizontal/vertical modes; radius from the referenced entity); they do not live-update (parametric constraints are an explicit non-goal).",
+    "CAD-IMPLEMENT-001/002 remain at PR_OPEN (existing governance debt, untouched); PR #30 remains open and unmodified.",
+    "Architecture v1.1 is active and frozen."
+  ],
+  "evidence": [
+    {
+      "id": "EV-001",
+      "type": "automated-test-suite",
+      "description": "190/190 app tests with the real OCCT toolchain locally (139 existing CAD/BIM tests stay green + 51 new deterministic drafting tests: entities 12, geom2d 10, snap 12, editops 12, workflow 3, host-parity 2), including declared-tolerance coordinate assertions, deterministic snap ranking, trim/extend exact coordinates, revision/replay verification and Web/Electron host parity through the real transports.",
+      "produced_at": "2026-08-26T20:55:00Z",
+      "reproducible": true,
+      "references": {
+        "commit": "4683aedf00e5f7ea3aa30fd772d8f0b31c56d875"
+      }
+    },
+    {
+      "id": "EV-002",
+      "type": "inspectable-artifact",
+      "description": "Deployable host proofs: the Web host lint/typecheck/build clean and a live dev-server HTTP smoke drives the full drafting workflow (layers, 6 entity types, dimensions, snap, move/copy/delete, trim/extend exact coordinates, undo/redo, save/open with identical graph events hash); the Electron host build + typecheck clean and the new --smoke-drafting BrowserWindow smoke passes 13/13 steps engine-free, with the smoke + smoke:model regressions green.",
+      "produced_at": "2026-08-26T20:55:00Z",
+      "reproducible": true,
+      "references": {
+        "commit": "4683aedf00e5f7ea3aa30fd772d8f0b31c56d875",
+        "artifact_path": "apps/electron/dist/smoke-drafting-result.json"
+      }
+    },
+    {
+      "id": "EV-003",
+      "type": "ci-run",
+      "description": "Pre-merge drafting CI green on the exact PR head 5eb0597: compat-cad-001 run 33010907857 (drafting-shell 190 tests on the OCCT 7.8.1.1 toolchain + LOCK-018 scan incl. src/drafting + engine pin; web-host-drafting build + dev-server drafting smoke; electron-host-drafting build + 3 regression smokes + the 13-step BrowserWindow drafting smoke) plus ALL regression workflows green on the same head: governance 33010907865, cad-implement-001 33010907797, cad-implement-002 33010907769, cad-implement-003 33010907838, research-cad-007 33010907835.",
+      "produced_at": "2026-08-26T21:35:00Z",
+      "reproducible": true,
+      "references": {
+        "commit": "5eb0597e2cbdb4c29c75de30eb41705553a595c3",
+        "workflow_run": "33010907857",
+        "pr": 38
+      }
+    }
+  ],
+  "decisions": [],
+  "transitions": [
+    {
+      "from": "DRAFT",
+      "to": "READY",
+      "at": "2026-08-26T19:31:48Z",
+      "actor": "pectoraux",
+      "role": "architect",
+      "reason": "Issue #37 opened with the COMPAT-CAD-001 scope; Architecture v1.1 stays frozen, Construction Graph stays canonical, geometry stays behind the frozen adapter boundary, Web/Electron share the same contracts.",
+      "references": {
+        "issue": 37
+      }
+    },
+    {
+      "from": "READY",
+      "to": "ASSIGNED",
+      "at": "2026-08-26T19:37:36Z",
+      "actor": "pectoraux",
+      "role": "architect",
+      "reason": "Architect execution directive (comment 5430189102): branch work/compat-cad-001-2d-drafting created from the verified main line; implement the 2D drafting milestone only; Project/scheduling stays deferred.",
+      "references": {
+        "issue": 37,
+        "assignee": "z-ai-implementation-agent"
+      }
+    },
+    {
+      "from": "ASSIGNED",
+      "to": "IMPLEMENTING",
+      "at": "2026-08-26T19:55:00Z",
+      "actor": "z-ai-implementation-agent",
+      "role": "implementer",
+      "reason": "2D drafting implementation started on the assigned branch (core contracts → document/history extension → drafting core → App API → hosts → CI).",
+      "references": {
+        "issue": 37
+      }
+    },
+    {
+      "from": "IMPLEMENTING",
+      "to": "PR_OPEN",
+      "at": "2026-08-26T21:36:00Z",
+      "actor": "z-ai-implementation-agent",
+      "role": "implementer",
+      "reason": "Evidence package complete and PR #38 opened; all CI workflows green on the PR head.",
+      "references": {
+        "pr": 38,
+        "issue": 37,
+        "evidence": [
+          "EV-001",
+          "EV-002",
+          "EV-003"
+        ],
+        "commit": "5eb0597e2cbdb4c29c75de30eb41705553a595c3"
+      }
+    }
+  ],
+  "state": "PR_OPEN",
+  "evidence_requirements": [
+    "Deterministic drafting tests with declared tolerances.",
+    "Save/open and revision evidence.",
+    "Web and Electron host parity through the shared App API.",
+    "Adapter isolation (no engine imports in renderer/application/drafting core).",
+    "Construction Graph identity independent of engine GlobalIds.",
+    "CI reproducing the drafting tests and both host builds.",
+    "Existing CAD/BIM regression and feasibility evidence staying green."
+  ]
+}

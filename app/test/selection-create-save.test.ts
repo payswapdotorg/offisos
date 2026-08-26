@@ -178,13 +178,17 @@ test("create -> applyEdit -> save -> open -> edit -> undo -> redo end-to-end on 
   await web.execute(cmd("document.setSelection", { ids: ["b1"] }));
   const saved = val<{ bytes: number[] }>(await web.execute(cmd("document.save", {})));
   assert.ok(saved.bytes.length > 0);
-  // open the saved doc in a second handler + verify selection was NOT persisted
+  // open the saved doc in a second handler + verify selection WAS persisted
+  // (COMPAT-CAD-001 contract change: the acceptance criteria require entity
+  //  selection to persist through save/open — the snapshot carries it; the
+  //  legacy "open clears selection" behavior applied only to snapshots
+  //  without a persisted selection, e.g. legacy artifacts.)
   const handler2 = AppApiHandler.create(CONFIG);
   const web2 = createRenderer(new WebHost(new WebSocketTransport(handler2)));
   const opened = await web2.execute(cmd("document.open", { source: saved.bytes }));
   assert.equal(opened.ok, true);
   const sel = val<string[]>(await web2.query(q("document.getSelection")));
-  assert.deepEqual(sel, [], "open must clear selection (selection is ephemeral)");
+  assert.deepEqual(sel, ["b1"], "open must restore the persisted selection (COMPAT-CAD-001)");
   // open clears the undo stack (correct: open = fresh document context). So to
   // exercise undo/redo on the reopened doc, do a NEW edit first, then undo it.
   assert.equal(val<boolean>(await web2.query(q("document.canUndo"))), false, "open clears undo stack");
