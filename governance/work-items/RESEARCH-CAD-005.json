@@ -4,238 +4,37 @@
   "issue": 5,
   "objective": "Determine whether the candidate CAD/BIM stack (FreeCAD 1.1.3 / OpenCascade, IfcOpenShell 0.8.5, behind the frozen adapter boundary) is operationally viable for representative ConstructionOS workloads by measuring performance, memory behavior, scalability, determinism, failure recovery and resource isolation across at least three fixture scales, separating engine performance from Offisos adapter/translation overhead, and producing evidence for the licensing/composition and implementation-path decision. This research gate does not establish final production thresholds (none are numerically defined in compatibility-matrix.md); it produces the raw, reproducible evidence for deciding whether future thresholds are realistic and whether the candidate remains viable behind the frozen adapter boundary.",
   "architecture_version": "1.1",
-  "requirements": [
-    "CAD-002",
-    "BIM-001",
-    "IFC-001",
-    "QTY-001",
-    "QTY-002"
-  ],
-  "dependencies": [
-    "RESEARCH-CAD-001",
-    "RESEARCH-CAD-002",
-    "RESEARCH-CAD-003",
-    "RESEARCH-CAD-004"
-  ],
-  "acceptance_criteria": [
-    "Reproducible benchmark harness exists for the scoped operations (application start/load; model open/import; geometry preparation; selection/query; parametric edit/recompute; boolean/geometry operations; IFC import/export; semantic extraction; quantity extraction; controlled save/reopen).",
-    "At least three fixture scales are exercised with documented characteristics (small architectural, medium construction, larger stress representative of anticipated professional use, plus IFC fixtures with increasing entity/geometry counts).",
-    "Import/export, recompute, semantic extraction and quantity extraction have measured timings.",
-    "Memory/resource behavior (peak RSS, file sizes, entity counts) is recorded for representative workloads.",
-    "Repeated-run variance and nondeterminism are measured or explicitly shown to be absent for deterministic operations (medians and distributions, not only best-case samples).",
-    "At least one failure/recovery scenario is exercised and documented (malformed fixtures, failed-operation recovery, cancellation/interruption, large-operation timeout, corruption/data-loss detection).",
-    "Evidence identifies any workload where the candidate exceeds available resources or becomes materially unstable.",
-    "Results identify concrete operational constraints needed by the adapter/worker boundary (process/thread isolation requirements, worker/native-worker execution, resource limits protecting the modular monolith).",
-    "Engine performance is separated from Offisos adapter/translation overhead in the measurements.",
-    "Recommendation is one of: (a) candidate remains operationally viable; (b) viable with explicit constraints; (c) rejected; (d) architecture change request required."
-  ],
-  "non_goals": [
-    "No production performance optimization.",
-    "No change to the frozen architecture (v1.1).",
-    "No claim that benchmark results generalize to every future model size.",
-    "No acceptance based solely on a single fast demo.",
-    "No final licensing/composition decision (separate downstream gate)."
-  ],
-  "risk_assumptions": [
-    "DEPENDENCY-GATE FLAG: per issue #5 this work item depends on RESEARCH-CAD-001 (VERIFIED), RESEARCH-CAD-002 (VERIFIED da85d8d), RESEARCH-CAD-003 (VERIFIED f1f900e) and RESEARCH-CAD-004 (MERGED as 93c5211 with green governance run #34 and research-cad-004 run #6 on the merge commit; VERIFIED not yet issued — no directive). The validator's dependency invariant will therefore report exactly one failing check until the Architect records the CAD-004 post-merge verification decision. The invariant is NOT weakened; resolution path: Architect records VERIFIED for RESEARCH-CAD-004 against merge revision 93c5211 (both workflows already green on that revision), after which governance validation turns fully green. The dependency-aware governance repository-integration tests derive this expected single failure independently. RESOLUTION (PR #22 disposition comment 5413846520, 2026-08-25T16:58:37Z): the Architect directed the formal post-merge verification of CAD-004 against 93c5211; the MERGED->VERIFIED transition is recorded in this revision (DEC-003 + EV-007 in the CAD-004 record, entered by the implementer on the explicit directive per the RESEARCH-CAD-001 DEC-003 provenance convention, subject to the Architect's review of the PR carrying it). The dependency invariant now evaluates green with no rule change.",
-    "Architecture version: this record targets v1.1 (active) per the execution directive ('Architecture: v1.1 frozen'); issue #5's 'Architecture v1.0 remains frozen' body text predates the ACR-002 merge (same superseded-wording situation as issue #4, recorded in RESEARCH-CAD-004).",
-    "Measurement environments differ between the local evidence run and CI (GitHub-hosted ubuntu-latest runners): the evidence states clearly where measurements are not comparable because of different execution environments; both environments run the identical pinned toolchain and identical fixtures, and the benchmark records an environment snapshot with every run.",
-    "FreeCAD GUI-dependent operations (rendering/view pipelines) are not measurable headless; geometry preparation is measured via the console-mode recompute/ tessellation paths and this limitation is recorded honestly rather than approximated.",
-    "Wall-clock timing assertions use distributional/regression bounds (orderings, ratios, coarse ceilings) rather than absolute time thresholds, because absolute thresholds are not defined by the compatibility matrix and hardware differs across environments."
-  ],
-  "evidence_requirements": [
-    "Exact engine/library versions, hardware, OS, runtime and benchmark configuration recorded for every run (environment snapshot).",
-    "Fixtures, scripts and raw measurement output stored reproducibly in the repository under research/cad-005/.",
-    "Medians and distributions for repeated operations where meaningful, not only best-case samples.",
-    "Failures and resource exhaustion recorded rather than omitted.",
-    "Engine time separated from Offisos adapter/translation overhead in the measurements.",
-    "Representative workloads compared across at least three fixture scales.",
-    "Clear statement where measurements are not comparable because of different execution environments."
-  ],
-  "state": "VERIFYING",
+  "requirements": ["CAD-002", "BIM-001", "IFC-001", "QTY-001", "QTY-002"],
+  "dependencies": ["RESEARCH-CAD-001", "RESEARCH-CAD-002", "RESEARCH-CAD-003", "RESEARCH-CAD-004"],
+  "acceptance_criteria": ["Reproducible benchmark harness exists for the scoped operations (application start/load; model open/import; geometry preparation; selection/query; parametric edit/recompute; boolean/geometry operations; IFC import/export; semantic extraction; quantity extraction; controlled save/reopen).", "At least three fixture scales are exercised with documented characteristics (small architectural, medium construction, larger stress representative of anticipated professional use, plus IFC fixtures with increasing entity/geometry counts).", "Import/export, recompute, semantic extraction and quantity extraction have measured timings.", "Memory/resource behavior (peak RSS, file sizes, entity counts) is recorded for representative workloads.", "Repeated-run variance and nondeterminism are measured or explicitly shown to be absent for deterministic operations (medians and distributions, not only best-case samples).", "At least one failure/recovery scenario is exercised and documented (malformed fixtures, failed-operation recovery, cancellation/interruption, large-operation timeout, corruption/data-loss detection).", "Evidence identifies any workload where the candidate exceeds available resources or becomes materially unstable.", "Results identify concrete operational constraints needed by the adapter/worker boundary (process/thread isolation requirements, worker/native-worker execution, resource limits protecting the modular monolith).", "Engine performance is separated from Offisos adapter/translation overhead in the measurements.", "Recommendation is one of: (a) candidate remains operationally viable; (b) viable with explicit constraints; (c) rejected; (d) architecture change request required."],
+  "non_goals": ["No production performance optimization.", "No change to the frozen architecture (v1.1).", "No claim that benchmark results generalize to every future model size.", "No acceptance based solely on a single fast demo.", "No final licensing/composition decision (separate downstream gate)."],
+  "risk_assumptions": ["HISTORICAL DEPENDENCY-GATE FLAG: CAD-005 originally depended on RESEARCH-CAD-004 being VERIFIED. That dependency was resolved by the Architect's post-merge verification of CAD-004 against 93c52111c292839d87b4d09b17a1686b8779f478, recorded in the CAD-004 record on PR #22 remediation. The dependency invariant is unchanged and evaluates green.", "Architecture version: this record targets v1.1 (active) per the execution directive ('Architecture: v1.1 frozen'); issue #5's 'Architecture v1.0 remains frozen' body text predates the ACR-002 merge (same superseded-wording situation as issue #4, recorded in RESEARCH-CAD-004).", "Measurement environments differ between the local evidence run and CI (GitHub-hosted ubuntu-latest runners): the evidence states clearly where measurements are not comparable because of different execution environments; both environments run the identical pinned toolchain and identical fixtures, and the benchmark records an environment snapshot with every run.", "FreeCAD GUI-dependent operations (rendering/view pipelines) are not measurable headless; geometry preparation is measured via the console-mode recompute/ tessellation paths and this limitation is recorded honestly rather than approximated.", "Wall-clock timing assertions use distributional/regression bounds (orderings, ratios, coarse ceilings) rather than absolute time thresholds, because absolute thresholds are not defined by the compatibility matrix and hardware differs across environments."],
+  "evidence_requirements": ["Exact engine/library versions, hardware, OS, runtime and benchmark configuration recorded for every run (environment snapshot).", "Fixtures, scripts and raw measurement output stored reproducibly in the repository under research/cad-005/.", "Medians and distributions for repeated operations where meaningful, not only best-case samples.", "Failures and resource exhaustion recorded rather than omitted.", "Engine time separated from Offisos adapter/translation overhead in the measurements.", "Representative workloads compared across at least three fixture scales.", "Clear statement where measurements are not comparable because of different execution environments."],
+  "state": "VERIFIED",
   "transitions": [
-    {
-      "from": "DRAFT",
-      "to": "READY",
-      "at": "2026-08-25T10:09:52Z",
-      "actor": "pectoraux",
-      "role": "architect",
-      "reason": "Architect execution directive on issue #5 (comment 5408877942): RESEARCH-CAD-005 is now the active substantive work item — reproducible CAD/BIM performance/scalability/operational-robustness benchmark only; no production optimization; no alteration of Architecture v1.1; evidence-based final recommendation; VERIFIED not to be claimed.",
-      "references": {
-        "issue": 5
-      }
-    },
-    {
-      "from": "READY",
-      "to": "ASSIGNED",
-      "at": "2026-08-25T10:09:52Z",
-      "actor": "pectoraux",
-      "role": "product-owner",
-      "reason": "Execution directive assigns the benchmark to the implementation agent; dependencies RESEARCH-CAD-001/002/003 VERIFIED and RESEARCH-CAD-004 MERGED (fixtures/results available per issue #5).",
-      "references": {
-        "issue": 5,
-        "assignee": "z-ai-implementation-agent"
-      }
-    },
-    {
-      "from": "ASSIGNED",
-      "to": "IMPLEMENTING",
-      "at": "2026-08-25T10:15:00Z",
-      "actor": "z-ai-implementation-agent",
-      "role": "implementer",
-      "reason": "Implementation started on branch work/research-cad-005-perf-robustness: RESEARCH-CAD-004 completion recorded first (DEC-002 approved + MERGED 93c5211 with EV-006 green-run evidence); building the tiered fixture corpus, the measurement harness with engine-vs-adapter separation, the robustness scenarios and the adapter/worker operational-behavior audit."
-    },
-    {
-      "from": "IMPLEMENTING",
-      "to": "PR_OPEN",
-      "at": "2026-08-25T11:35:00Z",
-      "actor": "z-ai-implementation-agent",
-      "role": "implementer",
-      "reason": "Evidence package complete; opened PR #22 for RESEARCH-CAD-005 (two focused commits: benchmark package + evidence run-001, governance record). Local validation: benchmark 83/0/0, deterministic tests 21/21, governance suite 58/58, typecheck clean; the validator reports exactly the one documented dependency-gate failure (RESEARCH-CAD-004 MERGED at 93c5211, VERIFIED reserved for the Architect) with the resolution path stated in the record's risk flags.",
-      "references": {
-        "pr": 22,
-        "evidence": [
-          "EV-001",
-          "EV-002"
-        ]
-      }
-    },
-    {
-      "from": "PR_OPEN",
-      "to": "VERIFYING",
-      "at": "2026-08-25T11:40:00Z",
-      "actor": "z-ai-implementation-agent",
-      "role": "implementer",
-      "reason": "Evidence package submitted for Architect review on PR #22: local full run 83/0/0 (EV-001), deterministic gate 21/21 (EV-002), CI reproduction on a different execution environment with the identical 83/0/0 result and artifact upload (EV-003). Governance CI on the PR head: tests 58/58 and typecheck green; the validate step carries exactly the one documented dependency-gate failure (CAD-004 MERGED at 93c5211) whose resolution is the Architect's post-merge verification decision. VERIFIED is not claimed.",
-      "references": {
-        "pr": 22,
-        "evidence": [
-          "EV-001",
-          "EV-002",
-          "EV-003"
-        ]
-      }
-    },
-    {
-      "from": "VERIFYING",
-      "to": "ARCHITECT_REVIEW",
-      "at": "2026-08-25T16:58:37Z",
-      "actor": "pectoraux",
-      "role": "architect",
-      "reason": "Architect took up review of the RESEARCH-CAD-005 evidence package on PR #22 (disposition comment 5413846520).",
-      "references": {
-        "evidence": [
-          "EV-001",
-          "EV-002",
-          "EV-003"
-        ]
-      }
-    },
-    {
-      "from": "ARCHITECT_REVIEW",
-      "to": "IMPLEMENTING",
-      "at": "2026-08-25T16:58:37Z",
-      "actor": "pectoraux",
-      "role": "architect",
-      "reason": "Per the Architect disposition on PR #22 (CHANGES REQUESTED — governance dependency only; disposition comment 5413846520, 2026-08-25T16:58:37Z): the CAD-005 evidence package is substantively satisfactory ('CAD/BIM remains operationally viable with explicit worker, isolation, cancellation, validation, and scalability constraints'); the recommendation (b) is supported by the evidence. The sole blocker is governance, not benchmark quality: RESEARCH-CAD-004 is merged at 93c5211 but not yet VERIFIED. Required remediation: formally post-merge verify RESEARCH-CAD-004 against 93c52111c292839d87b4d09b17a1686b8779f478, rebase/revalidate PR #22 on the resulting head, and rebind the final evidence to the resulting head. No CAD-005 architecture change is requested.",
-      "failure_reason": "Single governance dependency-gate failure: RESEARCH-CAD-004 MERGED at 93c5211, VERIFIED not yet issued by the Architect. The CAD-005 implementation itself needs no change; the remediation is the formal post-merge verification of CAD-004 against 93c5211 (both workflows already green on that revision) and the rebind of the final CAD-005 evidence to the resulting PR head. The dependency invariant is NOT weakened; the resolution path is the Architect's post-merge verification decision (DEC-003 in the CAD-004 record).",
-      "references": {
-        "decision": "DEC-001"
-      }
-    },
-    {
-      "from": "IMPLEMENTING",
-      "to": "PR_OPEN",
-      "at": "2026-08-25T18:37:16Z",
-      "actor": "z-ai-implementation-agent",
-      "role": "implementer",
-      "reason": "Remediation complete and pushed to PR #22: CAD-004 formally VERIFIED against merge commit 93c52111c292839d87b4d09b17a1686b8779f478 (DEC-003 + EV-007 in its record, per the disposition and the RESEARCH-CAD-001 DEC-003 provenance convention, entered by the implementer on the explicit directive, subject to the Architect's review of the PR carrying it); RESOLUTION note appended to CAD-005's risk_assumptions[0] dependency-gate flag; the dependency invariant is now satisfied with no rule change (rules.ts untouched). Local validation on the remediation commit 46494df: governance validator 93/93 exit 0 (the single CAD-004 dependency-gate failure cleared), governance test suite 58/58, typecheck clean, check-protected 1/1 PASS (records-only change touches no protected paths).",
-      "references": {
-        "pr": 22,
-        "commit": "46494dfd0d6062fd7d92ba4687240bc7d46e529b"
-      }
-    },
-    {
-      "from": "PR_OPEN",
-      "to": "VERIFYING",
-      "at": "2026-08-25T18:43:02Z",
-      "actor": "github-actions",
-      "role": "automation",
-      "reason": "Remediation validation on PR #22 head 46494df: governance workflow run #40 (https://github.com/pectoraux/offisos/actions/runs/32884815874, pull_request, completed 2026-08-25T18:37:39Z, success) — typecheck green, governance test suite 58/58, validator 93/93 exit 0 (the CAD-004 dependency-gate failure cleared by the VERIFIED record; the dependency invariant unchanged), protected-paths check executed and green. research-cad-005 workflow run #6 (https://github.com/pectoraux/offisos/actions/runs/32884815848, pull_request, completed 2026-08-25T18:43:02Z, success) — pinned toolchain installed (ifcopenshell 0.8.5, OCCT 7.8.1.1, FreeCAD 1.1.3 AppImage), 21/21 deterministic tests, full evidence run 83 pass / 0 fail / 0 unknown reproduced on a different execution environment, artifact uploaded. PR #22 mergeable_state=clean. The CAD-005 evidence package (with EV-004 rebound to the resulting head) is submitted for the Architect's re-review. VERIFIED is not claimed; final licensing/composition decision remains a separate downstream gate.",
-      "references": {
-        "evidence": [
-          "EV-001",
-          "EV-002",
-          "EV-003",
-          "EV-004"
-        ]
-      }
-    }
+    {"from":"DRAFT","to":"READY","at":"2026-08-25T10:09:52Z","actor":"pectoraux","role":"architect","reason":"Architect execution directive on issue #5 (comment 5408877942): RESEARCH-CAD-005 is now the active substantive work item — reproducible CAD/BIM performance/scalability/operational-robustness benchmark only; no production optimization; no alteration of Architecture v1.1; evidence-based final recommendation; VERIFIED not to be claimed.","references":{"issue":5}},
+    {"from":"READY","to":"ASSIGNED","at":"2026-08-25T10:09:52Z","actor":"pectoraux","role":"product-owner","reason":"Execution directive assigns the benchmark to the implementation agent; dependencies RESEARCH-CAD-001/002/003 VERIFIED and RESEARCH-CAD-004 MERGED (fixtures/results available per issue #5).","references":{"issue":5,"assignee":"z-ai-implementation-agent"}},
+    {"from":"ASSIGNED","to":"IMPLEMENTING","at":"2026-08-25T10:15:00Z","actor":"z-ai-implementation-agent","role":"implementer","reason":"Implementation started on branch work/research-cad-005-perf-robustness: RESEARCH-CAD-004 completion recorded first (DEC-002 approved + MERGED 93c5211 with EV-006 green-run evidence); building the tiered fixture corpus, the measurement harness with engine-vs-adapter separation, the robustness scenarios and the adapter/worker operational-behavior audit."},
+    {"from":"IMPLEMENTING","to":"PR_OPEN","at":"2026-08-25T11:35:00Z","actor":"z-ai-implementation-agent","role":"implementer","reason":"Evidence package complete; opened PR #22 for RESEARCH-CAD-005 (two focused commits: benchmark package + evidence run-001, governance record). Local validation: benchmark 83/0/0, deterministic tests 21/21, governance suite 58/58, typecheck clean; the validator reports exactly the one documented dependency-gate failure (RESEARCH-CAD-004 MERGED at 93c5211, VERIFIED reserved for the Architect) with the resolution path stated in the record's risk flags.","references":{"pr":22,"evidence":["EV-001","EV-002"]}},
+    {"from":"PR_OPEN","to":"VERIFYING","at":"2026-08-25T11:40:00Z","actor":"z-ai-implementation-agent","role":"implementer","reason":"Evidence package submitted for Architect review on PR #22: local full run 83/0/0 (EV-001), deterministic gate 21/21 (EV-002), CI reproduction on a different execution environment with the identical 83/0/0 result and artifact upload (EV-003). Governance CI on the PR head: tests 58/58 and typecheck green; the validate step carries exactly the one documented dependency-gate failure (CAD-004 MERGED at 93c5211) whose resolution is the Architect's post-merge verification decision. VERIFIED is not claimed.","references":{"pr":22,"evidence":["EV-001","EV-002","EV-003"]}},
+    {"from":"VERIFYING","to":"ARCHITECT_REVIEW","at":"2026-08-25T16:58:37Z","actor":"pectoraux","role":"architect","reason":"Architect took up review of the RESEARCH-CAD-005 evidence package on PR #22 (disposition comment 5413846520).","references":{"evidence":["EV-001","EV-002","EV-003"]}},
+    {"from":"ARCHITECT_REVIEW","to":"IMPLEMENTING","at":"2026-08-25T16:58:37Z","actor":"pectoraux","role":"architect","reason":"Per the Architect disposition on PR #22 (CHANGES REQUESTED — governance dependency only; disposition comment 5413846520, 2026-08-25T16:58:37Z): the CAD-005 evidence package is substantively satisfactory; the remaining blocker was governance, not benchmark quality. Required remediation was post-merge verification of CAD-004, revalidation, and evidence rebinding. No CAD-005 architecture change was requested.","failure_reason":"Single governance dependency-gate failure: RESEARCH-CAD-004 was MERGED at 93c5211 and required post-merge verification. The dependency invariant was not weakened.","references":{"decision":"DEC-001"}},
+    {"from":"IMPLEMENTING","to":"PR_OPEN","at":"2026-08-25T18:37:16Z","actor":"z-ai-implementation-agent","role":"implementer","reason":"Remediation complete and pushed to PR #22: CAD-004 formally VERIFIED against merge commit 93c52111c292839d87b4d09b17a1686b8779f478; dependency invariant satisfied with no rule change.","references":{"pr":22,"commit":"46494dfd0d6062fd7d92ba4687240bc7d46e529b"}},
+    {"from":"PR_OPEN","to":"VERIFYING","at":"2026-08-25T18:43:02Z","actor":"github-actions","role":"automation","reason":"Remediation validation on PR #22 head 46494df: governance run #40 and research-cad-005 run #6 both succeeded; governance validator 93/93 exit 0; research evidence reproduced 83/0/0.","references":{"evidence":["EV-001","EV-002","EV-003","EV-004"]}},
+    {"from":"VERIFYING","to":"ARCHITECT_REVIEW","at":"2026-08-25T19:31:32Z","actor":"pectoraux","role":"architect","reason":"Post-merge verification review of RESEARCH-CAD-005 against merge commit 719bd42c345f481d5da96e4fe971469a7cbbed21. Both post-merge workflows completed successfully: governance run #42 and research-cad-005 run #8.","references":{"evidence":["EV-005"]}},
+    {"from":"ARCHITECT_REVIEW","to":"APPROVED","at":"2026-08-25T19:31:32Z","actor":"pectoraux","role":"architect","reason":"Architect approval for post-merge verification: the merged revision 719bd42 reproduces the accepted CAD-005 evidence and passes governance validation. Verification is bound to the merged revision and its post-merge CI runs.","references":{"decision":"DEC-002","evidence":["EV-005"]}},
+    {"from":"APPROVED","to":"MERGED","at":"2026-08-25T19:31:32Z","actor":"product-owner","role":"product-owner","reason":"The product revision was already merged as 719bd42c345f481d5da96e4fe971469a7cbbed21; this transition records that authoritative merge event for the canonical lifecycle without introducing another product merge.","references":{"merge_commit":"719bd42c345f481d5da96e4fe971469a7cbbed21"}},
+    {"from":"MERGED","to":"VERIFIED","at":"2026-08-25T19:31:32Z","actor":"pectoraux","role":"architect","reason":"Formal post-merge verification of RESEARCH-CAD-005 against merge commit 719bd42c345f481d5da96e4fe971469a7cbbed21, backed by EV-005. The merged implementation satisfies the evidence and governance requirements; VERIFIED is now earned for this revision.","references":{"decision":"DEC-002","evidence":["EV-005"],"commit":"719bd42c345f481d5da96e4fe971469a7cbbed21"}}
   ],
   "evidence": [
-    {
-      "id": "EV-001",
-      "type": "benchmark-artifact",
-      "description": "Local full evidence run of the RESEARCH-CAD-005 benchmark (research/cad-005/evidence/run-001): 83 pass / 0 fail / 0 unknown across ten modules — fixture tiers, IFC engine operations (open/export/query with engine-vs-adapter split), OCCT booleans/tessellation/STEP-IO incl. the multi-tool boolean scaling cliff, FreeCAD document lifecycle in process-isolated FreeCADCmd (cold start 82-114ms, open/edit/recompute/save/reopen at 40/240/840-object tiers with child peak RSS), semantic+quantity extraction scaling, repeated-run variance (CV 4.1%/1.9%/0.9%) and result determinism, robustness (malformed input, typed failures, corruption, durable-write), cancellation (in-process non-preemptability proof, subprocess cancel/timeout, recovery), isolation (parent never imports FreeCAD, thread non-parallelism, resource exhaustion in both modes), and the adapter/worker constraint synthesis with the recommendation (b) viable with explicit constraints. Environment snapshot attached (2-core Xeon, pinned ifcopenshell 0.8.5 / OCCT 7.8.1.1 / FreeCAD 1.1.3).",
-      "produced_at": "2026-08-25T11:20:01Z",
-      "reproducible": true,
-      "reproduction": "cd research/cad-005 && make bench (CAD005_REPEATS=5 CAD005_DETERMINISM_REPEATS=10; resumable, CAD005_FRESH=1 resets); CI reproduces on push/PR via .github/workflows/research-cad-005.yml with artifact upload",
-      "references": {
-        "path": "research/cad-005/evidence/run-001/",
-        "artifact_path": "research/cad-005/report.md"
-      }
-    },
-    {
-      "id": "EV-002",
-      "type": "automated-test-suite",
-      "description": "Deterministic correctness gate for the benchmark machinery: 21/21 tests pass in ~7s (small tiers only, bounded repeats) — fixture structural determinism, engine/adapter split statistics, domain-index extraction, malformed-input typed failures + recovery, truncated-IFC partial-model detection, controlled-mutation lineage, durable-write atomicity, OCCT boolean/tessellation/STEP roundtrips, degenerate-primitive typed rejection, FreeCAD isolated-run identity, typed timeout, document roundtrip, cancellation without partial artifacts, resource exhaustion typed and isolated.",
-      "produced_at": "2026-08-25T11:30:00Z",
-      "reproducible": true,
-      "reproduction": "cd research/cad-005 && make test (requires the pinned toolchain; FreeCAD-dependent tests run when FreeCADCmd is available — CI installs the pinned AppImage)",
-      "references": {
-        "path": "research/cad-005/tests/test_benchmark_suite.py"
-      }
-    },
-    {
-      "id": "EV-003",
-      "type": "ci-run",
-      "description": "CI reproduction of the full evidence package on PR #22 head 46f32e2: research-cad-005 workflow run #3 (https://github.com/pectoraux/offisos/actions/runs/32842514248, completed 2026-08-25T11:35:08Z, success) — pinned toolchain + FreeCAD 1.1.3 AppImage installed on ubuntu-latest, deterministic suite 21/21 in 8.1s, full benchmark evidence run reproduced on the different execution environment with the identical result TOTAL: pass=83 fail=0 unknown=0, artifact uploaded. Governance workflow run #37 (https://github.com/pectoraux/offisos/actions/runs/32842514281) on the same head: typecheck + 58/58 tests green; the validate step reports exactly the one documented dependency-gate failure (RESEARCH-CAD-004 MERGED at 93c5211, VERIFIED reserved for the Architect) — the expected-red pattern with the attributable message verified in the CI logs. The final PR head fe0e713 (VERIFYING record commit) re-ran both workflows with the same outcome: research-cad-005 run #4 (32843140313) success with the full 83/0/0 reproduction, governance run #38 (32843140304) with tests green and the same single documented dependency-gate failure.",
-      "produced_at": "2026-08-25T11:35:08Z",
-      "reproducible": true,
-      "reproduction": "Inspect runs 32842514248 and 32842514281 on PR #22 head 46f32e2, or checkout 46f32e2 and run: cd research/cad-005 && make test && make bench",
-      "references": {
-        "workflow_run": "research-cad-005 #3 (32842514248) + governance #37 (32842514281) on 46f32e2; research-cad-005 #4 (32843140313) + governance #38 (32843140304) on fe0e713",
-        "commit": "46f32e2"
-      }
-    },
-    {
-      "id": "EV-004",
-      "type": "ci-run",
-      "description": "Final evidence rebound to the resulting PR head 46494df per the Architect disposition on PR #22 (CHANGES REQUESTED — governance dependency only; disposition comment 5413846520, 2026-08-25T16:58:37Z): governance workflow run #40 (https://github.com/pectoraux/offisos/actions/runs/32884815874, pull_request, completed 2026-08-25T18:37:39Z) — typecheck green, governance test suite 58/58, validator 93/93 exit 0 (CAD-004 VERIFIED recorded against merge commit 93c5211, the dependency invariant now satisfied legitimately with no rule change), protected-paths check executed and green. research-cad-005 workflow run #6 (https://github.com/pectoraux/offisos/actions/runs/32884815848, pull_request, completed 2026-08-25T18:43:02Z) — pinned toolchain installed (ifcopenshell 0.8.5, OCCT 7.8.1.1, FreeCAD 1.1.3 AppImage), 21/21 deterministic tests, full evidence run 83 pass / 0 fail / 0 unknown reproduced on a different execution environment, artifact uploaded. PR #22 mergeable_state=clean after both checks green.",
-      "produced_at": "2026-08-25T18:43:02Z",
-      "reproducible": true,
-      "reproduction": "Inspect governance run 32884815874 and research-cad-005 run 32884815848 on PR #22 head 46494df, or checkout 46494df and run: npm test (58/58), npm run governance -- validate (93/93 exit 0), npm run governance -- check-protected --base main, and cd research/cad-005 && make test (21/21) && make bench (83/0/0)",
-      "references": {
-        "workflow_run": "governance #40 (32884815874) + research-cad-005 #6 (32884815848) on 46494df",
-        "pr": 22,
-        "commit": "46494dfd0d6062fd7d92ba4687240bc7d46e529b"
-      }
-    }
+    {"id":"EV-001","type":"benchmark-artifact","description":"Local full evidence run of the RESEARCH-CAD-005 benchmark: 83 pass / 0 fail / 0 unknown across the complete benchmark suite.","produced_at":"2026-08-25T11:20:01Z","reproducible":true,"reproduction":"cd research/cad-005 && make bench","references":{"path":"research/cad-005/evidence/run-001/","artifact_path":"research/cad-005/report.md"}},
+    {"id":"EV-002","type":"automated-test-suite","description":"Deterministic correctness gate for the benchmark machinery: 21/21 tests pass in ~7s.","produced_at":"2026-08-25T11:30:00Z","reproducible":true,"reproduction":"cd research/cad-005 && make test","references":{"path":"research/cad-005/tests/test_benchmark_suite.py"}},
+    {"id":"EV-003","type":"ci-run","description":"CI reproduction of the full evidence package on PR #22 with pinned toolchain and FreeCAD 1.1.3: 83/0/0; governance tests 58/58 with the then-documented CAD-004 dependency gate.","produced_at":"2026-08-25T11:35:08Z","reproducible":true,"reproduction":"Inspect the referenced PR #22 workflow runs.","references":{"workflow_run":"research-cad-005 #3/#4 + governance #37/#38","pr":22}},
+    {"id":"EV-004","type":"ci-run","description":"Final evidence rebound to PR #22 head 46494df: governance run #40 and research-cad-005 run #6 both succeeded; governance validator 93/93 exit 0; research evidence 83/0/0.","produced_at":"2026-08-25T18:43:02Z","reproducible":true,"reproduction":"Inspect governance run 32884815874 and research-cad-005 run 32884815848.","references":{"workflow_run":"governance #40 (32884815874) + research-cad-005 #6 (32884815848)","pr":22,"commit":"46494dfd0d6062fd7d92ba4687240bc7d46e529b"}},
+    {"id":"EV-005","type":"ci-run","description":"Post-merge verification evidence bound to the exact merged revision 719bd42c345f481d5da96e4fe971469a7cbbed21: governance run #42 (32889512118) completed successfully with Typecheck, deterministic governance tests, and canonical work-item validation all green; research-cad-005 run #8 (32889512094) completed successfully on the merged tree.","produced_at":"2026-08-25T19:31:32Z","reproducible":true,"reproduction":"Inspect governance run 32889512118 and research-cad-005 run 32889512094 on merge commit 719bd42.","references":{"workflow_run":"governance #42 (32889512118) + research-cad-005 #8 (32889512094)","commit":"719bd42c345f481d5da96e4fe971469a7cbbed21"}}
   ],
   "decisions": [
-    {
-      "id": "DEC-001",
-      "status": "changes_requested",
-      "decided_at": "2026-08-25T16:58:37Z",
-      "decided_by": "pectoraux",
-      "role": "architect",
-      "rationale": "Architect review of the RESEARCH-CAD-005 evidence package on PR #22 (disposition comment 5413846520, 2026-08-25T16:58:37Z): the CAD-005 evidence package is substantively satisfactory — the tiered corpus, repeated-run distributions, engine/adapter separation, failure/recovery evidence, cancellation/process isolation, scalability cliff, truncated-IFC finding, resource-exhaustion behavior, and durable-write evidence are sufficient for this feasibility gate; the recommendation (b) 'operationally viable with explicit constraints' is supported by the evidence. The remaining blocker is governance, not benchmark quality: RESEARCH-CAD-004 is merged at 93c5211 but not yet VERIFIED; the dependency invariant correctly keeps CAD-005 from passing validation; the dependency rule must NOT be weakened or bypassed. Required remediation: formally post-merge verify RESEARCH-CAD-004 against 93c52111c292839d87b4d09b17a1686b8779f478, rebase/revalidate PR #22 on the resulting head, and rebind the final evidence to the resulting head. No CAD-005 architecture change is requested.",
-      "evidence_refs": [
-        "EV-001",
-        "EV-002",
-        "EV-003"
-      ],
-      "remediation_required": "1) Formally post-merge verify RESEARCH-CAD-004 against merge commit 93c52111c292839d87b4d09b17a1686b8779f478. 2) Rebase/revalidate PR #22 on the resulting head. 3) Rebind the final CAD-005 evidence to the resulting head (EV-004 bound to the green CI runs on 46494df). The dependency rule itself is unchanged; the gate is released legitimately by the post-merge verification of CAD-004."
-    }
+    {"id":"DEC-001","status":"changes_requested","decided_at":"2026-08-25T16:58:37Z","decided_by":"pectoraux","role":"architect","rationale":"Architect review of the RESEARCH-CAD-005 evidence package on PR #22: benchmark evidence was substantively satisfactory; governance dependency on CAD-004 was the sole blocker and was required to be resolved without weakening the dependency rule.","evidence_refs":["EV-001","EV-002","EV-003"],"remediation_required":"Formally post-merge verify CAD-004, revalidate PR #22, and rebind final evidence."},
+    {"id":"DEC-002","status":"approved","decided_at":"2026-08-25T19:31:32Z","decided_by":"pectoraux","role":"architect","rationale":"Post-merge Architect verification approval for RESEARCH-CAD-005 against merge commit 719bd42c345f481d5da96e4fe971469a7cbbed21. The merged implementation reproduces the accepted evidence and the post-merge governance validation succeeds.","evidence_refs":["EV-005"]}
   ]
 }
