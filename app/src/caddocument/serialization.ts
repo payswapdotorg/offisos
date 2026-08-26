@@ -9,6 +9,7 @@
 
 import { createHash } from "node:crypto";
 import type { CADDocumentSnapshot } from "../contracts/caddocument.js";
+import { validateModelHistory } from "./history.js";
 
 /** Recursively sort object keys for canonical JSON. Arrays preserve order. */
 export function canonicalStringify(value: unknown): string {
@@ -71,6 +72,15 @@ export function deserialize(text: string): CADDocumentSnapshot {
   const es = editorState as Record<string, unknown>;
   if (typeof es.canUndo !== "boolean" || typeof es.canRedo !== "boolean" || typeof es.commandDepth !== "number") {
     throw new Error("deserialize: editorState fields missing/invalid");
+  }
+  if (obj.modelHistory !== undefined) {
+    // CAD-IMPLEMENT-003 (additive, LOCK-007): structurally validate the
+    // persisted model revision history — never guess or silently repair.
+    try {
+      validateModelHistory(obj.modelHistory);
+    } catch (e) {
+      throw new Error(`deserialize: ${(e as Error).message}`);
+    }
   }
   return obj as unknown as CADDocumentSnapshot;
 }

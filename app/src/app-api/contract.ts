@@ -32,6 +32,9 @@ import {
 } from "../contracts/geometry.js";
 import type { GeometryPrepareResult } from "../contracts/geometry.js";
 import { IdempotencyCache } from "./idempotency.js";
+import { bridgeModelHistory } from "../graph/index.js";
+import { verifiedReplay } from "../caddocument/history.js";
+import type { ModelReplayResult } from "../contracts/model.js";
 
 export interface AppApiHandlerOptions {
   readonly adapterBundle: EngineAdapterBundle;
@@ -146,7 +149,14 @@ export class AppApiHandler {
     } else {
       return err("bad_payload", "open requires snapshot or source", true);
     }
-    this.doc = CADDocument.open(snapshot, this.options.createdBy);
+    try {
+      // CAD-IMPLEMENT-003: open now adopts/validates the persisted model
+      // revision history carried by the snapshot (LOCK-007: malformed
+      // history is rejected, never guessed or silently repaired).
+      this.doc = CADDocument.open(snapshot, this.options.createdBy);
+    } catch (e) {
+      return err("open_failed", `open rejected the snapshot: ${(e as Error).message}`, false);
+    }
     return ok(this.doc.snapshot());
   }
 
@@ -307,6 +317,58 @@ export class AppApiHandler {
         return ok(this.doc.canRedo);
       case "document.getSelection":
         return ok([...this.doc.selection]);
+      // --- CAD-IMPLEMENT-003 (additive): model revisions + Graph bridge ---
+      case "model.getHistory":
+        return ok(this.doc.history);
+      case "model.getGraphEvents": {
+        try {
+          return ok(bridgeModelHistory(this.doc.history));
+        } catch (e) {
+          return err("graph_bridge_failed", `graph bridge failed: ${(e as Error).message}`, false);
+        }
+      }
+      case "model.replay": {
+        const p = query.payload as { revision_number?: unknown } | null;
+        if (
+          p === null || typeof p !== "object" ||
+          typeof p.revision_number !== "number" || !Number.isInteger(p.revision_number) || p.revision_number < 0
+        ) {
+          return err("bad_payload", "model.replay requires a non-negative integer revision_number", true);
+        }
+        const k = p.revision_number;
+        const history = this.doc.history;
+        if (k > history.revisions.length) {
+          return err(
+            "bad_payload",
+            `model.replay revision_number ${k} out of range 0..${history.revisions.length}`,
+            true,
+          );
+        }
+        try {
+          const replayed = verifiedReplay(history, k);
+          const targetRevision = k === 0 ? undefined : history.revisions[k - 1];
+          const result: ModelReplayResult = {
+            revision_number: k,
+            revision_id:
+              k === 0
+                ? `${history.entity_id}#r0(${replayed.content_hash.slice(0, 12)})`
+                : (targetRevision as { revision_id: string }).revision_id,
+            elements: replayed.elements,
+            content_hash: replayed.content_hash,
+            verified: replayed.verified,
+          };
+          if (!result.verified) {
+            return err(
+              "replay_failed",
+              `replay to revision ${k} does not match the recorded content hash (history integrity violation)`,
+              false,
+            );
+          }
+          return ok(result);
+        } catch (e) {
+          return err("replay_failed", `replay failed: ${(e as Error).message}`, false);
+        }
+      }
       default: {
         const _exhaustive: never = query.name;
         return err("unknown_query", `unknown query: ${JSON.stringify(_exhaustive)}`);

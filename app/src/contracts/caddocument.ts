@@ -12,6 +12,8 @@
  * versioned contracts/events.
  */
 
+import type { ModelHistory } from "./model.js";
+
 /** Versioned entity metadata per data-model.md §2. */
 export interface VersionMeta {
   readonly entity_id: string;
@@ -42,7 +44,12 @@ export interface EditorState {
   readonly commandDepth: number;
 }
 
-/** A point-in-time snapshot of an open CAD/BIM artifact for the editor. */
+/** A point-in-time snapshot of an open CAD/BIM artifact for the editor.
+ *  `modelHistory` (CAD-IMPLEMENT-003, additive + optional for backward
+ *  compatibility) carries the immutable model revision log so save/open
+ *  round-trips preserve version lineage, provenance and replayability
+ *  (LOCK-005/LOCK-012). It is excluded from the parity content hash
+ *  (history has its own canonical hash — see caddocument/history.ts). */
 export interface CADDocumentSnapshot {
   readonly version: VersionMeta;
   readonly format: string;
@@ -50,6 +57,7 @@ export interface CADDocumentSnapshot {
   readonly sourceArtifactLineage: readonly string[];
   readonly editorState: EditorState;
   readonly elements: readonly Element[];
+  readonly modelHistory?: ModelHistory;
 }
 
 /** A reversible document edit (undo/redo semantics, §5.4). The inverse is

@@ -1,0 +1,90 @@
+{
+  "id": "CAD-IMPLEMENT-003",
+  "title": "Persistent model revisions and Construction Graph bridge",
+  "issue": 28,
+  "objective": "Turn the real-geometry CAD workflow into a persistent, versioned product workflow while preserving the Construction Graph as the canonical system of record (LOCK-019, §5.4, §9, data-model.md §2/§3/§5, event-model.md §1/§2/§4). The CADDocument gains an immutable, append-only model revision history that persists across save/open through the unchanged FileEngineAdapter boundary; every document transition (edit/undo/redo) records a revision with its version metadata (data-model.md §2), content hash, applied edit and element-set delta. CAD element identity becomes a first-class document authority: ids are stable across revisions and sessions (duplicate ids rejected; the document mints canonical ids when callers omit them), while engine ids remain provenance only (LOCK-019). An explicit Construction Graph bridge (app/src/graph/) maps the revision history into a deterministic graph-facing domain event stream — one model.created for the base plus one model.version.created per revision, each carrying the revision reference, affected elements, per-element provenance and an explicit uncertainty state (§2.7, LOCK-007) — consuming only domain contracts, never engine internals. Historical replay is deterministic and information-state correct (only the base plus the first k revisions are consumed; no future leakage), exposed through the additive App API queries model.getHistory / model.getGraphEvents / model.replay (api-contract.md §8). Web and Electron produce semantically identical revision/event results through the shared App API (LOCK-017); the dummy adapter remains the permanent test double and the frozen adapter contracts are untouched.",
+  "architecture_version": "1.1",
+  "requirements": [
+    "WORKSPACE-002",
+    "DATA-004",
+    "GRAPH-003",
+    "GRAPH-005",
+    "API-003"
+  ],
+  "dependencies": [
+    "ARCH-WF-001",
+    "RESEARCH-CAD-003"
+  ],
+  "acceptance_criteria": [
+    "Save/reopen preserves geometry, identity, provenance and version lineage: document.save bytes through the unchanged FileEngineAdapter boundary carry the immutable model history; document.open adopts it (structurally validated + linkage-checked) and continues appending revisions whose parent linkage points at the reopened head; legacy artifacts without a history open with a seeded 'opened' base (LOCK-005/LOCK-012).",
+    "Model revisions are immutable and replayable: revisions are append-only frozen records (monotonic numbering, deterministic ids `<entity>#r<n>(<hash12>)`, fixed timestamps); replaying the history to any revision k consumes only the base plus the first k revisions and reproduces the recorded element set and content hash (information-state correct, no future leakage, LOCK-005/LOCK-006).",
+    "CAD element identity remains stable across revisions; engine IDs remain provenance only: element ids survive edits/undo/redo/save/open/replay verbatim; duplicate addElement ids are rejected; the document mints canonical ids (el-NNNNNN, monotonic, never reused) when callers omit one; graph node ids derive from (document entity id, element id) only — the same element id with different or absent engine provenance maps to the SAME graph node (LOCK-019).",
+    "The Graph bridge consumes explicit domain contracts and imports no engine internals: app/src/graph/ imports only contracts/, caddocument/ and node:crypto (statically asserted by test); the forbidden-import static check (LOCK-018) is extended to cover src/graph.",
+    "A revision produces a deterministic graph-facing event containing revision, affected elements, provenance and uncertainty state: one model.created for the base + one model.version.created per revision (event-model.md §2), each carrying the full event envelope (event_id, event_type, event_version, occurred_at, actor, source entity/version/revision, causation chain, correlation id) and a payload with the revision reference, element-set delta, per-element projections (graph node id, engine id as provenance, epistemic labels per §2.7/LOCK-007) and revision provenance; the same history yields byte-identical events on every run.",
+    "Web and Electron produce equivalent semantic revision/event results: the same command/query sequence through WebHost+WebSocketTransport and ElectronHost+IpcTransport yields identical revision histories (canonical JSON), identical graph event streams (events_hash) and identical replay results — with the dummy adapter and, engine-gated, with the real OCCT adapter so revisions carry genuine engine provenance (LOCK-017, §5.5).",
+    "Existing shell + real-engine tests remain green; new persistence/Graph tests are added: the 74-test CAD-001/002 suite is untouched and green; new model-history / model-persistence / model-replay / graph-bridge / model-host-parity tests (35 new) cover every acceptance criterion; engine-absent environments skip the engine-gated tests with recorded reasons (0 failures).",
+    "CI reproduces persistence and Graph-bridge tests: the cad-implement-003 workflow runs the full suite (engine-free + real-engine), the forbidden-import check with src/graph, the web host build + live revision/bridge smoke and the Electron host smokes including the new smoke:model (revisions + Graph bridge + save/open persistence through a real BrowserWindow).",
+    "No protected architecture paths are modified: spec/** protected artifacts untouched; app/src/contracts/adapter.ts byte-unchanged; App API changes are additive queries only (api-contract.md §8); Architecture v1.1 remains FROZEN."
+  ],
+  "non_goals": [
+    "Quantity/estimate propagation (QTY-*): out of scope per Issue #28 — follows once the revision/Graph foundation is proven.",
+    "IFC authoring/round-trip and full BIM authoring: out of scope per Issue #28.",
+    "Graph-side consumption infrastructure (event bus/store subscriptions): the bridge produces the deterministic event stream through the App API; platform-side durable event infrastructure is a separate work item (PLATFORM-005 track).",
+    "Architecture modification: Architecture v1.1 remains FROZEN; no protected path touched; no ACR — the frozen contracts were sufficient (additive extension only).",
+    "Final packaging: out of scope per Issue #28."
+  ],
+  "risk_assumptions": [
+    "CODE-LEVEL INHERITANCE (governance dependency note): CAD-IMPLEMENT-001 and CAD-IMPLEMENT-002 are merged to main (e19327e) but their governance records remain PR_OPEN (not VERIFIED), so they CANNOT be declared as formal dependencies under the VERIFIED-dependency rule (no override mechanism exists). This work item branches from main@e19327e (the Architect directive's explicit target) and declares only the VERIFIED items whose findings it consumes directly: ARCH-WF-001 (governance foundation) and RESEARCH-CAD-003 (the canonical-identity / CAD→Construction-Graph mapping research — engine GlobalIds unstable across regeneration, canonical domain ids stable, per-node provenance blocks). Recorded for Architect visibility, not hidden.",
+    "SPEC DIVERGENCE (same pattern as CAD-IMPLEMENT-001/002): spec/work-items.md defines PLATFORM-004 ('Versioning, lineage and audit'), PLATFORM-005 ('Event bus and domain event contracts') and GRAPH-001 ('Canonical domain model') as the closest frozen ancestors. CAD-IMPLEMENT-003 is defined by Issue #28 as a new production-implementation work item scoped to the CAD/BIM revision/Graph foundation specifically; the implementer follows Issue #28 and flags the divergence.",
+    "EVENT VOCABULARY DECISION: event-model.md §2 lists model.created / model.version.created / model.element.changed / model.version.approved. Issue #28 requires 'a revision produces a deterministic graph-facing event containing revision, affected elements, provenance, and uncertainty state' (singular per revision) — this slice emits model.created (once, at the base boundary) + model.version.created (one per revision, elements embedded in the payload). model.element.changed (per-element events) and model.version.approved remain future vocabulary; the additive payload structure supports them without contract changes.",
+    "PARITY HASH SEMANTICS: currentContentHash (the LOCK-017/§5.5 parity hash) EXCLUDES the model history — the existing undo/redo convergence acceptance criterion (different paths to the same content must converge to the same hash) requires content-only hashing. History/event parity is proven separately via historyHash + events_hash equality across hosts (a stronger, orthogonal assertion). The version-id derivation hash remains content-only (unchanged since CAD-001).",
+    "MINTED IDENTITY FORMAT: document-minted canonical ids use el-NNNNNN (zero-padded 6 digits, monotonic from history.next_element_sequence). The counter is persisted with the history and never regresses — a minted identity is never reused across revisions, sessions or undo. Caller-supplied ids (the UI's UUIDs, tests' literals) remain canonical verbatim; only missing/empty/non-string ids are minted.",
+    "ENVIRONMENT LIMITATIONS (recorded per acceptance criteria): the real-engine parity/evidence tests require python3 + cadquery-ocp 7.8.1.1.post1 and skip with recorded reasons when absent (the CAD-002 gating pattern); the engine-free revision/bridge/persistence/replay tests (the large majority) run everywhere; the Electron smoke:model is engine-free by design (engine ids in provenance are data)."
+  ],
+  "evidence": [],
+  "evidence_requirements": [
+    "Deterministic automated test suite proving all acceptance criteria above, reproducible from the committed source with no network access (109 tests: 74 existing untouched + 35 new; engine-absent environments 94 pass / 0 fail / 15 skipped with recorded reasons).",
+    "Persistence evidence: save → open round-trips preserve history byte-identically, events_hash identically, replay verifies at every revision, revisions continue appending after reopen (model-persistence tests + smoke:model steps 10-11).",
+    "Immutable-revision + stable-identity evidence: frozen append-only revision records, duplicate-id rejection, minted-identity monotonicity, graph node id stability across revisions and engine-provenance changes (model-history + graph-bridge tests).",
+    "Replay-correctness evidence: replay to every revision reproduces the recorded elements and content hash; no-future-leakage proven by truncated-history replay equality (model-replay tests).",
+    "Web/Electron semantic parity evidence: identical histories, events and replays through both hosts (dummy + real OCCT, engine-gated) with identical content hashes (model-host-parity tests).",
+    "Electron end-to-end evidence: the model-revisions + Graph bridge smoke through a real BrowserWindow (12/12 steps: create, edits, undo/redo, history, events + causation chain + provenance/uncertainty, verified replay, typed errors, save/open persistence, revision continuation).",
+    "Forbidden-import static check evidence (LOCK-018, now covering src/graph) bound to the implementation revision.",
+    "CI workflow reproducing the local evidence on a different execution environment (ubuntu-latest, pinned toolchain).",
+    "No claim of VERIFIED; the implementer produces evidence and submits for Architect review (LOCK-004: implementation status is not evidence)."
+  ],
+  "state": "IMPLEMENTING",
+  "transitions": [
+    {
+      "from": "DRAFT",
+      "to": "READY",
+      "at": "2026-08-26T10:55:00Z",
+      "actor": "pectoraux",
+      "role": "architect",
+      "reason": "Execution directive for CAD-IMPLEMENT-003 recorded on Issue #28 (comment 5423664849): implement against main after the CAD-IMPLEMENT-002 merge e19327e68a9f9d4c9f0e5f60a6e5309639f2e7ae; required sequence inspect merged CAD stack → persistence/revision contracts → explicit Construction Graph bridge → Web/Electron parity → deterministic replay/history tests → full governance + real-engine CI → open PR → PR_OPEN/VERIFYING only.",
+      "references": {
+        "issue": 28
+      }
+    },
+    {
+      "from": "READY",
+      "to": "ASSIGNED",
+      "at": "2026-08-26T10:56:00Z",
+      "actor": "pectoraux",
+      "role": "product-owner",
+      "reason": "Assigned to the Z.ai implementation agent on the CAD-IMPLEMENT production track. Dependency set is the VERIFIED items whose findings this work item consumes directly: ARCH-WF-001 (governance foundation) + RESEARCH-CAD-003 (canonical-identity / CAD→Graph mapping research). CAD-IMPLEMENT-001/002 are merged to main at the directive's target commit but remain PR_OPEN in governance (no override mechanism exists) — the code-level inheritance is documented as a risk_assumption.",
+      "references": {
+        "issue": 28,
+        "assignee": "z-ai-implementation-agent"
+      }
+    },
+    {
+      "from": "ASSIGNED",
+      "to": "IMPLEMENTING",
+      "at": "2026-08-26T10:57:00Z",
+      "actor": "z-ai-implementation-agent",
+      "role": "implementer",
+      "reason": "Branch work/cad-implement-003-revision-graph created from main@e19327e (the pre-seeded remote branch). Build order per the directive: (1) contracts/model.ts domain contracts (revisions, history, graph events, provenance, uncertainty) + caddocument/history.ts (append-only recording, deterministic replay, structural validation); (2) CADDocument integration (identity authority: duplicate rejection + minting; revision recording on execute/undo/redo; snapshot persistence; content-hash/replay invariants); (3) graph/bridge.ts (deterministic model.created / model.version.created stream); (4) additive App API queries model.getHistory / model.getGraphEvents / model.replay + schemas; (5) tests (history, persistence, replay, bridge, host parity — dummy + real engine) + LOCK-018 scan extended to src/graph; (6) both host UIs (Model Revisions panel) + Electron smoke:model; (7) CI workflow; (8) governance validation + push + PR_OPEN."
+    }
+  ]
+}

@@ -31,6 +31,11 @@ import type {
   Element,
   VersionMeta,
 } from "@offisos/cad-app-shell/contracts/caddocument";
+import type {
+  GraphBridgeResult,
+  ModelHistory,
+  ModelReplayResult,
+} from "@offisos/cad-app-shell/contracts/model";
 
 /** Send a CommandQueryRequest over the Web transport. */
 export async function send(
@@ -172,6 +177,58 @@ export async function canUndo(): Promise<CommandQueryResponse> {
 
 export async function canRedo(): Promise<CommandQueryResponse> {
   return query("document.canRedo", {});
+}
+
+// --- CAD-IMPLEMENT-003: model revisions + Construction Graph bridge -------
+
+/** The immutable model revision history persisted with the document. */
+export async function getHistory(): Promise<CommandQueryResponse> {
+  return query("model.getHistory", {});
+}
+
+/** The deterministic graph-facing event stream (Construction Graph bridge). */
+export async function getGraphEvents(): Promise<CommandQueryResponse> {
+  return query("model.getGraphEvents", {});
+}
+
+/** Deterministic historical replay to a revision number (0 = base). */
+export async function replayModel(revisionNumber: number): Promise<CommandQueryResponse> {
+  return query("model.replay", { revision_number: revisionNumber });
+}
+
+/** Extract a ModelHistory from an ok response (null on mismatch). */
+export function unwrapHistory(res: CommandQueryResponse): ModelHistory | null {
+  if (!res.ok) return null;
+  const v = res.value as Partial<ModelHistory> | null;
+  if (typeof v !== "object" || v === null || !Array.isArray(v.revisions) || typeof v.base !== "object") {
+    return null;
+  }
+  return v as ModelHistory;
+}
+
+/** Extract the GraphBridgeResult from an ok response (null on mismatch). */
+export function unwrapGraphEvents(res: CommandQueryResponse): GraphBridgeResult | null {
+  if (!res.ok) return null;
+  const v = res.value as Partial<GraphBridgeResult> | null;
+  if (typeof v !== "object" || v === null || !Array.isArray(v.events) || typeof v.events_hash !== "string") {
+    return null;
+  }
+  return v as GraphBridgeResult;
+}
+
+/** Extract a ModelReplayResult from an ok response (null on mismatch). */
+export function unwrapReplay(res: CommandQueryResponse): ModelReplayResult | null {
+  if (!res.ok) return null;
+  const v = res.value as Partial<ModelReplayResult> | null;
+  if (
+    typeof v !== "object" || v === null ||
+    typeof v.content_hash !== "string" ||
+    !Array.isArray(v.elements) ||
+    v.verified !== true
+  ) {
+    return null;
+  }
+  return v as ModelReplayResult;
 }
 
 // --- Convenience result extractors (typed) ---------------------------------
