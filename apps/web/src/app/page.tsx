@@ -19,7 +19,10 @@
 
 import * as React from "react";
 import {
+  Box,
   Circle as CircleIcon,
+  Combine,
+  Cylinder,
   Download,
   FilePlus,
   FolderOpen,
@@ -56,10 +59,12 @@ import {
   getState,
   getSelection,
   openFromText,
+  prepareGeometry,
   redo,
   save,
   setSelection,
   undo,
+  unwrapPrepared,
   unwrapSaveBytes,
   unwrapSelection,
   unwrapSnapshot,
@@ -71,12 +76,30 @@ function truncate(s: string, n = 18): string {
   return s.length > n ? `${s.slice(0, n)}…` : s;
 }
 
-function isGeometryElement(el: Element): el is Element & {
+function isLegacyShapeElement(el: Element): el is Element & {
   props: { shape: "box" | "circle"; x: number; y: number; w: number; h: number; fill: string; stroke: string };
 } {
   const p = el.props as Record<string, unknown>;
   return (
     el.kind === "geometry" &&
+    (p.shape === "box" || p.shape === "circle") &&
+    typeof p.x === "number" &&
+    typeof p.y === "number" &&
+    typeof p.w === "number" &&
+    typeof p.h === "number" &&
+    typeof p.fill === "string" &&
+    typeof p.stroke === "string"
+  );
+}
+
+function isGeometryElement(el: Element): boolean {
+  // CAD-IMPLEMENT-002: real-engine geometry elements carry a meshToken
+  // (props.geometry + props.meshToken); legacy dummy shapes carry the flat
+  // shape/x/y/w/h props. Both render on the canvas.
+  if (el.kind !== "geometry") return false;
+  const p = el.props as Record<string, unknown>;
+  if (typeof p.meshToken === "string") return true;
+  return (
     (p.shape === "box" || p.shape === "circle") &&
     typeof p.x === "number" &&
     typeof p.y === "number" &&
@@ -99,7 +122,23 @@ export default function Home() {
   const [loading, setLoading] = React.useState(true);
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  const [engine, setEngine] = React.useState<{ engineId: string; engineVersion: string } | null>(null);
+  const [meshes, setMeshes] = React.useState<Record<string, { vertices: number[]; indices: number[]; bbox: number[] }>>({});
   const fileInputRef = React.useRef<HTMLInputElement>(null);
+
+  /** Cache a prepared mesh for viewport rendering (keyed by meshToken —
+   *  deterministic, so re-preparing the same geometry re-hydrates it). */
+  const rememberMesh = React.useCallback((prepared: { meshToken: string; bbox: readonly number[]; mesh: { vertices: readonly number[]; indices: readonly number[] } | null }) => {
+    if (prepared.mesh === null) return;
+    setMeshes((prev) => ({
+      ...prev,
+      [prepared.meshToken]: {
+        vertices: [...prepared.mesh!.vertices],
+        indices: [...prepared.mesh!.indices],
+        bbox: [...prepared.bbox],
+      },
+    }));
+  }, []);
 
   const refresh = React.useCallback(async () => {
     const [stateRes, selRes] = await Promise.all([getState(), getSelection()]);
@@ -266,6 +305,97 @@ export default function Home() {
     );
   }, [run]);
 
+  // --- CAD-IMPLEMENT-002: real geometry through the shared App API -------
+
+  /** Prepare a real geometry descriptor, cache the mesh, and add the element
+   *  with the deterministic occt: meshToken (the EXISTING document workflow). */
+  const onAddRealGeometry = React.useCallback(
+    (label: string, geometry: Record<string, unknown>) => {
+      setBusy(true);
+      (async () => {
+        try {
+          const res = await prepareGeometry(geometry);
+          const prepared = unwrapPrepared(res);
+          if (!prepared) {
+            setError(res.ok ? `[${label}] unexpected response shape` : `[${label}] ${res.code}: ${res.message}`);
+            await refresh();
+            return;
+          }
+          setEngine(prepared.engine);
+          rememberMesh(prepared);
+          const addRes = await applyEdit({
+            type: "addElement",
+            element: {
+              id: crypto.randomUUID(),
+              kind: "geometry",
+              engineId: prepared.engine.engineId,
+              props: { geometry, meshToken: prepared.meshToken, bbox: [...prepared.bbox] },
+            },
+          });
+          if (!addRes.ok) {
+            setError(`[${label}] ${addRes.code}: ${addRes.message}`);
+          } else {
+            setError(null);
+          }
+          await refresh();
+        } catch (e) {
+          setError(`[${label}] unexpected: ${(e as Error).message}`);
+          await refresh();
+        } finally {
+          setBusy(false);
+        }
+      })();
+    },
+    [refresh, rememberMesh],
+  );
+
+  const onAddOcctBox = React.useCallback(() => {
+    onAddRealGeometry("Box (OCCT)", { shape: "box", width: 120, depth: 90, height: 70 });
+  }, [onAddRealGeometry]);
+
+  const onAddOcctCylinder = React.useCallback(() => {
+    onAddRealGeometry("Cylinder (OCCT)", { shape: "cylinder", radius: 45, height: 110 });
+  }, [onAddRealGeometry]);
+
+  const onAddOcctFuse = React.useCallback(() => {
+    onAddRealGeometry("Fuse (OCCT)", {
+      shape: "fuse",
+      a: { shape: "box", width: 140, depth: 100, height: 60 },
+      b: { shape: "cylinder", radius: 40, height: 90, origin: [70, 50, 0], direction: [0, 0, 1] },
+    });
+  }, [onAddRealGeometry]);
+
+  /** Re-hydrate viewport meshes for persisted real-geometry elements (the
+   *  descriptors live in props.geometry; re-preparing is deterministic and
+   *  returns the identical meshToken). */
+  React.useEffect(() => {
+    if (!snapshot) return;
+    const pending = snapshot.elements.filter(
+      (el) =>
+        el.kind === "geometry" &&
+        typeof (el.props as Record<string, unknown>).meshToken === "string" &&
+        typeof (el.props as Record<string, unknown>).geometry === "object" &&
+        !meshes[(el.props as Record<string, unknown>).meshToken as string],
+    );
+    if (pending.length === 0) return;
+    let cancelled = false;
+    (async () => {
+      for (const el of pending) {
+        if (cancelled) return;
+        const res = await prepareGeometry((el.props as Record<string, unknown>).geometry);
+        const prepared = unwrapPrepared(res);
+        if (prepared && prepared.meshToken === (el.props as Record<string, unknown>).meshToken) {
+          if (cancelled) return;
+          setEngine(prepared.engine);
+          rememberMesh(prepared);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [snapshot, meshes, rememberMesh]);
+
   const onDeleteSelected = React.useCallback(async () => {
     if (selection.length === 0) return;
     setBusy(true);
@@ -327,13 +457,18 @@ export default function Home() {
               Offisos CAD Workspace
             </h1>
             <p className="text-xs sm:text-sm text-muted-foreground">
-              Web host — dummy engine adapter (no FreeCAD/OCCT/IfcOpenShell coupling)
+              Web host — real OCCT geometry engine behind the frozen adapter boundary
             </p>
           </div>
           <div className="flex items-center gap-2">
             <Badge variant="secondary" className="font-mono">
-              CAD-IMPLEMENT-001 / v1.1
+              CAD-IMPLEMENT-002 / v1.1
             </Badge>
+            {engine && (
+              <Badge variant="outline" className="font-mono">
+                {engine.engineId} {engine.engineVersion}
+              </Badge>
+            )}
           </div>
         </div>
       </header>
@@ -349,8 +484,9 @@ export default function Home() {
               <CardHeader>
                 <CardTitle>Canvas</CardTitle>
                 <CardDescription>
-                  Click an element to select it; click empty canvas to clear. SVG
-                  viewBox 800 × 600.
+                  Click an element to select it; click empty canvas to clear. Real
+                  engine geometry renders as an isometric model viewport; legacy
+                  dummy shapes render as flat SVG.
                 </CardDescription>
               </CardHeader>
               <CardContent>
@@ -368,14 +504,30 @@ export default function Home() {
                     {elements.map((el) => {
                       if (!isGeometryElement(el)) return null;
                       const selected = selection.includes(el.id);
-                      return (
-                        <GeometryShape
-                          key={el.id}
-                          element={el}
-                          selected={selected}
-                          onClick={(e) => onElementClick(e, el.id)}
-                        />
-                      );
+                      const props = el.props as Record<string, unknown>;
+                      const token = typeof props.meshToken === "string" ? props.meshToken : null;
+                      const cachedMesh = token !== null ? meshes[token] : undefined;
+                      if (cachedMesh !== undefined) {
+                        return (
+                          <MeshViewport
+                            key={el.id}
+                            mesh={cachedMesh}
+                            selected={selected}
+                            onClick={(e) => onElementClick(e, el.id)}
+                          />
+                        );
+                      }
+                      if (isLegacyShapeElement(el)) {
+                        return (
+                          <GeometryShape
+                            key={el.id}
+                            element={el}
+                            selected={selected}
+                            onClick={(e) => onElementClick(e, el.id)}
+                          />
+                        );
+                      }
+                      return null;
                     })}
                     {elements.length === 0 && !loading && (
                       <text
@@ -448,8 +600,54 @@ export default function Home() {
 
             <Card>
               <CardHeader>
+                <CardTitle>Real geometry (OCCT)</CardTitle>
+                <CardDescription>
+                  Prepare real engine geometry (deterministic boxes, cylinders,
+                  booleans) through the shared App API — geometry.prepare →
+                  applyEdit. Requires the pinned toolchain (python3 +
+                  cadquery-ocp); failures are typed.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    variant="default"
+                    className="h-11"
+                    onClick={onAddOcctBox}
+                    disabled={busy || loading}
+                    aria-label="Add real OCCT box"
+                  >
+                    <Box aria-hidden="true" />
+                    <span>Box (OCCT)</span>
+                  </Button>
+                  <Button
+                    variant="default"
+                    className="h-11"
+                    onClick={onAddOcctCylinder}
+                    disabled={busy || loading}
+                    aria-label="Add real OCCT cylinder"
+                  >
+                    <Cylinder aria-hidden="true" />
+                    <span>Cylinder (OCCT)</span>
+                  </Button>
+                  <Button
+                    variant="default"
+                    className="h-11"
+                    onClick={onAddOcctFuse}
+                    disabled={busy || loading}
+                    aria-label="Fuse real OCCT box and cylinder"
+                  >
+                    <Combine aria-hidden="true" />
+                    <span>Fuse (OCCT)</span>
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
                 <CardTitle>Edit</CardTitle>
-                <CardDescription>Add or remove geometry elements.</CardDescription>
+                <CardDescription>Add or remove geometry elements (dummy shapes).</CardDescription>
               </CardHeader>
               <CardContent>
                 <div className="flex flex-wrap gap-2">
@@ -656,6 +854,99 @@ interface GeometryShapeProps {
   };
   selected: boolean;
   onClick: (e: React.MouseEvent) => void;
+}
+
+// --- CAD-IMPLEMENT-002: isometric model viewport ---------------------------
+// Projects the real engine's tessellated mesh (flat x,y,z + a,b,c indices)
+// onto the SVG canvas with a fixed isometric camera, painter-sorted flat-
+// shaded triangles. Host-surface rendering only — the shared renderer core
+// (LOCK-017) still consumes just meshToken + transform for the deterministic
+// scene hash; this is the viewport presentation of the same data.
+
+interface MeshViewportProps {
+  mesh: { vertices: number[]; indices: number[]; bbox: number[] };
+  selected: boolean;
+  onClick: (e: React.MouseEvent) => void;
+}
+
+function MeshViewport({ mesh, selected, onClick }: MeshViewportProps) {
+  const [xmin, ymin, zmin, xmax, ymax, zmax] = mesh.bbox;
+  const cx = (xmin + xmax) / 2;
+  const cy = (ymin + ymax) / 2;
+  const cz = (zmin + zmax) / 2;
+  const extent = Math.max(xmax - xmin, ymax - ymin, zmax - zmin, 1);
+  // Fit into ~70% of the 800x600 canvas around a deterministic offset.
+  const scale = (0.7 * 520) / extent;
+  const originX = 400 + ((cx * 31 - cy * 17) % 40);
+  const originY = 300;
+
+  const project = (x: number, y: number, z: number): [number, number] => [
+    originX + ((x - cx) - (y - cy)) * 0.866 * scale,
+    originY + ((x - cx) + (y - cy)) * 0.5 * scale - (z - cz) * scale,
+  ];
+
+  const verts = mesh.vertices;
+  const tris: { pts: string; depth: number; shade: number }[] = [];
+  for (let t = 0; t + 2 < mesh.indices.length; t += 3) {
+    const ia = mesh.indices[t]! * 3;
+    const ib = mesh.indices[t + 1]! * 3;
+    const ic = mesh.indices[t + 2]! * 3;
+    const ax = verts[ia]!, ay = verts[ia + 1]!, az = verts[ia + 2]!;
+    const bx = verts[ib]!, by = verts[ib + 1]!, bz = verts[ib + 2]!;
+    const cxv = verts[ic]!, cyv = verts[ic + 1]!, czv = verts[ic + 2]!;
+    // Face normal for flat shading (fixed light direction).
+    const ux = bx - ax, uy = by - ay, uz = bz - az;
+    const vx = cxv - ax, vy = cyv - ay, vz = czv - az;
+    const nx = uy * vz - uz * vy;
+    const ny = uz * vx - ux * vz;
+    const nz = ux * vy - uy * vx;
+    const norm = Math.sqrt(nx * nx + ny * ny + nz * nz) || 1;
+    // Light from (1, -1, 2) normalized; stone/teal palette.
+    const light = Math.max(0.18, (nx / norm) * 0.42 + (ny / norm) * -0.28 + (nz / norm) * 0.86);
+    const base = { r: 20, g: 120, b: 110 };
+    const r = Math.round(base.r + (255 - base.r) * (light * 0.78));
+    const g = Math.round(base.g + (255 - base.g) * (light * 0.78));
+    const b = Math.round(base.b + (255 - base.b) * (light * 0.78));
+    const pa = project(ax, ay, az);
+    const pb = project(bx, by, bz);
+    const pc = project(cxv, cyv, czv);
+    tris.push({
+      pts: `${pa[0].toFixed(1)},${pa[1].toFixed(1)} ${pb[0].toFixed(1)},${pb[1].toFixed(1)} ${pc[0].toFixed(1)},${pc[1].toFixed(1)}`,
+      depth: (ax + bx + cxv) / 3 + (ay + by + cyv) / 3 + (az + bz + czv) / 3,
+      shade: light,
+    });
+  }
+  // Painter's algorithm: far triangles first (larger x+y+z sum = closer to
+  // the camera in this projection, so sort descending depth).
+  tris.sort((a, b) => b.depth - a.depth);
+
+  return (
+    <g onClick={onClick} role="button" aria-label="Select real geometry element" style={{ cursor: "pointer" }}>
+      {tris.map((t, i) => (
+        <polygon
+          key={i}
+          points={t.pts}
+          fill={`rgb(${Math.round(20 + (200 - 20) * t.shade)},${Math.round(120 + (230 - 120) * t.shade)},${Math.round(110 + (220 - 110) * t.shade)})`}
+          stroke={`rgba(6,78,59,${selected ? 0.9 : 0.35})`}
+          strokeWidth={selected ? 1.2 : 0.5}
+        />
+      ))}
+      {selected && (
+        <rect
+          x={originX - 0.42 * 520}
+          y={originY - 0.34 * 520}
+          width={0.84 * 520}
+          height={0.68 * 520}
+          fill="none"
+          stroke="currentColor"
+          strokeWidth={1.5}
+          strokeDasharray="6,4"
+          className="text-foreground"
+          pointerEvents="none"
+        />
+      )}
+    </g>
+  );
 }
 
 function GeometryShape({ element, selected, onClick }: GeometryShapeProps) {

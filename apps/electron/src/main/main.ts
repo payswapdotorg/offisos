@@ -54,22 +54,30 @@ import { join } from "node:path";
 import { readFileSync, writeFileSync } from "node:fs";
 
 import { AppApiHandler } from "@offisos/cad-app-shell/app-api";
-import { DummyAdapterBundle } from "@offisos/cad-app-shell/adapters/dummy";
+import { createOcctAdapterBundle } from "@offisos/cad-app-shell/adapters/occt";
 import { ElectronHost, IpcTransport } from "@offisos/cad-app-shell/host-electron";
 import { createRenderer } from "@offisos/cad-app-shell/renderer";
 import type { CommandQueryRequest, CommandQueryResponse } from "@offisos/cad-app-shell/contracts/app-api";
 import type { CADDocumentSnapshot } from "@offisos/cad-app-shell/contracts/caddocument";
 import type { SceneGraph } from "@offisos/cad-app-shell/contracts/scene";
 
+// CAD-IMPLEMENT-002 / Issue #26: the Electron workspace surface is connected
+// to the REAL geometry engine (OCCT 7.8.1.1 via the isolated Python worker —
+// the same kernel FreeCAD builds on) behind the frozen EngineAdapterBundle
+// boundary. The bundle swap is the ONLY wiring change (LOCK-003). The worker
+// spawns lazily per geometry.prepare call (process-per-call isolation,
+// wall-clock timeout, typed failures — CAD-005); the CAD-IMPLEMENT-001 smoke
+// flow (no geometry.prepare) runs engine-free.
 const CONFIG = {
-  adapterBundle: DummyAdapterBundle,
+  adapterBundle: createOcctAdapterBundle(),
   entityId: "electron-workspace",
-  format: "offisos-dummy",
+  format: "offisos-occt",
   formatVersion: "1",
   createdBy: "electron-workspace",
 };
 
 const isSmoke = process.argv.includes("--smoke");
+const isGeometrySmoke = process.argv.includes("--smoke-geometry");
 
 function createWindow(): BrowserWindow {
   // app.getAppPath() is the directory containing this package's package.json
@@ -220,14 +228,135 @@ async function runSmoke(win: BrowserWindow): Promise<void> {
   });
 }
 
+/** Drive the REAL-ENGINE geometry workflow through the BrowserWindow
+ *  (CAD-IMPLEMENT-002 / Issue #26 CHAIN):
+ *  BrowserWindow -> window.cad.send -> native IPC -> ElectronHost/IpcTransport
+ *    -> AppApiHandler geometry.prepare -> EngineAdapterBundle -> OCCT worker
+ *    (disposable Python subprocess) -> deterministic GeometryResult
+ *    -> applyEdit(addElement) -> CADDocument -> undo/redo + selection.
+ *  Requires the pinned toolchain (python3 + cadquery-ocp) in the environment. */
+async function runGeometrySmoke(win: BrowserWindow): Promise<void> {
+  const steps: SmokeStep[] = [];
+
+  await new Promise<void>((resolve) => {
+    win.webContents.once("did-finish-load", () => resolve());
+  });
+
+  // Call window.cad.<method> through a rejection-capturing wrapper: the raw
+  // executeJavaScript rejection hides the real IPC error behind the generic
+  // "Script failed to execute" wrapper — this surfaces the renderer-side
+  // rejection reason (message + stack) as a normal value.
+  const call = async (js: string): Promise<CommandQueryResponse> => {
+
+    const wrapped = (await win.webContents.executeJavaScript(
+      `(${js}).then((r) => ({ __smokeOk: true, r }), (e) => ({ __smokeOk: false, msg: String(e), stack: String((e && e.stack) || "") }))`,
+    )) as { __smokeOk: true; r: CommandQueryResponse } | { __smokeOk: false; msg: string; stack: string };
+    if (wrapped.__smokeOk !== true) {
+      throw new Error(`renderer call rejected: ${wrapped.msg}\n${wrapped.stack.slice(0, 800)}\nfor script: ${js.slice(0, 200)}`);
+    }
+    return wrapped.r;
+  };
+
+  const send = (payload: unknown): Promise<CommandQueryResponse> =>
+    call(`window.cad.send(${JSON.stringify({ type: "command", name: "geometry.prepare", payload })})`);
+
+  // 1. Box through the full chain (BrowserWindow -> IPC -> App API -> OCCT worker).
+  const box = await send({ geometry: { shape: "box", width: 2, depth: 3, height: 4 } });
+  const boxValue = box && box.ok ? (box.value as { meshToken: string; bbox: number[]; mesh: { vertices: unknown[] } | null; metadata: { volume: number } | null; engine: { engineId: string; engineVersion: string } }) : null;
+  const boxOk = !!boxValue && boxValue.meshToken.startsWith("occt:") && !!boxValue.mesh && boxValue.mesh.vertices.length === 8 * 3;
+  steps.push({ step: "geometry.prepare box through the real engine", ok: boxOk, detail: boxValue ? `token=${boxValue.meshToken.slice(0, 14)}… mesh=${boxValue.mesh ? boxValue.mesh.vertices.length / 3 : 0} verts engine=${boxValue.engine.engineId}@${boxValue.engine.engineVersion}` : box });
+
+  // 2. Volume + bbox correctness (box is exact).
+  const boxMetaOk = !!boxValue?.metadata && Math.abs(boxValue.metadata.volume - 24) < 1e-9 && Math.abs(boxValue.bbox[3]! - 2) < 0.01;
+  steps.push({ step: "box volume 24 + bbox width 2 (deterministic within tolerance)", ok: boxMetaOk, detail: boxValue ? `volume=${boxValue.metadata ? boxValue.metadata.volume : null} bbox=${JSON.stringify(boxValue.bbox)}` : "no result" });
+
+  // 3. Boolean fuse (box + cylinder) through the same chain.
+  const fuse = await send({ geometry: { shape: "fuse", a: { shape: "box", width: 4, depth: 3, height: 2 }, b: { shape: "cylinder", radius: 1, height: 5, origin: [2, 1.5, 0], direction: [0, 0, 1] } } });
+  const fuseValue = fuse && fuse.ok ? (fuse.value as { meshToken: string; metadata: { volume: number } | null }) : null;
+  const fuseOk = !!fuseValue && fuseValue.meshToken.startsWith("occt:") && !!fuseValue.metadata && fuseValue.metadata.volume > 24;
+  steps.push({ step: "geometry.prepare fuse(box, cylinder) through the real engine", ok: fuseOk, detail: fuseValue ? `token=${fuseValue.meshToken.slice(0, 14)}… volume=${fuseValue.metadata ? fuseValue.metadata.volume : null}` : fuse });
+
+  // 4. Determinism: repeat the box prepare -> identical meshToken.
+  const boxAgain = await send({ geometry: { shape: "box", width: 2, depth: 3, height: 4 } });
+  const boxAgainToken = boxAgain && boxAgain.ok ? (boxAgain.value as { meshToken: string }).meshToken : null;
+  const deterministic = !!boxValue && boxAgainToken === boxValue.meshToken;
+  steps.push({ step: "determinism: repeated prepare yields the identical meshToken", ok: deterministic, detail: boxAgainToken ? `${boxAgainToken.slice(0, 14)}… === ${boxValue ? boxValue.meshToken.slice(0, 14) : "?"}…` : "no token" });
+
+  // 5. Persist the real geometry result into the CADDocument (the EXISTING workflow).
+  if (boxValue) {
+    const add = await call(
+      `window.cad.send(${JSON.stringify({ type: "command", name: "document.applyEdit", payload: { edit: { type: "addElement", element: { id: "real-box", kind: "geometry", engineId: "occt", props: { geometry: { shape: "box", width: 2, depth: 3, height: 4 }, meshToken: boxValue.meshToken } } } } })})`,
+    );
+    steps.push({ step: "applyEdit(addElement) with the real occt: meshToken", ok: !!(add && add.ok), detail: add && add.ok ? "ok" : add });
+  } else {
+    steps.push({ step: "applyEdit(addElement) with the real occt: meshToken", ok: false, detail: "box prepare failed earlier" });
+  }
+
+  // 6. getState -> 1 element carrying the occt token.
+  const state = await call(
+    `window.cad.send(${JSON.stringify({ type: "query", name: "document.getState", payload: {} })})`,
+  );
+  const snap = state && state.ok ? (state.value as { elements: { id: string; props: { meshToken?: string } }[] }) : null;
+  const oneElement = !!snap && snap.elements.length === 1 && snap.elements[0]!.props.meshToken === (boxValue ? boxValue.meshToken : "");
+  steps.push({ step: "document.getState has 1 element with the real meshToken", ok: oneElement, detail: `elements=${snap ? snap.elements.length : -1}` });
+
+  // 7. Selection metadata on the real element (ephemeral, non-versioned).
+  const select = await call(
+    `window.cad.send(${JSON.stringify({ type: "command", name: "document.setSelection", payload: { ids: ["real-box"] } })})`,
+  );
+  const selected = await call(
+    `window.cad.send(${JSON.stringify({ type: "query", name: "document.getSelection", payload: {} })})`,
+  );
+  const selectionOk = !!(select && select.ok && selected && selected.ok && JSON.stringify(selected.value) === JSON.stringify(["real-box"]));
+  steps.push({ step: "setSelection/getSelection metadata on the real element", ok: selectionOk, detail: selected && selected.ok ? JSON.stringify(selected.value) : selected });
+
+  // 8. Undo removes the real element; redo restores it.
+  const undo = await call(
+    `window.cad.send(${JSON.stringify({ type: "command", name: "document.undo", payload: {} })})`,
+  );
+  const stateAfterUndo = await call(
+    `window.cad.send(${JSON.stringify({ type: "query", name: "document.getState", payload: {} })})`,
+  );
+  const snapAfterUndo = stateAfterUndo && stateAfterUndo.ok ? (stateAfterUndo.value as { elements: unknown[] }) : null;
+  const undoOk = !!(undo && undo.ok && snapAfterUndo && snapAfterUndo.elements.length === 0);
+  steps.push({ step: "undo reverts the real geometry element", ok: undoOk, detail: `elements=${snapAfterUndo ? snapAfterUndo.elements.length : -1}` });
+
+  const redo = await call(
+    `window.cad.send(${JSON.stringify({ type: "command", name: "document.redo", payload: {} })})`,
+  );
+  const stateAfterRedo = await call(
+    `window.cad.send(${JSON.stringify({ type: "query", name: "document.getState", payload: {} })})`,
+  );
+  const snapAfterRedo = stateAfterRedo && stateAfterRedo.ok ? (stateAfterRedo.value as { elements: unknown[] }) : null;
+  const redoOk = !!(redo && redo.ok && snapAfterRedo && snapAfterRedo.elements.length === 1);
+  steps.push({ step: "redo restores the real geometry element", ok: redoOk, detail: `elements=${snapAfterRedo ? snapAfterRedo.elements.length : -1}` });
+
+  // 9. Typed failure: a malformed descriptor is rejected without crashing the host.
+  const bad = await send({ geometry: { shape: "box", width: -1, depth: 1, height: 1 } });
+  const badOk = !!bad && bad.ok === false && bad.code === "engine_malformed_input";
+  steps.push({ step: "typed failure: malformed descriptor -> engine_malformed_input", ok: badOk, detail: bad && !bad.ok ? `${bad.code} (retryable=${bad.retryable})` : bad });
+
+  const allOk = steps.every((s) => s.ok);
+  writeSmokeOut({
+    ok: allOk,
+    electronVersion: process.versions.electron,
+    nodeVersion: process.versions.node,
+    chromeVersion: process.versions.chrome,
+    steps,
+    contentHash: null,
+    sceneHash: null,
+  });
+}
+
 app.whenReady().then(() => {
   registerIpc();
   const win = createWindow();
 
-  if (isSmoke) {
-    runSmoke(win)
+  const smokeRun = isSmoke ? runSmoke(win) : isGeometrySmoke ? runGeometrySmoke(win) : null;
+  if (smokeRun !== null) {
+    smokeRun
       .then(() => {
-        // Result written to OFFISOS_SMOKE_OUT inside runSmoke; exit code from
+        // Result written to OFFISOS_SMOKE_OUT inside the smoke; exit code from
         // the result's `ok` is set by the runner via the result file. Quit
         // cleanly either way (the runner reads the file, not the exit code, but
         // we mirror ok -> 0 for hygiene).
@@ -249,7 +378,7 @@ app.whenReady().then(() => {
           electronVersion: process.versions.electron,
           nodeVersion: process.versions.node,
           chromeVersion: process.versions.chrome,
-          steps: [{ step: "runSmoke threw", ok: false, detail: String((e as Error)?.stack || e) }],
+          steps: [{ step: "smoke threw", ok: false, detail: String((e as Error)?.stack || e) }],
           contentHash: null,
           sceneHash: null,
         });

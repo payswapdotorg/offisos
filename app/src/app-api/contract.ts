@@ -21,10 +21,16 @@ import type {
   Query,
 } from "../contracts/app-api.js";
 import type { EngineAdapterBundle } from "../contracts/adapter.js";
-import type { CADDocumentSnapshot, DocumentEdit, VersionMeta } from "../contracts/caddocument.js";
+import type { CADDocumentSnapshot, DocumentEdit, Element, VersionMeta } from "../contracts/caddocument.js";
 import { CADDocument } from "../caddocument/index.js";
 import { deserialize, serialize } from "../caddocument/index.js";
 import { err, ok } from "../contracts/app-api.js";
+import {
+  isAdapterFailure,
+  isGeometryMetadataProvider,
+  isMeshProvider,
+} from "../contracts/geometry.js";
+import type { GeometryPrepareResult } from "../contracts/geometry.js";
 import { IdempotencyCache } from "./idempotency.js";
 
 export interface AppApiHandlerOptions {
@@ -94,6 +100,8 @@ export class AppApiHandler {
         return this.cmdDeserialize(command.payload);
       case "document.save":
         return this.cmdSave();
+      case "geometry.prepare":
+        return this.cmdPrepareGeometry(command.payload);
       default: {
         const _exhaustive: never = command.name;
         return err("unknown_command", `unknown command: ${JSON.stringify(_exhaustive)}`);
@@ -207,6 +215,82 @@ export class AppApiHandler {
     } catch (e) {
       return err("file_write_failed", `file adapter write failed: ${(e as Error).message}`, false);
     }
+  }
+
+  /**
+   * geometry.prepare (CAD-IMPLEMENT-002, additive): realize an
+   * engine-independent GeometryDescriptor through the geometry engine
+   * adapter (LOCK-003/018 — the only place the App API touches the engine).
+   * Non-mutating: callers persist the result via applyEdit(addElement).
+   *
+   * Typed failure mapping (CAD-005 §5): an AdapterFailure thrown by the
+   * adapter becomes the wire ErrResult verbatim (engine_timeout /
+   * engine_malformed_input / engine_error / engine_unavailable). The
+   * adapter's result is structurally validated before it is returned
+   * (never trust engine output blindly). Viewport mesh data and
+   * selection/query metadata are attached when the concrete adapter
+   * implements the optional structural capabilities (MeshProvider /
+   * GeometryMetadataProvider) — the dummy adapter implements neither.
+   */
+  private async cmdPrepareGeometry(payload: unknown): Promise<CommandQueryResponse> {
+    const p = payload as { geometry?: unknown } | null;
+    if (p === null || typeof p !== "object" || p.geometry === undefined) {
+      return err("bad_payload", "geometry.prepare requires geometry", true);
+    }
+    // The contract method takes an Element; the descriptor is its props.
+    const element: Element = {
+      id: "geometry:prepare",
+      kind: "geometry",
+      engineId: null,
+      props: p.geometry as Record<string, unknown>,
+    };
+    let result: { meshToken: string; bbox: readonly [number, number, number, number, number, number] };
+    try {
+      result = await this.adapters.geometry.prepareGeometry(element);
+    } catch (e) {
+      if (isAdapterFailure(e)) return err(e.code, e.message, e.retryable);
+      return err("engine_error", `geometry adapter failed: ${(e as Error).message}`, false);
+    }
+    // Structural validation of the adapter's result (CAD-005 §5).
+    if (
+      typeof result !== "object" || result === null ||
+      typeof result.meshToken !== "string" || result.meshToken.length === 0 ||
+      !Array.isArray(result.bbox) || result.bbox.length !== 6 ||
+      !result.bbox.every((n) => typeof n === "number" && Number.isFinite(n))
+    ) {
+      return err("engine_error", "geometry adapter returned an invalid GeometryResult", false);
+    }
+
+    // Optional capabilities (structural — the protected core never imports
+    // a concrete adapter; LOCK-018 stays intact).
+    let mesh: GeometryPrepareResult["mesh"] = null;
+    if (isMeshProvider(this.adapters.geometry)) {
+      try {
+        mesh = await this.adapters.geometry.describeMesh(result.meshToken);
+      } catch {
+        mesh = null;
+      }
+    }
+    let metadata: GeometryPrepareResult["metadata"] = null;
+    if (isGeometryMetadataProvider(this.adapters.geometry)) {
+      try {
+        metadata = await this.adapters.geometry.describeGeometryMetadata(result.meshToken);
+      } catch {
+        metadata = null;
+      }
+    }
+
+    const value: GeometryPrepareResult = {
+      meshToken: result.meshToken,
+      bbox: result.bbox,
+      mesh,
+      metadata,
+      engine: {
+        engineId: this.adapters.geometry.engineId,
+        engineVersion: this.adapters.geometry.engineVersion,
+      },
+    };
+    return ok(value);
   }
 
   // --- Queries ------------------------------------------------------------
