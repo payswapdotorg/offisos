@@ -160,6 +160,15 @@ export const QUERY_PAYLOAD_SCHEMAS: Readonly<Record<QueryName, object>> = {
     },
     required: ["revision_number"],
   },
+  // RESEARCH-CAD-007 (additive, api-contract.md §8): the deterministic
+  // downstream cascade for one model transition (default: the latest
+  // revision) — quantities → estimate → affected RFQ → commercial impact.
+  "impact.cascade": {
+    type: "object",
+    properties: {
+      revision_number: { type: "number", minimum: 1 },
+    },
+  },
 };
 
 export const WIRE_ENVELOPE_SCHEMA = {

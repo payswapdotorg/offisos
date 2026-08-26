@@ -34,6 +34,7 @@ import type { GeometryPrepareResult } from "../contracts/geometry.js";
 import { IdempotencyCache } from "./idempotency.js";
 import { bridgeModelHistory } from "../graph/index.js";
 import { verifiedReplay } from "../caddocument/history.js";
+import { runImpactCascade } from "../impact/index.js";
 import type { ModelReplayResult } from "../contracts/model.js";
 
 export interface AppApiHandlerOptions {
@@ -369,10 +370,52 @@ export class AppApiHandler {
           return err("replay_failed", `replay failed: ${(e as Error).message}`, false);
         }
       }
+      case "impact.cascade":
+        return await this.qImpactCascade(query.payload);
       default: {
         const _exhaustive: never = query.name;
         return err("unknown_query", `unknown query: ${JSON.stringify(_exhaustive)}`);
       }
+    }
+  }
+
+  /**
+   * impact.cascade (RESEARCH-CAD-007, additive): run the deterministic
+   * downstream chain for one model transition (default: the latest
+   * revision) — quantity.recalculate.requested → quantity.changed →
+   * estimate.recalculated → rfq.scope.impact.detected + the aggregate
+   * commercial impact — caused by the corresponding model.version.created
+   * graph event. Quantities are computed THROUGH the bound geometry engine
+   * adapter (LOCK-003/018 — the only engine touchpoint); engine ids are
+   * provenance only. Non-mutating, deterministic (fixed timestamps,
+   * canonical ordering, canonical-hash event ids).
+   */
+  private async qImpactCascade(payload: unknown): Promise<CommandQueryResponse> {
+    const p = payload as { revision_number?: unknown } | null;
+    const history = this.doc.history;
+    if (history.revisions.length === 0) {
+      return err("bad_payload", "impact.cascade requires at least one recorded revision", true);
+    }
+    let k = history.revisions.length;
+    if (p !== null && typeof p === "object" && p.revision_number !== undefined) {
+      if (typeof p.revision_number !== "number" || !Number.isInteger(p.revision_number)) {
+        return err("bad_payload", "impact.cascade revision_number must be an integer", true);
+      }
+      k = p.revision_number;
+    }
+    if (k < 1 || k > history.revisions.length) {
+      return err(
+        "bad_payload",
+        `impact.cascade revision_number ${k} out of range 1..${history.revisions.length}`,
+        true,
+      );
+    }
+    try {
+      const cascade = await runImpactCascade({ history, revision: k, bundle: this.adapters });
+      return ok(cascade);
+    } catch (e) {
+      if (isAdapterFailure(e)) return err(e.code, e.message, e.retryable);
+      return err("impact_failed", `impact cascade failed: ${(e as Error).message}`, false);
     }
   }
 }

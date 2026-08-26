@@ -55,10 +55,12 @@ import { readFileSync, writeFileSync } from "node:fs";
 
 import { AppApiHandler } from "@offisos/cad-app-shell/app-api";
 import { createOcctAdapterBundle } from "@offisos/cad-app-shell/adapters/occt";
+import { createReferenceAdapterBundle } from "@offisos/cad-app-shell/adapters/reference";
 import { ElectronHost, IpcTransport } from "@offisos/cad-app-shell/host-electron";
 import { createRenderer } from "@offisos/cad-app-shell/renderer";
 import type { CommandQueryRequest, CommandQueryResponse } from "@offisos/cad-app-shell/contracts/app-api";
 import type { CADDocumentSnapshot } from "@offisos/cad-app-shell/contracts/caddocument";
+import type { EngineAdapterBundle } from "@offisos/cad-app-shell/contracts/adapter";
 import type { SceneGraph } from "@offisos/cad-app-shell/contracts/scene";
 
 // CAD-IMPLEMENT-002 / Issue #26: the Electron workspace surface is connected
@@ -79,6 +81,7 @@ const CONFIG = {
 const isSmoke = process.argv.includes("--smoke");
 const isGeometrySmoke = process.argv.includes("--smoke-geometry");
 const isModelSmoke = process.argv.includes("--smoke-model");
+const isImpactSmoke = process.argv.includes("--smoke-impact");
 
 function createWindow(): BrowserWindow {
   // app.getAppPath() is the directory containing this package's package.json
@@ -103,9 +106,12 @@ function createWindow(): BrowserWindow {
   return win;
 }
 
-/** Wire the native IPC handlers to the shared host + renderer core. */
-function registerIpc(): { handler: AppApiHandler; host: ElectronHost } {
-  const handler = AppApiHandler.create(CONFIG);
+/** Wire the native IPC handlers to the shared host + renderer core. The
+ *  bundle is injectable: the impact smoke (RESEARCH-CAD-007) binds the
+ *  engine-free REFERENCE adapter — the second engine running inside the
+ *  Electron host behind the same frozen boundary (LOCK-003). */
+function registerIpc(bundle: EngineAdapterBundle = CONFIG.adapterBundle): { handler: AppApiHandler; host: ElectronHost } {
+  const handler = AppApiHandler.create({ ...CONFIG, adapterBundle: bundle });
   const host = new ElectronHost(new IpcTransport(handler));
   const renderer = createRenderer(host);
 
@@ -526,8 +532,165 @@ async function runModelSmoke(win: BrowserWindow): Promise<void> {
   });
 }
 
+/**
+ * RESEARCH-CAD-007 / Issue #32: the downstream impact cascade Electron smoke.
+ *
+ * Proves the FULL chain through a real BrowserWindow with the engine-free
+ * REFERENCE adapter bound as the geometry engine (the second engine inside
+ * the Electron host behind the same frozen boundary — LOCK-003):
+ *
+ *   BrowserWindow -> window.cad.send (preload) -> ipcRenderer.invoke
+ *     -> ipcMain.handle -> ElectronHost + IpcTransport -> AppApiHandler
+ *     -> immutable ModelHistory -> impact.cascade
+ *     (model.version.created cause -> quantity.recalculate.requested
+ *       -> quantity.changed -> estimate.recalculated
+ *       -> rfq.scope.impact.detected -> commercial impact)
+ *     -> save/open persistence -> identical cascade hash.
+ *
+ * Engine-free (the reference adapter is pure TypeScript), so it runs on any
+ * toolchain. Reproduce: cd apps/electron && npm run smoke:impact
+ */
+async function runImpactSmoke(win: BrowserWindow): Promise<void> {
+  const steps: SmokeStep[] = [];
+
+  await new Promise<void>((resolve) => {
+    win.webContents.once("did-finish-load", () => resolve());
+  });
+
+  const call = async (js: string): Promise<CommandQueryResponse> => {
+    const wrapped = (await win.webContents.executeJavaScript(
+      `(${js}).then((r) => ({ __smokeOk: true, r }), (e) => ({ __smokeOk: false, msg: String(e), stack: String((e && e.stack) || "") }))`,
+    )) as { __smokeOk: true; r: CommandQueryResponse } | { __smokeOk: false; msg: string; stack: string };
+    if (wrapped.__smokeOk !== true) {
+      throw new Error(`renderer call rejected: ${wrapped.msg}\n${wrapped.stack.slice(0, 800)}\nfor script: ${js.slice(0, 200)}`);
+    }
+    return wrapped.r;
+  };
+  const send = (request: CommandQueryRequest): Promise<CommandQueryResponse> =>
+    call(`window.cad.send(${JSON.stringify(request)})`);
+
+  const add = (id: string, category: string, geometry: Record<string, unknown>) =>
+    send({
+      type: "command", name: "document.applyEdit", payload: {
+        edit: { type: "addElement", element: { id, kind: "geometry", engineId: null, props: { geometry, category } } },
+      },
+    });
+
+  // 1-4. Build the model: concrete column, steel pipe, concrete slab (r1-r3).
+  const create = await send({ type: "command", name: "document.create", payload: { entityId: "cad007-impact-smoke" } });
+  steps.push({ step: "document.create(cad007-impact-smoke)", ok: !!(create && create.ok) });
+  const add1 = await add("el-column-a", "concrete", { shape: "box", width: 0.4, depth: 0.4, height: 3.0 });
+  steps.push({ step: "addElement el-column-a (concrete box)", ok: !!(add1 && add1.ok) });
+  const add2 = await add("el-pipe-riser", "steel", { shape: "cylinder", radius: 0.05, height: 3, origin: [1, 1, 0], direction: [0, 0, 1] });
+  steps.push({ step: "addElement el-pipe-riser (steel cylinder)", ok: !!(add2 && add2.ok) });
+  const add3 = await add("el-slab", "concrete", { shape: "box", width: 6, depth: 4, height: 0.2 });
+  steps.push({ step: "addElement el-slab (concrete box)", ok: !!(add3 && add3.ok) });
+
+  // 5. The model change: column grows 3.0 -> 3.5 (r4).
+  const resize = await send({
+    type: "command", name: "document.applyEdit", payload: {
+      edit: { type: "updateElement", elementId: "el-column-a", patch: { geometry: { shape: "box", width: 0.4, depth: 0.4, height: 3.5 } } },
+    },
+  });
+  steps.push({ step: "updateElement el-column-a resize (model change, r4)", ok: !!(resize && resize.ok) });
+
+  // 6. impact.cascade for r4: the full deterministic downstream chain.
+  const cascadeRes = await send({ type: "query", name: "impact.cascade", payload: { revision_number: 4 } });
+  type Cascade = {
+    model_event_id: string;
+    events_hash: string;
+    events: { event_id: string; event_type: string; causation_id: string | null }[];
+    quantities: { deltas: { element_id: string; delta: number | null }[]; skipped: { element_id: string }[] };
+    estimate: { previous: { total: number } | null; current: { total: number } };
+    rfq: { impacts: { category: string; affected: boolean; delta_amount: number }[] };
+    commercial_impact: { total_delta: number; currency: string; affected_category_count: number };
+    engine: { engineId: string; engineVersion: string };
+  };
+  const cascade = cascadeRes && cascadeRes.ok ? (cascadeRes.value as Cascade) : null;
+  const chainOk =
+    !!cascade &&
+    /^[0-9a-f]{64}$/.test(cascade.events_hash) &&
+    cascade.events.length === 4 &&
+    cascade.events[0]!.event_type === "quantity.recalculate.requested" &&
+    cascade.events[1]!.event_type === "quantity.changed" &&
+    cascade.events[2]!.event_type === "estimate.recalculated" &&
+    cascade.events[3]!.event_type === "rfq.scope.impact.detected" &&
+    cascade.events[0]!.causation_id === cascade.model_event_id &&
+    cascade.events.slice(1).every((e, i) => e.causation_id === cascade.events[i]!.event_id);
+  steps.push({
+    step: "impact.cascade r4: 4-event chain caused by model.version.created",
+    ok: chainOk,
+    detail: cascade ? `types=${cascade.events.map((e) => e.event_type).join("->")}` : cascadeRes,
+  });
+
+  // 7. The cascade's cause IS the revision-4 graph event.
+  const graphRes = await send({ type: "query", name: "model.getGraphEvents", payload: {} });
+  const graph = graphRes && graphRes.ok ? (graphRes.value as { events: { event_id: string; event_type: string; payload: { revision: { revision_number: number } } }[] }) : null;
+  const r4Event = graph?.events.find((e) => e.event_type === "model.version.created" && e.payload.revision.revision_number === 4);
+  const causeOk = !!cascade && !!r4Event && cascade.model_event_id === r4Event.event_id;
+  steps.push({ step: "cascade hangs off the r4 model.version.created graph event", ok: causeOk });
+
+  // 8. Quantity delta exact (0.4*0.4*0.5 = 0.08); only the column changed.
+  const columnDelta = cascade?.quantities.deltas.find((d) => d.element_id === "el-column-a");
+  const othersZero = cascade?.quantities.deltas.filter((d) => d.element_id !== "el-column-a").every((d) => d.delta !== null && Math.abs(d.delta) < 1e-12);
+  const deltaOk = !!columnDelta && Math.abs((columnDelta.delta ?? 0) - 0.08) <= 1e-12 && !!othersZero && (cascade?.quantities.skipped.length ?? 1) === 0;
+  steps.push({
+    step: "quantity delta exact (column +0.08 model-unit^3, others unchanged)",
+    ok: deltaOk,
+    detail: columnDelta ? `delta=${columnDelta.delta}` : "missing column delta",
+  });
+
+  // 9. Estimate + RFQ + commercial impact arithmetic (demo rates: concrete 420 GHS).
+  const estimateDelta = cascade ? cascade.estimate.current.total - (cascade.estimate.previous?.total ?? 0) : NaN;
+  const concrete = cascade?.rfq.impacts.find((i) => i.category === "concrete");
+  const steel = cascade?.rfq.impacts.find((i) => i.category === "steel");
+  const impactOk =
+    !!cascade &&
+    Math.abs(estimateDelta - 0.08 * 420) <= 1e-9 &&
+    !!concrete && concrete.affected === true && Math.abs(concrete.delta_amount - 0.08 * 420) <= 1e-9 &&
+    !!steel && steel.affected === false &&
+    Math.abs(cascade.commercial_impact.total_delta - 0.08 * 420) <= 1e-9 &&
+    cascade.commercial_impact.currency === "GHS" &&
+    cascade.commercial_impact.affected_category_count === 1 &&
+    cascade.engine.engineId === "reference";
+  steps.push({
+    step: "estimate/RFQ/commercial arithmetic exact; concrete affected, steel not; provenance=reference",
+    ok: impactOk,
+    detail: cascade ? `estimateDelta=${estimateDelta} commercial=${cascade.commercial_impact.total_delta} ${cascade.commercial_impact.currency}` : "no cascade",
+  });
+
+  // 10. Persistence: save -> open -> identical cascade hash.
+  const saveRes = await send({ type: "command", name: "document.save", payload: {} });
+  let persistenceOk = false;
+  let hashDetail = "save failed";
+  if (saveRes && saveRes.ok) {
+    const bytes = (saveRes.value as { bytes: number[] }).bytes;
+    const openRes = await send({ type: "command", name: "document.open", payload: { source: bytes } });
+    if (openRes && openRes.ok) {
+      const againRes = await send({ type: "query", name: "impact.cascade", payload: { revision_number: 4 } });
+      const again = againRes && againRes.ok ? (againRes.value as Cascade) : null;
+      persistenceOk = !!again && !!cascade && again.events_hash === cascade.events_hash;
+      hashDetail = persistenceOk ? `events_hash=${cascade!.events_hash.slice(0, 16)}... identical` : "cascade hash changed after save/open";
+    } else {
+      hashDetail = "open failed";
+    }
+  }
+  steps.push({ step: "save -> open -> identical cascade events_hash", ok: persistenceOk, detail: hashDetail });
+
+  const allOk = steps.every((s) => s.ok);
+  writeSmokeOut({
+    ok: allOk,
+    electronVersion: process.versions.electron,
+    nodeVersion: process.versions.node,
+    chromeVersion: process.versions.chrome,
+    steps,
+    contentHash: null,
+    sceneHash: null,
+  });
+}
+
 app.whenReady().then(() => {
-  registerIpc();
+  registerIpc(isImpactSmoke ? createReferenceAdapterBundle() : undefined);
   const win = createWindow();
 
   const smokeRun = isSmoke
@@ -536,7 +699,9 @@ app.whenReady().then(() => {
       ? runGeometrySmoke(win)
       : isModelSmoke
         ? runModelSmoke(win)
-        : null;
+        : isImpactSmoke
+          ? runImpactSmoke(win)
+          : null;
   if (smokeRun !== null) {
     smokeRun
       .then(() => {

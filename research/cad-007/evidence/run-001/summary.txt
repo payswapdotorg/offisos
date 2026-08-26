@@ -1,0 +1,6 @@
+RESEARCH-CAD-007 evidence run-001
+node v24.18.0; reference@1.0.0; occt 7.8.1.1.post1
+cross-engine: max volume rel err 4.162e-9 (declared 0.000001), max bbox abs diff 3.647e-4 (declared 0.02)
+engine swap: ALL canonical semantics identical (content/graph/identities)
+existential cascade: quantity.recalculate.requested -> quantity.changed -> estimate.recalculated -> rfq.scope.impact.detected; estimate delta 33.600000000000364 GHS; commercial 33.599999999999454 GHS; hash f718e26dba62009a...
+determinism rerun: {"rerun_events_hash_identical":true,"rerun_content_hash_identical":true}

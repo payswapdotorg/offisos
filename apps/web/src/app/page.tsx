@@ -63,6 +63,7 @@ import {
   createDoc,
   getGraphEvents,
   getHistory,
+  getImpactCascade,
   getState,
   getSelection,
   openFromText,
@@ -74,12 +75,14 @@ import {
   undo,
   unwrapGraphEvents,
   unwrapHistory,
+  unwrapImpactCascade,
   unwrapPrepared,
   unwrapReplay,
   unwrapSaveBytes,
   unwrapSelection,
   unwrapSnapshot,
 } from "@/cad/client/http-transport";
+import type { ImpactCascadeResult } from "@/cad/client/http-transport";
 
 // --- Helpers --------------------------------------------------------------
 
@@ -139,6 +142,8 @@ export default function Home() {
   const [history, setHistory] = React.useState<ModelHistory | null>(null);
   const [graphEvents, setGraphEvents] = React.useState<GraphBridgeResult | null>(null);
   const [replay, setReplay] = React.useState<ModelReplayResult | null>(null);
+  // RESEARCH-CAD-007: the downstream impact cascade.
+  const [impact, setImpact] = React.useState<ImpactCascadeResult | null>(null);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
 
   /** Cache a prepared mesh for viewport rendering (keyed by meshToken —
@@ -239,6 +244,28 @@ export default function Home() {
         } else {
           setError(null);
           setReplay(value);
+        }
+        setBusy(false);
+      })();
+    },
+    [],
+  );
+
+  /** RESEARCH-CAD-007: run the downstream impact cascade for the latest
+   *  model transition (model change → quantity delta → estimate impact →
+   *  affected RFQ → commercial impact) through the shared App API. */
+  const onRunImpact = React.useCallback(
+    (revisionNumber?: number) => {
+      setBusy(true);
+      (async () => {
+        const res = await getImpactCascade(revisionNumber);
+        const value = unwrapImpactCascade(res);
+        if (!res.ok || value === null) {
+          setError(res.ok ? `[Impact] unexpected response shape` : `[Impact] ${res.code}: ${res.message}`);
+          setImpact(null);
+        } else {
+          setError(null);
+          setImpact(value);
         }
         setBusy(false);
       })();
@@ -852,6 +879,125 @@ export default function Home() {
                       {graphEvents.events.filter((e) => e.event_type === "model.version.created").length}×{" "}
                       model.version.created — deterministic, engine-id provenance only.
                     </p>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* RESEARCH-CAD-007: downstream impact cascade */}
+            <Card>
+              <CardHeader>
+                <CardTitle>Impact</CardTitle>
+                <CardDescription>
+                  Model change → quantity delta → estimate impact → affected
+                  RFQ → commercial impact. Deterministic cascade caused by the
+                  model.version.created graph event.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  className="w-full"
+                  onClick={() => onRunImpact()}
+                  disabled={busy || !history || history.revisions.length === 0}
+                  aria-label="Run the downstream impact cascade for the latest revision"
+                >
+                  Run impact cascade
+                </Button>
+                {!impact ? (
+                  <p className="mt-3 text-sm text-muted-foreground">
+                    No cascade yet — edit the model, then run the cascade.
+                  </p>
+                ) : (
+                  <div className="mt-3 space-y-3 text-xs">
+                    <div className="flex flex-wrap items-center gap-2 text-muted-foreground">
+                      <Badge variant="secondary" className="font-mono">
+                        r{impact.from_revision.revision_number} → r{impact.to_revision.revision_number}
+                      </Badge>
+                      <Badge variant="outline" className="font-mono">
+                        {impact.events.length} events
+                      </Badge>
+                      <Badge variant="outline" className="font-mono">
+                        {impact.engine.engineId}@{impact.engine.engineVersion}
+                      </Badge>
+                    </div>
+
+                    <div>
+                      <p className="font-medium">Quantity deltas</p>
+                      <ScrollArea className="max-h-40 mt-1 pr-2">
+                        <ul className="space-y-1 font-mono">
+                          {impact.quantities.deltas
+                            .filter((d) => d.delta !== null && Math.abs(d.delta) > 0)
+                            .map((d) => (
+                              <li key={d.element_id} className="flex justify-between gap-2">
+                                <span className="truncate">{truncate(d.element_id, 20)}</span>
+                                <span>
+                                  {d.previous?.toFixed(4)} → {d.current?.toFixed(4)} ({d.delta! >= 0 ? "+" : ""}
+                                  {d.delta!.toFixed(4)})
+                                </span>
+                              </li>
+                            ))}
+                          {impact.quantities.deltas.every((d) => d.delta === null || Math.abs(d.delta) === 0) && (
+                            <li className="text-muted-foreground">no quantity change</li>
+                          )}
+                        </ul>
+                      </ScrollArea>
+                      {impact.quantities.skipped.length > 0 && (
+                        <p className="mt-1 text-muted-foreground">
+                          {impact.quantities.skipped.length} unmeasured (UNKNOWN:{" "}
+                          {impact.quantities.skipped.map((s) => truncate(s.element_id, 12)).join(", ")})
+                        </p>
+                      )}
+                    </div>
+
+                    <div>
+                      <p className="font-medium">Estimate</p>
+                      <p className="font-mono">
+                        {impact.estimate.previous
+                          ? `${impact.estimate.previous.total.toFixed(2)} → ${impact.estimate.current.total.toFixed(2)} ${impact.estimate.current.currency}`
+                          : `${impact.estimate.current.total.toFixed(2)} ${impact.estimate.current.currency}`}
+                      </p>
+                    </div>
+
+                    <div>
+                      <p className="font-medium">Affected RFQ packages</p>
+                      <ul className="mt-1 space-y-1 font-mono">
+                        {impact.rfq.impacts
+                          .filter((i) => i.affected)
+                          .map((i) => (
+                            <li key={i.category} className="flex justify-between gap-2">
+                              <span>{i.category}</span>
+                              <span>
+                                {i.delta_amount >= 0 ? "+" : ""}
+                                {i.delta_amount.toFixed(2)}
+                              </span>
+                            </li>
+                          ))}
+                        {impact.rfq.impacts.every((i) => !i.affected) && (
+                          <li className="text-muted-foreground">no package affected</li>
+                        )}
+                      </ul>
+                    </div>
+
+                    <div className="rounded-md border bg-muted/40 p-2.5">
+                      <p className="font-medium">Commercial impact</p>
+                      <p className="mt-1 font-mono text-sm">
+                        {impact.commercial_impact.total_delta >= 0 ? "+" : ""}
+                        {impact.commercial_impact.total_delta.toFixed(2)}{" "}
+                        {impact.commercial_impact.currency}
+                      </p>
+                      <p className="text-muted-foreground">
+                        {impact.commercial_impact.affected_category_count} affected package
+                        {impact.commercial_impact.affected_category_count === 1 ? "" : "s"} · demo rate table ·
+                        quantities {impact.quantities.current[0]?.uncertainty ?? "CALCULATED"} via{" "}
+                        {impact.quantities.current[0]?.method ?? "engine"}
+                      </p>
+                      <p className="mt-1 break-all font-mono text-muted-foreground">
+                        events_hash {truncate(impact.events_hash, 24)}
+                      </p>
+                    </div>
                   </div>
                 )}
               </CardContent>
