@@ -66,7 +66,7 @@ jobs:
       - name: Typecheck app shell (incl. the OCCT adapter)
         run: node_modules/.bin/tsc --noEmit -p app/tsconfig.json
 
-      - name: Full app test suite with the real engine (74 tests: 50 existing + 24 real-engine)
+      - name: "Full app test suite with the real engine (74 tests)"
         working-directory: app
         run: node --import tsx --test test/*.test.ts
 
@@ -139,31 +139,31 @@ jobs:
           done
           sleep 3
           echo "=== geometry.prepare through the Web host ==="
-          RESPONSE=$(curl -sS -X POST http://localhost:3000/api/cad \
+          curl -sS -X POST http://localhost:3000/api/cad \
             -H "Content-Type: application/json" \
-            -d '{"api":"1","body":{"type":"command","name":"geometry.prepare","payload":{"geometry":{"shape":"box","width":2,"depth":3,"height":4}}}}}')
-          echo "$RESPONSE" | head -c 400; echo
-          echo "$RESPONSE" | python3 -c "
-import json, sys
-d = json.load(sys.stdin)
-assert d.get('ok') is True, f'geometry.prepare failed: {d}'
-v = d['value']
-assert v['meshToken'].startswith('occt:'), f'bad token: {v[\"meshToken\"]}'
-assert v['mesh'] is not None and len(v['mesh']['vertices']) == 24, 'box mesh must have 8 verts'
-assert abs(v['metadata']['volume'] - 24) < 1e-9, f'bad volume: {v[\"metadata\"][\"volume\"]}'
-assert v['engine']['engineId'] == 'occt', f'bad engine: {v[\"engine\"]}'
-print('WEB HOST REAL-ENGINE SMOKE PASS: token=' + v['meshToken'][:18] + '... volume=24 engine=' + v['engine']['engineId'] + '@' + v['engine']['engineVersion'])
-"
+            -d '{"api":"1","body":{"type":"command","name":"geometry.prepare","payload":{"geometry":{"shape":"box","width":2,"depth":3,"height":4}}}}' > /tmp/geom.json
+          head -c 400 /tmp/geom.json; echo
+          python3 /dev/stdin /tmp/geom.json <<'PYEOF'
+          import json, sys
+          d = json.load(open(sys.argv[1]))
+          assert d.get('ok') is True, 'geometry.prepare failed: %r' % (d,)
+          v = d['value']
+          assert v['meshToken'].startswith('occt:'), 'bad token: %r' % (v['meshToken'],)
+          assert v['mesh'] is not None and len(v['mesh']['vertices']) == 24, 'box mesh must have 8 verts'
+          assert abs(v['metadata']['volume'] - 24) < 1e-9, 'bad volume: %r' % (v['metadata']['volume'],)
+          assert v['engine']['engineId'] == 'occt', 'bad engine: %r' % (v['engine'],)
+          print('WEB HOST REAL-ENGINE SMOKE PASS: token=' + v['meshToken'][:18] + '... volume=24 engine=' + v['engine']['engineId'] + '@' + v['engine']['engineVersion'])
+          PYEOF
           echo "=== typed failure smoke (malformed descriptor) ==="
           curl -sS -X POST http://localhost:3000/api/cad \
             -H "Content-Type: application/json" \
-            -d '{"api":"1","body":{"type":"command","name":"geometry.prepare","payload":{"geometry":{"shape":"box","width":-1,"depth":1,"height":1}}}}' | \
-            python3 -c "
-import json, sys
-d = json.load(sys.stdin)
-assert d.get('ok') is False and d.get('code') == 'engine_malformed_input', f'expected typed failure: {d}'
-print('TYPED FAILURE PASS: ' + d['code'])
-"
+            -d '{"api":"1","body":{"type":"command","name":"geometry.prepare","payload":{"geometry":{"shape":"box","width":-1,"depth":1,"height":1}}}}' > /tmp/geom-bad.json
+          python3 /dev/stdin /tmp/geom-bad.json <<'PYEOF'
+          import json, sys
+          d = json.load(open(sys.argv[1]))
+          assert d.get('ok') is False and d.get('code') == 'engine_malformed_input', 'expected typed failure: %r' % (d,)
+          print('TYPED FAILURE PASS: ' + d['code'])
+          PYEOF
           kill $DEV_PID || true
 
   electron-host-real-engine:
@@ -195,10 +195,6 @@ print('TYPED FAILURE PASS: ' + d['code'])
             libnss3 libatk1.0-0 libatk-bridge2.0-0 libcups2 libxkbcommon0 \
             libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 \
             libpango-1.0-0 libcairo2
-          # libasound2 was renamed to libasound2t64 on ubuntu-24.04 (the 64-bit
-          # time_t transition made it a virtual package with no installation
-          # candidate). Install whichever concrete package the runner exposes so
-          # the step works on both ubuntu-22.04 and ubuntu-24.04 runners.
           sudo apt-get install -y --no-install-recommends libasound2t64 || \
             sudo apt-get install -y --no-install-recommends libasound2
 
@@ -214,7 +210,7 @@ print('TYPED FAILURE PASS: ' + d['code'])
         working-directory: apps/electron
         run: npm run build
 
-      - name: Engine-free regression smoke (CAD-IMPLEMENT-001, no geometry.prepare)
+      - name: Engine-free regression smoke (CAD-IMPLEMENT-001)
         working-directory: apps/electron
         run: npm run smoke
 
