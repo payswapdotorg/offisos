@@ -1,0 +1,99 @@
+{
+  "benchmark": "bench-replacement-path",
+  "description": "Benchmark: adapter boundary as the LGPL-compliance mechanism (RESEARCH-CAD-006 item 6).",
+  "started_at": "2026-08-25T19:44:35.505510+00:00",
+  "finished_at": "2026-08-25T19:44:35.505526+00:00",
+  "summary": {
+    "pass": 5,
+    "fail": 0,
+    "unknown": 0
+  },
+  "measurements": {},
+  "checks": [
+    {
+      "id": "replacement/adapter-boundary-v1.1-frozen",
+      "description": "The adapter boundary is frozen at Architecture v1.1 (FROZEN in governance/architecture-versions.json), defined by spec/architecture.md, spec/architecture-lock.md and ACR-002 (the CAD/BIM web+desktop client topology change request).",
+      "status": "pass",
+      "epistemic": "OBSERVED",
+      "tolerance": null,
+      "details": {
+        "version": "1.1",
+        "status": "FROZEN",
+        "defined_by": [
+          "spec/architecture.md",
+          "spec/architecture-lock.md",
+          "governance/architecture-changes/ACR-002-cad-bim-web-desktop-client-topology.md"
+        ]
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "replacement/adapter-replacement-proof-referenced",
+      "description": "The adapter-replacement proof (RESEARCH-CAD-001 item 9) is referenced as the basis: the identical domain-level test suite (which imports no engine modules) produces identical results through the IfcOpenShell+OCCT adapter and a pure-Python reference adapter with no CAD engine (within 1e-9); unsupported operations raise the typed UnsupportedOperationError (no silent fallback); engine imports are confined to offisos_cadbench/engines/.",
+      "status": "pass",
+      "epistemic": "INFERRED",
+      "tolerance": null,
+      "details": {
+        "proof_reference": "RESEARCH-CAD-001 item 9 (adapter boundary and replacement proof)",
+        "findings": [
+          "domain-results-identical through both adapters (within 1e-9)",
+          "per-element-quantities-identical",
+          "typed-unsupported-operation (UnsupportedOperationError, no silent fallback)",
+          "engine imports confined to offisos_cadbench/engines/",
+          "swapping the engine requires implementing the CadBimAdapter contract only"
+        ]
+      },
+      "evidence_refs": []
+    },
+    {
+      "id": "replacement/lgpl-user-replaceability-preserved",
+      "description": "The frozen adapter/process boundary preserves the LGPL user-replacement right for every copyleft component in the tested stack: OCCT, IfcOpenShell and FreeCAD run behind a process/adapter boundary, so a user can replace any of them (with a compatible implementation of the CadBimAdapter contract) without touching proprietary adapter code.",
+      "status": "pass",
+      "epistemic": "INFERRED",
+      "tolerance": null,
+      "details": {
+        "lgpl_components_isolated": [
+          "ifcopenshell",
+          "occt",
+          "freecad"
+        ],
+        "mechanism": "The adapter/process boundary isolates LGPL-licensed CAD/BIM components (OCCT, IfcOpenShell, FreeCAD) so that they remain user-replaceable in both deployment models. This is the architectural mechanism that makes LGPL composition tractable without weakening the LGPL user-replacement right.",
+        "satisfies": "LGPL user-replacement right (OCCT exception preserved under dynamic/separate-process linking; IfcOpenShell LGPL-3 Section 4 satisfied by separability for desktop distribution; FreeCAD AppImage is a swap-as-a-unit replaceable bundle)"
+      },
+      "evidence_refs": [
+        "replacement/adapter-boundary-v1.1-frozen",
+        "replacement/adapter-replacement-proof-referenced"
+      ]
+    },
+    {
+      "id": "replacement/final-proof-deferred-to-cad-007",
+      "description": "The final adapter-boundary + replacement-path + end-to-end-workflow proof is deferred to RESEARCH-CAD-007 (the final CAD/BIM feasibility gate, per the Issue #6 directive). This gate (CAD-006) covers licensing/composition evidence only; it references CAD-001's existing replacement proof as the basis for the LGPL-compliance analysis, it does not re-prove the replacement path end-to-end.",
+      "status": "pass",
+      "epistemic": "INFERRED",
+      "tolerance": null,
+      "details": {
+        "this_gate_scope": "exact-version licensing/composition evidence (web + Electron/desktop)",
+        "cad_007_scope": "adapter boundary + replacement path + existential end-to-end workflow (final CAD/BIM feasibility gate)",
+        "directive_source": "Issue #6 execution directive"
+      },
+      "evidence_refs": [
+        "replacement/adapter-replacement-proof-referenced"
+      ]
+    },
+    {
+      "id": "replacement/no-lgpl-right-weakening-proposed",
+      "description": "No weakening of the LGPL user-replacement right is proposed by this gate. The composition flags recommend dynamic/separate-process composition (the LGPL-compliant posture), and explicitly flag static linking of LGPL into closed-source code as review-required (object files / relinking capability would then be mandatory).",
+      "status": "pass",
+      "epistemic": "INFERRED",
+      "tolerance": null,
+      "details": {
+        "recommended_posture": "dynamic / separate-process composition behind the frozen adapter boundary",
+        "flagged_avoid": "static linking of LGPL into closed-source code"
+      },
+      "evidence_refs": [
+        "replacement/lgpl-user-replaceability-preserved",
+        "deployment/desktop/no-static-linking-of-lgpl-into-closed-source"
+      ]
+    }
+  ]
+}

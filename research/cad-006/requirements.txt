@@ -1,0 +1,28 @@
+# RESEARCH-CAD-006 — exact-version licensing/composition evidence gate.
+#
+# This gate is a records/inventory benchmark: it reads exact tested
+# versions from the authoritative pinned sources (this file, the CAD-001
+# environment snapshots, and the FreeCAD AppImage SHA256 manifest) and
+# cross-checks the currently-importable distribution metadata. It does
+# NOT exercise the CAD/BIM engines and therefore does not pin the heavy
+# toolchain (ifcopenshell/OCCT/FreeCAD) — those exact versions are
+# asserted from CAD-001..005's committed environment snapshots, not
+# re-installed here.
+#
+# The exact TESTED stack (authoritative) is:
+#   ifcopenshell  0.8.5            (LGPL-3.0-or-later)   [CAD-001..005 env]
+#   cadquery-ocp  7.8.1.1.post1    (Apache-2.0 bindings)  [OCCT 7.8.1]
+#   cadquery      2.6.1            (Apache-2.0)           [distribution channel]
+#   ezdxf         1.4.3            (MIT)                  [CAD-001 2D gap-fill]
+#   numpy         2.1.3            (BSD-3-Clause)         [transitive]
+#   FreeCAD       1.1.3 AppImage   (LGPL-2.1-or-later)    [SHA256 below]
+#   Python        3.12.13          (PSF-2.0)              [runtime]
+#
+# FreeCAD 1.1.3 AppImage (not pip-installable; provided as a pinned AppImage
+# by CAD-001..005, no sudo required). Provenance recorded by CAD-001:
+#   url:    https://github.com/FreeCAD/FreeCAD/releases/download/1.1.3/FreeCAD_1.1.3-Linux-x86_64-py311.AppImage
+#   sha256: 3a853eb69ee595f779f2255dbf80a765926981d8ff68903cefee4dfb03a8f5ef
+#   bytes:  820795896
+#
+# Only pytest is pinned here (the deterministic test gate).
+pytest==9.0.2

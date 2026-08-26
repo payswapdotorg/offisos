@@ -1,0 +1,19 @@
+{
+  "written_at": "2026-08-25T19:44:35.519297+00:00",
+  "gate": "RESEARCH-CAD-006",
+  "benchmarks": [
+    "bench-versions",
+    "bench-licenses",
+    "bench-composition",
+    "bench-deployment-web",
+    "bench-deployment-desktop",
+    "bench-replacement-path"
+  ],
+  "totals": {
+    "pass": 30,
+    "fail": 0,
+    "unknown": 0
+  },
+  "exit_code": 0,
+  "note": "unknown results are first-class epistemic states (do not fail the run); the run fails iff any check status == fail."
+}
