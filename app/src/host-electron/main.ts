@@ -1,21 +1,24 @@
 /**
- * Electron main-process entry (§5.3, §16).
+ * Electron main-process integration note (§5.3, §16, LOCK-017/018).
  *
- * This is the integration point where the Electron main process would create a
- * BrowserWindow loading the shared renderer and wire the IpcTransport to a
- * native-side AppApiHandler running in the main process (or a native worker).
- * CAD-IMPLEMENT-001 proves the host layer + transport contract; the actual
- * `require("electron")` bootstrapping is deferred to a packaging work item and
- * is intentionally not imported here so the host layer remains testable without
- * the Electron runtime installed.
+ * The shared host layer that lives in this package (`ElectronHost` +
+ * `IpcTransport`) is platform-independent and testable without the Electron
+ * runtime installed — `app/test/host-parity.test.ts` proves Web/Electron
+ * parity through it. This file re-exports an integration note only; it does
+ * NOT import `electron`, so the canonical `@offisos/cad-app-shell` package
+ * stays free of the Electron runtime dependency (the Web host and the
+ * forbidden-import static check remain clean).
  *
- * When the packaging work item lands, this file will:
- *   1. `app.whenReady()` → create BrowserWindow loading the renderer bundle.
- *   2. Construct an ElectronHost(IpcTransport(handler)) where handler runs in
- *      the main process with the allowlisted native capabilities above.
- *   3. Expose only the allowlisted native capabilities to the renderer via the
- *      HostCapabilities contract (§16: no unscoped native access).
+ * The REAL Electron main-process bootstrap — `app.whenReady()` ->
+ * `BrowserWindow` (contextIsolation + nodeIntegration:false + preload) ->
+ * `loadFile(shared renderer)` -> `ipcMain.handle("cad:send"|"cad:render")`
+ * wired to `new ElectronHost(new IpcTransport(handler))` + `createRenderer`
+ * + `AppApiHandler` + the dummy adapter — lives in the deployable host package
+ * `apps/electron/` (see `apps/electron/src/main/main.ts`). It is reproducibly
+ * built (esbuild) and smoke-tested under xvfb (`npm run smoke`), proving the
+ * full chain through a real OS window. No FreeCAD/OCCT/IfcOpenShell coupling
+ * (LOCK-003/018); CADDocument is the editor representation (LOCK-019).
  */
 
 export const ELECTRON_HOST_INTEGRATION_NOTE =
-  "Electron main bootstrap is deferred to the packaging work item; the host layer + transport contract are proven by test/host-parity.test.ts.";
+  "Real Electron main bootstrap lives in apps/electron/src/main/main.ts (BrowserWindow + native IPC + shared renderer + App API + dummy adapter); the shared host layer (ElectronHost + IpcTransport) here is proven by app/test/host-parity.test.ts.";

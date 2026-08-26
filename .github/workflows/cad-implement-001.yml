@@ -6,11 +6,13 @@ on:
     paths:
       - "app/**"
       - "apps/web/**"
+      - "apps/electron/**"
       - ".github/workflows/cad-implement-001.yml"
   pull_request:
     paths:
       - "app/**"
       - "apps/web/**"
+      - "apps/electron/**"
       - ".github/workflows/cad-implement-001.yml"
 
 # CAD-IMPLEMENT-001: shared CAD/BIM application shell (Web + Electron) per
@@ -20,15 +22,22 @@ on:
 # transport independence, dummy-adapter operation, undo/redo, CI
 # reproducibility, and no engine coupling (LOCK-018 static check).
 #
-# Two jobs, intentionally isolated:
-#   - shell:    proves the canonical app/ contracts (50 tests, typecheck,
-#               forbidden-imports static check). Dependencies are the root
-#               toolchain only; this job does NOT install apps/web/'s deps.
-#   - web-host: proves the deployable Next.js 16 Web host (apps/web/) lints +
-#               typechecks against the canonical contracts via the tsconfig
-#               `paths` alias `@offisos/cad-app-shell/* -> ../../app/src/*`
-#               (single source of truth — no duplicated contract copy in
-#               apps/web/). LOCK-017/019 honored at the host surface.
+# Three jobs, intentionally isolated:
+#   - shell:        proves the canonical app/ contracts (50 tests, typecheck,
+#                   forbidden-imports static check). Dependencies are the root
+#                   toolchain only; this job does NOT install apps/web/'s deps.
+#   - web-host:     proves the deployable Next.js 16 Web host (apps/web/) lints +
+#                   typechecks against the canonical contracts via the tsconfig
+#                   `paths` alias `@offisos/cad-app-shell/* -> ../../app/src/*`
+#                   (single source of truth — no duplicated contract copy in
+#                   apps/web/). LOCK-017/019 honored at the host surface.
+#   - electron-host: proves the deployable Electron host (apps/electron/) — a
+#                   REAL OS window: main -> BrowserWindow -> shared renderer
+#                   -> native IPC transport -> shared CAD App API -> dummy
+#                   adapter (CHANGES_REQUESTED remediation for Issue #24).
+#                   Builds the host (esbuild) and runs a headless xvfb smoke
+#                   that drives the full chain through the window. No engine
+#                   coupling (LOCK-003/018).
 
 jobs:
   shell:
@@ -98,3 +107,55 @@ jobs:
       - name: Web host typecheck (tsc --noEmit)
         working-directory: apps/web
         run: npx tsc --noEmit
+
+  # electron-host: the deployable Electron host (apps/electron/). Imports the
+  # canonical @offisos/cad-app-shell contracts via tsconfig paths (single
+  # source of truth). This job proves Electron is a first-class runnable host
+  # (CHANGES_REQUESTED remediation for Issue #24): it builds the host with
+  # esbuild and runs a headless xvfb smoke that drives the full chain through a
+  # real BrowserWindow. Isolated from the other jobs (separate node_modules).
+  electron-host:
+    name: Electron host (build + xvfb smoke)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/electron/package.json
+
+      - name: Install Electron runtime system libraries (xvfb + chromium deps)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends xvfb \
+            libnss3 libatk1.0-0 libatk-bridge2.0-0 libcups2 libxkbcommon0 \
+            libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 \
+            libpango-1.0-0 libcairo2 libasound2
+
+      - name: Install Electron host deps
+        working-directory: apps/electron
+        run: npm install
+
+      - name: Electron host typecheck (tsc --noEmit)
+        working-directory: apps/electron
+        run: npm run typecheck
+
+      - name: Electron host build (esbuild)
+        working-directory: apps/electron
+        run: npm run build
+
+      - name: Electron host smoke (xvfb-run, full chain through BrowserWindow)
+        working-directory: apps/electron
+        run: npm run smoke
+
+      - name: Upload Electron smoke evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cad-implement-001-electron-smoke
+          path: apps/electron/dist
+          if-no-files-found: warn
