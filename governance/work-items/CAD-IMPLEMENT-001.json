@@ -51,7 +51,7 @@
     "CI workflow reproducing the local evidence on a different execution environment (ubuntu-latest).",
     "No claim of VERIFIED; the implementer produces evidence and submits for Architect review (LOCK-004: implementation status is not evidence)."
   ],
-  "state": "IMPLEMENTING",
+  "state": "PR_OPEN",
   "transitions": [
     {
       "from": "DRAFT",
@@ -83,6 +83,27 @@
       "actor": "z-ai-implementation-agent",
       "role": "implementer",
       "reason": "Implementation started on branch work/cad-implement-001-app-shell (off origin/main 719bd42 — clean base, no CAD-006 carryover): built the full shell skeleton — contracts (HostCapabilities, Transport, Command/Query v1, CADDocument, EngineAdapter, SceneGraph), the platform-independent renderer/editor core, the App API handler with AJV schemas + idempotency, the CADDocument model (versioned per data-model §2, canonical JSON serialization, undo/redo + inverse, provenance), the Web Host + WebSocketTransport, the Electron Host + IpcTransport + main entry stub, and the in-memory dummy adapter bundle. The feat commit 0fd5cd8 carries the deliverable; the deterministic test suite is 42/42 green with typecheck clean (Web/Electron parity, serialization/versioning round-trip, transport independence, dummy-adapter e2e, undo/redo convergence, CI reproducibility, and the LOCK-018 forbidden-import static check)."
+    },
+    {
+      "from": "IMPLEMENTING",
+      "to": "PR_OPEN",
+      "at": "2026-08-26T04:00:00Z",
+      "actor": "z-ai-implementation-agent",
+      "role": "implementer",
+      "reason": "Evidence package complete and locally re-validated green at HEAD d4fdfe0 (governance 104/104, governance tests 58/58, check-protected 1/1, app typecheck, 50 app tests, web lint + typecheck + next build --webpack, Agent Browser golden-path 3/3). Repository credentials (PAT) became available in the execution environment this turn; pushed work/cad-implement-001-app-shell @ d4fdfe0 to origin via a one-shot URL (GIT_TERMINAL_PROMPT=0, -c credential.helper=, output redacted via sed; the token was NEVER written to any file/worklog/commit/git-config; the .git/config remote URL remains plain HTTPS). Opened PR #25 against base main (head work/cad-implement-001-app-shell @ d4fdfe04eee901445796de19d3fb8e4f0756f609, base main @ 68e0b287612940b04013ba2fb8cd129f785e14a2, 9 commits ahead). Posted implementation-status comment on Issue #24 (https://github.com/pectoraux/offisos/issues/24#issuecomment-5420356427). No protected path touched (check-protected 1/1 PASS, 61 paths); Architecture v1.1 FROZEN; rules.ts untouched. Lifecycle honesty: state advances to PR_OPEN only (the push + PR-open + Issue-comment actually happened this turn); no APPROVED or VERIFIED claim is made (verification is decided by the Architect per governance/README.md).",
+      "references": {
+        "pr": 25,
+        "issue": 24,
+        "evidence": [
+          "EV-001",
+          "EV-002",
+          "EV-003",
+          "EV-004",
+          "EV-005",
+          "EV-006",
+          "EV-007"
+        ]
+      }
     }
   ],
   "evidence": [
@@ -154,6 +175,19 @@
       "reproduction": "cd /home/z/offisos-verify && git log --oneline origin/main..HEAD  (8 commits: 0fd5cd8→5f46c85→6a1a373→fbd5407→1911e3f→9e08cba→cdf8b6f merge→228a150 build fix; base origin/main=68e0b28). Full suite: npx tsx tools/governance/src/cli.ts validate (104/104); node --import tsx --test \"tools/governance/test/*.test.ts\" (58/58); npx tsx tools/governance/src/cli.ts check-protected --base origin/main (1/1 PASS); cd app && node --import tsx --test \"test/*.test.ts\" (50/50); tsc --noEmit -p app/tsconfig.json (exit 0); cd ../apps/web && bun run lint (exit 0) && npx tsc --noEmit (exit 0) && bun run build (exit 0 — next build --webpack). Browser: bun run dev (:3000), open /, Add Box → Undo → verify revert.",
       "references": {
         "commit": "228a150fedb9b6072a76a0afc6572ce789d75259",
+        "path": "apps/web"
+      }
+    },
+    {
+      "id": "EV-007",
+      "type": "inspectable-artifact",
+      "description": "Push + PR-open + Issue-comment (milestone-3 final, this turn). The repository credentials (PAT, provided by the Architect/PO this turn) became available in the execution environment; the branch work/cad-implement-001-app-shell @ d4fdfe0 was pushed to origin via a one-shot URL with GIT_TERMINAL_PROMPT=0 and -c credential.helper= (no persistence), output redacted via sed; the remote URL in .git/config remains plain HTTPS (https://github.com/pectoraux/offisos.git); ~/.git-credentials and ~/.netrc remain absent; grep for the actual token value across worklog + .git/ + ~/.gitconfig + /tmp + /var/lib + /opt + /home/z/.cache returns ZERO matches (token-leak integrity verified). PR #25 opened against base main: head work/cad-implement-001-app-shell @ d4fdfe04eee901445796de19d3fb8e4f0756f609, base main @ 68e0b287612940b04013ba2fb8cd129f785e14a2, 9 commits ahead (0 behind, fast-forward push). Issue #24 received an implementation-status comment (https://github.com/pectoraux/offisos/issues/24#issuecomment-5420356427, body 2672 chars). Full CI re-validated at HEAD d4fdfe0 immediately before the push: governance validator 104/104 exit 0; governance test suite (tools/governance/test/*.test.ts) 58/58 pass 0 fail; check-protected --base origin/main (68e0b28) 1/1 PASS (61 paths, none touched); app typecheck (tsc --noEmit -p app/tsconfig.json) exit 0; 50 app tests 50 pass 0 fail; apps/web ESLint exit 0; apps/web tsc --noEmit exit 0; apps/web next build --webpack (output:standalone) exit 0 (Compiled 6.3s, 4/4 static pages, route / prerendered static + /api/cad server-rendered on demand); Agent Browser golden-path 3/3 (render + Add box -> element appears + Undo enabled + Redo disabled -> click Undo -> box reverted + Redo enabled + Undo disabled + zero runtime errors); dev server reset to fresh document.create after the smoke test (version_number=1, commandDepth=0, canUndo=false, canRedo=false). The CI workflow .github/workflows/cad-implement-001.yml will run on push to the PR branch (shell job: typecheck + 50 tests + forbidden-imports LOCK-018 static check; web-host job: install + lint + tsc --noEmit). No protected path touched; Architecture v1.1 FROZEN. State advances IMPLEMENTING -> PR_OPEN (transition #4, bound to PR #25 via references.pr). No APPROVED or VERIFIED claim is made (verification is decided by the Architect per governance/README.md).",
+      "produced_at": "2026-08-26T04:00:00Z",
+      "reproducible": true,
+      "reproduction": "git clone https://github.com/pectoraux/offisos.git && cd offisos && git checkout work/cad-implement-001-app-shell && git rev-parse HEAD (must be d4fdfe04eee901445796de19d3fb8e4f0756f609). Reproduce all gates: npm install; npm test (58/58); npm run governance -- validate (104/104); npm run governance -- check-protected --base origin/main (1/1); npx tsc --noEmit -p app/tsconfig.json (exit 0); cd app && node --import tsx --test 'test/*.test.ts' (50/50); cd ../apps/web && npm install && npm run lint (exit 0) && npx tsc --noEmit (exit 0) && npm run build (next build --webpack, exit 0). Browser: cd apps/web && npm run dev -- --webpack -p 3000, open /, Add box, click Undo, verify revert + Redo enabled.",
+      "references": {
+        "commit": "d4fdfe04eee901445796de19d3fb8e4f0756f609",
+        "pr": 25,
         "path": "apps/web"
       }
     }
