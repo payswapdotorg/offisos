@@ -83,6 +83,7 @@ import {
   unwrapSnapshot,
 } from "@/cad/client/http-transport";
 import type { ImpactCascadeResult } from "@/cad/client/http-transport";
+import { DraftingWorkbench } from "@/cad/drafting/workbench";
 
 // --- Helpers --------------------------------------------------------------
 
@@ -1089,6 +1090,13 @@ export default function Home() {
             )}
           </nav>
         </div>
+
+        {/* COMPAT-CAD-001: the 2D drafting workbench (full width, below the
+            3D/impact workspace). Every mutation goes through the shared App
+            API — the same contract the Electron host drives. */}
+        <section aria-label="2D drafting workbench" className="mt-6">
+          <DraftingWorkbench />
+        </section>
       </main>
 
       <footer className="mt-auto border-t">
