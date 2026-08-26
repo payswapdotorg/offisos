@@ -82,6 +82,19 @@
       "references": {
         "artifact_path": "apps/electron/dist/smoke-impact-result.json"
       }
+    },
+    {
+      "id": "EV-004",
+      "type": "ci-run",
+      "description": "CI green on GitHub for PR #33 (the acceptance criteria 'existing CAD-IMPLEMENT-001/002 tests remain green and new CAD-007 tests are reproducible in CI' and the deployable-host criteria). On head 4f89b17: research-cad-007 run 33001976032 SUCCESS (18:53:21Z) — all three jobs on ubuntu-latest with the pinned toolchain (setup-node 22 + setup-python 3.12 + pip install cadquery-ocp==7.8.1.1.post1): (1) impact-shell: app typecheck + FULL 139-test suite with the real engine + extended LOCK-018 checks + OCCT ping pin check + the deterministic evidence run with artifact sanity assertions (canonical_semantics_identical ALL true, determinism flags true, measured 4.162e-9 <= 1e-6 volume / 3.647e-4 <= 0.02 bbox); (2) web-host-impact: lint + typecheck + next build + dev-server impact-cascade smoke with the real OCCT server-side (4-event chain caused by model.version.created, exact deltas, concrete-only package impact, +33.60 GHS commercial impact, save/open identical events_hash); (3) electron-host-impact: typecheck + esbuild build + the three regression smokes + the new smoke:impact (reference engine in the desktop host, 10/10 steps through a real BrowserWindow). Regression workflows on the same head: cad-implement-001 run 33001975935 SUCCESS (18:51:54Z), cad-implement-002 run 33001976018 SUCCESS (18:53:04Z), cad-implement-003 run 33001975977 SUCCESS (18:52:50Z). Governance run 33001975937: tests step GREEN 58/58 and protected-paths step GREEN; the validate step is the DIRECTED 147/148 — exactly the one documented dependency-gate failure (RESEARCH-CAD-006 MERGED-not-VERIFIED; attributable line verified in the job logs: 'work-item/RESEARCH-CAD-007/dependencies — Dependency rules violated'). It clears when the Architect records CAD-006 VERIFIED against 74f9552.",
+      "produced_at": "2026-08-26T18:53:21Z",
+      "reproducible": true,
+      "reproduction": "CI reruns from the PR #33 checks tab; local: npm run governance -- validate (expect 147/148 with the single documented dependency failure); cd app && node --import tsx --test test/*.test.ts (139/139 with cadquery-ocp installed).",
+      "references": {
+        "pr": 33,
+        "commit": "4f89b17",
+        "workflow_run": "https://github.com/pectoraux/offisos/actions/runs/33001976032 (research-cad-007, success); https://github.com/pectoraux/offisos/actions/runs/33001975935 (cad-implement-001, success); https://github.com/pectoraux/offisos/actions/runs/33001976018 (cad-implement-002, success); https://github.com/pectoraux/offisos/actions/runs/33001975977 (cad-implement-003, success); https://github.com/pectoraux/offisos/actions/runs/33001975937 (governance: tests+protected green, validate 147/148 the directed single dependency-gate failure)"
+      }
     }
   ],
   "evidence_requirements": [
@@ -93,7 +106,7 @@
     "Regression evidence: the 109 CAD-IMPLEMENT-001/002/003 tests green; the full suite reproducible in CI on the pinned toolchain via the new research-cad-007 workflow.",
     "Committed deterministic evidence artifact (equivalence matrix, swap skeleton, cascade snapshot) regenerable by a single command."
   ],
-  "state": "IMPLEMENTING",
+  "state": "PR_OPEN",
   "transitions": [
     {
       "from": "DRAFT",
@@ -125,6 +138,23 @@
       "actor": "z-ai-implementation-agent",
       "role": "implementer",
       "reason": "Implementation started on branch work/research-cad-007-final-feasibility (off origin/main 74f9552): (1) the pure-TypeScript reference geometry adapter with declared exactness classes and deterministic ref: meshTokens; (2) the canonical engine-free downstream contracts (contracts/impact.ts) + the deterministic impact cascade core (src/impact) consuming model history through the frozen engine boundary; (3) the additive impact.cascade App API query; (4) 30 new tests incl. the cross-engine equivalence, identity-stability and engine-swap proofs with the real OCCT engine; (5) the extended LOCK-018 scan + reference-adapter boundary-direction check; (6) the Web Impact panel + client wrapper; (7) the Electron --smoke-impact mode with the reference engine bound; (8) research/cad-007 evidence package + the research-cad-007 CI workflow; (9) the CAD-006 close-out records (DEC-001 + EV-004 through MERGED) carried on this branch per the CAD-005 precedent."
+    },
+    {
+      "from": "IMPLEMENTING",
+      "to": "PR_OPEN",
+      "at": "2026-08-26T18:55:00Z",
+      "actor": "z-ai-implementation-agent",
+      "role": "implementer",
+      "reason": "PR #33 opened (head 4f89b17: feat fb28239 + governance 4f89b17) with the full deliverable: the engine-free reference adapter, the canonical downstream contracts + deterministic cascade, the additive impact.cascade App API query, 30 new tests (139/139 total with the real OCCT toolchain), the LOCK-018 scan extension + reference boundary-direction check, the Web Impact panel, the Electron smoke:impact mode, the research/cad-007 evidence package (report + deterministic runner + committed run-001 artifacts) and the research-cad-007 CI workflow; CI on the head: research-cad-007 SUCCESS (all three jobs incl. the real-engine suite, the web cascade smoke and the electron impact smoke), cad-implement-001/002/003 regression workflows SUCCESS, governance tests 58/58 + protected paths green with the validate step at the DIRECTED 147/148 (the single documented CAD-006 MERGED-not-VERIFIED dependency-gate failure) — EV-004.",
+      "references": {
+        "pr": 33,
+        "evidence": [
+          "EV-001",
+          "EV-002",
+          "EV-003",
+          "EV-004"
+        ]
+      }
     }
   ]
 }
