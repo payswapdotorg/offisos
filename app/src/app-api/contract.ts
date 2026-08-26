@@ -36,6 +36,17 @@ import { bridgeModelHistory } from "../graph/index.js";
 import { verifiedReplay } from "../caddocument/history.js";
 import { runImpactCascade } from "../impact/index.js";
 import type { ModelReplayResult } from "../contracts/model.js";
+import {
+  buildDraftingCreate,
+  copyEntities,
+  deleteEntities,
+  extendEntity,
+  moveEntities,
+  trimEntity,
+} from "../drafting/commands.js";
+import { resolveSnap } from "../drafting/snap.js";
+import { canonicalSnapKinds, validateDraftingSettings } from "../caddocument/workspace.js";
+import type { LayerRecord } from "../contracts/caddocument.js";
 
 export interface AppApiHandlerOptions {
   readonly adapterBundle: EngineAdapterBundle;
@@ -106,6 +117,27 @@ export class AppApiHandler {
         return this.cmdSave();
       case "geometry.prepare":
         return this.cmdPrepareGeometry(command.payload);
+      // --- COMPAT-CAD-001 (additive): 2D drafting commands ---
+      case "drafting.createEntities":
+        return this.cmdDraftingCreate(command.payload);
+      case "drafting.move":
+        return this.cmdDraftingTransform(command.payload, "move");
+      case "drafting.copy":
+        return this.cmdDraftingTransform(command.payload, "copy");
+      case "drafting.delete":
+        return this.cmdDraftingDelete(command.payload);
+      case "drafting.trim":
+        return this.cmdDraftingTrimExtend(command.payload, "trim");
+      case "drafting.extend":
+        return this.cmdDraftingTrimExtend(command.payload, "extend");
+      case "drafting.setSettings":
+        return this.cmdDraftingSetSettings(command.payload);
+      case "drafting.addLayer":
+        return this.cmdDraftingLayer(command.payload, "add");
+      case "drafting.updateLayer":
+        return this.cmdDraftingLayer(command.payload, "update");
+      case "drafting.removeLayer":
+        return this.cmdDraftingLayer(command.payload, "remove");
       default: {
         const _exhaustive: never = command.name;
         return err("unknown_command", `unknown command: ${JSON.stringify(_exhaustive)}`);
@@ -372,6 +404,8 @@ export class AppApiHandler {
       }
       case "impact.cascade":
         return await this.qImpactCascade(query.payload);
+      case "drafting.snap":
+        return this.qDraftingSnap(query.payload);
       default: {
         const _exhaustive: never = query.name;
         return err("unknown_query", `unknown query: ${JSON.stringify(_exhaustive)}`);
@@ -416,6 +450,211 @@ export class AppApiHandler {
     } catch (e) {
       if (isAdapterFailure(e)) return err(e.code, e.message, e.retryable);
       return err("impact_failed", `impact cascade failed: ${(e as Error).message}`, false);
+    }
+  }
+
+  // --- COMPAT-CAD-001 (additive): 2D drafting commands -----------------------
+
+  /** drafting.createEntities — validate + apply ONE atomic create batch
+   *  (one versioned command, one revision, one undo entry). Entity ids are
+   *  minted by the document; the response reports the created ids. */
+  private cmdDraftingCreate(payload: unknown): CommandQueryResponse {
+    const p = payload as { entities?: unknown } | null;
+    if (p === null || typeof p !== "object" || !Array.isArray(p.entities)) {
+      return err("bad_payload", "drafting.createEntities requires an entities array", true);
+    }
+    try {
+      const before = new Set(this.doc.allElements().map((el) => el.id));
+      const outcome = buildDraftingCreate(
+        this.doc.allElements(),
+        (id) => this.doc.layerById(id) !== undefined,
+        p.entities,
+      );
+      this.doc.execute(outcome.edit);
+      const created = this.doc.allElements().filter((el) => !before.has(el.id)).map((el) => el.id);
+      return ok({ created, snapshot: this.doc.snapshot() });
+    } catch (e) {
+      return err("drafting_invalid", (e as Error).message, false);
+    }
+  }
+
+  /** drafting.move / drafting.copy — translate / duplicate the selection. */
+  private cmdDraftingTransform(payload: unknown, op: "move" | "copy"): CommandQueryResponse {
+    const p = payload as { ids?: unknown; dx?: unknown; dy?: unknown } | null;
+    if (p === null || typeof p !== "object" || !Array.isArray(p.ids) || !p.ids.every((x) => typeof x === "string")) {
+      return err("bad_payload", `drafting.${op} requires an ids string array`, true);
+    }
+    if (typeof p.dx !== "number" || !Number.isFinite(p.dx) || typeof p.dy !== "number" || !Number.isFinite(p.dy)) {
+      return err("bad_payload", `drafting.${op} requires finite dx/dy`, true);
+    }
+    try {
+      const outcome = op === "move"
+        ? moveEntities(this.doc.allElements(), p.ids as string[], p.dx, p.dy)
+        : copyEntities(this.doc.allElements(), p.ids as string[], p.dx, p.dy);
+      if (outcome.status === "no-op") {
+        return ok({ applied: false, reason: outcome.reason, snapshot: this.doc.snapshot() });
+      }
+      const before = new Set(this.doc.allElements().map((el) => el.id));
+      this.doc.execute(outcome.edit);
+      const created = op === "copy"
+        ? this.doc.allElements().filter((el) => !before.has(el.id)).map((el) => el.id)
+        : [];
+      return ok({ applied: true, summary: outcome.summary, created, snapshot: this.doc.snapshot() });
+    } catch (e) {
+      return err("drafting_invalid", (e as Error).message, false);
+    }
+  }
+
+  /** drafting.delete — remove the selection atomically. */
+  private cmdDraftingDelete(payload: unknown): CommandQueryResponse {
+    const p = payload as { ids?: unknown } | null;
+    if (p === null || typeof p !== "object" || !Array.isArray(p.ids) || !p.ids.every((x) => typeof x === "string")) {
+      return err("bad_payload", "drafting.delete requires an ids string array", true);
+    }
+    try {
+      const outcome = deleteEntities(p.ids as string[]);
+      if (outcome.status === "no-op") {
+        return ok({ applied: false, reason: outcome.reason, snapshot: this.doc.snapshot() });
+      }
+      this.doc.execute(outcome.edit);
+      return ok({ applied: true, summary: outcome.summary, snapshot: this.doc.snapshot() });
+    } catch (e) {
+      return err("drafting_invalid", (e as Error).message, false);
+    }
+  }
+
+  /** drafting.trim / drafting.extend — geometry edits on line targets. */
+  private cmdDraftingTrimExtend(payload: unknown, op: "trim" | "extend"): CommandQueryResponse {
+    const p = payload as { targetId?: unknown; pick?: unknown } | null;
+    if (p === null || typeof p !== "object" || typeof p.targetId !== "string") {
+      return err("bad_payload", `drafting.${op} requires a targetId string`, true);
+    }
+    if (!Array.isArray(p.pick) || p.pick.length !== 2 || !p.pick.every((n) => typeof n === "number" && Number.isFinite(n))) {
+      return err("bad_payload", `drafting.${op} requires pick: [x, y] finite numbers`, true);
+    }
+    try {
+      const outcome = op === "trim"
+        ? trimEntity(this.doc.allElements(), p.targetId, [p.pick[0] as number, p.pick[1] as number])
+        : extendEntity(this.doc.allElements(), p.targetId, [p.pick[0] as number, p.pick[1] as number]);
+      if (outcome.status === "no-op") {
+        return ok({ applied: false, reason: outcome.reason, snapshot: this.doc.snapshot() });
+      }
+      this.doc.execute(outcome.edit);
+      return ok({ applied: true, summary: outcome.summary, snapshot: this.doc.snapshot() });
+    } catch (e) {
+      const message = (e as Error).message;
+      if (message.includes("supported set")) {
+        return err("drafting_unsupported", message, false);
+      }
+      return err("drafting_invalid", message, false);
+    }
+  }
+
+  /** drafting.setSettings — replace the non-versioned drafting settings. */
+  private cmdDraftingSetSettings(payload: unknown): CommandQueryResponse {
+    const p = payload as { settings?: unknown } | null;
+    if (p === null || typeof p !== "object" || typeof p.settings !== "object" || p.settings === null) {
+      return err("bad_payload", "drafting.setSettings requires a settings object", true);
+    }
+    try {
+      const cur = this.doc.draftingSettings;
+      const incoming = p.settings as Record<string, unknown>;
+      // One-level deep merge: partial grid/snap/view patches keep the
+      // unmentioned sibling fields.
+      const merged = {
+        ...cur,
+        ...incoming,
+        grid: { ...cur.grid, ...((incoming.grid as object) ?? {}) },
+        snap: { ...cur.snap, ...((incoming.snap as object) ?? {}) },
+        view: { ...cur.view, ...((incoming.view as object) ?? {}) },
+      };
+      const settings = validateDraftingSettings(merged);
+      this.doc.setDraftingSettings(settings);
+      return ok({ settings: this.doc.draftingSettings, snapshot: this.doc.snapshot() });
+    } catch (e) {
+      return err("drafting_invalid", (e as Error).message, false);
+    }
+  }
+
+  /** drafting.addLayer / updateLayer / removeLayer — semantic layer edits
+   *  through the document command model (ids minted by the document). */
+  private cmdDraftingLayer(payload: unknown, op: "add" | "update" | "remove"): CommandQueryResponse {
+    const p = payload as Record<string, unknown> | null;
+    if (p === null || typeof p !== "object") {
+      return err("bad_payload", `drafting.${op}Layer requires an object payload`, true);
+    }
+    try {
+      if (op === "add") {
+        if (typeof p.name !== "string" || p.name.length === 0) {
+          return err("bad_payload", "drafting.addLayer requires a non-empty name", true);
+        }
+        const layer: LayerRecord = {
+          id: this.doc.mintLayerId(),
+          name: p.name,
+          color: typeof p.color === "string" ? p.color : "#111827",
+          visible: typeof p.visible === "boolean" ? p.visible : true,
+        };
+        this.doc.execute({ type: "addLayer", layer });
+        return ok({ layerId: layer.id, snapshot: this.doc.snapshot() });
+      }
+      if (op === "update") {
+        if (typeof p.layerId !== "string" || typeof p.patch !== "object" || p.patch === null) {
+          return err("bad_payload", "drafting.updateLayer requires layerId + patch", true);
+        }
+        this.doc.execute({ type: "updateLayer", layerId: p.layerId, patch: p.patch as Record<string, unknown> });
+        return ok({ snapshot: this.doc.snapshot() });
+      }
+      if (typeof p.layerId !== "string") {
+        return err("bad_payload", "drafting.removeLayer requires layerId", true);
+      }
+      this.doc.execute({ type: "removeLayer", layerId: p.layerId });
+      return ok({ snapshot: this.doc.snapshot() });
+    } catch (e) {
+      return err("drafting_invalid", (e as Error).message, false);
+    }
+  }
+
+  /** drafting.snap (query) — deterministic snap resolution against the
+   *  current document. Hidden layers are not snappable (visibility is
+   *  pickability); defaults come from the document drafting settings. */
+  private qDraftingSnap(payload: unknown): CommandQueryResponse {
+    const p = payload as {
+      point?: unknown;
+      tolerance?: unknown;
+      kinds?: unknown;
+      gridSize?: unknown;
+      exclude?: unknown;
+    } | null;
+    if (
+      p === null || typeof p !== "object" ||
+      !Array.isArray(p.point) || p.point.length !== 2 || !p.point.every((n) => typeof n === "number" && Number.isFinite(n))
+    ) {
+      return err("bad_payload", "drafting.snap requires point: [x, y] finite numbers", true);
+    }
+    const settings = this.doc.draftingSettings;
+    const tolerance = typeof p.tolerance === "number" && p.tolerance > 0 ? p.tolerance : settings.snap.tolerance;
+    const kinds = Array.isArray(p.kinds)
+      ? canonicalSnapKinds(p.kinds)
+      : settings.snap.kinds;
+    if (kinds.length === 0) return err("bad_payload", "drafting.snap kinds contains no known snap kind", true);
+    const gridSize = typeof p.gridSize === "number" && p.gridSize > 0 ? p.gridSize : settings.grid.size;
+    const visible = new Set(this.doc.layerTable.filter((l) => l.visible).map((l) => l.id));
+    const entities = this.doc.allElements().filter((el) => {
+      const layer = (el.props as Record<string, unknown>).layer;
+      return typeof layer === "string" && visible.has(layer);
+    });
+    try {
+      const result = resolveSnap({
+        point: [p.point[0] as number, p.point[1] as number],
+        tolerance,
+        kinds,
+        gridSize,
+        entities,
+        exclude: Array.isArray(p.exclude) ? (p.exclude as string[]) : undefined,
+      });
+      return ok(result);
+    } catch (e) {
+      return err("drafting_invalid", (e as Error).message, false);
     }
   }
 }
