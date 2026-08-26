@@ -1,0 +1,13 @@
+{
+  "id": "DEC-CAD006-VERIFIED",
+  "work_item": "RESEARCH-CAD-006",
+  "status": "approved",
+  "decided_by": "pectoraux",
+  "role": "architect",
+  "decided_at": "2026-08-26T19:11:00Z",
+  "reason": "Post-merge Architect verification of RESEARCH-CAD-006 against merge commit 74f95529f20a0840f6e1189a37e3b9a3d9c8c34f. The merge-commit governance run #67 (32997108160) and research-cad-006 run #3 (32997108095) both completed successfully. The approval remains bounded by the Issue #6 constraints: evidence-backed research approval, not legal approval; production dependency packaging remains subject to LICENSE-001; no architecture change is authorized.",
+  "references": {
+    "commit": "74f95529f20a0840f6e1189a37e3b9a3d9c8c34f",
+    "workflow_run": ["32997108160", "32997108095"]
+  }
+}
