@@ -76,6 +76,12 @@ export const COMMAND_PAYLOAD_SCHEMAS: Readonly<Record<CommandName, object>> = {
     },
     required: ["geometry"],
     $defs: {
+      vec2: {
+        type: "array",
+        items: { type: "number" },
+        minItems: 2,
+        maxItems: 2,
+      },
       vec3: {
         type: "array",
         items: { type: "number" },
@@ -110,6 +116,22 @@ export const COMMAND_PAYLOAD_SCHEMAS: Readonly<Record<CommandName, object>> = {
               direction: { $ref: "#/$defs/vec3" },
             },
             required: ["shape", "radius", "height"],
+          },
+          {
+            // COMPAT-CAD-002 (additive): extrusion-derived solids.
+            type: "object",
+            properties: {
+              shape: { const: "extrude" },
+              profile: {
+                type: "array",
+                minItems: 3,
+                maxItems: 64,
+                items: { $ref: "#/$defs/vec2" },
+              },
+              height: { type: "number", exclusiveMinimum: 0 },
+              base: { $ref: "#/$defs/vec3" },
+            },
+            required: ["shape", "profile", "height"],
           },
           {
             type: "object",
@@ -265,6 +287,115 @@ export const COMMAND_PAYLOAD_SCHEMAS: Readonly<Record<CommandName, object>> = {
     },
     required: ["layerId"],
   },
+  // --- COMPAT-CAD-002 (additive, api-contract.md §8): 3D/BIM authoring
+  // surface. Entity inputs mirror src/bim/elements.ts (validated strictly by
+  // the handler — the schema is the coarse wire shape).
+  "bim.createElements": {
+    type: "object",
+    properties: {
+      entities: {
+        type: "array",
+        minItems: 1,
+        items: {
+          type: "object",
+          properties: {
+            id: { type: "string" },
+            type: {
+              type: "string",
+              enum: ["bim.story", "bim.wall", "bim.slab", "bim.opening", "bim.door", "bim.window", "bim.space"],
+            },
+            name: { type: "string" },
+            level: { type: "number" },
+            height: { type: "number", exclusiveMinimum: 0 },
+            storyId: { type: "string" },
+            start: { $ref: "#/$defs/vec2" },
+            end: { $ref: "#/$defs/vec2" },
+            width: { type: "number", exclusiveMinimum: 0 },
+            baseOffset: { type: "number" },
+            corner1: { $ref: "#/$defs/vec2" },
+            corner2: { $ref: "#/$defs/vec2" },
+            thickness: { type: "number", exclusiveMinimum: 0 },
+            hostId: { type: "string" },
+            distance: { type: "number", minimum: 0 },
+            sill: { type: "number", minimum: 0 },
+            openingId: { type: "string" },
+            swing: { type: "string", enum: ["left", "right"] },
+            leafThickness: { type: "number", exclusiveMinimum: 0 },
+            footprint: {
+              type: "array",
+              minItems: 3,
+              maxItems: 64,
+              items: { $ref: "#/$defs/vec2" },
+            },
+          },
+          required: ["type"],
+        },
+      },
+    },
+    required: ["entities"],
+    $defs: {
+      vec2: { type: "array", items: { type: "number" }, minItems: 2, maxItems: 2 },
+    },
+  },
+  "bim.move": {
+    type: "object",
+    properties: {
+      ids: { type: "array", minItems: 1, items: { type: "string" } },
+      dx: { type: "number" },
+      dy: { type: "number" },
+      dz: { type: "number" },
+    },
+    required: ["ids", "dx", "dy", "dz"],
+  },
+  "bim.copy": {
+    type: "object",
+    properties: {
+      ids: { type: "array", minItems: 1, items: { type: "string" } },
+      dx: { type: "number" },
+      dy: { type: "number" },
+      dz: { type: "number" },
+    },
+    required: ["ids", "dx", "dy", "dz"],
+  },
+  "bim.delete": {
+    type: "object",
+    properties: {
+      ids: { type: "array", minItems: 1, items: { type: "string" } },
+    },
+    required: ["ids"],
+  },
+  "bim.setProperties": {
+    type: "object",
+    properties: {
+      elementId: { type: "string" },
+      patch: { type: "object", minProperties: 1 },
+    },
+    required: ["elementId", "patch"],
+  },
+  "bim.setSettings": {
+    type: "object",
+    properties: {
+      settings: {
+        type: "object",
+        properties: {
+          camera: {
+            type: "object",
+            properties: {
+              preset: { type: "string", enum: ["iso", "top", "front", "right"] },
+            },
+            required: ["preset"],
+          },
+        },
+      },
+    },
+    required: ["settings"],
+  },
+  "bim.buildGeometry": {
+    type: "object",
+    properties: {
+      ids: { type: "array", minItems: 1, items: { type: "string" } },
+    },
+  },
 };
 
 export const QUERY_PAYLOAD_SCHEMAS: Readonly<Record<QueryName, object>> = {
@@ -311,6 +442,21 @@ export const QUERY_PAYLOAD_SCHEMAS: Readonly<Record<QueryName, object>> = {
       exclude: { type: "array", items: { type: "string" } },
     },
     required: ["point"],
+  },
+  // COMPAT-CAD-002 (additive): BIM structure, semantics and standard cameras.
+  "bim.getBuilding": { type: "object", properties: {} },
+  "bim.getSemantics": {
+    type: "object",
+    properties: {
+      elementId: { type: "string" },
+    },
+  },
+  "bim.camera": {
+    type: "object",
+    properties: {
+      preset: { type: "string", enum: ["iso", "top", "front", "right"] },
+    },
+    required: ["preset"],
   },
 };
 

@@ -21,11 +21,15 @@
 /** Row-major 3-component vector. */
 export type Vec3 = readonly [number, number, number];
 
+/** Row-major 2-component vector (planar profile points; COMPAT-CAD-002). */
+export type Vec2 = readonly [number, number];
+
 /** Row-major 4x4 affine matrix (16 numbers). The bottom row must be
  *  [0, 0, 0, 1]; v' = M·v (row-times-column). */
 export type Matrix4 = readonly number[];
 
-/** Engine-independent geometry descriptor (minimum canonical set, Issue #26). */
+/** Engine-independent geometry descriptor (minimum canonical set, Issue #26;
+ *  COMPAT-CAD-002 adds the extrusion-derived solid vocabulary). */
 export type GeometryDescriptor =
   | { readonly shape: "box"; readonly width: number; readonly depth: number; readonly height: number }
   | {
@@ -34,6 +38,19 @@ export type GeometryDescriptor =
       readonly height: number;
       readonly origin?: Vec3;
       readonly direction?: Vec3;
+    }
+  | {
+      /** COMPAT-CAD-002: extrusion of a planar polygon profile in the XY
+       *  plane along +Z by `height`, based at `base` (default [0,0,0]). The
+       *  profile is a simple (non-self-intersecting) polygon given in order,
+       *  implicitly closed (first point NOT repeated at the end), with no
+       *  consecutive coincident points and a non-degenerate shoelace area.
+       *  Winding order does not affect the resulting solid (engines close the
+       *  wire either way); the shoelace magnitude is the validation anchor. */
+      readonly shape: "extrude";
+      readonly profile: readonly Vec2[];
+      readonly height: number;
+      readonly base?: Vec3;
     }
   | { readonly shape: "transform"; readonly matrix: Matrix4; readonly target: GeometryDescriptor }
   | { readonly shape: "fuse"; readonly a: GeometryDescriptor; readonly b: GeometryDescriptor }

@@ -15,7 +15,10 @@
  * host imports (LOCK-018).
  */
 
-import type { DraftingSettings, LayerRecord, SnapKind } from "../contracts/caddocument.js";
+import type { BimCameraPreset, BimSettings, DraftingSettings, LayerRecord, SnapKind } from "../contracts/caddocument.js";
+
+/** Canonical BIM camera presets (COMPAT-CAD-002). */
+export const BIM_CAMERA_PRESETS: readonly BimCameraPreset[] = ["iso", "top", "front", "right"];
 
 /** The canonical default layer every drafting document carries (id "0",
  *  following the drawing-office convention). Fixed identity — never minted. */
@@ -179,4 +182,34 @@ export function validateDraftingSettings(value: unknown): DraftingSettings {
 export function elementLayerReference(props: Readonly<Record<string, unknown>>): string | null {
   const layer = props.layer;
   return typeof layer === "string" && layer.length > 0 ? layer : null;
+}
+
+// --- COMPAT-CAD-002 (additive): BIM workspace settings -----------------------
+
+/** Canonical default BIM settings (deterministic; mm units, iso camera). */
+export function defaultBimSettings(): BimSettings {
+  return { units: "mm", camera: { preset: "iso" } };
+}
+
+/** Structural validation of BIM settings (LOCK-007). Throws on malformed
+ *  input; returns a canonicalized copy when valid. */
+export function validateBimSettings(value: unknown): BimSettings {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new Error("bimSettings must be an object");
+  }
+  const s = value as Record<string, unknown>;
+  if (s.units !== "mm") {
+    throw new Error("bimSettings.units must be 'mm' (the only unit in the BIM slice)");
+  }
+  const camera = s.camera;
+  if (typeof camera !== "object" || camera === null) {
+    throw new Error("bimSettings.camera must be an object");
+  }
+  const cam = camera as Record<string, unknown>;
+  if (!(BIM_CAMERA_PRESETS as readonly unknown[]).includes(cam.preset)) {
+    throw new Error(
+      `bimSettings.camera.preset must be one of ${BIM_CAMERA_PRESETS.join(" | ")}, got ${JSON.stringify(cam.preset)}`,
+    );
+  }
+  return { units: "mm", camera: { preset: cam.preset as BimCameraPreset } };
 }

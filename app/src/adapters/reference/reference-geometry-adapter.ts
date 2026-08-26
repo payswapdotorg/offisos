@@ -25,6 +25,17 @@
  *                                    affine image of a cylinder is not a
  *                                    cylinder and the reference engine does
  *                                    not approximate).
+ *   - extrude (COMPAT-CAD-002)     — exact volume (shoelace × height), exact
+ *                                    bbox (profile AABB × Z span) and exact
+ *                                    prism mesh; Z-PRESERVING affine
+ *                                    transforms stay exact (planar affine on
+ *                                    the profile + linear on Z, volume ×
+ *                                    |det2D · g|); any transform that tilts
+ *                                    the extrusion axis leaves the exactness
+ *                                    class (typed decline). The mesh is
+ *                                    winding-normalized (CCW), so either
+ *                                    winding of the same polygon yields the
+ *                                    identical token.
  *   - fuse                         — exact when the operands' world AABBs are
  *                                    disjoint (touching allowed: measure-zero
  *                                    boundary) → volume = sum, mesh = operand
@@ -35,8 +46,8 @@
  *                                    boxes, diagonally-transformed boxes):
  *                                    the plane-split cell decomposition
  *                                    subtracts exactly; anything else
- *                                    (cylinders, rotated boxes) is a typed
- *                                    decline.
+ *                                    (cylinders, prisms, rotated boxes) is a
+ *                                    typed decline.
  *
  * Determinism (LOCK-004/005/017): every value is IEEE-754 double arithmetic
  * in a fixed evaluation order; meshToken = "ref:" + SHA-256 over the
@@ -63,7 +74,7 @@ import type { GeometryMetadata, Matrix4, MeshData } from "../../contracts/geomet
 import { canonicalStringify } from "../../caddocument/serialization.js";
 
 export const REFERENCE_ENGINE_ID = "reference";
-export const REFERENCE_ENGINE_VERSION = "1.0.0";
+export const REFERENCE_ENGINE_VERSION = "1.1.0";
 export const REFERENCE_MESH_PREFIX = "ref:";
 
 const MAX_DESCRIPTOR_DEPTH = 32;
@@ -73,6 +84,10 @@ const MESH_CACHE_CAPACITY = 64;
 const CYLINDER_SEGMENTS = 32;
 /** Matrix-class tolerance (absolute, per component). */
 const EPS_ALIGN = 1e-12;
+/** Extrusion profile bounds (mirror the OCCT adapter; COMPAT-CAD-002). */
+const MAX_PROFILE_POINTS = 64;
+const PROFILE_AREA_EPS = 1e-9;
+const PROFILE_COINCIDENCE_EPS = 1e-9;
 
 // ---------------------------------------------------------------------------
 // Small vector / matrix helpers (pure, fixed operation order for determinism)
@@ -173,6 +188,54 @@ function requireMatrix(value: unknown, path: string): Matrix4 {
   return matrix;
 }
 
+/** COMPAT-CAD-002: validate a planar extrusion profile (same rules as the
+ *  OCCT adapter's requireProfile — the error surface stays engine-
+ *  independent). */
+function requireProfile(value: unknown, path: string): readonly (readonly [number, number])[] {
+  if (!Array.isArray(value) || value.length < 3) {
+    throw new AdapterFailure("engine_malformed_input", `${path} must be an array of at least 3 [x, y] points`, false);
+  }
+  if (value.length > MAX_PROFILE_POINTS) {
+    throw new AdapterFailure("engine_malformed_input", `${path} exceeds the ${MAX_PROFILE_POINTS}-point bound`, false);
+  }
+  const points: [number, number][] = value.map((p, i) => {
+    if (!Array.isArray(p) || p.length !== 2 || !p.every(isFiniteNumber)) {
+      throw new AdapterFailure("engine_malformed_input", `${path}[${i}] must be [x, y] finite numbers`, false);
+    }
+    return [p[0] as number, p[1] as number];
+  });
+  for (let i = 0; i < points.length; i++) {
+    const a = points[i]!;
+    const b = points[(i + 1) % points.length]!;
+    if (Math.hypot(a[0] - b[0], a[1] - b[1]) <= PROFILE_COINCIDENCE_EPS) {
+      throw new AdapterFailure(
+        "engine_malformed_input",
+        `${path}: point ${i % points.length} coincides with its successor (implicit closure — do not repeat the first point at the end)`,
+        false,
+      );
+    }
+  }
+  if (shoelaceMagnitude(points) <= PROFILE_AREA_EPS) {
+    throw new AdapterFailure(
+      "engine_malformed_input",
+      `${path} must span a non-degenerate area (shoelace magnitude > ${PROFILE_AREA_EPS})`,
+      false,
+    );
+  }
+  return points;
+}
+
+/** Shoelace area magnitude of an implicitly-closed polygon. */
+function shoelaceMagnitude(points: readonly (readonly [number, number])[]): number {
+  let sum = 0;
+  for (let i = 0; i < points.length; i++) {
+    const a = points[i]!;
+    const b = points[(i + 1) % points.length]!;
+    sum += a[0] * b[1] - b[0] * a[1];
+  }
+  return Math.abs(sum) / 2;
+}
+
 /** Structural validation of the descriptor BEFORE evaluation (validation IS
  *  compilation — identical principle to the OCCT adapter). Throws typed
  *  failures for malformed input. */
@@ -207,6 +270,12 @@ function validateDescriptor(descriptor: unknown, depth = 0): void {
       }
       return;
     }
+    case "extrude": {
+      requirePositive(d.height, "geometry.height");
+      requireProfile(d.profile, "geometry.profile");
+      optionalVec3(d.base, "geometry.base");
+      return;
+    }
     case "transform": {
       requireMatrix(d.matrix, "geometry.matrix");
       validateDescriptor(d.target, depth + 1);
@@ -221,7 +290,7 @@ function validateDescriptor(descriptor: unknown, depth = 0): void {
     default:
       throw new AdapterFailure(
         "engine_malformed_input",
-        `geometry.shape must be one of box/cylinder/transform/fuse/cut, got ${JSON.stringify(d.shape)}`,
+        `geometry.shape must be one of box/cylinder/extrude/transform/fuse/cut, got ${JSON.stringify(d.shape)}`,
         false,
       );
   }
@@ -255,10 +324,21 @@ interface Polyhedron {
   readonly volume: number;
 }
 
+/** A Z-extruded polygon prism in world space (COMPAT-CAD-002): a planar
+ *  polygon profile in world XY between zMin and zMax. Exact volume
+ *  (shoelace × Z span), exact bbox (profile AABB × Z span) and an exact
+ *  prism mesh (winding-normalized CCW caps + side quads). */
+interface WorldPrism {
+  readonly profile: readonly (readonly [number, number])[];
+  readonly zMin: number;
+  readonly zMax: number;
+}
+
 type Part =
   | { readonly kind: "cells"; readonly cells: readonly Cell[] }
   | { readonly kind: "cylinder"; readonly cylinder: WorldCylinder }
-  | { readonly kind: "poly"; readonly poly: Polyhedron };
+  | { readonly kind: "poly"; readonly poly: Polyhedron }
+  | { readonly kind: "prism"; readonly prism: WorldPrism };
 
 interface Solid {
   readonly parts: readonly Part[];
@@ -370,6 +450,37 @@ function polyMesh(p: Polyhedron): MeshData {
   return { vertices, indices: [...BOX_INDICES] };
 }
 
+/** Deterministic prism tessellation: CCW-normalized profile, bottom cap fan,
+ * top cap fan, side quads (two triangles each, fixed order). */
+function prismMesh(p: WorldPrism): MeshData {
+  const n = p.profile.length;
+  const profile = [...p.profile];
+  // Winding normalization: signed shoelace < 0 → reverse to CCW so either
+  // winding of the same polygon yields the identical canonical mesh.
+  let signed = 0;
+  for (let i = 0; i < n; i++) {
+    const a = profile[i]!;
+    const b = profile[(i + 1) % n]!;
+    signed += a[0] * b[1] - b[0] * a[1];
+  }
+  if (signed < 0) profile.reverse();
+  const vertices: number[] = [];
+  for (const [x, y] of profile) vertices.push(x, y, p.zMin);
+  for (const [x, y] of profile) vertices.push(x, y, p.zMax);
+  const indices: number[] = [];
+  for (let i = 1; i < n - 1; i++) {
+    // bottom cap fan (0, i+1, i) — CW seen from +Z (outward normal down)
+    indices.push(0, i + 1, i);
+    // top cap fan
+    indices.push(n, n + i, n + i + 1);
+  }
+  for (let i = 0; i < n; i++) {
+    const i2 = (i + 1) % n;
+    indices.push(i, i2, n + i2, i, n + i2, n + i);
+  }
+  return { vertices, indices };
+}
+
 function concatMesh(a: MeshData, b: MeshData): MeshData {
   const offset = a.vertices.length / 3;
   return {
@@ -388,6 +499,8 @@ function partVolume(part: Part): number {
       return Math.PI * part.cylinder.radius * part.cylinder.radius * part.cylinder.height;
     case "poly":
       return part.poly.volume;
+    case "prism":
+      return shoelaceMagnitude(part.prism.profile) * (part.prism.zMax - part.prism.zMin);
   }
 }
 
@@ -415,6 +528,16 @@ function partBBox(part: Part): readonly [number, number, number, number, number,
       }
       return out;
     }
+    case "prism": {
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      for (const [x, y] of part.prism.profile) {
+        if (x < minX) minX = x;
+        if (y < minY) minY = y;
+        if (x > maxX) maxX = x;
+        if (y > maxY) maxY = y;
+      }
+      return [minX, minY, part.prism.zMin, maxX, maxY, part.prism.zMax];
+    }
   }
 }
 
@@ -435,6 +558,8 @@ function partMesh(part: Part): MeshData {
       return cylinderMesh(part.cylinder);
     case "poly":
       return polyMesh(part.poly);
+    case "prism":
+      return prismMesh(part.prism);
   }
 }
 
@@ -558,6 +683,17 @@ function evalDescriptor(descriptor: unknown, state: EvalState): Solid {
       const dir = scale3(dirRaw, 1 / dirLen);
       return solidOf([{ kind: "cylinder", cylinder: { origin, dir, radius, height } }]);
     }
+    case "extrude": {
+      // COMPAT-CAD-002: exact prism part.
+      const height = requirePositive(d.height, "geometry.height");
+      const profile = requireProfile(d.profile, "geometry.profile");
+      const base = optionalVec3(d.base, "geometry.base") ?? [0, 0, 0];
+      const z0 = base[2];
+      const z1 = base[2] + height;
+      return solidOf([
+        { kind: "prism", prism: { profile, zMin: Math.min(z0, z1), zMax: Math.max(z0, z1) } },
+      ]);
+    }
     case "transform": {
       const matrix = requireMatrix(d.matrix, "geometry.matrix");
       const target = evalDescriptor(d.target, state);
@@ -605,14 +741,14 @@ function evalDescriptor(descriptor: unknown, state: EvalState): Solid {
     default:
       throw new AdapterFailure(
         "engine_malformed_input",
-        `geometry.shape must be one of box/cylinder/transform/fuse/cut, got ${JSON.stringify(d.shape)}`,
+        `geometry.shape must be one of box/cylinder/extrude/transform/fuse/cut, got ${JSON.stringify(d.shape)}`,
         false,
       );
   }
 }
 
 /** Reduce a solid to its axis-aligned cell list, or null when it contains
- *  cylinders/polyhedra (out of the cut exactness class). */
+ *  cylinders/polyhedra/prisms (out of the cut exactness class). */
 function asCellSet(solid: Solid): readonly Cell[] | null {
   const cells: Cell[] = [];
   for (const part of solid.parts) {
@@ -688,6 +824,33 @@ function transformSolid(solid: Solid, m: Matrix4): Solid {
             corners: part.poly.corners.map((c) => matVec(m, c)),
             volume: part.poly.volume * det,
           },
+        });
+        break;
+      }
+      case "prism": {
+        // COMPAT-CAD-002: EXACT only under a Z-PRESERVING affine map —
+        // x' = m00·x + m01·y + m03, y' = m10·x + m11·y + m13 (no z term),
+        // z' = m22·z + m23 (no x/y term). The profile maps by the planar
+        // 2×2, the span maps linearly; volume scales by |det2D · m22|.
+        // Anything that tilts the extrusion axis leaves the exactness class.
+        if (
+          Math.abs(m[2]!) > EPS_ALIGN || Math.abs(m[6]!) > EPS_ALIGN ||
+          Math.abs(m[8]!) > EPS_ALIGN || Math.abs(m[9]!) > EPS_ALIGN ||
+          Math.abs(m[10]!) <= EPS_ALIGN
+        ) {
+          decline("non-Z-preserving affine transform of an extrusion (the image is not a Z prism; the reference engine never approximates)");
+        }
+        const g = m[10]!;
+        const pr = part.prism;
+        const z0 = g * pr.zMin + m[11]!;
+        const z1 = g * pr.zMax + m[11]!;
+        const profile = pr.profile.map((p) => [
+          m[0]! * p[0] + m[1]! * p[1] + m[3]!,
+          m[4]! * p[0] + m[5]! * p[1] + m[7]!,
+        ] as [number, number]);
+        parts.push({
+          kind: "prism",
+          prism: { profile, zMin: Math.min(z0, z1), zMax: Math.max(z0, z1) },
         });
         break;
       }

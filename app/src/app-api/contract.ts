@@ -45,8 +45,22 @@ import {
   trimEntity,
 } from "../drafting/commands.js";
 import { resolveSnap } from "../drafting/snap.js";
-import { canonicalSnapKinds, validateDraftingSettings } from "../caddocument/workspace.js";
+import { canonicalSnapKinds, validateDraftingSettings, validateBimSettings } from "../caddocument/workspace.js";
 import type { LayerRecord } from "../contracts/caddocument.js";
+// COMPAT-CAD-002: the pure BIM authoring core (LOCK-018 scanned).
+import {
+  buildBimCreate,
+  bimGeometryContext,
+  bimModelBBox,
+  bimSolidDescriptor,
+  copyBimElements,
+  deleteBimElements,
+  elementToBimEntityOrNull,
+  extractElementSemanticsSafe,
+  moveBimElements,
+  setBimProperties,
+  standardCamera,
+} from "../bim/index.js";
 
 export interface AppApiHandlerOptions {
   readonly adapterBundle: EngineAdapterBundle;
@@ -138,6 +152,21 @@ export class AppApiHandler {
         return this.cmdDraftingLayer(command.payload, "update");
       case "drafting.removeLayer":
         return this.cmdDraftingLayer(command.payload, "remove");
+      // --- COMPAT-CAD-002 (additive): 3D/BIM authoring commands ---
+      case "bim.createElements":
+        return this.cmdBimCreate(command.payload);
+      case "bim.move":
+        return this.cmdBimTransform(command.payload, "move");
+      case "bim.copy":
+        return this.cmdBimTransform(command.payload, "copy");
+      case "bim.delete":
+        return this.cmdBimDelete(command.payload);
+      case "bim.setProperties":
+        return this.cmdBimSetProperties(command.payload);
+      case "bim.setSettings":
+        return this.cmdBimSetSettings(command.payload);
+      case "bim.buildGeometry":
+        return await this.cmdBimBuildGeometry(command.payload);
       default: {
         const _exhaustive: never = command.name;
         return err("unknown_command", `unknown command: ${JSON.stringify(_exhaustive)}`);
@@ -406,6 +435,13 @@ export class AppApiHandler {
         return await this.qImpactCascade(query.payload);
       case "drafting.snap":
         return this.qDraftingSnap(query.payload);
+      // --- COMPAT-CAD-002 (additive): BIM queries ---
+      case "bim.getBuilding":
+        return this.qBimGetBuilding();
+      case "bim.getSemantics":
+        return this.qBimGetSemantics(query.payload);
+      case "bim.camera":
+        return this.qBimCamera(query.payload);
       default: {
         const _exhaustive: never = query.name;
         return err("unknown_query", `unknown query: ${JSON.stringify(_exhaustive)}`);
@@ -655,6 +691,296 @@ export class AppApiHandler {
       return ok(result);
     } catch (e) {
       return err("drafting_invalid", (e as Error).message, false);
+    }
+  }
+
+  // --- COMPAT-CAD-002 (additive): 3D/BIM authoring -----------------------------
+
+  /** bim.createElements — validate + apply ONE atomic create batch (one
+   *  versioned command, one revision, one undo entry). Element ids are minted
+   *  by the document; the response reports the created ids. */
+  private cmdBimCreate(payload: unknown): CommandQueryResponse {
+    const p = payload as { entities?: unknown } | null;
+    if (p === null || typeof p !== "object" || !Array.isArray(p.entities)) {
+      return err("bad_payload", "bim.createElements requires an entities array", true);
+    }
+    try {
+      const before = new Set(this.doc.allElements().map((el) => el.id));
+      const outcome = buildBimCreate(this.doc.allElements(), p.entities);
+      this.doc.execute(outcome.edit);
+      const created = this.doc.allElements().filter((el) => !before.has(el.id)).map((el) => el.id);
+      return ok({ created, snapshot: this.doc.snapshot() });
+    } catch (e) {
+      return err("bim_invalid", (e as Error).message, false);
+    }
+  }
+
+  /** bim.move / bim.copy — translate / duplicate + declared hosted cascades. */
+  private cmdBimTransform(payload: unknown, op: "move" | "copy"): CommandQueryResponse {
+    const p = payload as { ids?: unknown; dx?: unknown; dy?: unknown; dz?: unknown } | null;
+    if (p === null || typeof p !== "object" || !Array.isArray(p.ids) || !p.ids.every((x) => typeof x === "string")) {
+      return err("bad_payload", `bim.${op} requires an ids string array`, true);
+    }
+    if (
+      typeof p.dx !== "number" || !Number.isFinite(p.dx) ||
+      typeof p.dy !== "number" || !Number.isFinite(p.dy) ||
+      typeof p.dz !== "number" || !Number.isFinite(p.dz)
+    ) {
+      return err("bad_payload", `bim.${op} requires finite dx/dy/dz`, true);
+    }
+    try {
+      const outcome = op === "move"
+        ? moveBimElements(this.doc.allElements(), p.ids as string[], p.dx, p.dy, p.dz)
+        : copyBimElements(this.doc.allElements(), p.ids as string[], p.dx, p.dy, p.dz);
+      if (outcome.status === "no-op") {
+        return ok({ applied: false, reason: outcome.reason, snapshot: this.doc.snapshot() });
+      }
+      const before = new Set(this.doc.allElements().map((el) => el.id));
+      this.doc.execute(outcome.edit);
+      const created = op === "copy"
+        ? this.doc.allElements().filter((el) => !before.has(el.id)).map((el) => el.id)
+        : [];
+      return ok({ applied: true, summary: outcome.summary, created, snapshot: this.doc.snapshot() });
+    } catch (e) {
+      const message = (e as Error).message;
+      if (message.includes("supported set")) {
+        return err("bim_unsupported", message, false);
+      }
+      return err("bim_invalid", message, false);
+    }
+  }
+
+  /** bim.delete — remove atomically (declared hosted cascades, itemized). */
+  private cmdBimDelete(payload: unknown): CommandQueryResponse {
+    const p = payload as { ids?: unknown } | null;
+    if (p === null || typeof p !== "object" || !Array.isArray(p.ids) || !p.ids.every((x) => typeof x === "string")) {
+      return err("bad_payload", "bim.delete requires an ids string array", true);
+    }
+    try {
+      const outcome = deleteBimElements(this.doc.allElements(), p.ids as string[]);
+      if (outcome.status === "no-op") {
+        return ok({ applied: false, reason: outcome.reason, snapshot: this.doc.snapshot() });
+      }
+      this.doc.execute(outcome.edit);
+      return ok({ applied: true, summary: outcome.summary, snapshot: this.doc.snapshot() });
+    } catch (e) {
+      return err("bim_invalid", (e as Error).message, false);
+    }
+  }
+
+  /** bim.setProperties — whitelisted semantic property edits (merged +
+   *  re-validated through the strict constructors). */
+  private cmdBimSetProperties(payload: unknown): CommandQueryResponse {
+    const p = payload as { elementId?: unknown; patch?: unknown } | null;
+    if (
+      p === null || typeof p !== "object" || typeof p.elementId !== "string" ||
+      typeof p.patch !== "object" || p.patch === null
+    ) {
+      return err("bad_payload", "bim.setProperties requires elementId + patch", true);
+    }
+    try {
+      const outcome = setBimProperties(this.doc.allElements(), p.elementId, p.patch as Record<string, unknown>);
+      if (outcome.status === "no-op") {
+        return ok({ applied: false, reason: outcome.reason, snapshot: this.doc.snapshot() });
+      }
+      this.doc.execute(outcome.edit);
+      return ok({ applied: true, summary: outcome.summary, snapshot: this.doc.snapshot() });
+    } catch (e) {
+      return err("bim_invalid", (e as Error).message, false);
+    }
+  }
+
+  /** bim.setSettings — replace the non-versioned BIM workspace settings
+   *  (camera preset), with a one-level merge like drafting.setSettings. */
+  private cmdBimSetSettings(payload: unknown): CommandQueryResponse {
+    const p = payload as { settings?: unknown } | null;
+    if (p === null || typeof p !== "object" || typeof p.settings !== "object" || p.settings === null) {
+      return err("bad_payload", "bim.setSettings requires a settings object", true);
+    }
+    try {
+      const cur = this.doc.bimSettings;
+      const incoming = p.settings as Record<string, unknown>;
+      const merged = {
+        ...cur,
+        ...incoming,
+        camera: { ...cur.camera, ...((incoming.camera as object) ?? {}) },
+      };
+      const settings = validateBimSettings(merged);
+      this.doc.setBimSettings(settings);
+      return ok({ settings: this.doc.bimSettings, snapshot: this.doc.snapshot() });
+    } catch (e) {
+      return err("bim_invalid", (e as Error).message, false);
+    }
+  }
+
+  /**
+   * bim.buildGeometry — realize BIM element solids through the bound geometry
+   * engine adapter (LOCK-003/018 — the only engine touchpoint, exactly like
+   * geometry.prepare). For every addressed BIM element the pure core derives
+   * the engine-independent descriptor; the adapter realizes it; the results
+   * (meshToken + bbox + engine provenance) attach through ONE atomic
+   * versioned batch, so engine realization is itself an immutable, replayable
+   * revision. Elements without a solid (stories) are skipped with honest
+   * reasons — never silently approximated.
+   */
+  private async cmdBimBuildGeometry(payload: unknown): Promise<CommandQueryResponse> {
+    const p = payload as { ids?: unknown } | null;
+    if (p !== null && typeof p === "object" && p.ids !== undefined) {
+      if (!Array.isArray(p.ids) || !p.ids.every((x) => typeof x === "string")) {
+        return err("bad_payload", "bim.buildGeometry ids must be a string array when present", true);
+      }
+    }
+    const ids = p !== null && typeof p === "object" && Array.isArray(p.ids) ? (p.ids as string[]) : null;
+    const elements = this.doc.allElements();
+    const entities = elements
+      .map((el) => elementToBimEntityOrNull(el))
+      .filter((x): x is NonNullable<typeof x> => x !== null)
+      .filter((entity) => ids === null || ids.includes(entity.id));
+    if (entities.length === 0) {
+      return err("bad_payload", "bim.buildGeometry found no BIM elements to build", true);
+    }
+    const ctx = bimGeometryContext(entities);
+    interface BuildResult {
+      readonly elementId: string;
+      readonly meshToken: string;
+      readonly bbox: readonly [number, number, number, number, number, number];
+      readonly engine: { readonly engineId: string; readonly engineVersion: string };
+    }
+    const results: BuildResult[] = [];
+    const skipped: { elementId: string; reason: string }[] = [];
+    const edits: DocumentEdit[] = [];
+    for (const entity of entities) {
+      const { descriptor, reason } = bimSolidDescriptor(entity, ctx);
+      if (descriptor === null) {
+        skipped.push({ elementId: entity.id, reason });
+        continue;
+      }
+      const element: Element = { id: "bim:build", kind: "bim", engineId: null, props: descriptor as Record<string, unknown> };
+      let realized: { meshToken: string; bbox: readonly [number, number, number, number, number, number] };
+      try {
+        realized = await this.adapters.geometry.prepareGeometry(element);
+      } catch (e) {
+        if (isAdapterFailure(e)) return err(e.code, e.message, e.retryable);
+        return err("engine_error", `geometry adapter failed: ${(e as Error).message}`, false);
+      }
+      if (
+        typeof realized !== "object" || realized === null ||
+        typeof realized.meshToken !== "string" || realized.meshToken.length === 0 ||
+        !Array.isArray(realized.bbox) || realized.bbox.length !== 6 ||
+        !realized.bbox.every((n) => typeof n === "number" && Number.isFinite(n))
+      ) {
+        return err("engine_error", "geometry adapter returned an invalid GeometryResult", false);
+      }
+      results.push({
+        elementId: entity.id,
+        meshToken: realized.meshToken,
+        bbox: realized.bbox,
+        engine: { engineId: this.adapters.geometry.engineId, engineVersion: this.adapters.geometry.engineVersion },
+      });
+      edits.push({
+        type: "updateElement",
+        elementId: entity.id,
+        patch: {
+          meshToken: realized.meshToken,
+          meshBBox: [...realized.bbox],
+          geometryEngine: { engineId: this.adapters.geometry.engineId, engineVersion: this.adapters.geometry.engineVersion },
+        },
+      });
+    }
+    if (edits.length > 0) {
+      try {
+        this.doc.execute({ type: "applyEdits", edits });
+      } catch (e) {
+        return err("edit_failed", (e as Error).message, false);
+      }
+    }
+    return ok({ built: results.length, results, skipped, snapshot: this.doc.snapshot() });
+  }
+
+  /** bim.getBuilding (query) — the story→elements structure with semantic
+   *  summaries, deterministically ordered (stories by level then id;
+   *  walls/slabs/spaces/openings/fills by id). */
+  private qBimGetBuilding(): CommandQueryResponse {
+    const elements = this.doc.allElements();
+    const entities = elements
+      .map((el) => elementToBimEntityOrNull(el))
+      .filter((x): x is NonNullable<typeof x> => x !== null);
+    const ctx = bimGeometryContext(entities);
+    const stories = entities
+      .filter((x) => x.type === "bim.story")
+      .sort((a, b) =>
+        a.level !== b.level ? a.level - b.level : a.id < b.id ? -1 : 1,
+      );
+    const byStory = (type: string) =>
+      entities
+        .filter((x) => x.type === type && x.type !== "bim.story")
+        .filter((x) => (x as { storyId?: unknown }).storyId !== undefined)
+        .sort((a, b) => (a.id < b.id ? -1 : 1));
+    const building = stories.map((story) => {
+      const hosted = (type: string) => byStory(type).filter((x) => (x as { storyId: string }).storyId === story.id);
+      const walls = hosted("bim.wall").map((wall) => ({
+        ...extractElementSemanticsSafe(elements.find((el) => el.id === wall.id)!)!,
+        openings: (ctx.openingsByHost.get(wall.id) ?? []).map((opening) => ({
+          ...extractElementSemanticsSafe(elements.find((el) => el.id === opening.id)!)!,
+          fills: entities
+            .filter((x) => (x.type === "bim.door" || x.type === "bim.window") && x.openingId === opening.id)
+            .sort((a, b) => (a.id < b.id ? -1 : 1))
+            .map((fill) => extractElementSemanticsSafe(elements.find((el) => el.id === fill.id)!)!),
+        })),
+      }));
+      return {
+        story: extractElementSemanticsSafe(elements.find((el) => el.id === story.id)!)!,
+        walls,
+        slabs: hosted("bim.slab").map((slab) => extractElementSemanticsSafe(elements.find((el) => el.id === slab.id)!)!),
+        spaces: hosted("bim.space").map((space) => extractElementSemanticsSafe(elements.find((el) => el.id === space.id)!)!),
+      };
+    });
+    return ok({ stories: building, bimSettings: this.doc.bimSettings });
+  }
+
+  /** bim.getSemantics (query) — extracted semantic records (all BIM elements,
+   *  or one by elementId). */
+  private qBimGetSemantics(payload: unknown): CommandQueryResponse {
+    const p = payload as { elementId?: unknown } | null;
+    if (p !== null && typeof p === "object" && p.elementId !== undefined) {
+      if (typeof p.elementId !== "string") {
+        return err("bad_payload", "bim.getSemantics elementId must be a string", true);
+      }
+      const el = this.doc.elementById(p.elementId);
+      if (el === undefined) {
+        return err("bad_payload", `bim.getSemantics: no element '${p.elementId}'`, true);
+      }
+      const record = extractElementSemanticsSafe(el);
+      if (record === null) {
+        return err("bim_invalid", `element '${p.elementId}' carries no BIM semantics`, false);
+      }
+      return ok(record);
+    }
+    const records = this.doc
+      .allElements()
+      .map((el) => extractElementSemanticsSafe(el))
+      .filter((x): x is NonNullable<typeof x> => x !== null)
+      .sort((a, b) => (a.elementId < b.elementId ? -1 : 1));
+    return ok({ semantics: records });
+  }
+
+  /** bim.camera (query) — the standard camera for a preset, derived from the
+   *  model's analytic world bbox (pure, engine-free; identical on both hosts). */
+  private qBimCamera(payload: unknown): CommandQueryResponse {
+    const p = payload as { preset?: unknown } | null;
+    if (p === null || typeof p !== "object" || typeof p.preset !== "string") {
+      return err("bad_payload", "bim.camera requires a preset string", true);
+    }
+    const entities = this.doc
+      .allElements()
+      .map((el) => elementToBimEntityOrNull(el))
+      .filter((x): x is NonNullable<typeof x> => x !== null);
+    const bbox = bimModelBBox(entities, bimGeometryContext(entities));
+    try {
+      const camera = standardCamera(p.preset, bbox);
+      return ok({ camera, bbox });
+    } catch (e) {
+      return err("bim_invalid", (e as Error).message, false);
     }
   }
 }

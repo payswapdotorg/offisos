@@ -19,6 +19,16 @@ export type WorkerRecipeStep =
       readonly origin?: readonly [number, number, number];
       readonly direction?: readonly [number, number, number];
     }
+  | {
+      /** COMPAT-CAD-002: extrusion of a planar polygon profile (XY, implicitly
+       *  closed, simple, no repeated closing point) along +Z by `height`,
+       *  based at `base` (default [0,0,0]). */
+      readonly id: string;
+      readonly make: "extrude";
+      readonly profile: readonly (readonly [number, number])[];
+      readonly height: number;
+      readonly base?: readonly [number, number, number];
+    }
   | { readonly id: string; readonly bool: "fuse" | "cut"; readonly a: string; readonly b: string }
   | { readonly id: string; readonly transform: string; readonly matrix: readonly number[] };
 

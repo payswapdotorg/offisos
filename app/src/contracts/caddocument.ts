@@ -76,6 +76,25 @@ export type SnapKind =
   | "on-object"
   | "grid";
 
+// --- COMPAT-CAD-002 (additive, api-contract.md §8): BIM authoring ----------
+
+/** Standard 3D camera states (COMPAT-CAD-002). The preset is the persisted
+ *  BIM camera state; the eye/target/up triple is derived deterministically
+ *  from the preset + the model's derived world bounding box by the shared
+ *  pure camera module (src/bim/camera.ts) so Web and Electron render from
+ *  identical camera parameters (§5.5 parity). */
+export type BimCameraPreset = "iso" | "top" | "front" | "right";
+
+/** COMPAT-CAD-002 (additive): non-versioned BIM workspace settings (camera
+ *  state), mirrored from the DraftingSettings precedent: persisted with the
+ *  snapshot (save/open restores the camera), mutated without a version bump,
+ *  NOT part of the revision content hashes, INCLUDED in the parity content
+ *  hash (persisted workspace content). */
+export interface BimSettings {
+  readonly units: "mm";
+  readonly camera: { readonly preset: BimCameraPreset };
+}
+
 /** A document-local element. The `engineId` field is a provenance/source
  *  identifier only; Construction Graph element identity is mapped through
  *  explicit versioned contracts (§5.4, LOCK-019). */
@@ -119,6 +138,9 @@ export interface CADDocumentSnapshot {
   readonly selection?: readonly string[];
   /** COMPAT-CAD-001: grid/snap/view configuration (absent on legacy). */
   readonly draftingSettings?: DraftingSettings;
+  /** COMPAT-CAD-002: BIM workspace camera state (absent on legacy snapshots;
+ *   *   a legacy snapshot opens with the canonical default preset). */
+  readonly bimSettings?: BimSettings;
 }
 
 /** A reversible document edit (undo/redo semantics, §5.4). The inverse is
