@@ -24,12 +24,17 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawn } from "node:child_process";
-import { compileDescriptor, createOcctGeometryAdapter, resolveWorkerScript } from "../src/adapters/occt/index.js";
+import { compileDescriptor, createOcctGeometryAdapter, resolvePythonExecutable, resolveWorkerScript } from "../src/adapters/occt/index.js";
 import { isAdapterFailure } from "../src/contracts/geometry.js";
-import { pythonAvailable } from "./engine-availability.js";
+import { engineSkip, pythonAvailable } from "./engine-availability.js";
 
 const havePython = await pythonAvailable();
 const skipPython = havePython ? false : "python3 executable not available (process-boundary tests skipped)";
+// The recovery test performs a REAL successful prepare after the kill — it
+// needs the full engine (OCP), not just a python3 executable. Environments
+// with python3 but without OCP (e.g. the engine-free CAD-IMPLEMENT-001 CI
+// shell job) skip it with the recorded reason.
+const skipEngine = await engineSkip();
 
 test("worker script resolves from the app/ test cwd", () => {
   const script = resolveWorkerScript();
@@ -74,7 +79,7 @@ test("wall-clock timeout fires at the process boundary with a typed, retryable e
   );
 });
 
-test("the disposable worker recovers after a timeout kill (fresh process next call)", { skip: skipPython }, async () => {
+test("the disposable worker recovers after a timeout kill (fresh process next call)", { skip: skipEngine }, async () => {
   const tight = createOcctGeometryAdapter({ timeoutMs: 10 });
   await assert.rejects(
     tight.prepareGeometry({ id: "x", kind: "geometry", engineId: null, props: { shape: "box", width: 1, depth: 1, height: 1 } }),
@@ -163,9 +168,12 @@ test("worker stderr noise before the JSON line is tolerated (last-line fallback)
   }
 });
 
-test("python availability probe agrees with a direct spawn", async () => {
+test("python availability probe agrees with a direct spawn of the resolved executable", async () => {
+  // Both sides use the SAME resolution ($OFFISOS_PYTHON, else python3) so the
+  // probe reflects what the adapter will actually spawn.
+  const resolved = resolvePythonExecutable();
   const direct = await new Promise<boolean>((resolve) => {
-    const child = spawn("python3", ["--version"], { stdio: "ignore" });
+    const child = spawn(resolved, ["--version"], { stdio: "ignore" });
     child.on("error", () => resolve(false));
     child.on("close", (code) => resolve(code === 0));
   });

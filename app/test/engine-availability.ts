@@ -7,7 +7,7 @@
  * Not a .test.ts file, so the CI glob (test/*.test.ts) ignores it.
  */
 
-import { probeOcctEngine } from "../src/adapters/occt/index.js";
+import { probeOcctEngine, resolvePythonExecutable } from "../src/adapters/occt/index.js";
 import type { EngineProbe } from "../src/adapters/occt/index.js";
 import { spawn } from "node:child_process";
 
@@ -25,11 +25,13 @@ export async function engineSkip(): Promise<string | false> {
   return p.available ? false : `OCCT engine not available (${p.message ?? "probe failed"}; tests requiring the engine are skipped — install python3 + cadquery-ocp to run them)`;
 }
 
-/** Whether a plain python3 executable exists (needed for process-boundary
- *  tests that do NOT require OCP). */
+/** Whether a spawnable python executable exists (needed for process-boundary
+ *  tests that do NOT require OCP). Resolves the SAME way the adapter does
+ *  ($OFFISOS_PYTHON, else python3) so the probe matches what the tests will
+ *  actually spawn. */
 export function pythonAvailable(): Promise<boolean> {
   return new Promise((resolve) => {
-    const child = spawn("python3", ["-c", "print(1)"], { stdio: "ignore" });
+    const child = spawn(resolvePythonExecutable(), ["-c", "print(1)"], { stdio: "ignore" });
     child.on("error", () => resolve(false));
     child.on("close", (code) => resolve(code === 0));
   });
