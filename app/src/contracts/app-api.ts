@@ -40,12 +40,23 @@ export type CommandName =
 // --- Query names (non-mutating) ---
 // `document.getSelection` returns the ephemeral editor selection (orthogonal
 // to the versioned snapshot, so it does not affect the parity hash, §5.5).
+// CAD-IMPLEMENT-003 (additive, api-contract.md §8): the model/revision and
+// Construction Graph bridge surface is read-only queries —
+// `model.getHistory` returns the immutable ModelRevision log persisted with
+// the document; `model.getGraphEvents` returns the deterministic
+// graph-facing event stream (model.created / model.version.created) produced
+// by the Construction Graph bridge from that history; `model.replay`
+// deterministically replays the history to a given revision number
+// (0 = base) — information-state correct, no future leakage.
 export type QueryName =
   | "document.getState"
   | "document.getVersion"
   | "document.canUndo"
   | "document.canRedo"
-  | "document.getSelection";
+  | "document.getSelection"
+  | "model.getHistory"
+  | "model.getGraphEvents"
+  | "model.replay";
 
 export interface Command {
   readonly type: "command";

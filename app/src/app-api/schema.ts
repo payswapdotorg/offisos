@@ -150,6 +150,16 @@ export const QUERY_PAYLOAD_SCHEMAS: Readonly<Record<QueryName, object>> = {
   "document.canUndo": { type: "object", properties: {} },
   "document.canRedo": { type: "object", properties: {} },
   "document.getSelection": { type: "object", properties: {} },
+  // CAD-IMPLEMENT-003 (additive, api-contract.md §8): revision/Graph surface.
+  "model.getHistory": { type: "object", properties: {} },
+  "model.getGraphEvents": { type: "object", properties: {} },
+  "model.replay": {
+    type: "object",
+    properties: {
+      revision_number: { type: "number", minimum: 0 },
+    },
+    required: ["revision_number"],
+  },
 };
 
 export const WIRE_ENVELOPE_SCHEMA = {

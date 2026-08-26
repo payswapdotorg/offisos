@@ -10,7 +10,8 @@
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "start": "electron . --no-sandbox",
     "smoke": "node test/smoke.mjs",
-    "smoke:geometry": "node test/smoke-geometry.mjs"
+    "smoke:geometry": "node test/smoke-geometry.mjs",
+    "smoke:model": "node test/smoke-model.mjs"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",

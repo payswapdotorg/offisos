@@ -50,21 +50,32 @@ import type {
   Element,
   VersionMeta,
 } from "@offisos/cad-app-shell/contracts/caddocument";
+import type {
+  GraphBridgeResult,
+  ModelHistory,
+  ModelReplayResult,
+} from "@offisos/cad-app-shell/contracts/model";
 import type { CommandQueryResponse } from "@offisos/cad-app-shell/contracts/app-api";
 import {
   applyEdit,
   canRedo,
   canUndo,
   createDoc,
+  getGraphEvents,
+  getHistory,
   getState,
   getSelection,
   openFromText,
   prepareGeometry,
   redo,
+  replayModel,
   save,
   setSelection,
   undo,
+  unwrapGraphEvents,
+  unwrapHistory,
   unwrapPrepared,
+  unwrapReplay,
   unwrapSaveBytes,
   unwrapSelection,
   unwrapSnapshot,
@@ -124,6 +135,10 @@ export default function Home() {
   const [error, setError] = React.useState<string | null>(null);
   const [engine, setEngine] = React.useState<{ engineId: string; engineVersion: string } | null>(null);
   const [meshes, setMeshes] = React.useState<Record<string, { vertices: number[]; indices: number[]; bbox: number[] }>>({});
+  // CAD-IMPLEMENT-003: immutable model revisions + the graph-facing event stream.
+  const [history, setHistory] = React.useState<ModelHistory | null>(null);
+  const [graphEvents, setGraphEvents] = React.useState<GraphBridgeResult | null>(null);
+  const [replay, setReplay] = React.useState<ModelReplayResult | null>(null);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
 
   /** Cache a prepared mesh for viewport rendering (keyed by meshToken —
@@ -141,11 +156,18 @@ export default function Home() {
   }, []);
 
   const refresh = React.useCallback(async () => {
-    const [stateRes, selRes] = await Promise.all([getState(), getSelection()]);
+    const [stateRes, selRes, historyRes, eventsRes] = await Promise.all([
+      getState(),
+      getSelection(),
+      getHistory(),
+      getGraphEvents(),
+    ]);
     const snap = unwrapSnapshot(stateRes);
     const sel = unwrapSelection(selRes);
     if (snap) setSnapshot(snap);
     setSel(sel);
+    setHistory(unwrapHistory(historyRes));
+    setGraphEvents(unwrapGraphEvents(eventsRes));
     if (!stateRes.ok) setError(stateRes.message);
     else if (!selRes.ok) setError(selRes.message);
     else setError(null);
@@ -155,12 +177,19 @@ export default function Home() {
     let cancelled = false;
     (async () => {
       setLoading(true);
-      const [stateRes, selRes] = await Promise.all([getState(), getSelection()]);
+      const [stateRes, selRes, historyRes, eventsRes] = await Promise.all([
+        getState(),
+        getSelection(),
+        getHistory(),
+        getGraphEvents(),
+      ]);
       if (cancelled) return;
       const snap = unwrapSnapshot(stateRes);
       const sel = unwrapSelection(selRes);
       if (snap) setSnapshot(snap);
       setSel(sel);
+      setHistory(unwrapHistory(historyRes));
+      setGraphEvents(unwrapGraphEvents(eventsRes));
       if (!stateRes.ok) setError(stateRes.message);
       setLoading(false);
     })();
@@ -196,6 +225,26 @@ export default function Home() {
   );
 
   // --- Action handlers -----------------------------------------------------
+
+  /** CAD-IMPLEMENT-003: deterministic historical replay to a revision. */
+  const onReplayTo = React.useCallback(
+    (revisionNumber: number) => {
+      setBusy(true);
+      (async () => {
+        const res = await replayModel(revisionNumber);
+        const value = unwrapReplay(res);
+        if (!res.ok || value === null) {
+          setError(res.ok ? `[Replay] unexpected response shape` : `[Replay] ${res.code}: ${res.message}`);
+          setReplay(null);
+        } else {
+          setError(null);
+          setReplay(value);
+        }
+        setBusy(false);
+      })();
+    },
+    [],
+  );
 
   const onNew = React.useCallback(() => {
     void run("New", () => createDoc({}));
@@ -462,7 +511,7 @@ export default function Home() {
           </div>
           <div className="flex items-center gap-2">
             <Badge variant="secondary" className="font-mono">
-              CAD-IMPLEMENT-002 / v1.1
+              CAD-IMPLEMENT-003 / v1.1
             </Badge>
             {engine && (
               <Badge variant="outline" className="font-mono">
@@ -716,6 +765,98 @@ export default function Home() {
               </CardContent>
             </Card>
 
+            {/* CAD-IMPLEMENT-003: persistent model revisions + Graph bridge */}
+            <Card>
+              <CardHeader>
+                <CardTitle>Model Revisions</CardTitle>
+                <CardDescription>
+                  Immutable revision history persisted with the document
+                  (save/open). Click a revision to replay it deterministically.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                  <Badge variant="secondary" className="font-mono">
+                    {history ? `${history.revisions.length} revisions` : "—"}
+                  </Badge>
+                  <Badge variant="outline" className="font-mono">
+                    base: {history?.base.origin ?? "—"}
+                  </Badge>
+                  {graphEvents && (
+                    <Badge variant="outline" className="font-mono">
+                      {graphEvents.events.length} graph events
+                    </Badge>
+                  )}
+                </div>
+                <ScrollArea className="max-h-96 mt-3 pr-3">
+                  {!history || history.revisions.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">
+                      No revisions yet — edit the document to record them.
+                    </p>
+                  ) : (
+                    <ol className="space-y-1.5">
+                      {history.revisions.map((rev) => (
+                        <li key={rev.revision_id}>
+                          <button
+                            type="button"
+                            className="w-full text-left rounded-md border px-2.5 py-2 text-xs hover:bg-accent transition-colors disabled:opacity-50"
+                            onClick={() => onReplayTo(rev.revision_number)}
+                            disabled={busy}
+                            aria-label={`Replay to revision ${rev.revision_number}`}
+                          >
+                            <span className="font-mono">#{rev.revision_number}</span>{" "}
+                            <span className="font-mono text-muted-foreground">v{rev.version.version_number}</span>{" "}
+                            <Badge variant="outline" className="ml-1 font-mono">
+                              {rev.note}
+                            </Badge>
+                            <span className="ml-1 text-muted-foreground">
+                              +{rev.delta.added.length} ~{rev.delta.updated.length} −{rev.delta.removed.length}
+                            </span>
+                          </button>
+                        </li>
+                      ))}
+                    </ol>
+                  )}
+                </ScrollArea>
+                {replay && (
+                  <div className="mt-3 rounded-md border bg-muted/40 p-2.5 text-xs">
+                    <p className="font-medium">
+                      Replay @ {replay.revision_number}{" "}
+                      <Badge variant="secondary" className="font-mono ml-1">
+                        {replay.verified ? "verified" : "unverified"}
+                      </Badge>
+                    </p>
+                    <p className="font-mono break-all text-muted-foreground mt-1">
+                      {truncate(replay.revision_id, 44)}
+                    </p>
+                    <p className="font-mono break-all text-muted-foreground">
+                      content {truncate(replay.content_hash, 16)}
+                    </p>
+                    <p className="mt-1 text-muted-foreground">
+                      {replay.elements.length} element{replay.elements.length === 1 ? "" : "s"}:{" "}
+                      <span className="font-mono">
+                        {replay.elements.map((e) => truncate(e.id, 12)).join(", ") || "—"}
+                      </span>
+                    </p>
+                  </div>
+                )}
+                {graphEvents && (
+                  <div className="mt-3 rounded-md border p-2.5 text-xs">
+                    <p className="font-medium">Construction Graph bridge</p>
+                    <p className="font-mono break-all text-muted-foreground mt-1">
+                      events_hash {truncate(graphEvents.events_hash, 24)}
+                    </p>
+                    <p className="text-muted-foreground mt-1">
+                      Event stream: {graphEvents.events.filter((e) => e.event_type === "model.created").length}×{" "}
+                      model.created,{" "}
+                      {graphEvents.events.filter((e) => e.event_type === "model.version.created").length}×{" "}
+                      model.version.created — deterministic, engine-id provenance only.
+                    </p>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
             <Card>
               <CardHeader>
                 <CardTitle>Selection</CardTitle>
@@ -784,9 +925,10 @@ export default function Home() {
                 <Separator className="my-3" />
                 <p className="text-xs text-muted-foreground leading-relaxed">
                   CADDocument is the editor representation. Construction Graph
-                  identity remains canonical (LOCK-019). The dummy adapter is
-                  the only engine — no FreeCAD/OCCT/IfcOpenShell coupling
-                  (LOCK-003/018).
+                  identity remains canonical (LOCK-019) — the Graph bridge maps
+                  revisions to deterministic domain events; engine ids are
+                  provenance only. No engine coupling in renderer/CADDocument/
+                  App API (LOCK-003/018).
                 </p>
               </CardContent>
             </Card>
@@ -805,10 +947,10 @@ export default function Home() {
 
       <footer className="mt-auto border-t">
         <div className="px-4 sm:px-6 lg:px-8 py-4 text-xs text-muted-foreground">
-          Offisos CAD-IMPLEMENT-001 — milestone: usable CAD workspace (create/
-          open/save, selection, undo/redo, versioned CADDocument, dummy adapter,
-          Web transport). Web/Electron parity proven by the Offisos repo
-          host-parity tests (50/50 green). Architecture v1.1 FROZEN.
+          Offisos CAD-IMPLEMENT-003 — milestone: persistent model revisions +
+          Construction Graph bridge (immutable revision history, save/open
+          persistence, stable canonical element identity, deterministic graph
+          events, Web/Electron parity). Architecture v1.1 FROZEN.
         </div>
       </footer>
     </div>

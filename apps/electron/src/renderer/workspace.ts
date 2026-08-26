@@ -20,6 +20,11 @@ import type {
   Element as CDElement,
   VersionMeta,
 } from "@offisos/cad-app-shell/contracts/caddocument";
+import type {
+  GraphBridgeResult,
+  ModelHistory,
+  ModelReplayResult,
+} from "@offisos/cad-app-shell/contracts/model";
 import type { Command, CommandQueryResponse, Query } from "@offisos/cad-app-shell/contracts/app-api";
 
 interface ShapeProps {
@@ -121,6 +126,10 @@ const state = {
   error: null as string | null,
   engine: null as { engineId: string; engineVersion: string } | null,
   meshes: new Map<string, CachedMesh>(),
+  // CAD-IMPLEMENT-003: immutable model revisions + graph-facing events.
+  history: null as ModelHistory | null,
+  graphEvents: null as GraphBridgeResult | null,
+  replay: null as ModelReplayResult | null,
 };
 
 // --- DOM helpers ----------------------------------------------------------
@@ -151,6 +160,10 @@ interface Shell {
   ddCd: HTMLElement;
   ddFmt: HTMLElement;
   ddFv: HTMLElement;
+  revList: HTMLElement;
+  replayEl: HTMLDivElement;
+  eventsEl: HTMLDivElement;
+  revSummary: HTMLElement;
 }
 
 function buildShell(root: HTMLElement): Shell {
@@ -161,7 +174,7 @@ function buildShell(root: HTMLElement): Shell {
   const h1 = el("h1"); h1.textContent = "Offisos CAD Workspace";
   const hp = el("p"); hp.textContent = "Electron host — real OCCT geometry engine behind the frozen adapter boundary";
   hWrap.append(h1, hp);
-  const badge = el("span", "badge"); badge.textContent = "CAD-IMPLEMENT-002 / v1.1";
+  const badge = el("span", "badge"); badge.textContent = "CAD-IMPLEMENT-003 / v1.1";
   const engineBadge = el("span", "badge"); engineBadge.id = "engine-badge"; engineBadge.style.display = "none";
   header.append(hWrap, badge, engineBadge);
   root.append(header);
@@ -203,6 +216,16 @@ function buildShell(root: HTMLElement): Shell {
   const bUndo = btn("", "Undo", "<"); const bRedo = btn("", "Redo", ">");
   histCtrls.append(bUndo, bRedo); histBody.append(histCtrls); histCard.append(histBody);
 
+  // CAD-IMPLEMENT-003: persistent model revisions + Construction Graph bridge.
+  const revCard = card("Model Revisions", "Immutable revision history persisted with the document (save/open). Click a revision to replay it deterministically.");
+  const revBody = el("div", "card-c");
+  const revSummary = el("p"); revSummary.style.fontSize = "12px"; revSummary.style.color = "var(--muted)";
+  const revList = el("div"); revList.style.maxHeight = "384px"; revList.style.overflowY = "auto"; revList.style.marginTop = "8px";
+  const replayEl = el("div"); replayEl.style.display = "none"; replayEl.style.marginTop = "8px";
+  const eventsEl = el("div"); eventsEl.style.display = "none"; eventsEl.style.marginTop = "8px";
+  revBody.append(revSummary, revList, replayEl, eventsEl);
+  revCard.append(revBody);
+
   const selCard = card("Selection", "Nothing selected.");
   const selBody = el("div", "card-c"); const selList = el("div", "selection"); selBody.append(selList); selCard.append(selBody);
 
@@ -227,13 +250,13 @@ function buildShell(root: HTMLElement): Shell {
   verCard.append(verBody);
 
   const errorEl = el("div", "alert"); errorEl.style.display = "none";
-  nav.append(fileCard, occtCard, editCard, histCard, selCard, verCard, errorEl);
+  nav.append(fileCard, occtCard, editCard, histCard, revCard, selCard, verCard, errorEl);
 
   main.append(canvasCard, nav);
   root.append(main);
 
   const footer = el("footer");
-  footer.textContent = "Offisos CAD-IMPLEMENT-002 — Electron host (real BrowserWindow + native IPC + shared renderer + App API + real OCCT adapter behind the frozen boundary). Web/Electron parity proven by app/test/geometry-prepare.test.ts. Architecture v1.1 FROZEN.";
+  footer.textContent = "Offisos CAD-IMPLEMENT-003 — Electron host (real BrowserWindow + native IPC + shared renderer + App API + real OCCT adapter behind the frozen boundary). Persistent model revisions + Construction Graph bridge; Web/Electron parity proven by app/test/model-host-parity.test.ts. Architecture v1.1 FROZEN.";
   root.append(footer);
 
   // wire handlers
@@ -268,6 +291,10 @@ function buildShell(root: HTMLElement): Shell {
     ddCd: rCd.dd,
     ddFmt: rFmt.dd,
     ddFv: rFv.dd,
+    revList,
+    replayEl,
+    eventsEl,
+    revSummary,
   };
 }
 
@@ -457,14 +484,75 @@ async function onSave(): Promise<void> {
 let ui: Shell | null = null;
 
 async function refresh(): Promise<void> {
-  const [stateRes, selRes] = await Promise.all([query("document.getState", {}), query("document.getSelection", {})]);
+  const [stateRes, selRes, historyRes, eventsRes] = await Promise.all([
+    query("document.getState", {}),
+    query("document.getSelection", {}),
+    query("model.getHistory", {}),
+    query("model.getGraphEvents", {}),
+  ]);
   const snap = unwrapSnapshot(stateRes);
   const sel = unwrapSelection(selRes);
   if (snap) state.snapshot = snap;
   state.selection = sel;
+  state.history = unwrapHistory(historyRes);
+  state.graphEvents = unwrapGraphEvents(eventsRes);
   if (!stateRes.ok) setError(stateRes.message);
   else if (!selRes.ok) setError(selRes.message);
+  else setError(null);
   render();
+}
+
+// --- CAD-IMPLEMENT-003: model revisions + Construction Graph bridge --------
+
+function unwrapHistory(res: CommandQueryResponse): ModelHistory | null {
+  if (!res.ok) return null;
+  const v = res.value as Partial<ModelHistory> | null;
+  if (typeof v !== "object" || v === null || !Array.isArray(v.revisions) || typeof v.base !== "object") {
+    return null;
+  }
+  return v as ModelHistory;
+}
+
+function unwrapGraphEvents(res: CommandQueryResponse): GraphBridgeResult | null {
+  if (!res.ok) return null;
+  const v = res.value as Partial<GraphBridgeResult> | null;
+  if (typeof v !== "object" || v === null || !Array.isArray(v.events) || typeof v.events_hash !== "string") {
+    return null;
+  }
+  return v as GraphBridgeResult;
+}
+
+function unwrapReplay(res: CommandQueryResponse): ModelReplayResult | null {
+  if (!res.ok) return null;
+  const v = res.value as Partial<ModelReplayResult> | null;
+  if (
+    typeof v !== "object" || v === null ||
+    typeof v.content_hash !== "string" ||
+    !Array.isArray(v.elements) ||
+    v.verified !== true
+  ) {
+    return null;
+  }
+  return v as ModelReplayResult;
+}
+
+/** Deterministic historical replay to a revision number (0 = base). */
+async function onReplayTo(revisionNumber: number): Promise<void> {
+  setBusy(true);
+  try {
+    const res = await query("model.replay", { revision_number: revisionNumber });
+    const value = unwrapReplay(res);
+    if (!res.ok || value === null) {
+      setError(res.ok ? "[Replay] unexpected response shape" : `[Replay] ${res.code}: ${res.message}`);
+      state.replay = null;
+    } else {
+      setError(null);
+      state.replay = value;
+    }
+  } finally {
+    setBusy(false);
+    render();
+  }
 }
 
 /** Isometric model viewport (host-surface presentation only): projects the
@@ -635,6 +723,49 @@ function render(): void {
   ui.ddCd.textContent = String(commandDepth);
   ui.ddFmt.textContent = format;
   ui.ddFv.textContent = formatVersion;
+
+  // CAD-IMPLEMENT-003: model revisions + graph events panel
+  const history = state.history;
+  const graphEvents = state.graphEvents;
+  ui.revSummary.textContent = history
+    ? `${history.revisions.length} revisions — base: ${history.base.origin}` +
+      (graphEvents ? ` — ${graphEvents.events.length} graph events` : "")
+    : "No revisions yet — edit the document to record them.";
+  ui.revList.replaceChildren();
+  if (history) {
+    for (const rev of history.revisions) {
+      const row = el("button");
+      row.type = "button";
+      row.style.cssText =
+        "display:block;width:100%;text-align:left;margin-bottom:6px;padding:6px 10px;font-size:11px;font-family:ui-monospace,monospace;border:1px solid var(--border);border-radius:6px;background:transparent;color:var(--fg);cursor:pointer;";
+      row.textContent = `#${rev.revision_number} v${rev.version.version_number} [${rev.note}] +${rev.delta.added.length} ~${rev.delta.updated.length} -${rev.delta.removed.length}`;
+      row.setAttribute("aria-label", `Replay to revision ${rev.revision_number}`);
+      row.addEventListener("click", () => void onReplayTo(rev.revision_number));
+      ui.revList.append(row);
+    }
+  }
+  const replay = state.replay;
+  if (replay !== null) {
+    ui.replayEl.style.display = "block";
+    ui.replayEl.style.cssText += ";border:1px solid var(--border);border-radius:6px;padding:8px 10px;font-size:11px;";
+    const ids = replay.elements.map((e) => truncate(e.id, 12)).join(", ") || "—";
+    ui.replayEl.textContent =
+      `Replay @ ${replay.revision_number} — ${replay.verified ? "verified" : "unverified"} · ` +
+      `${replay.elements.length} element(s): ${ids} · content ${truncate(replay.content_hash, 16)} · ${truncate(replay.revision_id, 40)}`;
+  } else {
+    ui.replayEl.style.display = "none";
+  }
+  if (graphEvents !== null) {
+    const created = graphEvents.events.filter((e) => e.event_type === "model.created").length;
+    const versioned = graphEvents.events.filter((e) => e.event_type === "model.version.created").length;
+    ui.eventsEl.style.display = "block";
+    ui.eventsEl.style.cssText += ";border:1px solid var(--border);border-radius:6px;padding:8px 10px;font-size:11px;";
+    ui.eventsEl.textContent =
+      `Construction Graph bridge — events_hash ${truncate(graphEvents.events_hash, 24)} · ` +
+      `${created}× model.created, ${versioned}× model.version.created · deterministic, engine-id provenance only.`;
+  } else {
+    ui.eventsEl.style.display = "none";
+  }
 
   // lineage
   ui.lineageEl.replaceChildren();

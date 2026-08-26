@@ -1,0 +1,275 @@
+name: cad-implement-003
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "app/**"
+      - "apps/web/**"
+      - "apps/electron/**"
+      - ".github/workflows/cad-implement-003.yml"
+  pull_request:
+    paths:
+      - "app/**"
+      - "apps/web/**"
+      - "apps/electron/**"
+      - ".github/workflows/cad-implement-003.yml"
+
+# CAD-IMPLEMENT-003: persistent model revisions + Construction Graph bridge
+# (Issue #28, Architecture v1.1 FROZEN). Proves the revision/Graph foundation
+# on the pinned candidate toolchain:
+#   - revision-graph-shell: the full app test suite WITH the real engine
+#     installed (python3 + cadquery-ocp / OCCT 7.8.1.1) — the 74 existing
+#     CAD-001/002 tests stay green, the 35 new model-history / persistence /
+#     replay / graph-bridge / host-parity tests all RUN (the real-engine
+#     parity test included — never skipped when the engine is present), and
+#     the LOCK-018 forbidden-import static check (now covering src/graph)
+#     stays green.
+#   - web-host-revision-graph: the deployable Web host lints + typechecks +
+#     builds, and serves the FULL revision/Graph workflow from the running
+#     dev server: edits -> undo/redo -> immutable history -> deterministic
+#     graph events (model.created + model.version.created, causation chain,
+#     engine-id provenance + uncertainty labels) -> verified replay ->
+#     save/open persistence with identical events_hash -> typed errors.
+#   - electron-host-revision-graph: the deployable Electron host builds and
+#     runs THREE smokes — the engine-free regression smoke, the real-engine
+#     geometry smoke (regression) and the new engine-free model-revisions +
+#     Graph bridge smoke through a real BrowserWindow (history, events,
+#     replay, save/open persistence, revision continuation).
+#
+# Engine isolation (LOCK-003/018): the OCCT kernel runs ONLY inside the
+# adapter's disposable subprocess workers; the Construction Graph bridge
+# consumes domain contracts only (src/graph is part of the LOCK-018 scan).
+
+jobs:
+  revision-graph-shell:
+    name: Revision + Graph deterministic suite (OCCT 7.8.1.1 toolchain)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Set up Python (pinned toolchain)
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install the pinned OCCT engine (cadquery-ocp)
+        run: pip install cadquery-ocp==7.8.1.1.post1
+
+      - name: Install root toolchain (tsx + typescript + ajv)
+        run: npm install
+
+      - name: Typecheck app shell (incl. the Graph bridge)
+        run: node_modules/.bin/tsc --noEmit -p app/tsconfig.json
+
+      - name: "Full app test suite with the real engine (109 tests)"
+        working-directory: app
+        run: node --import tsx --test test/*.test.ts
+
+      - name: Forbidden-import static check (LOCK-018 incl. src/graph)
+        working-directory: app
+        run: node --import tsx --test test/no-forbidden-imports.test.ts
+
+      - name: Engine availability probe (pin check)
+        working-directory: app
+        run: |
+          echo '{"op":"ping"}' | python3 src/adapters/occt/worker/occt-worker.py
+          echo '{"op":"ping"}' | python3 src/adapters/occt/worker/occt-worker.py | grep -q '"engineVersion":"7.8.1.1.post1"'
+
+      - name: Upload test evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cad-implement-003-shell-evidence
+          path: app/src
+          if-no-files-found: warn
+
+  web-host-revision-graph:
+    name: Web host (Next.js 16 + revision/Graph smoke)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/web/package.json
+
+      - name: Set up Python (pinned toolchain)
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install the pinned OCCT engine (cadquery-ocp)
+        run: pip install cadquery-ocp==7.8.1.1.post1
+
+      - name: Install Web host deps
+        working-directory: apps/web
+        run: npm install
+
+      - name: Web host lint (ESLint)
+        working-directory: apps/web
+        run: npm run lint
+
+      - name: Web host typecheck (tsc --noEmit)
+        working-directory: apps/web
+        run: npx tsc --noEmit
+
+      - name: Web host build (next build --webpack)
+        working-directory: apps/web
+        run: npm run build
+
+      - name: Web host revision/Graph smoke (dev server)
+        working-directory: apps/web
+        env:
+          OFFISOS_OCCT_WORKER: ${{ github.workspace }}/app/src/adapters/occt/worker/occt-worker.py
+        run: |
+          npm run dev -- --webpack -p 3000 &
+          DEV_PID=$!
+          for i in $(seq 1 60); do
+            if curl -sS -o /dev/null http://localhost:3000/ 2>/dev/null; then break; fi
+            sleep 2
+          done
+          sleep 3
+          python3 /dev/stdin <<'PYEOF'
+          import json, urllib.request
+
+          def send(body):
+              req = urllib.request.Request(
+                  "http://localhost:3000/api/cad",
+                  data=json.dumps({"api": "1", "body": body}).encode(),
+                  headers={"Content-Type": "application/json"},
+                  method="POST",
+              )
+              with urllib.request.urlopen(req, timeout=60) as r:
+                  return json.loads(r.read())
+
+          def cmd(name, payload): return send({"type": "command", "name": name, "payload": payload})
+          def q(name, payload): return send({"type": "query", "name": name, "payload": payload})
+
+          ok = lambda r: r.get("ok") is True
+          assert ok(cmd("document.create", {"entityId": "ci-revision-doc"})), "create failed"
+          for i, (eid, engine) in enumerate([("e1", "occt"), ("e2", None)]):
+              r = cmd("document.applyEdit", {"edit": {"type": "addElement", "element": {"id": eid, "kind": "geometry", "engineId": engine, "props": {"meshToken": "m%d" % i}}}})
+              assert ok(r), "add failed"
+          assert ok(cmd("document.undo", {})), "undo failed"
+          assert ok(cmd("document.redo", {})), "redo failed"
+
+          r = q("model.getHistory", {})
+          assert ok(r), "getHistory failed"
+          revs = r["value"]["revisions"]
+          assert len(revs) == 4 and [x["note"] for x in revs] == ["edit", "edit", "undo", "redo"], revs
+          assert revs[3]["from_version_id"] == revs[2]["version"]["version_id"], "undo/redo linkage"
+
+          r = q("model.getGraphEvents", {})
+          assert ok(r), "getGraphEvents failed"
+          ev = r["value"]
+          events = ev["events"]
+          events_hash = ev["events_hash"]
+          assert len(events) == 5, events
+          assert events[0]["event_type"] == "model.created" and events[0]["causation_id"] is None
+          assert all(events[i]["causation_id"] == events[i - 1]["event_id"] for i in range(1, 5)), "causation chain"
+          e1 = [p for e in events for p in e["payload"]["elements"] if p["element_id"] == "e1" and p["change"] == "added"][0]
+          e2 = [p for e in events for p in e["payload"]["elements"] if p["element_id"] == "e2" and p["change"] == "added"][0]
+          assert e1["engineId"] == "occt" and e1["uncertainty"]["geometry_provenance"] == "OBSERVED", e1
+          assert e2["engineId"] is None and e2["uncertainty"]["geometry_provenance"] == "UNKNOWN", e2
+
+          r = q("model.replay", {"revision_number": 2})
+          assert ok(r) and r["value"]["verified"] is True, r
+          assert [e["id"] for e in r["value"]["elements"]] == ["e1", "e2"], r["value"]["elements"]
+
+          r = q("model.replay", {"revision_number": 99})
+          assert r.get("ok") is False and r.get("code") == "bad_payload", r
+
+          r = cmd("document.save", {})
+          assert ok(r), "save failed"
+          saved = r["value"]["bytes"]
+          r = cmd("document.open", {"source": saved})
+          assert ok(r) and len(r["value"]["modelHistory"]["revisions"]) == 4, "open did not restore history"
+          r = q("model.getGraphEvents", {})
+          assert ok(r) and r["value"]["events_hash"] == events_hash, "events_hash changed across save/open"
+
+          r = cmd("document.applyEdit", {"edit": {"type": "addElement", "element": {"id": "e1", "kind": "geometry", "engineId": None, "props": {}}}})
+          assert r.get("ok") is False and r.get("code") == "edit_failed", "duplicate id must be rejected"
+
+          r = cmd("geometry.prepare", {"geometry": {"shape": "box", "width": 2, "depth": 3, "height": 4}})
+          assert ok(r) and r["value"]["meshToken"].startswith("occt:"), r
+          print("WEB HOST REVISION/GRAPH SMOKE PASS: 4 revisions, 5 events, verified replay, persistence identical events_hash=" + events_hash[:16] + "...")
+          PYEOF
+          kill $DEV_PID || true
+
+  electron-host-revision-graph:
+    name: Electron host (build + regression smokes + model-revisions smoke)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/electron/package.json
+
+      - name: Set up Python (pinned toolchain)
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install the pinned OCCT engine (cadquery-ocp)
+        run: pip install cadquery-ocp==7.8.1.1.post1
+
+      - name: Install Electron runtime system libraries (xvfb + chromium deps)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends xvfb \
+            libnss3 libatk1.0-0 libatk-bridge2.0-0 libcups2 libxkbcommon0 \
+            libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 \
+            libpango-1.0-0 libcairo2
+          sudo apt-get install -y --no-install-recommends libasound2t64 || \
+            sudo apt-get install -y --no-install-recommends libasound2
+
+      - name: Install Electron host deps
+        working-directory: apps/electron
+        run: npm install
+
+      - name: Electron host typecheck (tsc --noEmit)
+        working-directory: apps/electron
+        run: npm run typecheck
+
+      - name: Electron host build (esbuild)
+        working-directory: apps/electron
+        run: npm run build
+
+      - name: Engine-free regression smoke (CAD-IMPLEMENT-001)
+        working-directory: apps/electron
+        run: npm run smoke
+
+      - name: Real-engine geometry regression smoke (CAD-IMPLEMENT-002)
+        working-directory: apps/electron
+        env:
+          OFFISOS_OCCT_WORKER: ${{ github.workspace }}/app/src/adapters/occt/worker/occt-worker.py
+        run: npm run smoke:geometry
+
+      - name: Model revisions + Graph bridge smoke (CAD-IMPLEMENT-003, engine-free)
+        working-directory: apps/electron
+        run: npm run smoke:model
+
+      - name: Upload Electron smoke evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cad-implement-003-electron-smoke
+          path: apps/electron/dist
+          if-no-files-found: warn

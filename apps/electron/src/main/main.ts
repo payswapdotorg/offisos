@@ -78,6 +78,7 @@ const CONFIG = {
 
 const isSmoke = process.argv.includes("--smoke");
 const isGeometrySmoke = process.argv.includes("--smoke-geometry");
+const isModelSmoke = process.argv.includes("--smoke-model");
 
 function createWindow(): BrowserWindow {
   // app.getAppPath() is the directory containing this package's package.json
@@ -348,11 +349,194 @@ async function runGeometrySmoke(win: BrowserWindow): Promise<void> {
   });
 }
 
+/** Drive the MODEL REVISIONS + Construction Graph bridge workflow through
+ *  the BrowserWindow (CAD-IMPLEMENT-003 / Issue #28 CHAIN):
+ *  BrowserWindow -> window.cad.send -> native IPC -> ElectronHost/IpcTransport
+ *    -> AppApiHandler -> CADDocument (immutable ModelHistory)
+ *    -> model.getHistory / model.getGraphEvents / model.replay queries
+ *    -> save/open persistence -> revision continuation.
+ *  Engine-free (provenance engine ids are plain data), so it runs on any
+ *  toolchain. */
+async function runModelSmoke(win: BrowserWindow): Promise<void> {
+  const steps: SmokeStep[] = [];
+
+  await new Promise<void>((resolve) => {
+    win.webContents.once("did-finish-load", () => resolve());
+  });
+
+  // Rejection-capturing wrapper (see runGeometrySmoke).
+  const call = async (js: string): Promise<CommandQueryResponse> => {
+    const wrapped = (await win.webContents.executeJavaScript(
+      `(${js}).then((r) => ({ __smokeOk: true, r }), (e) => ({ __smokeOk: false, msg: String(e), stack: String((e && e.stack) || "") }))`,
+    )) as { __smokeOk: true; r: CommandQueryResponse } | { __smokeOk: false; msg: string; stack: string };
+    if (wrapped.__smokeOk !== true) {
+      throw new Error(`renderer call rejected: ${wrapped.msg}\n${wrapped.stack.slice(0, 800)}\nfor script: ${js.slice(0, 200)}`);
+    }
+    return wrapped.r;
+  };
+  const send = (request: CommandQueryRequest): Promise<CommandQueryResponse> =>
+    call(`window.cad.send(${JSON.stringify(request)})`);
+
+  // 1. document.create with an explicit entity id.
+  const create = await send({ type: "command", name: "document.create", payload: { entityId: "model-smoke-doc" } });
+  steps.push({ step: "document.create(model-smoke-doc)", ok: !!(create && create.ok), detail: create && create.ok ? "ok" : create });
+
+  // 2-3. Two edits with engine provenance (engineId is data, not an engine call).
+  const add1 = await send({
+    type: "command", name: "document.applyEdit", payload: {
+      edit: { type: "addElement", element: { id: "e1", kind: "geometry", engineId: "occt", props: { meshToken: "occt:smoke1" } } },
+    },
+  });
+  steps.push({ step: "applyEdit addElement e1 (engine provenance)", ok: !!(add1 && add1.ok), detail: add1 && add1.ok ? "ok" : add1 });
+  const add2 = await send({
+    type: "command", name: "document.applyEdit", payload: {
+      edit: { type: "addElement", element: { id: "e2", kind: "geometry", engineId: null, props: { meshToken: "dummy-mesh:e2" } } },
+    },
+  });
+  steps.push({ step: "applyEdit addElement e2 (no engine provenance)", ok: !!(add2 && add2.ok), detail: add2 && add2.ok ? "ok" : add2 });
+
+  // 4. undo + redo — both append revisions.
+  const undoRes = await send({ type: "command", name: "document.undo", payload: {} });
+  const redoRes = await send({ type: "command", name: "document.redo", payload: {} });
+  steps.push({ step: "undo + redo through the BrowserWindow", ok: !!(undoRes && undoRes.ok && redoRes && redoRes.ok), detail: "ok" });
+
+  // 5. model.getHistory — 4 immutable revisions with the right notes + linkage.
+  const historyRes = await send({ type: "query", name: "model.getHistory", payload: {} });
+  type Rev = { revision_number: number; note: string; revision_id: string; from_version_id: string; version: { version_id: string }; delta: { added: string[]; removed: string[]; updated: string[] }; content_hash: string };
+  const history = historyRes && historyRes.ok ? (historyRes.value as { entity_id: string; base: { origin: string }; revisions: Rev[] }) : null;
+  const notesOk =
+    !!history &&
+    history.base.origin === "created" &&
+    history.revisions.length === 4 &&
+    history.revisions.every((r, i) => r.revision_number === i + 1) &&
+    history.revisions.map((r) => r.note).join(",") === "edit,edit,undo,redo" &&
+    history.revisions[3]!.from_version_id === history.revisions[2]!.version.version_id;
+  steps.push({
+    step: "model.getHistory: 4 revisions, notes edit,edit,undo,redo, monotonic, linked",
+    ok: notesOk,
+    detail: history ? `revisions=${history.revisions.length} notes=${history.revisions.map((r) => r.note).join(",")} base=${history.base.origin}` : historyRes,
+  });
+
+  // 6. model.getGraphEvents — 1 model.created + 4 model.version.created, chained.
+  const eventsRes = await send({ type: "query", name: "model.getGraphEvents", payload: {} });
+  type Evt = { event_id: string; event_type: string; causation_id: string | null; payload: { elements: { element_id: string; change: string; engineId: string | null; uncertainty: { geometry_provenance: string } }[]; revision: { revision_number: number; content_hash: string } } };
+  const events = eventsRes && eventsRes.ok ? (eventsRes.value as { events: Evt[]; events_hash: string }) : null;
+  const eventsOk =
+    !!events &&
+    /^[0-9a-f]{64}$/.test(events.events_hash) &&
+    events.events.length === 5 &&
+    events.events[0]!.event_type === "model.created" &&
+    events.events[0]!.causation_id === null &&
+    events.events.slice(1).every((e, i) => e.event_type === "model.version.created" && e.causation_id === events.events[i]!.event_id) &&
+    events.events[1]!.payload.revision.content_hash === history!.revisions[0]!.content_hash;
+  steps.push({
+    step: "model.getGraphEvents: model.created + 4 model.version.created, causation-chained",
+    ok: eventsOk,
+    detail: events ? `events=${events.events.length} hash=${events.events_hash.slice(0, 12)}…` : eventsRes,
+  });
+
+  // 7. Graph event provenance: e1 carries engineId occt (OBSERVED), e2 UNKNOWN.
+  const e1Add = events?.events.find((e) => e.payload.elements.some((p) => p.element_id === "e1" && p.change === "added"));
+  const e2Add = events?.events.find((e) => e.payload.elements.some((p) => p.element_id === "e2" && p.change === "added"));
+  const provenanceOk =
+    !!e1Add && !!e2Add &&
+    e1Add.payload.elements.find((p) => p.element_id === "e1")!.engineId === "occt" &&
+    e1Add.payload.elements.find((p) => p.element_id === "e1")!.uncertainty.geometry_provenance === "OBSERVED" &&
+    e2Add.payload.elements.find((p) => p.element_id === "e2")!.engineId === null &&
+    e2Add.payload.elements.find((p) => p.element_id === "e2")!.uncertainty.geometry_provenance === "UNKNOWN";
+  steps.push({ step: "graph events carry engine ids as provenance + uncertainty labels", ok: provenanceOk, detail: provenanceOk ? "e1=OBSERVED e2=UNKNOWN" : "provenance mismatch" });
+
+  // 8. model.replay to revision 2 — verified, elements [e1, e2].
+  const replay2 = await send({ type: "query", name: "model.replay", payload: { revision_number: 2 } });
+  const replay2Value = replay2 && replay2.ok ? (replay2.value as { revision_number: number; elements: { id: string }[]; content_hash: string; verified: boolean }) : null;
+  const replayOk =
+    !!replay2Value &&
+    replay2Value.verified === true &&
+    replay2Value.revision_number === 2 &&
+    replay2Value.elements.map((e) => e.id).join(",") === "e1,e2" &&
+    replay2Value.content_hash === history!.revisions[1]!.content_hash;
+  steps.push({ step: "model.replay(2): verified replay matches the recorded content hash", ok: replayOk, detail: replay2Value ? `elements=${replay2Value.elements.length} hash=${replay2Value.content_hash.slice(0, 12)}…` : replay2 });
+
+  // 9. model.replay out of range — typed bad_payload.
+  const replayBad = await send({ type: "query", name: "model.replay", payload: { revision_number: 999 } });
+  steps.push({
+    step: "model.replay(999) -> typed bad_payload",
+    ok: !!(replayBad && replayBad.ok === false && replayBad.code === "bad_payload"),
+    detail: replayBad && !replayBad.ok ? replayBad.code : replayBad,
+  });
+
+  // 10. save -> open persistence: history + events survive the round-trip.
+  const saveRes = await send({ type: "command", name: "document.save", payload: {} });
+  const saveBytes = saveRes && saveRes.ok ? (saveRes.value as { bytes: number[] }).bytes : null;
+  steps.push({ step: "document.save (bytes carry the revision history)", ok: !!saveBytes && saveBytes.length > 0, detail: `bytes=${saveBytes ? saveBytes.length : 0}` });
+  let reopenedOk = false;
+  let eventsHashAfter: string | null = null;
+  if (saveBytes) {
+    const openRes = await send({ type: "command", name: "document.open", payload: { source: saveBytes } });
+    const opened = openRes && openRes.ok ? (openRes.value as { modelHistory?: { revisions: unknown[] }; elements: unknown[] }) : null;
+    const historyAfterRes = await send({ type: "query", name: "model.getHistory", payload: {} });
+    const historyAfter = historyAfterRes && historyAfterRes.ok ? (historyAfterRes.value as { revisions: unknown[] }) : null;
+    const eventsAfterRes = await send({ type: "query", name: "model.getGraphEvents", payload: {} });
+    const eventsAfter = eventsAfterRes && eventsAfterRes.ok ? (eventsAfterRes.value as { events_hash: string }) : null;
+    eventsHashAfter = eventsAfter ? eventsAfter.events_hash : null;
+    reopenedOk =
+      !!opened &&
+      !!opened.modelHistory &&
+      opened.modelHistory.revisions.length === 4 &&
+      !!historyAfter && historyAfter.revisions.length === 4 &&
+      !!eventsAfter && eventsAfter.events_hash === events!.events_hash;
+    steps.push({ step: "document.open(saved bytes): history + events identical after reopen", ok: reopenedOk, detail: reopenedOk ? `revisions=4 events_hash=${eventsHashAfter ? eventsHashAfter.slice(0, 12) : "?"}…` : "mismatch" });
+  } else {
+    steps.push({ step: "document.open(saved bytes): history + events identical after reopen", ok: false, detail: "save failed" });
+  }
+
+  // 11. Revision continuation after reopen: revision 5 links to the reopened head.
+  let continuationOk = false;
+  if (reopenedOk) {
+    const add3 = await send({
+      type: "command", name: "document.applyEdit", payload: {
+        edit: { type: "addElement", element: { id: "e3", kind: "geometry", engineId: "occt", props: { meshToken: "occt:smoke3" } } },
+      },
+    });
+    const historyFinalRes = await send({ type: "query", name: "model.getHistory", payload: {} });
+    const historyFinal = historyFinalRes && historyFinalRes.ok ? (historyFinalRes.value as { revisions: Rev[] }) : null;
+    const lastFinal = historyFinal ? historyFinal.revisions[historyFinal.revisions.length - 1] : undefined;
+    continuationOk =
+      !!(add3 && add3.ok) &&
+      !!historyFinal &&
+      historyFinal.revisions.length === 5 &&
+      !!lastFinal &&
+      lastFinal.revision_number === 5 &&
+      lastFinal.from_version_id === history!.revisions[3]!.version.version_id &&
+      lastFinal.delta.added.join(",") === "e3";
+    steps.push({ step: "revision continuation after reopen (r5 links to the reopened head)", ok: continuationOk, detail: continuationOk ? "r5 appended" : historyFinalRes });
+  } else {
+    steps.push({ step: "revision continuation after reopen (r5 links to the reopened head)", ok: false, detail: "reopen failed" });
+  }
+
+  const allOk = steps.every((s) => s.ok);
+  writeSmokeOut({
+    ok: allOk,
+    electronVersion: process.versions.electron,
+    nodeVersion: process.versions.node,
+    chromeVersion: process.versions.chrome,
+    steps,
+    contentHash: null,
+    sceneHash: null,
+  });
+}
+
 app.whenReady().then(() => {
   registerIpc();
   const win = createWindow();
 
-  const smokeRun = isSmoke ? runSmoke(win) : isGeometrySmoke ? runGeometrySmoke(win) : null;
+  const smokeRun = isSmoke
+    ? runSmoke(win)
+    : isGeometrySmoke
+      ? runGeometrySmoke(win)
+      : isModelSmoke
+        ? runModelSmoke(win)
+        : null;
   if (smokeRun !== null) {
     smokeRun
       .then(() => {
