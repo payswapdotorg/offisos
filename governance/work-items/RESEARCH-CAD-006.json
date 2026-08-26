@@ -51,7 +51,7 @@
     "No-GPL-contamination fact recorded.",
     "Records/inventory benchmark reproducible from the committed pinned sources (no CAD engine exercise required)."
   ],
-  "state": "PR_OPEN",
+  "state": "MERGED",
   "transitions": [
     {
       "from": "DRAFT",
@@ -101,6 +101,62 @@
         ],
         "commit": "fb0ff7f36ac21cdb16d85679d2022522b9cb2970"
       }
+    },
+    {
+      "from": "PR_OPEN",
+      "to": "VERIFYING",
+      "at": "2026-08-26T17:58:24Z",
+      "actor": "z-ai-implementation-agent",
+      "role": "implementer",
+      "reason": "PR #31 merged as 74f95529f20a0840f6e1189a37e3b9a3d9c8c34f (merged_by pectoraux). Merge-commit verification evidence gathered and recorded as EV-004: governance run 32997108160 and research-cad-006 run 32997108095 both success on the merge revision."
+    },
+    {
+      "from": "VERIFYING",
+      "to": "ARCHITECT_REVIEW",
+      "at": "2026-08-26T17:58:24Z",
+      "actor": "pectoraux",
+      "role": "architect",
+      "reason": "Verification evidence complete on the merge revision (EV-004; both merge-commit workflows green). Entered for Architect review per the recorded disposition timing (PR #31 comment 5429083028 at 17:57:57Z precedes the merge at 17:58:24Z — the review had already been performed; this transcription records it against the merged state).",
+      "references": {
+        "evidence": [
+          "EV-001",
+          "EV-002",
+          "EV-003",
+          "EV-004"
+        ]
+      }
+    },
+    {
+      "from": "ARCHITECT_REVIEW",
+      "to": "APPROVED",
+      "at": "2026-08-26T17:58:24Z",
+      "actor": "pectoraux",
+      "role": "architect",
+      "reason": "DEC-001: ARCHITECT DISPOSITION — APPROVED (PR #31 comment 5429083028), with the carried constraints (not legal approval; candidate subject to LGPL isolation/distribution obligations; production npm stack pending LICENSE-001; CAD-007 remains the final CAD/BIM feasibility gate).",
+      "references": {
+        "decision": "DEC-001",
+        "evidence": [
+          "EV-001",
+          "EV-002",
+          "EV-003",
+          "EV-004"
+        ]
+      }
+    },
+    {
+      "from": "APPROVED",
+      "to": "MERGED",
+      "at": "2026-08-26T17:58:24Z",
+      "actor": "pectoraux",
+      "role": "product-owner",
+      "reason": "PR #31 merged (merge performed by pectoraux); both merge-commit workflows green (EV-004). State recorded through MERGED only; VERIFIED remains the Architect's separate post-merge decision against 74f9552.",
+      "references": {
+        "merge_commit": "74f95529f20a0840f6e1189a37e3b9a3d9c8c34f",
+        "pr": 31,
+        "evidence": [
+          "EV-004"
+        ]
+      }
     }
   ],
   "evidence": [
@@ -139,6 +195,33 @@
         "pr": 31
       },
       "reproduction": "open the PR #31 checks: research-cad-006 run 32984324167 (success, attempt 2) on head fb0ff7f; locally: npm run governance -- validate (137/137), cd research/cad-006 && python3 -m pytest tests/ -q (11/11) && RUN_ID=ci-run python3 -m offisos_licbench.benchmarks.run_all ci-run (30/0/0, semantically identical to the committed evidence/run-001)"
+    },
+    {
+      "id": "EV-004",
+      "type": "ci-run",
+      "description": "Merge-commit CI green plus local reproduction on the merge revision. GitHub Actions on merge commit 74f95529f20a0840f6e1189a37e3b9a3d9c8c34f (PR #31, merged 2026-08-26T17:58:24Z by pectoraux): governance run 32997108160 (started 17:58:27Z, conclusion=success, https://github.com/pectoraux/offisos/actions/runs/32997108160) and research-cad-006 run 32997108095 (started 17:58:27Z, conclusion=success, https://github.com/pectoraux/offisos/actions/runs/32997108095 — the 11/11 deterministic licensing gate + 30/0/0 evidence reproduction with artifact upload, re-run on the merged tree). The two workflows triggered by the merge are exactly the paths the merge touched (governance + research/cad-006). Reproduce locally: npm run governance -- validate; cd research/cad-006 && make test (pytest 11/11); the licensing benchmark reproduction (RUN_ID=ci-run, 30/0/0) is documented in the CAD-006 record's EV-003.",
+      "produced_at": "2026-08-26T17:58:27Z",
+      "reproducible": true,
+      "references": {
+        "pr": 31,
+        "commit": "74f95529f20a0840f6e1189a37e3b9a3d9c8c34f",
+        "workflow_run": "https://github.com/pectoraux/offisos/actions/runs/32997108160 (governance, success); https://github.com/pectoraux/offisos/actions/runs/32997108095 (research-cad-006, success)"
+      }
+    }
+  ],
+  "decisions": [
+    {
+      "id": "DEC-001",
+      "status": "approved",
+      "decided_at": "2026-08-26T17:57:57Z",
+      "decided_by": "pectoraux",
+      "role": "architect",
+      "rationale": "Architect disposition on PR #31 (comment 5429083028, 2026-08-26T17:57:57Z): RESEARCH-CAD-006 satisfies the Issue #6 research gate — the exact-version inventory, license provenance, Web/SaaS vs Electron/desktop composition analysis, replacement-path evidence, deterministic 30/0/0 run, and green CI are sufficient for this work item's acceptance. Constraints carried forward: this is an architectural/research approval, not legal approval; the tested CAD/BIM dependency stack is acceptable as an evidence-backed candidate subject to the documented LGPL isolation/distribution obligations; the production application dependency stack (Electron/Next.js/React/npm packaging) remains outside Issue #6 scope and must be covered by the LICENSE-001 production composition audit before release packaging decisions; CAD-007 remains the final CAD/BIM feasibility gate. VERIFIED remains a separate post-merge Architect decision bound to the merge revision (74f9552) — not recorded by the implementer.",
+      "evidence_refs": [
+        "EV-001",
+        "EV-002",
+        "EV-003"
+      ]
     }
   ]
 }
