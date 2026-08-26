@@ -1,0 +1,279 @@
+name: research-cad-007
+
+on:
+  push:
+    branches: ain]
+    paths:
+      - "app/**"
+      - "apps/web/**"
+      - "apps/electron/**"
+      - "research/cad-007/**"
+      - ".github/workflows/research-cad-007.yml"
+  pull_request:
+    paths:
+      - "app/**"
+      - "apps/web/**"
+      - "apps/electron/**"
+      - "research/cad-007/**"
+      - ".github/workflows/research-cad-007.yml"
+
+# RESEARCH-CAD-007: the final CAD/BIM feasibility gate (Issue #32).
+#   - impact-shell: the full app test suite WITH the real engine installed
+#     (python3 + cadquery-ocp / OCCT 7.8.1.1) — the 109 existing
+#     CAD-001/002/003 tests stay green, the 30 new CAD-007 tests run
+#     (reference adapter, cross-engine equivalence, graph identity
+#     stability, existential cascade, ENGINE SWAP, host parity), the
+#     extended LOCK-018 scan (src/impact + reference-adapter
+#     boundary-direction) stays green, and the deterministic evidence run
+#     writes the committed artifact shape (equivalence matrix, swap
+#     skeleton, cascade snapshot).
+#   - web-host-impact: the deployable Web host lints + typechecks + builds,
+#     and serves the FULL downstream workflow from the running dev server
+#     with the real OCCT engine server-side: descriptor elements -> model
+#     change -> impact.cascade (4-event chain caused by model.version.created,
+#     exact deltas, affected packages, commercial impact) -> save/open
+#     persistence with identical events_hash.
+#   - electron-host-impact: the deployable Electron host builds and runs
+#     FOUR smokes — the three regression smokes (engine-free, real-engine
+#     geometry, model revisions) and the new engine-free IMPACT smoke with
+#     the REFERENCE adapter bound as the geometry engine through a real
+#     BrowserWindow (LOCK-003: the second engine in the desktop host).
+jobs:
+  impact-shell:
+    name: Final-feasibility deterministic suite (OCCT 7.8.1.1 toolchain)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Set up Python (pinned toolchain)
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install the pinned OCCT engine (cadquery-ocp)
+        run: pip install cadquery-ocp==7.8.1.1.post1
+
+      - name: Install root toolchain (tsx + typescript + ajv)
+        run: npm install
+
+      - name: Typecheck app shell (incl. reference adapter + impact core)
+        run: node_modules/.bin/tsc --noEmit -p app/tsconfig.json
+
+      - name: "Full app test suite with the real engine (139 tests)"
+        working-directory: app
+        run: node --import tsx --test test/*.test.ts
+
+      - name: Forbidden-import static check (LOCK-018 incl. src/impact + reference boundary)
+        working-directory: app
+        run: node --import tsx --test test/no-forbidden-imports.test.ts
+
+      - name: Engine availability probe (pin check)
+        working-directory: app
+        run: |
+          echo '{"op":"ping"}' | python3 src/adapters/occt/worker/occt-worker.py
+          echo '{"op":"ping"}' | python3 src/adapters/occt/worker/occt-worker.py | grep -q '"engineVersion":"7.8.1.1.post1"'
+
+      - name: Deterministic evidence run (equivalence matrix + swap + cascade)
+        run: node --import tsx research/cad-007/run-evidence.mjs
+
+      - name: Evidence artifact sanity (canonical semantics identical)
+        run: |
+          python3 - <<'PY'
+          import json
+          ev = json.load(open("research/cad-007/evidence/run-001/evidence.json"))
+          assert ev["engine_swap"]["canonical_semantics_identical"], ev["engine_swap"]
+          assert all(ev["engine_swap"]["canonical_semantics_identical"].values())
+          assert ev["determinism"]["rerun_events_hash_identical"]
+          assert ev["determinism"]["rerun_content_hash_identical"]
+          assert ev["existential_cascade"]["causation_chain_verified"]
+          m = ev["cross_engine"]["measured"]
+          assert m["max_volume_rel_err"] <= 1e-6, m
+          assert m["max_bbox_abs_diff"] <= 0.02, m
+          print("EVIDENCE SANITY PASS:", json.dumps(m))
+          PY
+
+      - name: Upload evidence artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: research-cad-007-evidence
+          path: research/cad-007/evidence
+          if-no-files-found: warn
+
+  web-host-impact:
+    name: Web host (Next.js 16 + impact cascade smoke, real OCCT server-side)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/web/package.json
+
+      - name: Set up Python (pinned toolchain)
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install the pinned OCCT engine (cadquery-ocp)
+        run: pip install cadquery-ocp==7.8.1.1.post1
+
+      - name: Install Web host deps
+        working-directory: apps/web
+        run: npm install
+
+      - name: Web host lint (ESLint)
+        working-directory: apps/web
+        run: npm run lint
+
+      - name: Web host typecheck (tsc --noEmit)
+        working-directory: apps/web
+        run: npx tsc --noEmit
+
+      - name: Web host build (next build --webpack)
+        working-directory: apps/web
+        run: npm run build
+
+      - name: Web host impact-cascade smoke (dev server, real engine)
+        working-directory: apps/web
+        env:
+          OFFISOS_OCCT_WORKER: ${{ github.workspace }}/app/src/adapters/occt/worker/occt-worker.py
+        run: |
+          npm run dev -- --webpack -p 3105 &
+          DEV_PID=$!
+          for i in $(seq 1 60); do
+            if curl -sS -o /dev/null http://localhost:3105/ 2>/dev/null; then break; fi
+            sleep 2
+          done
+          sleep 3
+          python3 /dev/stdin <<'PYEOF'
+          import json, urllib.request
+
+          def send(body):
+              req = urllib.request.Request(
+                  "http://localhost:3105/api/cad",
+                  data=json.dumps({"api": "1", "body": body}).encode(),
+                  headers={"Content-Type": "application/json"},
+                  method="POST",
+              )
+              with urllib.request.urlopen(req, timeout=120) as r:
+                  return json.loads(r.read())
+
+          def cmd(name, payload): return send({"type": "command", "name": name, "payload": payload})
+          def q(name, payload): return send({"type": "query", "name": name, "payload": payload})
+
+          ok = lambda r: r.get("ok") is True
+          assert ok(cmd("document.create", {"entityId": "cad007-web-smoke"}))
+          for eid, cat, g in [
+              ("el-column-a", "concrete", {"shape": "box", "width": 0.4, "depth": 0.4, "height": 3.0}),
+              ("el-pipe-riser", "steel", {"shape": "cylinder", "radius": 0.05, "height": 3, "origin": [1, 1, 0], "direction": [0, 0, 1]}),
+              ("el-slab", "concrete", {"shape": "box", "width": 6, "depth": 4, "height": 0.2}),
+          ]:
+              assert ok(cmd("document.applyEdit", {"edit": {"type": "addElement", "element": {"id": eid, "kind": "geometry", "engineId": None, "props": {"geometry": g, "category": cat}}}})), eid
+          assert ok(cmd("document.applyEdit", {"edit": {"type": "updateElement", "elementId": "el-column-a", "patch": {"geometry": {"shape": "box", "width": 0.4, "depth": 0.4, "height": 3.5}}}}))
+
+          r = q("impact.cascade", {"revision_number": 4})
+          assert r["ok"] is True, r
+          c = r["value"]
+          types = [e["event_type"] for e in c["events"]]
+          assert types == ["quantity.recalculate.requested", "quantity.changed", "estimate.recalculated", "rfq.scope.impact.detected"], types
+          assert c["events"][0]["causation_id"] == c["model_event_id"], "cascade caused by the graph event"
+          col = [d for d in c["quantities"]["deltas"] if d["element_id"] == "el-column-a"][0]
+          assert abs(col["delta"] - 0.08) < 1e-9, col
+          est = c["estimate"]
+          assert abs((est["current"]["total"] - est["previous"]["total"]) - 0.08 * 420) < 1e-6
+          conc = [i for i in c["rfq"]["impacts"] if i["category"] == "concrete"][0]
+          steel = [i for i in c["rfq"]["impacts"] if i["category"] == "steel"][0]
+          assert conc["affected"] is True and steel["affected"] is False
+          assert abs(c["commercial_impact"]["total_delta"] - 33.6) < 1e-6
+          assert c["engine"]["engineId"] == "occt" and c["engine"]["engineVersion"].startswith("7.8"), c["engine"]
+          h = c["events_hash"]
+
+          saved = cmd("document.save", {})
+          assert ok(saved) and ok(cmd("document.open", {"source": saved["value"]["bytes"]}))
+          again = q("impact.cascade", {"revision_number": 4})
+          assert again["value"]["events_hash"] == h, "events_hash survives save/open"
+          print("WEB HOST IMPACT SMOKE PASS (real OCCT): 4-event cascade, +33.60 GHS concrete, hash " + h[:16] + "...")
+          PYEOF
+          kill $DEV_PID || true
+
+  electron-host-impact:
+    name: Electron host (build + regression smokes + impact smoke, reference engine)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/electron/package.json
+
+      - name: Set up Python (pinned toolchain)
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install the pinned OCCT engine (cadquery-ocp)
+        run: pip install cadquery-ocp==7.8.1.1.post1
+
+      - name: Install Electron runtime system libraries (xvfb + chromium deps)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends xvfb \
+            libnss3 libatk1.0-0 libatk-bridge2.0-0 libcups2 libxkbcommon0 \
+            libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 \
+            libpango-1.0-0 libcairo2
+          sudo apt-get install -y --no-install-recommends libasound2t64 || \
+            sudo apt-get install -y --no-install-recommends libasound2
+
+      - name: Install Electron host deps
+        working-directory: apps/electron
+        run: npm install
+
+      - name: Electron host typecheck (tsc --noEmit)
+        working-directory: apps/electron
+        run: npm run typecheck
+
+      - name: Electron host build (esbuild)
+        working-directory: apps/electron
+        run: npm run build
+
+      - name: Engine-free regression smoke (CAD-IMPLEMENT-001)
+        working-directory: apps/electron
+        run: npm run smoke
+
+      - name: Real-engine geometry regression smoke (CAD-IMPLEMENT-002)
+        working-directory: apps/electron
+        env:
+          OFFISOS_OCCT_WORKER: ${{ github.workspace }}/app/src/adapters/occt/worker/occt-worker.py
+        run: npm run smoke:geometry
+
+      - name: Model revisions regression smoke (CAD-IMPLEMENT-003)
+        working-directory: apps/electron
+        run: npm run smoke:model
+
+      - name: Impact cascade smoke (RESEARCH-CAD-007, reference engine)
+        working-directory: apps/electron
+        run: npm run smoke:impact
+
+      - name: Upload Electron smoke evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: research-cad-007-electron-smoke
+          path: apps/electron/dist
+          if-no-files-found: warn

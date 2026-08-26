@@ -48,6 +48,14 @@ export type CommandName =
 // by the Construction Graph bridge from that history; `model.replay`
 // deterministically replays the history to a given revision number
 // (0 = base) — information-state correct, no future leakage.
+// RESEARCH-CAD-007 (additive, api-contract.md §8): `impact.cascade` runs the
+// deterministic downstream chain for one model transition —
+// quantity.recalculate.requested → quantity.changed → estimate.recalculated
+// → rfq.scope.impact.detected plus the aggregate commercial impact — caused
+// by the corresponding `model.version.created` graph event. Quantities are
+// computed through the bound geometry engine adapter (engine ids are
+// provenance only; every downstream identity is canonical and engine-free).
+// Non-mutating.
 export type QueryName =
   | "document.getState"
   | "document.getVersion"
@@ -56,7 +64,8 @@ export type QueryName =
   | "document.getSelection"
   | "model.getHistory"
   | "model.getGraphEvents"
-  | "model.replay";
+  | "model.replay"
+  | "impact.cascade";
 
 export interface Command {
   readonly type: "command";

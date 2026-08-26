@@ -1,0 +1,425 @@
+{
+  "run": "run-001",
+  "gate": "RESEARCH-CAD-007",
+  "issue": 32,
+  "environment": {
+    "node": "v24.18.0",
+    "platform": "linux",
+    "referenceEngine": "reference@1.0.0",
+    "occt": {
+      "available": true,
+      "engineVersion": "7.8.1.1.post1"
+    }
+  },
+  "declared_tolerances": {
+    "volumeAbs": 0.000001,
+    "volumeRel": 0.000001,
+    "bboxAbs": 0.02
+  },
+  "cross_engine": {
+    "corpus": [
+      {
+        "element": "el-column-a",
+        "shape": "box",
+        "reference": {
+          "volume": 0.4800000000000001,
+          "bbox": [
+            0,
+            0,
+            0,
+            0.4,
+            0.4,
+            3
+          ],
+          "meshTokenPrefix": "ref:"
+        },
+        "occt": {
+          "volume": 0.48,
+          "bbox": [
+            -1e-7,
+            -1e-7,
+            -1e-7,
+            0.4000001,
+            0.4000001,
+            3.0000001
+          ],
+          "meshTokenPrefix": "occt:"
+        },
+        "agreement": {
+          "volume_rel_err": 2.3129646346357425e-16,
+          "volume_within_declared": true,
+          "bbox_abs_diff": 1.0000000000287557e-7,
+          "bbox_within_declared": true
+        }
+      },
+      {
+        "element": "el-slab",
+        "shape": "box",
+        "reference": {
+          "volume": 4.800000000000001,
+          "bbox": [
+            0,
+            0,
+            0,
+            6,
+            4,
+            0.2
+          ],
+          "meshTokenPrefix": "ref:"
+        },
+        "occt": {
+          "volume": 4.8,
+          "bbox": [
+            -1e-7,
+            -1e-7,
+            -1e-7,
+            6.0000001,
+            4.0000001,
+            0.2000001
+          ],
+          "meshTokenPrefix": "occt:"
+        },
+        "agreement": {
+          "volume_rel_err": 1.850371707708594e-16,
+          "volume_within_declared": true,
+          "bbox_abs_diff": 1.0000000028043132e-7,
+          "bbox_within_declared": true
+        }
+      },
+      {
+        "element": "el-pipe-riser",
+        "shape": "cylinder",
+        "reference": {
+          "volume": 0.02356194490192345,
+          "bbox": [
+            0.95,
+            0.95,
+            0,
+            1.05,
+            1.05,
+            3
+          ],
+          "meshTokenPrefix": "ref:"
+        },
+        "occt": {
+          "volume": 0.023561945,
+          "bbox": [
+            0.949635344,
+            0.9499999,
+            -0.000364656,
+            1.050364656,
+            1.0500001,
+            3.000364656
+          ],
+          "meshTokenPrefix": "occt:"
+        },
+        "agreement": {
+          "volume_rel_err": 4.162498060042198e-9,
+          "volume_within_declared": true,
+          "bbox_abs_diff": 0.000364656,
+          "bbox_within_declared": true
+        }
+      },
+      {
+        "element": "el-beam-rot",
+        "shape": "transform",
+        "reference": {
+          "volume": 0.04000000000000001,
+          "bbox": [
+            4.9,
+            5,
+            0,
+            5,
+            7,
+            0.2
+          ],
+          "meshTokenPrefix": "ref:"
+        },
+        "occt": {
+          "volume": 0.04,
+          "bbox": [
+            4.8999999,
+            4.9999999,
+            -1e-7,
+            5.0000001,
+            7.0000001,
+            0.2000001
+          ],
+          "meshTokenPrefix": "occt:"
+        },
+        "agreement": {
+          "volume_rel_err": 1.7347234759768068e-16,
+          "volume_within_declared": true,
+          "bbox_abs_diff": 1.0000000028043132e-7,
+          "bbox_within_declared": true
+        }
+      },
+      {
+        "element": "el-footing",
+        "shape": "fuse",
+        "reference": {
+          "volume": 0.6,
+          "bbox": [
+            0,
+            0,
+            0,
+            3,
+            1,
+            0.3
+          ],
+          "meshTokenPrefix": "ref:"
+        },
+        "occt": {
+          "volume": 0.6,
+          "bbox": [
+            -1e-7,
+            -1e-7,
+            -1e-7,
+            3.0000001,
+            1.0000001,
+            0.3000001
+          ],
+          "meshTokenPrefix": "occt:"
+        },
+        "agreement": {
+          "volume_rel_err": 0,
+          "volume_within_declared": true,
+          "bbox_abs_diff": 1.0000000005838672e-7,
+          "bbox_within_declared": true
+        }
+      },
+      {
+        "element": "el-slab-opening",
+        "shape": "cut",
+        "reference": {
+          "volume": 4.6,
+          "bbox": [
+            0,
+            0,
+            0,
+            6,
+            4,
+            0.2
+          ],
+          "meshTokenPrefix": "ref:"
+        },
+        "occt": {
+          "volume": 4.6,
+          "bbox": [
+            -1e-7,
+            -1e-7,
+            -1e-7,
+            6.0000001,
+            4.0000001,
+            0.2000001
+          ],
+          "meshTokenPrefix": "occt:"
+        },
+        "agreement": {
+          "volume_rel_err": 0,
+          "volume_within_declared": true,
+          "bbox_abs_diff": 1.0000000028043132e-7,
+          "bbox_within_declared": true
+        }
+      }
+    ],
+    "measured": {
+      "max_volume_rel_err": 4.162498060042198e-9,
+      "max_bbox_abs_diff": 0.000364656
+    }
+  },
+  "engine_swap": {
+    "reference": {
+      "content_hash": "1d940b04876877b5659e38a4f4b8243f1a4b7520e491cd474650d3661de66d99",
+      "cascade_events_hash": "f718e26dba62009ae38632924cea6bf6c33d3a3c661bc0da7cd26b53deefc107",
+      "estimate_total": 4508.296236637212,
+      "estimate_delta_total": 33.600000000000364,
+      "commercial_impact": {
+        "currency": "GHS",
+        "total_delta": 33.599999999999454,
+        "affected_package_ids": [
+          "rfq-pkg:f244b025e06156de7379bf6e"
+        ],
+        "affected_category_count": 1
+      },
+      "engine": {
+        "engineId": "reference",
+        "engineVersion": "1.0.0"
+      },
+      "identities": {
+        "quantity_ids": [
+          "qty:aba49fb5bd3431efb9ccef79",
+          "qty:15222be5253a169c9f635f6e",
+          "qty:e9b864d1143b5259f6199a53",
+          "qty:6107ca2c766149e393f894b3",
+          "qty:920c4b9597d371a7cf422681",
+          "qty:da340ac7d3b17362dc1a1846"
+        ],
+        "item_ids": [
+          "cost:eeac0d1892c213b3e0052e10",
+          "cost:b1a5fdd607bb0d22cbcd0974",
+          "cost:d59d284b90d7d14bc9928da0",
+          "cost:e4990f6127a241f5702b0178",
+          "cost:c88f49677bb9b8a8b6aeae39",
+          "cost:f9c6ac1de9a2e8d61816e0ad"
+        ],
+        "package_ids": [
+          "rfq-pkg:f244b025e06156de7379bf6e",
+          "rfq-pkg:35512df8ff9b764695eecf68"
+        ],
+        "estimate_id": "est:fa9f6cf98ce5f7657b5f6a55"
+      }
+    },
+    "occt": {
+      "content_hash": "1d940b04876877b5659e38a4f4b8243f1a4b7520e491cd474650d3661de66d99",
+      "cascade_events_hash": "d0e90d2ae9893fdb745da55fa4569d3d8809cfa0f21ec9dd0fb3b4976db96f42",
+      "estimate_total": 4508.2962367499995,
+      "commercial_impact": {
+        "currency": "GHS",
+        "total_delta": 33.600000000000364,
+        "affected_package_ids": [
+          "rfq-pkg:f244b025e06156de7379bf6e"
+        ],
+        "affected_category_count": 1
+      },
+      "engine": {
+        "engineId": "occt",
+        "engineVersion": "7.8.1.1.post1"
+      },
+      "identities": {
+        "quantity_ids": [
+          "qty:aba49fb5bd3431efb9ccef79",
+          "qty:15222be5253a169c9f635f6e",
+          "qty:e9b864d1143b5259f6199a53",
+          "qty:6107ca2c766149e393f894b3",
+          "qty:920c4b9597d371a7cf422681",
+          "qty:da340ac7d3b17362dc1a1846"
+        ],
+        "item_ids": [
+          "cost:eeac0d1892c213b3e0052e10",
+          "cost:b1a5fdd607bb0d22cbcd0974",
+          "cost:d59d284b90d7d14bc9928da0",
+          "cost:e4990f6127a241f5702b0178",
+          "cost:c88f49677bb9b8a8b6aeae39",
+          "cost:f9c6ac1de9a2e8d61816e0ad"
+        ],
+        "package_ids": [
+          "rfq-pkg:f244b025e06156de7379bf6e",
+          "rfq-pkg:35512df8ff9b764695eecf68"
+        ],
+        "estimate_id": "est:fa9f6cf98ce5f7657b5f6a55"
+      }
+    },
+    "canonical_semantics_identical": {
+      "content_hash": true,
+      "quantity_ids": true,
+      "item_ids": true,
+      "package_ids": true,
+      "estimate_id": true
+    },
+    "values_agree_within_declared_tolerance": true
+  },
+  "existential_cascade": {
+    "entity_id": "cad007-evidence-doc",
+    "transition": "r6 -> r7",
+    "cause": "model.version.created (graph bridge)",
+    "event_chain": [
+      "quantity.recalculate.requested",
+      "quantity.changed",
+      "estimate.recalculated",
+      "rfq.scope.impact.detected"
+    ],
+    "causation_chain_verified": true,
+    "quantity_deltas": [
+      {
+        "element_id": "el-beam-rot",
+        "graph_node_id": "cg:cad-element:99b1248d70e8a806a269823e38904d75",
+        "rule_id": "volume",
+        "previous": 0.04000000000000001,
+        "current": 0.04000000000000001,
+        "delta": 0
+      },
+      {
+        "element_id": "el-column-a",
+        "graph_node_id": "cg:cad-element:4c0680aa167bede2f18f035411a9bf0d",
+        "rule_id": "volume",
+        "previous": 0.4800000000000001,
+        "current": 0.56,
+        "delta": 0.07999999999999996
+      },
+      {
+        "element_id": "el-footing",
+        "graph_node_id": "cg:cad-element:35ccaf51ceb4449d2a66130445621e57",
+        "rule_id": "volume",
+        "previous": 0.6,
+        "current": 0.6,
+        "delta": 0
+      },
+      {
+        "element_id": "el-pipe-riser",
+        "graph_node_id": "cg:cad-element:ef673c2ef5b1eefc8c86ae8ebd11634a",
+        "rule_id": "volume",
+        "previous": 0.02356194490192345,
+        "current": 0.02356194490192345,
+        "delta": 0
+      },
+      {
+        "element_id": "el-slab",
+        "graph_node_id": "cg:cad-element:3b324344e539f3a59a6aabdbe0efa230",
+        "rule_id": "volume",
+        "previous": 4.800000000000001,
+        "current": 4.800000000000001,
+        "delta": 0
+      },
+      {
+        "element_id": "el-slab-opening",
+        "graph_node_id": "cg:cad-element:bda5391f495cb8b312264f1c3f4deac1",
+        "rule_id": "volume",
+        "previous": 4.6,
+        "current": 4.6,
+        "delta": 0
+      }
+    ],
+    "estimate": {
+      "previous_total": 4474.696236637212,
+      "current_total": 4508.296236637212,
+      "currency": "GHS",
+      "rate_table": "demo-rates-2026-08"
+    },
+    "rfq_impacts": [
+      {
+        "package_id": "rfq-pkg:f244b025e06156de7379bf6e",
+        "category": "concrete",
+        "affected": true,
+        "previous_amount": 4401.6,
+        "current_amount": 4435.2,
+        "delta_amount": 33.599999999999454,
+        "currency": "GHS",
+        "uncertainty": "CALCULATED"
+      },
+      {
+        "package_id": "rfq-pkg:35512df8ff9b764695eecf68",
+        "category": "steel",
+        "affected": false,
+        "previous_amount": 73.09623663721197,
+        "current_amount": 73.09623663721197,
+        "delta_amount": 0,
+        "currency": "GHS",
+        "uncertainty": "CALCULATED"
+      }
+    ],
+    "commercial_impact": {
+      "currency": "GHS",
+      "total_delta": 33.599999999999454,
+      "affected_package_ids": [
+        "rfq-pkg:f244b025e06156de7379bf6e"
+      ],
+      "affected_category_count": 1
+    },
+    "events_hash": "f718e26dba62009ae38632924cea6bf6c33d3a3c661bc0da7cd26b53deefc107"
+  },
+  "determinism": {
+    "rerun_events_hash_identical": true,
+    "rerun_content_hash_identical": true
+  }
+}

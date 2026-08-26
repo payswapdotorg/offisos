@@ -186,6 +186,70 @@ export async function getHistory(): Promise<CommandQueryResponse> {
   return query("model.getHistory", {});
 }
 
+// --- RESEARCH-CAD-007: downstream impact cascade ----------------------------
+
+/** Response value of a successful `impact.cascade` (mirror of the wire). */
+export interface ImpactCascadeResult {
+  entity_id: string;
+  model_event_id: string;
+  events_hash: string;
+  from_revision: { revision_number: number; version_id: string };
+  to_revision: { revision_number: number; version_id: string };
+  events: { event_id: string; event_type: string; causation_id: string | null }[];
+  quantities: {
+    current: {
+      element_id: string;
+      value: number;
+      method: string;
+      declared_tolerance: { absolute: number; relative: number };
+      uncertainty: string;
+    }[];
+    deltas: {
+      element_id: string;
+      previous: number | null;
+      current: number | null;
+      delta: number | null;
+    }[];
+    skipped: { element_id: string; reason: string; uncertainty: string }[];
+  };
+  estimate: {
+    previous: { total: number; currency: string } | null;
+    current: { total: number; currency: string; items: { element_id: string; category: string; amount: number }[] };
+  };
+  rfq: {
+    packages: { package_id: string; category: string; scope_element_ids: string[] }[];
+    impacts: { category: string; affected: boolean; delta_amount: number }[];
+  };
+  commercial_impact: {
+    currency: string;
+    total_delta: number;
+    affected_package_ids: string[];
+    affected_category_count: number;
+  };
+  engine: { engineId: string; engineVersion: string };
+}
+
+/** Run the deterministic downstream cascade for one model transition
+ *  (default: the latest revision) — quantities → estimate → affected RFQ →
+ *  commercial impact, caused by the model.version.created graph event. */
+export async function getImpactCascade(revisionNumber?: number): Promise<CommandQueryResponse> {
+  return query("impact.cascade", revisionNumber === undefined ? {} : { revision_number: revisionNumber });
+}
+
+/** Extract an ImpactCascadeResult from an ok response (null on mismatch). */
+export function unwrapImpactCascade(res: CommandQueryResponse): ImpactCascadeResult | null {
+  if (!res.ok) return null;
+  const v = res.value as Partial<ImpactCascadeResult> | null;
+  if (
+    typeof v !== "object" || v === null ||
+    !Array.isArray(v.events) || typeof v.events_hash !== "string" ||
+    typeof v.commercial_impact !== "object"
+  ) {
+    return null;
+  }
+  return v as ImpactCascadeResult;
+}
+
 /** The deterministic graph-facing event stream (Construction Graph bridge). */
 export async function getGraphEvents(): Promise<CommandQueryResponse> {
   return query("model.getGraphEvents", {});

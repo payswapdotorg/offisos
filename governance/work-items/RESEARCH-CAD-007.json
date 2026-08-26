@@ -1,0 +1,160 @@
+{
+  "id": "RESEARCH-CAD-007",
+  "title": "Final CAD/BIM feasibility: adapter replacement + end-to-end workflow (engine-independent canonical semantics)",
+  "issue": 32,
+  "objective": "Earn the final CAD/BIM feasibility decision with reproducible evidence that the frozen adapter boundary is real, replaceable, and supports the defining ConstructionOS workflow. Prove (1) a second/reference geometry adapter (pure TypeScript, no FreeCAD/OCCT/IfcOpenShell anywhere in its dependency graph) satisfies the same stable CAD/BIM contracts and produces semantically equivalent results; (2) the Construction Graph and the downstream domain contracts consume canonical identities — engine GlobalIds are provenance only, so replacing the engine does not change canonical ConstructionOS semantics (identities, document content, graph events, downstream structure identical; values within declared tolerances); and (3) the existential end-to-end chain Model change → Model version → Quantity delta → Estimate impact → Affected RFQ → Commercial impact, deterministic and replayable, with Web/Electron semantic parity through the shared App API, exact tolerances, provenance and uncertainty labels. Research/evidence only: no architecture change, no APPROVED/VERIFIED claim by implementation.",
+  "architecture_version": "1.1",
+  "requirements": [
+    "CAD-002",
+    "QTY-001",
+    "QTY-002",
+    "CAD-INT-001",
+    "CAD-INT-002"
+  ],
+  "dependencies": [
+    "RESEARCH-CAD-001",
+    "RESEARCH-CAD-002",
+    "RESEARCH-CAD-003",
+    "RESEARCH-CAD-004",
+    "RESEARCH-CAD-005",
+    "RESEARCH-CAD-006"
+  ],
+  "acceptance_criteria": [
+    "A second/reference geometry adapter (app/src/adapters/reference — pure TypeScript analytic solid geometry, engine-free by construction and by static LOCK-018 checks) implements the byte-unchanged GeometryEngineAdapter contract with the optional MeshProvider/GeometryMetadataProvider capabilities and the same typed engine_malformed_input failure surface as the OCCT adapter.",
+    "The reference adapter passes the SAME representative geometry workflow as the OCCT adapter (one element per descriptor vocabulary node: box, cylinder+direction, transform, disjoint fuse, axis-aligned cut): real-engine and reference results agree within declared tolerances (volume 1e-6 relative — measured max 4.16e-9 on the corpus; bbox 0.02 absolute per the OCCT tolerance-inclusive Bnd_Box — measured max 3.6e-4), while meshTokens remain engine-local by design.",
+    "Replacing the engine behind the frozen boundary changes NOTHING canonical: identical document content hash, identical revision history, byte-identical Construction Graph event streams (identical events_hash), identical downstream identities (quantity ids, cost item ids, estimate ids, RFQ package ids, graph node ids, downstream event ids); measured values agree within the declared tolerances; a document saved by one engine is opened and consumed by the other with identical identities.",
+    "Construction Graph mappings remain stable when engine GlobalIds change: the element↔graph-node identity mapping is identical across provenance variants (occt:…, reference:…, none); graph node ids are a pure function of (document entity id, element id); engine ids appear only in provenance fields and epistemic uncertainty labels.",
+    "Downstream consumers import no FreeCAD/OCCT/IfcOpenShell internals: the impact cascade core (src/impact) is added to the LOCK-018 protected-core scan and passes; a new boundary-direction check asserts the reference adapter itself imports no engine/host module.",
+    "Model revision produces deterministic quantity/change results and downstream impact: the existential chain model.version.created → quantity.recalculate.requested → quantity.changed → estimate.recalculated → rfq.scope.impact.detected → commercial impact runs deterministically (fixed timestamps, canonical ordering, canonical-hash event ids, byte-identical events_hash across runs and across save/open), with exact analytic deltas on the corpus, causation rooted at the corresponding graph event.",
+    "A model change propagates to estimate and affected-RFQ contracts without manual re-entry (the additive impact.cascade App API query), with only the affected category packages flagged (concrete affected, steel unaffected in the corpus workflow) and the aggregate commercial impact computed from the same deterministic records.",
+    "Web and Electron produce equivalent semantic downstream results: byte-identical cascades through WebSocketTransport/WebHost and IpcTransport/ElectronHost with both the reference engine and (engine-gated) the real OCCT engine; the deployable Web host serves the full workflow from the dev server with real OCCT server-side; the deployable Electron host runs the chain through a real BrowserWindow with the reference engine bound.",
+    "Existing CAD-IMPLEMENT-001/002 tests remain green and new CAD-007 tests are reproducible in CI: the full app suite (139/139 with the pinned OCCT toolchain) runs in the new research-cad-007 workflow plus the three regression workflows unchanged; the committed evidence artifact (equivalence matrix, swap skeleton, cascade snapshot) regenerates deterministically.",
+    "Epistemic honesty throughout (LOCK-007): quantities are CALCULATED under an explicit method + declared tolerance with engine provenance; elements without a measurable descriptor and elements outside an adapter's exactness classes are recorded as UNKNOWN skips, never guessed; the rate table is a labelled demo fixture, not market data; the reference engine declines typed outside its declared exactness classes rather than approximating.",
+    "No protected architecture paths are modified (check-protected green); Architecture v1.1 remains FROZEN; no APPROVED or VERIFIED state is claimed by the implementation."
+  ],
+  "non_goals": [
+    "No AutoCAD/Archicad feature parity (Issue #32 non-goal).",
+    "No full BIM authoring (Issue #32 non-goal).",
+    "No production commercial optimization beyond the existential contract test (Issue #32 non-goal) — the rate table is a deterministic demo fixture.",
+    "No architecture modification (Issue #32 non-goal); Architecture v1.1 remains FROZEN; no protected-path edits.",
+    "No general CSG engine: the reference adapter's boolean coverage is its declared exactness class (disjoint-AABB fuse, axis-aligned-box cut); outside it fails typed.",
+    "No production estimate/RFQ domain services: the downstream contracts + cascade are the canonical research slice proving the chain; production rate binding, bid handling and subcontractor reattribution are later work items.",
+    "No approval or verification claim: the final feasibility decision belongs to the Architect."
+  ],
+  "risk_assumptions": [
+    "DEPENDENCY-GATE FLAG: this work item depends on RESEARCH-CAD-001 (VERIFIED), RESEARCH-CAD-002 (VERIFIED da85d8d), RESEARCH-CAD-003 (VERIFIED f1f900e), RESEARCH-CAD-004 (VERIFIED 93c5211), RESEARCH-CAD-005 (VERIFIED 719bd42) and RESEARCH-CAD-006 (MERGED at 74f9552 per DEC-001 = the PR #31 Architect disposition comment 5429083028; its post-merge VERIFIED decision is the Architect's and has NOT been issued at implementation time). The validator's dependency invariant will therefore report exactly one failing check (RESEARCH-CAD-006 not VERIFIED) while CAD-007 sits in IMPLEMENTING/PR_OPEN execution states. The invariant is NOT weakened; resolution path: the Architect records VERIFIED for RESEARCH-CAD-006 against merge revision 74f9552 (both merge-commit workflows already green: governance run 32997108160 + research-cad-006 run 32997108095 per CAD-006 EV-004), after which governance validation turns fully green for CAD-007. The dependency-aware governance repository-integration tests derive this expected single failure independently.",
+    "SPEC DIVERGENCE: spec/work-items.md carries an older CAD research roadmap numbering that diverges from the GitHub Issues (the long-standing divergence flagged since RESEARCH-CAD-001 and most recently in CAD-006's record; not reconciled inside any research gate). The authoritative scope for this record is GitHub Issue #32 + the Architect execution directive (comment 5429094699, 2026-08-26T17:58:56Z). spec/ files are untouched (protected/architecture-adjacent).",
+    "Engine provenance is document content: the CADDocument content hash legitimately includes the element's recorded engineId provenance field, so the same model recorded with different engine provenance has different version ids (and version-scoped quantity ids). This is recorded honestly in graph-identity-stability.test.ts — the INVARIANT that holds (and what Issue #32's criterion asks) is that the element↔graph-node identity mapping, event-type sequences, element projections and version-FREE downstream identities are identical across engine GlobalId variants.",
+    "meshToken and tessellation counts are engine-local viewport data, never canonical values: cross-engine equivalence covers bbox/volume (the canonical quantity surface) and all identities; tokens differing across engines is by design and asserted as such.",
+    "The deterministic demo rate table (demo-rates-2026-08, GHS, source demo-fixture) is a FIXTURE for the existential contract test — LOCK-007 provenance is recorded on every cost item; binding real market/supplier rates is a production estimate concern (data-model.md §3) outside this gate.",
+    "The reference adapter's cut/fuse coverage is the declared exactness class (plane-split cell decomposition for axis-aligned box combinations; disjoint-AABB fuse). Overlapping general booleans are declined with typed engine_error and recorded as adapter-declined UNKNOWN skips downstream — the reference engine never approximates (LOCK-007). The OCCT engine has no such restriction; the corpus for cross-engine agreement lives inside the reference exactness class by design and is labelled so.",
+    "CAD-IMPLEMENT-003's post-merge close-out PR #30 remains OPEN on GitHub (main still carries that record at PR_OPEN) — pre-existing governance debt outside this gate's scope; this record does not modify it.",
+    "Architecture version: this record targets v1.1 (active, FROZEN) per the directive; all changes are additive app/host/research-layer work behind the frozen boundaries (no spec/, no governance manifest, no rules.ts changes)."
+  ],
+  "evidence": [
+    {
+      "id": "EV-001",
+      "type": "automated-test-suite",
+      "description": "Local deterministic gate on the implementation branch (full app suite with the real OCCT engine installed via cadquery-ocp 7.8.1.1.post1, node v24.18.0): 139/139 tests pass — the 109 existing CAD-IMPLEMENT-001/002/003 tests (regression green) plus 30 new CAD-007 tests: reference-adapter (10: contract conformance, exact analytic volumes incl. rotated/affine/cell-decomposition cases, typed exactness-class declines, determinism), impact-cascade (7: the existential chain with exact deltas/causation/persistence/determinism, honest skips, labelled fallback, payload validation), graph-identity-stability (3: mapping stability across engine GlobalIds, the ungated engine-swap rung, graphNodeId purity), engine-equivalence (4: cross-engine corpus agreement + a guard that the tolerance assertion has teeth), engine-swap (3: canonical-semantics preservation OCCT↔reference incl. document portability and identical typed-failure surface), impact-host-parity (2: byte-identical cascades across Web/Electron transports with reference + real OCCT). Extended no-forbidden-imports (LOCK-018 scan now covers src/impact; new reference-adapter boundary-direction check). App typecheck clean (tsc --noEmit -p app/tsconfig.json).",
+      "produced_at": "2026-08-26T19:05:00Z",
+      "reproducible": true,
+      "reproduction": "pip install cadquery-ocp==7.8.1.1.post1 && cd app && node --import tsx --test test/*.test.ts",
+      "references": {}
+    },
+    {
+      "id": "EV-002",
+      "type": "benchmark-artifact",
+      "description": "Measured cross-engine agreement on the representative corpus (research/cad-007/evidence/run-001/evidence.json, regenerable via `node --import tsx research/cad-007/run-evidence.mjs`): max volume relative error 4.162e-9 (declared tolerance 1e-6 relative) and max bbox absolute difference 3.647e-4 (declared 0.02) between the real OCCT engine (7.8.1.1.post1) and the engine-free reference adapter; engine-swap canonical semantics ALL identical (content hash, quantity/item/package/estimate identities); estimate totals agree within 1.128e-7 GHS on a ~4.5k GHS estimate; existential cascade = quantity.recalculate.requested -> quantity.changed (ΔV exactly +0.08) -> estimate.recalculated (+33.60 GHS at the demo concrete rate) -> rfq.scope.impact.detected (concrete affected, steel unaffected) -> commercial impact +33.60 GHS; determinism rerun identical events_hash + content hash.",
+      "produced_at": "2026-08-26T19:05:00Z",
+      "reproducible": true,
+      "reproduction": "node --import tsx research/cad-007/run-evidence.mjs",
+      "references": {
+        "artifact_path": "research/cad-007/evidence/run-001/evidence.json"
+      }
+    },
+    {
+      "id": "EV-003",
+      "type": "inspectable-artifact",
+      "description": "Deployable-host proofs, both reproduced locally before CI: (a) Web host — apps/web lint + typecheck + (dev server) full downstream workflow through /api/cad with the real OCCT engine server-side: descriptor elements -> model change -> impact.cascade (4-event chain caused by the corresponding model.version.created graph event, exact deltas, concrete-only package impact, commercial +33.60 GHS) -> save/open with identical events_hash; the new Impact panel surfaces the cascade in the workbench UI. (b) Electron host — npm run typecheck + build + the new engine-free smoke:impact (npm run smoke:impact): 10/10 steps PASS in a real BrowserWindow with the REFERENCE adapter bound as the geometry engine (BrowserWindow -> window.cad.send -> ipc -> ElectronHost/IpcTransport -> AppApiHandler -> ModelHistory -> impact.cascade -> save/open -> identical events_hash), Electron 33.4.11; the three existing regression smokes remain in place.",
+      "produced_at": "2026-08-26T19:05:00Z",
+      "reproducible": true,
+      "reproduction": "cd apps/web && npm run lint && npx tsc --noEmit && (dev-server cascade smoke documented in research/cad-007/report.md §7); cd apps/electron && npm run typecheck && npm run build && npm run smoke:impact",
+      "references": {
+        "artifact_path": "apps/electron/dist/smoke-impact-result.json"
+      }
+    },
+    {
+      "id": "EV-004",
+      "type": "ci-run",
+      "description": "CI green on GitHub for PR #33 (the acceptance criteria 'existing CAD-IMPLEMENT-001/002 tests remain green and new CAD-007 tests are reproducible in CI' and the deployable-host criteria). On head 4f89b17: research-cad-007 run 33001976032 SUCCESS (18:53:21Z) — all three jobs on ubuntu-latest with the pinned toolchain (setup-node 22 + setup-python 3.12 + pip install cadquery-ocp==7.8.1.1.post1): (1) impact-shell: app typecheck + FULL 139-test suite with the real engine + extended LOCK-018 checks + OCCT ping pin check + the deterministic evidence run with artifact sanity assertions (canonical_semantics_identical ALL true, determinism flags true, measured 4.162e-9 <= 1e-6 volume / 3.647e-4 <= 0.02 bbox); (2) web-host-impact: lint + typecheck + next build + dev-server impact-cascade smoke with the real OCCT server-side (4-event chain caused by model.version.created, exact deltas, concrete-only package impact, +33.60 GHS commercial impact, save/open identical events_hash); (3) electron-host-impact: typecheck + esbuild build + the three regression smokes + the new smoke:impact (reference engine in the desktop host, 10/10 steps through a real BrowserWindow). Regression workflows on the same head: cad-implement-001 run 33001975935 SUCCESS (18:51:54Z), cad-implement-002 run 33001976018 SUCCESS (18:53:04Z), cad-implement-003 run 33001975977 SUCCESS (18:52:50Z). Governance run 33001975937: tests step GREEN 58/58 and protected-paths step GREEN; the validate step is the DIRECTED 147/148 — exactly the one documented dependency-gate failure (RESEARCH-CAD-006 MERGED-not-VERIFIED; attributable line verified in the job logs: 'work-item/RESEARCH-CAD-007/dependencies — Dependency rules violated'). It clears when the Architect records CAD-006 VERIFIED against 74f9552.",
+      "produced_at": "2026-08-26T18:53:21Z",
+      "reproducible": true,
+      "reproduction": "CI reruns from the PR #33 checks tab; local: npm run governance -- validate (expect 147/148 with the single documented dependency failure); cd app && node --import tsx --test test/*.test.ts (139/139 with cadquery-ocp installed).",
+      "references": {
+        "pr": 33,
+        "commit": "4f89b17",
+        "workflow_run": "https://github.com/pectoraux/offisos/actions/runs/33001976032 (research-cad-007, success); https://github.com/pectoraux/offisos/actions/runs/33001975935 (cad-implement-001, success); https://github.com/pectoraux/offisos/actions/runs/33001976018 (cad-implement-002, success); https://github.com/pectoraux/offisos/actions/runs/33001975977 (cad-implement-003, success); https://github.com/pectoraux/offisos/actions/runs/33001975937 (governance: tests+protected green, validate 147/148 the directed single dependency-gate failure)"
+      }
+    }
+  ],
+  "evidence_requirements": [
+    "The reference adapter passes the same representative geometry workflow as the OCCT adapter, with results agreeing within declared tolerances and the agreement MEASURED (not assumed).",
+    "Engine-swap evidence: identical content hash, revision history, graph events (byte-identical events_hash) and downstream identities across engines; values within declared tolerances; document portability across engines (saved by one, consumed by the other).",
+    "Graph identity-mapping stability evidence across engine GlobalId variants.",
+    "The existential chain evidence: deterministic 4-event downstream cascade caused by the model.version.created graph event, with exact quantity deltas, estimate/RFQ/commercial arithmetic and persistence-identical hashes.",
+    "Web/Electron parity evidence through the real transports with both engines, plus deployable-host smokes (dev server with real OCCT; BrowserWindow with the reference engine).",
+    "Regression evidence: the 109 CAD-IMPLEMENT-001/002/003 tests green; the full suite reproducible in CI on the pinned toolchain via the new research-cad-007 workflow.",
+    "Committed deterministic evidence artifact (equivalence matrix, swap skeleton, cascade snapshot) regenerable by a single command."
+  ],
+  "state": "PR_OPEN",
+  "transitions": [
+    {
+      "from": "DRAFT",
+      "to": "READY",
+      "at": "2026-08-26T17:58:56Z",
+      "actor": "pectoraux",
+      "role": "architect",
+      "reason": "Architect execution directive recorded as Issue #32 comment 5429094699 (2026-08-26T17:58:56Z): begin RESEARCH-CAD-007 from main after the CAD-006 merge. Prove (1) a second/reference adapter can satisfy the existing geometry contracts without FreeCAD/OCCT/IfcOpenShell, (2) Construction Graph and downstream contracts are engine-independent and keyed to canonical identities, and (3) the existential chain Model change → Model version → Quantity delta → Estimate impact → Affected RFQ → Commercial impact. Preserve Web/Electron parity, deterministic replay, provenance/uncertainty, exact tolerances, and the existing CAD-IMPLEMENT-001/002 regression suites. No architecture change, no protected-path edits, and no APPROVED/VERIFIED claim by implementation. The branch work/research-cad-007-final-feasibility was pre-cut at main HEAD 74f9552 by the Architect.",
+      "references": {
+        "issue": 32
+      }
+    },
+    {
+      "from": "READY",
+      "to": "ASSIGNED",
+      "at": "2026-08-26T17:58:56Z",
+      "actor": "pectoraux",
+      "role": "product-owner",
+      "reason": "The same directive assigns RESEARCH-CAD-007 (the final CAD/BIM feasibility gate) to the implementation agent on the pre-cut branch; dependencies RESEARCH-CAD-001..005 VERIFIED and RESEARCH-CAD-006 MERGED at 74f9552 (APPROVED per DEC-001 on the CAD-006 record; VERIFIED pending as documented in the dependency-gate flag).",
+      "references": {
+        "issue": 32,
+        "assignee": "z-ai-implementation-agent"
+      }
+    },
+    {
+      "from": "ASSIGNED",
+      "to": "IMPLEMENTING",
+      "at": "2026-08-26T18:30:00Z",
+      "actor": "z-ai-implementation-agent",
+      "role": "implementer",
+      "reason": "Implementation started on branch work/research-cad-007-final-feasibility (off origin/main 74f9552): (1) the pure-TypeScript reference geometry adapter with declared exactness classes and deterministic ref: meshTokens; (2) the canonical engine-free downstream contracts (contracts/impact.ts) + the deterministic impact cascade core (src/impact) consuming model history through the frozen engine boundary; (3) the additive impact.cascade App API query; (4) 30 new tests incl. the cross-engine equivalence, identity-stability and engine-swap proofs with the real OCCT engine; (5) the extended LOCK-018 scan + reference-adapter boundary-direction check; (6) the Web Impact panel + client wrapper; (7) the Electron --smoke-impact mode with the reference engine bound; (8) research/cad-007 evidence package + the research-cad-007 CI workflow; (9) the CAD-006 close-out records (DEC-001 + EV-004 through MERGED) carried on this branch per the CAD-005 precedent."
+    },
+    {
+      "from": "IMPLEMENTING",
+      "to": "PR_OPEN",
+      "at": "2026-08-26T18:55:00Z",
+      "actor": "z-ai-implementation-agent",
+      "role": "implementer",
+      "reason": "PR #33 opened (head 4f89b17: feat fb28239 + governance 4f89b17) with the full deliverable: the engine-free reference adapter, the canonical downstream contracts + deterministic cascade, the additive impact.cascade App API query, 30 new tests (139/139 total with the real OCCT toolchain), the LOCK-018 scan extension + reference boundary-direction check, the Web Impact panel, the Electron smoke:impact mode, the research/cad-007 evidence package (report + deterministic runner + committed run-001 artifacts) and the research-cad-007 CI workflow; CI on the head: research-cad-007 SUCCESS (all three jobs incl. the real-engine suite, the web cascade smoke and the electron impact smoke), cad-implement-001/002/003 regression workflows SUCCESS, governance tests 58/58 + protected paths green with the validate step at the DIRECTED 147/148 (the single documented CAD-006 MERGED-not-VERIFIED dependency-gate failure) — EV-004.",
+      "references": {
+        "pr": 33,
+        "evidence": [
+          "EV-001",
+          "EV-002",
+          "EV-003",
+          "EV-004"
+        ]
+      }
+    }
+  ]
+}
