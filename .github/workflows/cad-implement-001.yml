@@ -41,7 +41,7 @@ jobs:
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: 22
           cache: npm
 
       - name: Install root toolchain (tsx + typescript + ajv)
@@ -52,11 +52,11 @@ jobs:
 
       - name: App shell deterministic test suite (50 tests)
         working-directory: app
-        run: node --import tsx --test "test/*.test.ts"
+        run: node --import tsx --test test/*.test.ts
 
       - name: Forbidden-import static check (LOCK-018 engine/host coupling)
         working-directory: app
-        run: node --import tsx --test "test/no-forbidden-imports.test.ts"
+        run: node --import tsx --test test/no-forbidden-imports.test.ts
 
       - name: Upload test evidence
         if: always()
@@ -83,7 +83,7 @@ jobs:
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: 22
           cache: npm
           cache-dependency-path: apps/web/package.json
 
