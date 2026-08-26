@@ -1,19 +1,29 @@
 /**
  * CAD/BIM App API — Web transport endpoint (CAD-IMPLEMENT-001 / Issue #24,
- * Architecture v1.1 FROZEN).
+ * CAD-IMPLEMENT-002 / Issue #26; Architecture v1.1 FROZEN).
  *
  * This Next.js App Router API route IS the Web host surface for the Offisos
- * CAD workspace. The advanced contracts (CADDocument, AppApiHandler, dummy
- * adapter) are imported directly from the canonical
+ * CAD workspace. The advanced contracts (CADDocument, AppApiHandler, the
+ * adapters) are imported directly from the canonical
  * `@offisos/cad-app-shell` package source (../../app/src/*) via the tsconfig
  * `paths` alias — single source of truth (milestone-3 integration; no
  * duplicated contract copy). Web/Electron parity is proven by the Offisos
  * repo's host-parity tests; this route reproduces the same server-side
  * handler logic for the Web host.
  *
+ * CAD-IMPLEMENT-002: the workspace surface is connected to the REAL geometry
+ * engine (OCCT 7.8.1.1 via the isolated Python worker — the same kernel
+ * FreeCAD builds on) through the same App API. The adapter bundle swap is
+ * the ONLY wiring change (LOCK-003: a replacement engine requires no
+ * renderer or CADDocument redesign). The engine subprocess is spawned lazily
+ * per geometry.prepare call (process-per-call isolation, wall-clock timeout,
+ * typed failures — CAD-005); commands that never prepare geometry (the
+ * CAD-IMPLEMENT-001 flow) run engine-free. The dummy adapter remains the
+ * permanent test double in the app/ suite.
+ *
  * Construction Graph boundary (LOCK-019): CADDocument is the editor
- * representation only; the dummy adapter is the only engine — no FreeCAD/
- * OCCT/IfcOpenShell coupling (LOCK-003/018).
+ * representation only. Engine isolation (LOCK-003/018): the engine lives
+ * strictly behind the EngineAdapterBundle boundary.
  *
  * Wire contract: see `@offisos/cad-app-shell/contracts/app-api`
  * (WireEnvelope v1). The POST accepts either an envelope
@@ -24,7 +34,7 @@
  */
 
 import { AppApiHandler } from "@offisos/cad-app-shell/app-api";
-import { DummyAdapterBundle } from "@offisos/cad-app-shell/adapters/dummy";
+import { createOcctAdapterBundle } from "@offisos/cad-app-shell/adapters/occt";
 import type {
   CommandQueryRequest,
   CommandQueryResponse,
@@ -37,12 +47,14 @@ export const runtime = "nodejs";
 /**
  * Module-level singleton handler. State (the open CADDocument + undo/redo
  * stacks + ephemeral selection + idempotency cache) persists across requests
- * within the server process. This is the Web host's document session.
+ * within the server process. This is the Web host's document session. The
+ * OCCT adapter bundle spawns a disposable Python worker per geometry.prepare
+ * call (lazy — no engine process until geometry is actually requested).
  */
 const handler = AppApiHandler.create({
-  adapterBundle: DummyAdapterBundle,
+  adapterBundle: createOcctAdapterBundle(),
   entityId: "web-workspace",
-  format: "offisos-dummy",
+  format: "offisos-occt",
   formatVersion: "1",
   createdBy: "web-workspace",
 });

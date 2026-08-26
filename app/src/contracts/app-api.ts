@@ -18,6 +18,13 @@ export type AppApiVersion = typeof APP_API_VERSION;
 // editor selection WITHOUT bumping the document version or pushing an undo
 // entry (selection is non-versioned editor state, §5.4). `document.save`
 // persists the snapshot through the file adapter and returns file bytes.
+// `geometry.prepare` (CAD-IMPLEMENT-002, additive per api-contract.md §8)
+// asks the geometry engine adapter to realize an engine-independent
+// GeometryDescriptor (contracts/geometry.ts) and returns the deterministic
+// GeometryResult { meshToken, bbox } (+ optional viewport mesh and
+// selection/query metadata when the concrete adapter provides them). It does
+// NOT mutate the document — callers persist the result via
+// document.applyEdit(addElement) with the returned meshToken in props.
 export type CommandName =
   | "document.create"
   | "document.open"
@@ -27,7 +34,8 @@ export type CommandName =
   | "document.redo"
   | "document.serialize"
   | "document.deserialize"
-  | "document.save";
+  | "document.save"
+  | "geometry.prepare";
 
 // --- Query names (non-mutating) ---
 // `document.getSelection` returns the ephemeral editor selection (orthogonal

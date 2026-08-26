@@ -58,6 +58,90 @@ export const COMMAND_PAYLOAD_SCHEMAS: Readonly<Record<CommandName, object>> = {
     required: ["text"],
   },
   "document.save": { type: "object", properties: {} },
+  // CAD-IMPLEMENT-002 (additive, api-contract.md §8): realize an
+  // engine-independent GeometryDescriptor through the geometry engine
+  // adapter. The recursive descriptor schema mirrors
+  // contracts/geometry.ts (box / cylinder / transform / fuse / cut).
+  "geometry.prepare": {
+    type: "object",
+    properties: {
+      geometry: { $ref: "#/$defs/geometryDescriptor" },
+      tessellation: {
+        type: "object",
+        properties: {
+          linearDeflection: { type: "number", exclusiveMinimum: 0 },
+          angularDeflection: { type: "number", exclusiveMinimum: 0 },
+        },
+      },
+    },
+    required: ["geometry"],
+    $defs: {
+      vec3: {
+        type: "array",
+        items: { type: "number" },
+        minItems: 3,
+        maxItems: 3,
+      },
+      matrix16: {
+        type: "array",
+        items: { type: "number" },
+        minItems: 16,
+        maxItems: 16,
+      },
+      geometryDescriptor: {
+        oneOf: [
+          {
+            type: "object",
+            properties: {
+              shape: { const: "box" },
+              width: { type: "number", exclusiveMinimum: 0 },
+              depth: { type: "number", exclusiveMinimum: 0 },
+              height: { type: "number", exclusiveMinimum: 0 },
+            },
+            required: ["shape", "width", "depth", "height"],
+          },
+          {
+            type: "object",
+            properties: {
+              shape: { const: "cylinder" },
+              radius: { type: "number", exclusiveMinimum: 0 },
+              height: { type: "number", exclusiveMinimum: 0 },
+              origin: { $ref: "#/$defs/vec3" },
+              direction: { $ref: "#/$defs/vec3" },
+            },
+            required: ["shape", "radius", "height"],
+          },
+          {
+            type: "object",
+            properties: {
+              shape: { const: "transform" },
+              matrix: { $ref: "#/$defs/matrix16" },
+              target: { $ref: "#/$defs/geometryDescriptor" },
+            },
+            required: ["shape", "matrix", "target"],
+          },
+          {
+            type: "object",
+            properties: {
+              shape: { const: "fuse" },
+              a: { $ref: "#/$defs/geometryDescriptor" },
+              b: { $ref: "#/$defs/geometryDescriptor" },
+            },
+            required: ["shape", "a", "b"],
+          },
+          {
+            type: "object",
+            properties: {
+              shape: { const: "cut" },
+              a: { $ref: "#/$defs/geometryDescriptor" },
+              b: { $ref: "#/$defs/geometryDescriptor" },
+            },
+            required: ["shape", "a", "b"],
+          },
+        ],
+      },
+    },
+  },
 };
 
 export const QUERY_PAYLOAD_SCHEMAS: Readonly<Record<QueryName, object>> = {

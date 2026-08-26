@@ -1,15 +1,20 @@
 /**
  * CAD/BIM Web transport — client-side typed fetch wrappers
- * (CAD-IMPLEMENT-001 / Issue #24, Architecture v1.1 FROZEN).
+ * (CAD-IMPLEMENT-001 / Issue #24 + CAD-IMPLEMENT-002 / Issue #26,
+ * Architecture v1.1 FROZEN).
  *
  * Browser-safe. Imports ONLY from `@offisos/cad-app-shell/contracts/*`
  * (type-only or pure runtime helpers — NO `node:crypto` dependency). The
  * client talks to the backend ONLY via `fetch("/api/cad", ...)`; the
- * AppApiHandler + dummy adapter live server-side in
- * `src/app/api/cad/route.ts`.
+ * AppApiHandler + the real OCCT adapter bundle live server-side in
+ * `src/app/api/cad/route.ts` (CAD-IMPLEMENT-002 — the engine runs behind
+ * the frozen EngineAdapterBundle boundary; the client never sees it).
  *
  * Wire contract: see `@offisos/cad-app-shell/contracts/app-api`
- * (WireEnvelope v1).
+ * (WireEnvelope v1). CAD-IMPLEMENT-002 adds the `geometry.prepare` command
+ * (additive, api-contract.md §8): the client sends an engine-independent
+ * GeometryDescriptor and receives the deterministic GeometryResult plus the
+ * viewport mesh data.
  */
 
 import type {
@@ -95,6 +100,42 @@ export async function openFromText(text: string): Promise<CommandQueryResponse> 
 
 export async function applyEdit(edit: DocumentEdit): Promise<CommandQueryResponse> {
   return command("document.applyEdit", { edit });
+}
+
+// --- CAD-IMPLEMENT-002: real geometry through the shared App API ----------
+
+/** Response value of a successful `geometry.prepare` (mirror of the wire). */
+export interface PreparedGeometry {
+  meshToken: string;
+  bbox: readonly number[];
+  mesh: { vertices: readonly number[]; indices: readonly number[] } | null;
+  metadata: { volume: number; vertices: number; triangles: number } | null;
+  engine: { engineId: string; engineVersion: string };
+}
+
+/**
+ * Realize an engine-independent GeometryDescriptor (box / cylinder /
+ * transform / fuse / cut) through the REAL geometry engine behind the
+ * adapter boundary. Deterministic: identical descriptors yield identical
+ * meshTokens. The result persists via applyEdit(addElement) with the
+ * meshToken in props.
+ */
+export async function prepareGeometry(geometry: unknown): Promise<CommandQueryResponse> {
+  return command("geometry.prepare", { geometry });
+}
+
+/** Extract a PreparedGeometry from an ok response (null on any mismatch). */
+export function unwrapPrepared(res: CommandQueryResponse): PreparedGeometry | null {
+  if (!res.ok) return null;
+  const v = res.value as Partial<PreparedGeometry> | null;
+  if (
+    typeof v !== "object" || v === null ||
+    typeof v.meshToken !== "string" ||
+    !Array.isArray(v.bbox) || v.bbox.length !== 6
+  ) {
+    return null;
+  }
+  return v as PreparedGeometry;
 }
 
 export async function setSelection(ids: string[]): Promise<CommandQueryResponse> {
