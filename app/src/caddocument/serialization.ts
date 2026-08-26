@@ -11,8 +11,16 @@ import { createHash } from "node:crypto";
 import type { CADDocumentSnapshot } from "../contracts/caddocument.js";
 import { validateModelHistory } from "./history.js";
 
-/** Recursively sort object keys for canonical JSON. Arrays preserve order. */
+/** Recursively sort object keys for canonical JSON. Arrays preserve order.
+ *  Throws on `undefined` object values (LOCK-007): canonical JSON must be
+ *  valid JSON — an undefined value would serialize as the literal token
+ *  `undefined` and corrupt every save/hash derived from it (defect class
+ *  found by the COMPAT-CAD-002 Electron smoke: key-adding patches whose
+ *  undo inverses carried undefined previous values). */
 export function canonicalStringify(value: unknown): string {
+  if (value === undefined) {
+    throw new Error("canonicalStringify: undefined is not representable in canonical JSON");
+  }
   if (value === null || typeof value !== "object") {
     return JSON.stringify(value);
   }

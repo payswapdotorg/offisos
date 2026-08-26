@@ -219,6 +219,40 @@ test("bim.getSemantics + bim.camera serve deterministic queries", async () => {
   assert.equal(bad.ok, false);
 });
 
+test("undo of a key-adding patch (geometry build) serializes and reopens correctly (regression)", async () => {
+  // Defect class found by the COMPAT-CAD-002 Electron smoke: undoing a patch
+  // that ADDED a prop key produced an inverse with undefined previous values,
+  // which corrupted canonical serialization (invalid JSON on save/open).
+  const handler = AppApiHandler.create(CONFIG);
+  const ids = await authorBuilding(handler);
+  await cmd(handler, "bim.buildGeometry", {});
+  await cmd(handler, "document.undo", {});
+  // The undo removed the attached geometry provenance (key removal works)…
+  const undone = val<CADDocumentSnapshot>(await qq(handler, "document.getState", {}));
+  const wallProps = undone.elements.find((el) => el.id === ids.south)!.props as Record<string, unknown>;
+  assert.equal(wallProps.meshToken, undefined, "undo removed the added meshToken key");
+  // …and the document STILL saves/opens with identical identity.
+  const saved = val<{ bytes: number[] }>(await cmd(handler, "document.save", {}));
+  const beforeEvents = val<{ events_hash: string }>(await qq(handler, "model.getGraphEvents", {}));
+  const reopened = AppApiHandler.create(CONFIG);
+  const opened = val<CADDocumentSnapshot>(await cmd(reopened, "document.open", { source: saved.bytes }));
+  assert.equal(opened.elements.length, 11);
+  const afterEvents = val<{ events_hash: string }>(await qq(reopened, "model.getGraphEvents", {}));
+  assert.equal(afterEvents.events_hash, beforeEvents.events_hash, "identical events hash through save-after-undo");
+  // Verified replay including the undo revision (recorded as setProps inverse).
+  for (let k = 0; k <= 2; k++) {
+    const replayed = val<{ verified: boolean }>(await qq(reopened, "model.replay", { revision_number: k }));
+    assert.equal(replayed.verified, true);
+  }
+});
+
+test("canonicalStringify rejects undefined values (LOCK-007 hardening)", async () => {
+  const { canonicalStringify } = await import("../src/caddocument/serialization.js");
+  assert.throws(() => canonicalStringify({ a: undefined }), /undefined is not representable/);
+  assert.throws(() => canonicalStringify([1, undefined]), /undefined is not representable/);
+  assert.equal(canonicalStringify({ a: 1, b: null }), '{"a":1,"b":null}');
+});
+
 test("typed failures: unsupported BIM operations never silently approximate", async () => {
   const handler = AppApiHandler.create(CONFIG);
   const ids = await authorBuilding(handler);

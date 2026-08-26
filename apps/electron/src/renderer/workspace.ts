@@ -13,6 +13,17 @@
  * Add circle / Delete / Undo / Redo / Save, with the versioned CADDocument
  * panel. CADDocument is the editor representation, NOT the Construction Graph
  * (LOCK-019). The dummy adapter is the only engine (LOCK-003/018).
+ *
+ * COMPAT-CAD-002 / Issue #39 (additive): a BIM authoring MODE sits alongside
+ * the drafting surface (header toggle — drafting behavior is untouched). The
+ * BIM panel authors the representative mini building through bim.* commands,
+ * moves the hosted door opening along its wall, switches the standard camera
+ * presets, realizes solids through bim.buildGeometry (the OCCT worker behind
+ * the frozen adapter boundary — a multi-second engine call with a busy state),
+ * undoes/redoes, proves save/open graph-events identity, and selects BIM
+ * elements from the building tree. Everything crosses the App API ONLY via
+ * window.cad.send — no bim/* module is imported into the renderer (queries
+ * only, nothing computed client-side).
  */
 
 import type {
@@ -118,6 +129,25 @@ interface CachedMesh {
   bbox: number[];
 }
 
+// COMPAT-CAD-002: structural shapes of the bim.* query responses (type-only —
+// no app-core module is imported; the wire values come from window.cad.send).
+interface BimRecord {
+  elementId: string;
+  type: string;
+  semantics: Record<string, unknown>;
+}
+interface BimBuilding {
+  stories: {
+    story: BimRecord;
+    walls: (BimRecord & { openings: (BimRecord & { fills: BimRecord[] })[] })[];
+    slabs: BimRecord[];
+    spaces: BimRecord[];
+  }[];
+  bimSettings?: { camera?: { preset?: string } };
+}
+
+type WorkspaceMode = "drafting" | "bim";
+
 const state = {
   snapshot: null as CADDocumentSnapshot | null,
   selection: [] as string[],
@@ -130,6 +160,9 @@ const state = {
   history: null as ModelHistory | null,
   graphEvents: null as GraphBridgeResult | null,
   replay: null as ModelReplayResult | null,
+  // COMPAT-CAD-002: BIM authoring mode (toggle alongside the drafting surface).
+  mode: "drafting" as WorkspaceMode,
+  bimBuilding: null as BimBuilding | null,
 };
 
 // --- DOM helpers ----------------------------------------------------------
@@ -152,6 +185,27 @@ interface Shell {
   undoBtn: HTMLButtonElement;
   redoBtn: HTMLButtonElement;
   delBtn: HTMLButtonElement;
+  // COMPAT-CAD-002: mode toggle + BIM authoring panel.
+  modeDraftBtn: HTMLButtonElement;
+  modeBimBtn: HTMLButtonElement;
+  bimCard: HTMLElement;
+  bimStatus: HTMLElement;
+  bimCreated: HTMLElement;
+  bimMoveDx: HTMLInputElement;
+  bimMoveDy: HTMLInputElement;
+  bimMoveDz: HTMLInputElement;
+  bimMoveBtn: HTMLButtonElement;
+  bimCameraBtns: Map<string, HTMLButtonElement>;
+  bimBuildBtn: HTMLButtonElement;
+  bimBuildBusy: HTMLElement;
+  bimUndoBtn: HTMLButtonElement;
+  bimRedoBtn: HTMLButtonElement;
+  bimSaveOpenBtn: HTMLButtonElement;
+  bimCameraReadout: HTMLElement;
+  bimBuildResult: HTMLElement;
+  bimPersistResult: HTMLElement;
+  bimSummary: HTMLElement;
+  bimTree: HTMLElement;
   ddEid: HTMLElement;
   ddVid: HTMLElement;
   ddVn: HTMLElement;
@@ -166,6 +220,22 @@ interface Shell {
   revSummary: HTMLElement;
 }
 
+/** The representative mini building (COMPAT-CAD-002, Issue #39). One ground
+ *  story, the south wall carrying a door opening + door fill, the ground slab
+ *  and the L-shaped office space. The slab mirrors the representative-building
+ *  test precedent (app/test/bim-workflow.test.ts) so the model carries FIVE
+ *  solid-bearing elements — bim.buildGeometry builds ≥ 5 and skips exactly the
+ *  story (the level container) — while every entity from the work-item spec is
+ *  present. Same-batch references use explicit ids. */
+const MINI_BUILDING_ENTITIES: readonly Record<string, unknown>[] = [
+  { type: "bim.story", id: "story-gf", name: "Ground Floor", level: 0, height: 3000 },
+  { type: "bim.wall", id: "wall-south", storyId: "story-gf", start: [0, 0], end: [6000, 0], width: 300, height: 3000 },
+  { type: "bim.opening", id: "op-door", hostId: "wall-south", distance: 500, width: 900, height: 2100, sill: 0 },
+  { type: "bim.door", id: "door-main", openingId: "op-door", swing: "left", name: "Main entrance" },
+  { type: "bim.slab", id: "slab-g", storyId: "story-gf", corner1: [-300, -300], corner2: [6300, 6300], thickness: 200, baseOffset: -200 },
+  { type: "bim.space", id: "space-office", storyId: "story-gf", name: "Office 1", footprint: [[0, 0], [6000, 0], [6000, 3000], [3000, 3000], [3000, 6000], [0, 6000]], height: 3000 },
+];
+
 function buildShell(root: HTMLElement): Shell {
   root.replaceChildren();
 
@@ -176,7 +246,21 @@ function buildShell(root: HTMLElement): Shell {
   hWrap.append(h1, hp);
   const badge = el("span", "badge"); badge.textContent = "CAD-IMPLEMENT-003 / v1.1";
   const engineBadge = el("span", "badge"); engineBadge.id = "engine-badge"; engineBadge.style.display = "none";
-  header.append(hWrap, badge, engineBadge);
+  // COMPAT-CAD-002: mode toggle — drafting surface (default, unchanged) | BIM.
+  const modeWrap = el("div");
+  modeWrap.style.cssText = "display:inline-flex;gap:0;border:1px solid var(--border);border-radius:8px;overflow:hidden;";
+  const modeDraftBtn = el("button");
+  modeDraftBtn.type = "button"; modeDraftBtn.textContent = "Drafting";
+  modeDraftBtn.setAttribute("data-testid", "mode-drafting");
+  modeDraftBtn.setAttribute("aria-pressed", "true");
+  modeDraftBtn.style.cssText = "min-height:32px;border:0;border-radius:0;font-size:12px;";
+  const modeBimBtn = el("button");
+  modeBimBtn.type = "button"; modeBimBtn.textContent = "BIM";
+  modeBimBtn.setAttribute("data-testid", "mode-bim");
+  modeBimBtn.setAttribute("aria-pressed", "false");
+  modeBimBtn.style.cssText = "min-height:32px;border:0;border-radius:0;font-size:12px;";
+  modeWrap.append(modeDraftBtn, modeBimBtn);
+  header.append(hWrap, modeWrap, badge, engineBadge);
   root.append(header);
 
   const main = el("main");
@@ -205,6 +289,98 @@ function buildShell(root: HTMLElement): Shell {
   const occtBody = el("div", "card-c"); const occtCtrls = el("div", "controls");
   const bOcctBox = btn("primary", "Box (OCCT)", "B"); const bOcctCyl = btn("primary", "Cylinder (OCCT)", "C"); const bOcctFuse = btn("primary", "Fuse (OCCT)", "F");
   occtCtrls.append(bOcctBox, bOcctCyl, bOcctFuse); occtBody.append(occtCtrls); occtCard.append(occtBody);
+
+  // COMPAT-CAD-002: BIM authoring panel (visible only in BIM mode).
+  const bimCard = card("BIM authoring (3D)", "COMPAT-CAD-002 — semantic building authoring through the shared App API (bim.*). Author the representative mini building, edit in 3D, switch standard cameras, realize solids through the geometry engine behind the frozen adapter boundary, undo/redo, and prove save/open graph-events identity.");
+  bimCard.setAttribute("data-testid", "bim-card");
+  bimCard.style.display = "none"; // drafting is the default mode
+  const bimBody = el("div", "card-c");
+
+  const bimStatus = el("p");
+  bimStatus.setAttribute("data-testid", "bim-status");
+  bimStatus.setAttribute("data-state", "idle");
+  bimStatus.setAttribute("data-op", "");
+  bimStatus.style.cssText = "margin:0 0 8px;font-family:ui-monospace,monospace;font-size:11px;color:var(--muted);";
+  bimStatus.textContent = "BIM: idle";
+
+  const bimCtrls = el("div", "controls");
+  bimCtrls.style.marginBottom = "8px";
+  const bBimCreate = btn("primary", "Create mini building", "▲");
+  bBimCreate.type = "button"; bBimCreate.setAttribute("data-testid", "bim-create-building");
+  bimCtrls.append(bBimCreate);
+
+  const bimMoveGroup = el("div", "controls");
+  bimMoveGroup.style.marginBottom = "8px";
+  const mDx = numField("bim-move-dx", "dx", "600");
+  const mDy = numField("bim-move-dy", "dy", "0");
+  const mDz = numField("bim-move-dz", "dz", "0");
+  const bBimMove = btn("", "Move door opening", "→");
+  bBimMove.type = "button"; bBimMove.setAttribute("data-testid", "bim-move-opening");
+  bBimMove.title = "bim.move {ids:[op-door]} — openings move ALONG the host wall axis (cross-axis is a typed reject)";
+  bimMoveGroup.append(mDx.wrap, mDy.wrap, mDz.wrap, bBimMove);
+
+  const bimCamGroup = el("div", "controls");
+  bimCamGroup.style.marginBottom = "8px";
+  const bimCameraBtns = new Map<string, HTMLButtonElement>();
+  for (const preset of ["iso", "top", "front", "right"]) {
+    const b = btn("", `Camera ${preset}`, "◉");
+    b.type = "button"; b.setAttribute("data-testid", `bim-camera-${preset}`);
+    b.setAttribute("aria-pressed", "false");
+    bimCameraBtns.set(preset, b);
+    bimCamGroup.append(b);
+  }
+
+  const bimOpsGroup = el("div", "controls");
+  bimOpsGroup.style.marginBottom = "8px";
+  const bBimBuild = btn("primary", "Build geometry", "◭");
+  bBimBuild.type = "button"; bBimBuild.setAttribute("data-testid", "bim-build");
+  bBimBuild.title = "bim.buildGeometry — realizes every solid-bearing element through the bound engine (OCCT worker; takes a few seconds)";
+  const bBimUndo = btn("", "Undo", "<");
+  bBimUndo.type = "button"; bBimUndo.setAttribute("data-testid", "bim-undo");
+  const bBimRedo = btn("", "Redo", ">");
+  bBimRedo.type = "button"; bBimRedo.setAttribute("data-testid", "bim-redo");
+  const bBimSaveOpen = btn("", "Save → Open", "⟲");
+  bBimSaveOpen.type = "button"; bBimSaveOpen.setAttribute("data-testid", "bim-save-open");
+  bBimSaveOpen.title = "document.save then document.open(saved bytes) — graph events hash must be identical";
+  bimOpsGroup.append(bBimBuild, bBimUndo, bBimRedo, bBimSaveOpen);
+
+  const bimBuildBusy = el("p");
+  bimBuildBusy.setAttribute("data-testid", "bim-build-busy");
+  bimBuildBusy.hidden = true;
+  bimBuildBusy.style.cssText = "margin:0 0 8px;font-size:12px;color:var(--accent);";
+  bimBuildBusy.setAttribute("role", "status");
+  bimBuildBusy.textContent = "Building solids through the geometry engine (OCCT worker)…";
+
+  const monoP = (testid: string, initial: string): HTMLElement => {
+    const p = el("p");
+    p.setAttribute("data-testid", testid);
+    p.style.cssText = "margin:0 0 8px;font-family:ui-monospace,monospace;font-size:11px;color:var(--fg);word-break:break-all;";
+    p.textContent = initial;
+    return p;
+  };
+  const bimCreated = monoP("bim-created", "created: —");
+  bimCreated.setAttribute("data-count", "0");
+  const bimCameraReadout = monoP("bim-camera-readout", "camera: —");
+  const bimBuildResult = monoP("bim-build-result", "build: —");
+  bimBuildResult.setAttribute("data-built", "");
+  bimBuildResult.setAttribute("data-skipped", "");
+  bimBuildResult.setAttribute("data-skip-id", "");
+  bimBuildResult.setAttribute("data-skip-reason", "");
+  const bimPersistResult = monoP("bim-persist-result", "persistence: —");
+  bimPersistResult.setAttribute("data-identical", "");
+
+  const bimSummary = el("p");
+  bimSummary.setAttribute("data-testid", "bim-building-summary");
+  bimSummary.style.cssText = "margin:0 0 8px;font-size:12px;color:var(--muted);";
+  bimSummary.textContent = "No BIM elements yet — create the mini building.";
+
+  const bimTree = el("div");
+  bimTree.setAttribute("data-testid", "bim-tree");
+  bimTree.setAttribute("role", "list");
+  bimTree.style.cssText = "max-height:384px;overflow-y:auto;";
+
+  bimBody.append(bimStatus, bimCtrls, bimMoveGroup, bimCamGroup, bimOpsGroup, bimBuildBusy, bimCreated, bimCameraReadout, bimBuildResult, bimPersistResult, bimSummary, bimTree);
+  bimCard.append(bimBody);
 
   const editCard = card("Edit", "Add or remove geometry elements (dummy shapes).");
   const editBody = el("div", "card-c"); const editCtrls = el("div", "controls");
@@ -250,7 +426,9 @@ function buildShell(root: HTMLElement): Shell {
   verCard.append(verBody);
 
   const errorEl = el("div", "alert"); errorEl.style.display = "none";
-  nav.append(fileCard, occtCard, editCard, histCard, revCard, selCard, verCard, errorEl);
+  errorEl.setAttribute("data-testid", "cad-error");
+  errorEl.setAttribute("role", "alert");
+  nav.append(fileCard, occtCard, bimCard, editCard, histCard, revCard, selCard, verCard, errorEl);
 
   main.append(canvasCard, nav);
   root.append(main);
@@ -270,6 +448,18 @@ function buildShell(root: HTMLElement): Shell {
   bDel.addEventListener("click", () => void onDelete());
   bUndo.addEventListener("click", () => void run("Undo", () => command("document.undo", {})));
   bRedo.addEventListener("click", () => void run("Redo", () => command("document.redo", {})));
+  // COMPAT-CAD-002: mode toggle + BIM panel handlers.
+  modeDraftBtn.addEventListener("click", () => setMode("drafting"));
+  modeBimBtn.addEventListener("click", () => setMode("bim"));
+  bBimCreate.addEventListener("click", () => void onBimCreateBuilding());
+  bBimMove.addEventListener("click", () => void onBimMoveOpening());
+  for (const [preset, b] of bimCameraBtns) {
+    b.addEventListener("click", () => void onBimCamera(preset));
+  }
+  bBimBuild.addEventListener("click", () => void onBimBuild());
+  bBimUndo.addEventListener("click", () => void bimRun("undo", () => command("document.undo", {})));
+  bBimRedo.addEventListener("click", () => void bimRun("redo", () => command("document.redo", {})));
+  bBimSaveOpen.addEventListener("click", () => void onBimSaveOpen());
   svg.addEventListener("click", () => {
     if (state.selection.length === 0) return;
     void run("Clear selection", () => command("document.setSelection", { ids: [] }));
@@ -283,6 +473,26 @@ function buildShell(root: HTMLElement): Shell {
     undoBtn: bUndo,
     redoBtn: bRedo,
     delBtn: bDel,
+    modeDraftBtn,
+    modeBimBtn,
+    bimCard,
+    bimStatus,
+    bimCreated,
+    bimMoveDx: mDx.input,
+    bimMoveDy: mDy.input,
+    bimMoveDz: mDz.input,
+    bimMoveBtn: bBimMove,
+    bimCameraBtns,
+    bimBuildBtn: bBimBuild,
+    bimBuildBusy,
+    bimUndoBtn: bBimUndo,
+    bimRedoBtn: bBimRedo,
+    bimSaveOpenBtn: bBimSaveOpen,
+    bimCameraReadout,
+    bimBuildResult,
+    bimPersistResult,
+    bimSummary,
+    bimTree,
     ddEid: rEid.dd,
     ddVid: rVid.dd,
     ddVn: rVn.dd,
@@ -312,6 +522,20 @@ function btn(variant: string, label: string, glyph: string): HTMLButtonElement {
   const s = el("span"); s.textContent = label;
   b.append(g, s);
   return b;
+}
+
+/** Labeled numeric input (COMPAT-CAD-002 BIM move deltas). */
+function numField(testid: string, label: string, value: string): { wrap: HTMLElement; input: HTMLInputElement } {
+  const wrap = el("label");
+  wrap.style.cssText = "display:inline-flex;align-items:center;gap:4px;font-size:12px;color:var(--muted);";
+  const span = el("span"); span.textContent = label;
+  const input = el("input");
+  input.type = "number"; input.step = "any"; input.value = value;
+  input.setAttribute("data-testid", testid);
+  input.setAttribute("aria-label", `BIM move ${label} (mm)`);
+  input.style.cssText = "width:64px;font:inherit;font-size:12px;padding:4px 6px;border:1px solid var(--border);border-radius:6px;";
+  wrap.append(span, input);
+  return { wrap, input };
 }
 
 // --- Actions --------------------------------------------------------------
@@ -479,6 +703,160 @@ async function onSave(): Promise<void> {
   }
 }
 
+// --- COMPAT-CAD-002: BIM authoring actions (window.cad.send only) ----------
+
+/** BIM status protocol: [data-state] idle|busy|done|error + [data-op] label —
+ *  the deterministic handle the BrowserWindow smoke waits on. */
+function setBimStatus(st: "idle" | "busy" | "done" | "error", op: string, text: string): void {
+  if (!ui) return;
+  ui.bimStatus.setAttribute("data-state", st);
+  ui.bimStatus.setAttribute("data-op", op);
+  ui.bimStatus.textContent = text;
+  ui.bimBuildBusy.hidden = !(st === "busy" && op === "build");
+}
+
+/** run() semantics for the BIM panel: busy state, typed-error surface, and
+ *  the [data-state]/[data-op] status protocol the smoke polls. The error is
+ *  set AFTER refresh() — refresh() itself resets the alert on successful
+ *  queries, so setting it before would clear the typed message again. */
+async function bimRun(op: string, fn: () => Promise<CommandQueryResponse>): Promise<CommandQueryResponse | null> {
+  setBusy(true);
+  setBimStatus("busy", op, `BIM ${op}: busy…`);
+  try {
+    const res = await fn();
+    await refresh();
+    if (!res.ok) {
+      setError(`[${op}] ${res.code}: ${res.message}`);
+      setBimStatus("error", op, `BIM ${op}: failed — ${res.code}: ${res.message}`);
+    } else {
+      setBimStatus("done", op, `BIM ${op}: done`);
+    }
+    return res;
+  } catch (e) {
+    await refresh();
+    setError(`[${op}] unexpected: ${(e as Error).message}`);
+    setBimStatus("error", op, `BIM ${op}: unexpected — ${(e as Error).message}`);
+    return null;
+  } finally {
+    setBusy(false);
+  }
+}
+
+function setMode(mode: WorkspaceMode): void {
+  if (state.busy || state.mode === mode) return;
+  state.mode = mode;
+  void refresh();
+}
+
+/** Author the representative mini building: fresh document + ONE atomic
+ *  bim.createElements batch (one versioned command, one revision, one undo). */
+async function onBimCreateBuilding(): Promise<void> {
+  if (!ui) return;
+  ui.bimCreated.setAttribute("data-count", "0");
+  ui.bimCreated.textContent = "created: —";
+  const created = await bimRun("create-building", () => command("document.create", { entityId: "compat-cad-002-electron" }));
+  if (created === null || !created.ok) return;
+  const res = await bimRun("create-building", () => command("bim.createElements", { entities: MINI_BUILDING_ENTITIES }));
+  if (res !== null && res.ok) {
+    const ids = (res.value as { created?: string[] }).created ?? [];
+    ui.bimCreated.setAttribute("data-count", String(ids.length));
+    ui.bimCreated.textContent = `created ${ids.length}: ${ids.join(", ")}`;
+  }
+}
+
+function readNum(input: HTMLInputElement, fallback: number): number {
+  const v = Number(input.value);
+  return Number.isFinite(v) ? v : fallback;
+}
+
+/** Move the mini building's door opening (op-door) by the dx/dy/dz deltas.
+ *  Along-axis moves succeed; cross-axis/other typed rejects surface in the
+ *  shared error alert (and the bim-status error state). */
+async function onBimMoveOpening(): Promise<void> {
+  if (!ui) return;
+  const dx = readNum(ui.bimMoveDx, 0);
+  const dy = readNum(ui.bimMoveDy, 0);
+  const dz = readNum(ui.bimMoveDz, 0);
+  await bimRun("move-opening", () => command("bim.move", { ids: ["op-door"], dx, dy, dz }));
+}
+
+/** Persist the camera preset (bim.setSettings, non-versioned) and display the
+ *  deterministic standard camera (bim.camera — preset + eye). */
+async function onBimCamera(preset: string): Promise<void> {
+  if (!ui) return;
+  const set = await bimRun(`camera-${preset}`, () => command("bim.setSettings", { settings: { camera: { preset } } }));
+  if (set === null || !set.ok) return;
+  const cam = await query("bim.camera", { preset });
+  if (cam.ok) {
+    const v = cam.value as { camera: { preset: string; eye: number[]; target: number[]; up: number[] } };
+    ui.bimCameraReadout.textContent =
+      `preset=${v.camera.preset} · eye=[${v.camera.eye.map((n) => Math.round(n)).join(", ")}] · ` +
+      `target=[${v.camera.target.map((n) => Math.round(n)).join(", ")}] · up=[${v.camera.up.join(", ")}]`;
+  } else {
+    setError(`[camera-${preset}] ${cam.code}: ${cam.message}`);
+  }
+}
+
+/** Realize every solid-bearing BIM element through the bound geometry engine
+ *  (the OCCT worker — a multi-second call; the busy line stays visible). */
+async function onBimBuild(): Promise<void> {
+  if (!ui) return;
+  const res = await bimRun("build", () => command("bim.buildGeometry", {}));
+  if (res === null) return;
+  if (res.ok) {
+    const v = res.value as {
+      built: number;
+      results: { elementId: string; meshToken: string; engine: { engineId: string; engineVersion: string } }[];
+      skipped: { elementId: string; reason: string }[];
+    };
+    const skip = v.skipped[0];
+    const engine = v.results[0]?.engine ?? null;
+    ui.bimBuildResult.setAttribute("data-built", String(v.built));
+    ui.bimBuildResult.setAttribute("data-skipped", String(v.skipped.length));
+    ui.bimBuildResult.setAttribute("data-skip-id", skip ? skip.elementId : "");
+    ui.bimBuildResult.setAttribute("data-skip-reason", skip ? skip.reason : "");
+    ui.bimBuildResult.textContent =
+      `built=${v.built} skipped=${v.skipped.length}` +
+      (skip ? ` (${skip.elementId}: ${skip.reason})` : "") +
+      (engine ? ` · engine=${engine.engineId} ${engine.engineVersion}` : "");
+    if (engine) state.engine = engine;
+  } else {
+    ui.bimBuildResult.setAttribute("data-built", "-1");
+    ui.bimBuildResult.setAttribute("data-skipped", "");
+    ui.bimBuildResult.setAttribute("data-skip-id", "");
+    ui.bimBuildResult.setAttribute("data-skip-reason", "");
+    ui.bimBuildResult.textContent = `build: failed — ${res.code}: ${res.message}`;
+  }
+}
+
+/** Save → open round trip through the SAME handler document: the Construction
+ *  Graph events hash before/after must be identical (identity proof). */
+async function onBimSaveOpen(): Promise<void> {
+  if (!ui) return;
+  await bimRun("save-open", async () => {
+    const before = await query("model.getGraphEvents", {});
+    if (!before.ok) return before;
+    const hashBefore = (before.value as { events_hash: string }).events_hash;
+    const save = await command("document.save", {});
+    if (!save.ok) return save;
+    const bytes = (save.value as { bytes: number[] }).bytes;
+    const open = await command("document.open", { source: bytes });
+    if (!open.ok) return open;
+    const after = await query("model.getGraphEvents", {});
+    if (!after.ok) return after;
+    const hashAfter = (after.value as { events_hash: string }).events_hash;
+    const identical = hashAfter === hashBefore;
+    ui!.bimPersistResult.setAttribute("data-identical", identical ? "true" : "false");
+    ui!.bimPersistResult.textContent =
+      `events_hash ${hashBefore.slice(0, 16)}… → ${hashAfter.slice(0, 16)}… · identical=${identical}`;
+    // Surface a hash change as a typed failure of the round trip (the UI's own
+    // honest verdict — not an App API error code).
+    return identical
+      ? open
+      : ({ ok: false, code: "bim_invalid", message: "graph events hash changed across save/open" } as CommandQueryResponse);
+  });
+}
+
 // --- Refresh --------------------------------------------------------------
 
 let ui: Shell | null = null;
@@ -499,6 +877,11 @@ async function refresh(): Promise<void> {
   if (!stateRes.ok) setError(stateRes.message);
   else if (!selRes.ok) setError(selRes.message);
   else setError(null);
+  // COMPAT-CAD-002: BIM mode additionally pulls the story→elements structure.
+  if (state.mode === "bim") {
+    const bimRes = await query("bim.getBuilding", {});
+    state.bimBuilding = bimRes.ok ? ((bimRes.value as BimBuilding) ?? null) : null;
+  }
   render();
 }
 
@@ -792,6 +1175,74 @@ function render(): void {
   ui.undoBtn.disabled = state.busy || state.loading || !canUndo;
   ui.redoBtn.disabled = state.busy || state.loading || !canRedo;
   ui.delBtn.disabled = state.busy || state.loading || state.selection.length === 0;
+
+  // COMPAT-CAD-002: mode toggle + BIM panel state.
+  ui.modeDraftBtn.setAttribute("aria-pressed", state.mode === "drafting" ? "true" : "false");
+  ui.modeBimBtn.setAttribute("aria-pressed", state.mode === "bim" ? "true" : "false");
+  ui.modeDraftBtn.disabled = state.busy;
+  ui.modeBimBtn.disabled = state.busy;
+  ui.bimCard.style.display = state.mode === "bim" ? "" : "none";
+  const bimDisabled = state.busy || state.loading;
+  ui.bimMoveBtn.disabled = bimDisabled;
+  ui.bimBuildBtn.disabled = bimDisabled;
+  ui.bimSaveOpenBtn.disabled = bimDisabled;
+  ui.bimUndoBtn.disabled = bimDisabled || !canUndo;
+  ui.bimRedoBtn.disabled = bimDisabled || !canRedo;
+  const activePreset = snap?.bimSettings?.camera?.preset ?? null;
+  for (const [preset, b] of ui.bimCameraBtns) {
+    b.disabled = bimDisabled;
+    b.setAttribute("aria-pressed", preset === activePreset ? "true" : "false");
+  }
+  renderBimTree();
+}
+
+/** Building tree + summary from the last bim.getBuilding query (BIM mode). */
+function renderBimTree(): void {
+  if (!ui) return;
+  const building = state.bimBuilding;
+  ui.bimTree.replaceChildren();
+  if (building === null || building.stories.length === 0) {
+    ui.bimSummary.textContent = "No BIM elements yet — create the mini building.";
+    return;
+  }
+  let total = 0;
+  const counts = new Map<string, number>();
+  const row = (rec: BimRecord, depth: number): void => {
+    total += 1;
+    counts.set(rec.type, (counts.get(rec.type) ?? 0) + 1);
+    const selected = state.selection.includes(rec.elementId);
+    const b = el("button");
+    b.type = "button";
+    b.setAttribute("data-testid", `bim-element-row-${rec.elementId}`);
+    b.setAttribute("role", "listitem");
+    b.setAttribute("aria-pressed", selected ? "true" : "false");
+    b.setAttribute("aria-label", `Select BIM element ${rec.elementId} (${rec.type})`);
+    b.style.cssText =
+      "display:block;width:100%;text-align:left;margin-bottom:4px;padding:5px 10px;font-size:11px;font-family:ui-monospace,monospace;" +
+      "border:1px solid var(--border);border-radius:6px;background:transparent;color:var(--fg);cursor:pointer;" +
+      (selected ? "border-color:var(--accent);background:#fff7ed;" : "");
+    b.style.marginLeft = `${depth * 18}px`;
+    b.textContent = `${rec.elementId} — ${rec.type.replace("bim.", "")}`;
+    b.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      void run("Select BIM", () => command("document.setSelection", { ids: [rec.elementId] }));
+    });
+    ui!.bimTree.append(b);
+  };
+  for (const story of building.stories) {
+    row(story.story, 0);
+    for (const wall of story.walls) {
+      row(wall, 1);
+      for (const opening of wall.openings) {
+        row(opening, 2);
+        for (const fill of opening.fills) row(fill, 3);
+      }
+    }
+    for (const slab of story.slabs) row(slab, 1);
+    for (const space of story.spaces) row(space, 1);
+  }
+  const parts = [...counts.entries()].sort().map(([type, n]) => `${n} ${type.replace("bim.", "")}`);
+  ui.bimSummary.textContent = `${total} BIM element(s) — ${parts.join(" · ")} (click a row to select)`;
 }
 
 function setBusy(b: boolean): void {

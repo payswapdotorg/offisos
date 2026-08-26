@@ -551,11 +551,24 @@ export class CADDocument {
         }
         const el = this.elements.get(edit.elementId);
         if (el === undefined) throw new Error(`updateElement: no element '${edit.elementId}'`);
+        const prevProps = el.props as Record<string, unknown>;
         const prevValues: Record<string, unknown> = {};
+        let addedKey = false;
         for (const k of Object.keys(edit.patch)) {
-          prevValues[k] = (el.props as Record<string, unknown>)[k];
+          prevValues[k] = prevProps[k];
+          if (prevProps[k] === undefined) addedKey = true;
         }
-        return { type: "updateElement", elementId: edit.elementId, patch: prevValues };
+        // COMPAT-CAD-002 correctness fix: when the patch ADDED a key that did
+        // not exist before, an updateElement inverse cannot express the key's
+        // removal (an undefined value is not representable in canonical JSON
+        // and would not restore absence on replay). The exact inverse is then
+        // a FULL setProps of the previous props (which drops the added key).
+        // When every patched key existed before, the classic per-key
+        // updateElement inverse is retained — byte-identical to every
+        // recorded history (hash compatibility).
+        return addedKey
+          ? { type: "setProps", elementId: edit.elementId, patch: { ...prevProps } }
+          : { type: "updateElement", elementId: edit.elementId, patch: prevValues };
       }
       case "setProps": {
         if (edit.elementId === undefined || edit.patch === undefined) {

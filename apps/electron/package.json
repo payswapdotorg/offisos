@@ -13,7 +13,8 @@
     "smoke:geometry": "node test/smoke-geometry.mjs",
     "smoke:model": "node test/smoke-model.mjs",
     "smoke:impact": "node test/smoke-impact.mjs",
-    "smoke:drafting": "node test/smoke-drafting.mjs"
+    "smoke:drafting": "node test/smoke-drafting.mjs",
+    "smoke:bim": "node test/smoke-bim.mjs"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",
