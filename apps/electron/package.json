@@ -1,0 +1,22 @@
+{
+  "name": "@offisos/electron-host",
+  "version": "0.1.0",
+  "private": true,
+  "description": "CAD-IMPLEMENT-001 / Issue #24 remediation (CHANGES_REQUESTED): real Electron host. Electron main -> BrowserWindow -> shared renderer -> native/local IPC transport -> shared CAD App API (AppApiHandler) -> dummy adapter. Mirrors the Web host chain. No FreeCAD/OCCT/IfcOpenShell coupling (LOCK-003/018). Architecture v1.1 FROZEN.",
+  "main": "dist/main/main.cjs",
+  "scripts": {
+    "clean": "rm -rf dist",
+    "build": "node build.mjs",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "start": "electron . --no-sandbox",
+    "smoke": "node test/smoke.mjs",
+    "smoke:geometry": "node test/smoke-geometry.mjs",
+    "smoke:model": "node test/smoke-model.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "electron": "^33.2.1",
+    "esbuild": "^0.24.2",
+    "typescript": "^5.7.2"
+  }
+}

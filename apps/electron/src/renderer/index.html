@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Offisos CAD Workspace — Electron host</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --fg: #0f172a;
+        --muted: #64748b;
+        --border: #e2e8f0;
+        --bg: #ffffff;
+        --canvas-bg: #fafafa;
+        --accent: #f97316;
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; height: 100%; }
+      body {
+        font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+        color: var(--fg);
+        background: var(--bg);
+        display: flex;
+        flex-direction: column;
+        min-height: 100vh;
+      }
+      header {
+        border-bottom: 1px solid var(--border);
+        padding: 14px 18px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+      }
+      header h1 { font-size: 18px; margin: 0; font-weight: 600; }
+      header p { margin: 2px 0 0; font-size: 12px; color: var(--muted); }
+      .badge { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; background: #f1f5f9; border: 1px solid var(--border); border-radius: 6px; padding: 2px 8px; }
+      main { flex: 1; padding: 18px; display: grid; grid-template-columns: 2fr 1fr; gap: 18px; }
+      @media (max-width: 880px) { main { grid-template-columns: 1fr; } }
+      .card { border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+      .card header.card-h { padding: 12px 14px; border-bottom: 1px solid var(--border); }
+      .card header.card-h h2 { margin: 0; font-size: 14px; font-weight: 600; }
+      .card header.card-h p { margin: 2px 0 0; font-size: 12px; color: var(--muted); }
+      .card .card-c { padding: 14px; }
+      svg { width: 100%; height: auto; background: var(--canvas-bg); border: 1px solid var(--border); border-radius: 8px; }
+      .controls { display: flex; flex-wrap: wrap; gap: 8px; }
+      button {
+        font: inherit; font-size: 13px; min-height: 38px; padding: 0 12px;
+        border: 1px solid var(--border); background: #fff; color: var(--fg);
+        border-radius: 8px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px;
+      }
+      button:hover:not(:disabled) { background: #f8fafc; }
+      button:disabled { opacity: 0.5; cursor: not-allowed; }
+      button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+      button.danger { background: #fee2e2; color: #b91c1c; border-color: #fecaca; }
+      dl { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 4px 8px; font-size: 12px; }
+      dt { color: var(--muted); }
+      dd { margin: 0; font-family: ui-monospace, monospace; word-break: break-all; }
+      .selection { display: flex; flex-wrap: wrap; gap: 4px; }
+      .sel-badge { font-family: ui-monospace, monospace; font-size: 11px; background: #f8fafc; border: 1px solid var(--border); border-radius: 4px; padding: 1px 6px; }
+      .alert { border: 1px solid #fecaca; background: #fef2f2; color: #b91c1c; padding: 8px 10px; border-radius: 8px; font-size: 12px; }
+      footer { margin-top: auto; border-top: 1px solid var(--border); padding: 12px 18px; font-size: 11px; color: var(--muted); }
+      .lineage { font-family: ui-monospace, monospace; font-size: 11px; word-break: break-all; margin: 4px 0 0; }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script src="workspace.js"></script>
+  </body>
+</html>
