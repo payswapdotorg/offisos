@@ -53,7 +53,40 @@
     "CAD-IMPLEMENT-001/002 remain at PR_OPEN and PR #30 remains open (existing governance debt, untouched).",
     "Architecture v1.1 is active and frozen; no protected path is modified."
   ],
-  "evidence": [],
+  "evidence": [
+    {
+      "id": "EV-001",
+      "type": "automated-test-suite",
+      "description": "260/260 app tests with the real OCCT toolchain locally (190 existing CAD/BIM + drafting regressions stay green + 70 new deterministic BIM tests: elements 15, geometry derivation 15, editops 15, workflow 8 incl. the serialization-defect regressions, occt realization 8, reference-extrude 7, host-parity 2), including exact analytic volume assertions (wall L·W·H − Σ openings with the declared 1 mm cut-tool overhang; L-space shoelace×h; door/window fills), exact standard-camera derivations (tolerance 1e-9/1e-6), typed-failure coverage, verified replay to every revision, save/open identity (content/history/events hashes), bim-mark-gated OBSERVED-semantics graph labels and Web/Electron host parity through the real transports.",
+      "produced_at": "2026-08-26T21:55:00Z",
+      "reproducible": true,
+      "references": {
+        "commit": "ef09b4f9ff4d9dc3083d8026db78b9018c8eb673"
+      }
+    },
+    {
+      "id": "EV-002",
+      "type": "inspectable-artifact",
+      "description": "Deployable host proofs: the Web host lint/typecheck/build clean and the full CI BIM smoke script (authoring chain → editing+cascades → cameras → OCCT realization → undo/redo → save/open identical events hash → typed failures) verified locally end-to-end against the running dev server on the real engine; the Electron host typecheck/build clean with the 14-step BIM BrowserWindow smoke passing on BOTH paths (real-OCCT happy path incl. build/undo/redo/save-open identity, and the typed engine_unavailable path) plus all four regression smokes green; the core serialization defect found by the smoke is fixed and pinned (app/test/bim-workflow.test.ts).",
+      "produced_at": "2026-08-26T22:05:00Z",
+      "reproducible": true,
+      "references": {
+        "commit": "2676e18d9f5576563b3ed2c0e37647695d12e079"
+      }
+    },
+    {
+      "id": "EV-003",
+      "type": "ci-run",
+      "description": "All CI workflows green on the exact PR head 6a42d67: compat-cad-002 run 33018490330 (bim-shell 260 tests on the OCCT 7.8.1.1 toolchain + extrude vocabulary pin + LOCK-018 scan incl. src/bim; web-host-bim build + dev-server BIM authoring smoke with exact assertions incl. cascade copies, camera math, OCCT realization, save/open events-hash identity and typed failures; electron-host-bim build + 4 regression smokes + the 14-step BIM smoke) plus ALL regression workflows green on the same head: governance 33018489912, cad-implement-001 33018489960, cad-implement-002 33018489992, cad-implement-003 33018490542, research-cad-007 33018489886, compat-cad-001 33018489856.",
+      "produced_at": "2026-08-26T22:15:30Z",
+      "reproducible": true,
+      "references": {
+        "commit": "6a42d675ac4a45578f7b9bec2ff6900667be54e2",
+        "workflow_run": "33018490330",
+        "pr": 40
+      }
+    }
+  ],
   "decisions": [],
   "transitions": [
     {
@@ -89,9 +122,21 @@
       "references": {
         "issue": 39
       }
+    },
+    {
+      "from": "IMPLEMENTING",
+      "to": "PR_OPEN",
+      "at": "2026-08-26T22:15:30Z",
+      "actor": "z-ai-implementation-agent",
+      "role": "implementer",
+      "reason": "Evidence package complete and PR #40 opened; all CI workflows green on the PR head 6a42d67 (compat-cad-002 + governance + every CAD/drafting regression workflow). No APPROVED or VERIFIED claim — stopping at PR_OPEN/VERIFYING per the directive.",
+      "references": {
+        "issue": 39,
+        "pr": 40
+      }
     }
   ],
-  "state": "IMPLEMENTING",
+  "state": "PR_OPEN",
   "evidence_requirements": [
     "Deterministic 3D/BIM authoring tests with declared tolerances on the real OCCT toolchain.",
     "Persistence and verified-replay evidence for the representative building (identical content/history/events hashes through save/open).",
