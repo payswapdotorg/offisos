@@ -83,7 +83,7 @@
     "CI workflow reproducing the real-engine tests on ubuntu-latest with the pinned toolchain installed.",
     "No claim of VERIFIED; the implementer produces evidence and submits for Architect review (LOCK-004: implementation status is not evidence)."
   ],
-  "state": "IMPLEMENTING",
+  "state": "PR_OPEN",
   "transitions": [
     {
       "from": "DRAFT",
@@ -115,6 +115,24 @@
       "actor": "z-ai-implementation-agent",
       "role": "implementer",
       "reason": "Implementation started on branch work/cad-implement-002-real-geometry (off work/cad-implement-001-app-shell @ 2a0c67d — the CAD-IMPLEMENT-001 PR branch, per the directive step 1 'inspect the merged CAD-IMPLEMENT-001 contracts and hosts before changing them'; the branch will rebase onto main when CAD-IMPLEMENT-001 merges). Build order: (1) inspect the frozen EngineAdapterBundle contract + CADDocument + renderer + App API dispatch + forbidden-import check scope; (2) implement the real OCCT geometry adapter under app/src/adapters/occt/ (isolated Python subprocess worker using cadquery-ocp / OCP, the CAD-005-validated OCCT 7.8.1.1 kernel); (3) add the additive geometry.prepare App API command; (4) wire the Web and Electron hosts to the real adapter; (5) deterministic geometry + worker-isolation + host-parity tests; (6) CI on the pinned toolchain; (7) evidence + governance validation; (8) PR_OPEN and stop (no APPROVED/VERIFIED claim)."
+    },
+    {
+      "from": "IMPLEMENTING",
+      "to": "PR_OPEN",
+      "at": "2026-08-26T08:00:00Z",
+      "actor": "z-ai-implementation-agent",
+      "role": "implementer",
+      "reason": "Evidence package complete and locally re-validated green (governance validate 115/115, governance tests 58/58, check-protected 1/1 with 73 paths, root typecheck, app typecheck, app suite 74/74 with the real engine, web lint + typecheck + next build --webpack, electron typecheck + build + CAD-001 engine-free smoke 8/8 + CAD-002 real-engine geometry smoke 10/10, agent-browser web viewport verification with 654 rendered mesh polygons and zero console errors). Pushed work/cad-implement-002-real-geometry (off work/cad-implement-001-app-shell @ 2a0c67d — the CAD-IMPLEMENT-001 contracts are carried forward per the directive step 1; the branch rebases onto main when CAD-IMPLEMENT-001 merges) via a one-shot URL (GIT_TERMINAL_PROMPT=0, -c credential.helper=, output redacted; the token was never written to any file/worklog/commit/git-config). Opened PR #27 against base main. No protected path touched; Architecture v1.1 FROZEN; rules.ts untouched. Lifecycle honesty: state advances to PR_OPEN only; no APPROVED or VERIFIED claim is made (verification is decided by the Architect per governance/README.md).",
+      "references": {
+        "pr": 27,
+        "issue": 26,
+        "evidence": [
+          "EV-001",
+          "EV-002",
+          "EV-003"
+        ],
+        "commit": "81e20a67fe0ec905cfc65281ea06e8c71732f610"
+      }
     }
   ]
 }
