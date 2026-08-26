@@ -1,227 +1,35 @@
 {
-  "id": "RESEARCH-CAD-006",
-  "title": "CAD/BIM exact-version licensing/composition evidence (web + Electron/desktop)",
-  "issue": 6,
-  "objective": "Produce exact-version licensing/composition EVIDENCE for the CAD/BIM stack actually tested across RESEARCH-CAD-001..005 (IfcOpenShell 0.8.5, OCCT 7.8.1 via cadquery-ocp 7.8.1.1.post1, cadquery 2.6.1, ezdxf 1.4.3, numpy 2.1.3, FreeCAD 1.1.3 AppImage, Python 3.12.13), covering BOTH the web deployment model and the Electron/desktop deployment model. Record each component's exact version from the authoritative pinned sources, identify each license from stable upstream facts, raise composition flags for the LICENSE-001 gate, and analyse both deployment models' LGPL posture. This gate does NOT approve any composition, does NOT change production packaging, and does NOT alter Architecture v1.1; it produces the inventory and flags that feed LICENSE-001's legal/architect review.",
-  "architecture_version": "1.1",
-  "requirements": [
-    "LICENSE-001",
-    "LICENSE-002",
-    "LICENSE-003",
-    "LICENSE-004"
+  "id":"RESEARCH-CAD-006",
+  "title":"CAD/BIM exact-version licensing/composition evidence (web + Electron/desktop)",
+  "issue":6,
+  "objective":"Produce exact-version licensing/composition EVIDENCE for the CAD/BIM stack actually tested across RESEARCH-CAD-001..005 (IfcOpenShell 0.8.5, OCCT 7.8.1 via cadquery-ocp 7.8.1.1.post1, cadquery 2.6.1, ezdxf 1.4.3, numpy 2.1.3, FreeCAD 1.1.3 AppImage, Python 3.12.13), covering BOTH the web deployment model and the Electron/desktop deployment model. Record each component's exact version from authoritative pinned sources, identify each license from stable upstream facts, raise composition flags for LICENSE-001, and analyse both deployment models' LGPL posture. This gate does NOT approve any composition, change production packaging, or alter Architecture v1.1; it produces the inventory and flags that feed LICENSE-001.",
+  "architecture_version":"1.1",
+  "requirements":["LICENSE-001","LICENSE-002","LICENSE-003","LICENSE-004"],
+  "dependencies":["RESEARCH-CAD-001","RESEARCH-CAD-002","RESEARCH-CAD-003","RESEARCH-CAD-004","RESEARCH-CAD-005"],
+  "acceptance_criteria":["The exact version of every tested component is recorded from authoritative pinned sources and cross-checked against importable distribution metadata where present.","Every tested component license is identified from a stable upstream statement and SPDX-classified.","A complete composition flag matrix exists for LICENSE-001; no composition is approved by this gate.","Web deployment is analysed, including the tested server-side path and explicit WASM-not-tested status.","Electron/desktop deployment is analysed, including the native-worker path and LGPL posture.","The frozen v1.1 adapter boundary is identified as the mechanism preserving user replacement rights for copyleft components.","No GPL strong-copyleft component is present in the tested stack.","Results support, reject, or defer the licensing/composition posture; LICENSE-001 makes the final decision."],
+  "non_goals":["No legal/composition approval (LICENSE-001 decides).","No production packaging change.","No architecture change.","No re-measurement of CAD/BIM capability or performance.","No final adapter-boundary/replacement/end-to-end proof (CAD-007)."],
+  "risk_assumptions":["POST-MERGE VERIFICATION: all five dependencies are VERIFIED; RESEARCH-CAD-006 merged to main at 74f95529f20a0840f6e1189a37e3b9a3d9c8c34f. Governance run 32997108160 (#67) and research-cad-006 run 32997108095 (#3) both completed successfully on that exact merge revision.","SPEC DIVERGENCE: spec/work-items.md retains the older performance/file-size definition; Issue #6 is authoritative for this work item.","Architecture version: v1.1 active and frozen; the older spec header is superseded by the ACR-002 topology decision.","Records/inventory only: versions and licenses come from authoritative committed sources; unavailable distributions are recorded honestly.","WASM not tested: the tested Web path is server-side only; any distributable WASM composition requires LICENSE-001 review.","Final-proof boundary: adapter replacement plus existential end-to-end workflow is CAD-007 scope."],
+  "evidence_requirements":["Exact versions recorded and cross-checked.","Licenses identified and SPDX-classified.","Composition flag matrix complete; no approval.","Both deployment models analysed.","Adapter boundary identified as replacement mechanism.","No-GPL fact recorded.","Benchmark reproducible from committed sources."],
+  "state":"VERIFIED",
+  "transitions":[
+    {"from":"DRAFT","to":"READY","at":"2026-08-25T19:50:00Z","actor":"pectoraux","role":"architect","reason":"Architect execution directive on issue #6 establishes the exact-version licensing/composition evidence gate for the tested CAD/BIM stack across Web and Electron/desktop.","references":{"issue":6}},
+    {"from":"READY","to":"ASSIGNED","at":"2026-08-25T19:50:00Z","actor":"pectoraux","role":"product-owner","reason":"Execution directive assigns RESEARCH-CAD-006 to the implementation agent.","references":{"issue":6,"assignee":"z-ai-implementation-agent"}},
+    {"from":"ASSIGNED","to":"IMPLEMENTING","at":"2026-08-25T19:52:00Z","actor":"z-ai-implementation-agent","role":"implementer","reason":"Implementation started; the records/inventory harness, deterministic tests and committed evidence were produced.","references":{"commit":"cb5d988357a95f789e6d32dbd4d0d5c337336a58"}},
+    {"from":"IMPLEMENTING","to":"PR_OPEN","at":"2026-08-26T17:34:44Z","actor":"z-ai-implementation-agent","role":"implementer","reason":"Evidence package complete and PR #31 opened against main.","references":{"pr":31,"issue":6,"evidence":["EV-001","EV-002","EV-003"],"commit":"fb0ff7f36ac21cdb16d85679d2022522b9cb2970"}},
+    {"from":"PR_OPEN","to":"VERIFYING","at":"2026-08-26T19:11:01Z","actor":"z-ai-implementation-agent","role":"implementer","reason":"Post-merge verification bookkeeping begins after PR #31's historical merge at 2026-08-26T17:58:24Z; qualifying merge-commit evidence is available.","references":{"pr":31,"commit":"74f95529f20a0840f6e1189a37e3b9a3d9c8c34f","evidence":["EV-004"]}},
+    {"from":"VERIFYING","to":"ARCHITECT_REVIEW","at":"2026-08-26T19:11:02Z","actor":"pectoraux","role":"architect","reason":"Architect begins post-merge verification review against the exact merge revision and qualifying CI evidence.","references":{"pr":31,"evidence":["EV-004"]}},
+    {"from":"ARCHITECT_REVIEW","to":"APPROVED","at":"2026-08-26T19:11:03Z","actor":"pectoraux","role":"architect","reason":"Post-merge Architect decision DEC-003 approves verification of the completed research gate; the earlier PR approval comment 5429083028 is captured as DEC-002.","references":{"decision":"DEC-003","evidence":["EV-004"],"pr":31}},
+    {"from":"APPROVED","to":"MERGED","at":"2026-08-26T19:11:04Z","actor":"pectoraux","role":"product-owner","reason":"Historical merge bookkeeping: PR #31 was actually merged at 2026-08-26T17:58:24Z as 74f95529f20a0840f6e1189a37e3b9a3d9c8c34f; this transition is backfilled now to preserve the canonical state sequence without rewriting the historical merge event.","references":{"pr":31,"merge_commit":"74f95529f20a0840f6e1189a37e3b9a3d9c8c34f"}},
+    {"from":"MERGED","to":"VERIFIED","at":"2026-08-26T19:11:05Z","actor":"pectoraux","role":"architect","reason":"RESEARCH-CAD-006 VERIFIED against the exact merge revision 74f95529f20a0840f6e1189a37e3b9a3d9c8c34f. Both qualifying post-merge workflows are green: governance #67 (32997108160) and research-cad-006 #3 (32997108095). The decision is evidence-backed research verification, not legal approval; production composition remains subject to LICENSE-001.","references":{"decision":"DEC-003","evidence":["EV-001","EV-002","EV-003","EV-004"],"merge_commit":"74f95529f20a0840f6e1189a37e3b9a3d9c8c34f"}}
   ],
-  "dependencies": [
-    "RESEARCH-CAD-001",
-    "RESEARCH-CAD-002",
-    "RESEARCH-CAD-003",
-    "RESEARCH-CAD-004",
-    "RESEARCH-CAD-005"
+  "evidence":[
+    {"id":"EV-001","type":"automated-test-suite","description":"Deterministic CI test suite for the RESEARCH-CAD-006 licensing/composition inventory: 11 tests asserting zero failures and zero unknowns across version recording, license identification, composition flags, both deployment models, adapter-boundary posture, no-GPL fact, FreeCAD AppImage integrity, and pinned-source provenance.","produced_at":"2026-08-25T19:44:00Z","reproducible":true,"reproduction":"cd research/cad-006 && python3 -m pip install -r requirements.txt && python3 -m pytest tests/ -q","references":{"commit":"cb5d988357a95f789e6d32dbd4d0d5c337336a58"}},
+    {"id":"EV-002","type":"inspectable-artifact","description":"Committed evidence run research/cad-006/evidence/run-001/: 30 pass / 0 fail / 0 unknown across six benchmark modules with exact licensing-relevant environment provenance.","produced_at":"2026-08-25T19:44:35Z","reproducible":true,"reproduction":"cd research/cad-006 && make bench (RUN_ID=run-001; resumable).","references":{"artifact_path":"research/cad-006/evidence/run-001","commit":"cb5d988357a95f789e6d32dbd4d0d5c337336a58"}},
+    {"id":"EV-003","type":"ci-run","description":"PR #31 CI evidence: research-cad-006 run 32984324167 (attempt 2) completed successfully on head fb0ff7f with 11/11 tests and a 30 pass / 0 fail / 0 unknown evidence run; governance was locally validated 137/137 on the exact pushed tree.","produced_at":"2026-08-26T17:34:44Z","reproducible":true,"references":{"commit":"fb0ff7f36ac21cdb16d85679d2022522b9cb2970","workflow_run":"32984324167","pr":31},"reproduction":"Open PR #31 checks and reproduce the CAD-006 pytest/evidence commands."},
+    {"id":"EV-004","type":"ci-run","description":"Post-merge verification evidence bound to the exact CAD-006 merge revision 74f95529f20a0840f6e1189a37e3b9a3d9c8c34f: governance run #67 (32997108160) completed successfully at 2026-08-26T17:58:41Z and research-cad-006 run #3 (32997108095) completed successfully on the same revision. These runs provide the qualifying post-merge evidence for the Architect's VERIFIED decision.","produced_at":"2026-08-26T17:58:45Z","reproducible":true,"references":{"commit":"74f95529f20a0840f6e1189a37e3b9a3d9c8c34f","workflow_run":"32997108160","pr":31},"reproduction":"Inspect workflow runs 32997108160 and 32997108095; both have conclusion=success and head_sha=74f95529f20a0840f6e1189a37e3b9a3d9c8c34f."}
   ],
-  "acceptance_criteria": [
-    "The exact version of every tested component is recorded from the authoritative pinned sources (CAD-001 requirements.txt, the CAD-001..005 committed environment.json snapshots, and the FreeCAD AppImage SHA256 manifest), cross-checked against the currently-importable distribution metadata where present.",
-    "Every tested component's license is identified from a stable upstream statement and SPDX-classified (copyleft vs permissive).",
-    "A composition flag matrix is complete: every component carries an explicit flag and severity for the LICENSE-001 review; no composition is approved by this gate (the decision owner is LICENSE-001).",
-    "The web deployment model is analysed: the tested server-side path is documented, the WASM/in-browser-native path is explicitly recorded as not tested, and the LGPL posture (pure SaaS vs distributable web client) is documented.",
-    "The Electron/desktop deployment model is analysed: the tested native-worker path is documented, the Electron host license is recorded, and the LGPL posture (dynamic/separate-process linking + written offer for source; no static linking of LGPL into closed-source code) is documented.",
-    "The frozen adapter boundary (Architecture v1.1) is identified as the LGPL-compliance mechanism that preserves the user-replacement right for every copyleft component in both deployment models, referencing the RESEARCH-CAD-001 item-9 adapter-replacement proof.",
-    "The evidence identifies the central composition fact: no GPL (strong-copyleft) component is present in the tested stack (all copyleft present is LGPL), so no GPL-contamination path exists from the CAD/BIM stack into a closed-source composition.",
-    "Results support, reject, or defer the licensing/composition posture under the frozen architecture (recommendation only; LICENSE-001 decides)."
-  ],
-  "non_goals": [
-    "No legal/composition approval (that is LICENSE-001's decision).",
-    "No production packaging change (out of scope per Issue #6).",
-    "No architecture change (Architecture v1.1 remains FROZEN).",
-    "No re-measurement of CAD/BIM performance or capability (those are CAD-001..005's evidence; this gate is a records/inventory benchmark).",
-    "No final adapter-boundary + replacement-path + end-to-end-workflow proof (that is RESEARCH-CAD-007's scope, per the Issue #6 directive)."
-  ],
-  "risk_assumptions": [
-    "DEPENDENCY-GATE FLAG: per issue #6 this work item depends on RESEARCH-CAD-001 (VERIFIED), RESEARCH-CAD-002 (VERIFIED da85d8d), RESEARCH-CAD-003 (VERIFIED f1f900e), RESEARCH-CAD-004 (VERIFIED 93c5211) and RESEARCH-CAD-005 (MERGED on GitHub at 719bd42 'Merge RESEARCH-CAD-005 after Architect approval'; the local governance record still shows VERIFYING — the MERGED transition and VERIFIED decision are the Product Owner / Architect's to record/issue, and have not been directed to the implementer at this time). The validator's dependency invariant will therefore report exactly one failing check (RESEARCH-CAD-005 not VERIFIED) while CAD-006 sits in the IMPLEMENTING execution state. The invariant is NOT weakened; resolution path: the Architect records VERIFIED for RESEARCH-CAD-005 against merge revision 719bd42 (both workflows already green on that revision: governance run #40 and research-cad-005 run #6 per the CAD-005 record's EV-004), after which governance validation turns fully green for CAD-006. The dependency-aware governance repository-integration tests derive this expected single failure independently.",
-    "SPEC DIVERGENCE: spec/work-items.md still carries the older RESEARCH-CAD-006 definition ('CAD/BIM performance and file-size gate', dependencies RESEARCH-CAD-001 only). Per the Issue #6 execution directive, the authoritative scope is exact-version licensing/composition evidence covering web + Electron/desktop deployment models (same superseded-wording pattern as RESEARCH-CAD-001..005, where the GitHub Issue redefines the work item and the implementer follows the Issue, flagging the divergence). This record follows Issue #6.",
-    "Architecture version: this record targets v1.1 (active, FROZEN) per the execution directive ('Architecture: v1.1 frozen'). The spec/work-items.md 'Architecture version: 1.0' header predates the ACR-002 merge (same superseded-wording situation recorded in RESEARCH-CAD-003/004/005).",
-    "Records/inventory only: this gate does not exercise the CAD/BIM engines; versions are asserted from the committed authoritative pinned sources (CAD-001 requirements.txt + the CAD-001..005 environment.json snapshots + the FreeCAD AppImage SHA256 manifest), cross-checked against the currently-importable distribution metadata where present. Non-importable distributions in a given evidence-collection environment (e.g. ifcopenshell, FreeCAD AppImage) are recorded honestly from the pinned sources, not coerced.",
-    "WASM not tested: the web model's in-browser-WASM path (OCCT emscripten, cadquery-ocp WASM, IfcOpenShell WASM) was not exercised in CAD-001..005; the tested web path is server-side only. A distributable web client bundling LGPL WASM would need LICENSE-001 Section 4 review (flagged, not approved).",
-    "Final-proof scope boundary: the final adapter-boundary + replacement-path + existential end-to-end-workflow proof is RESEARCH-CAD-007's scope (the final CAD/BIM feasibility gate, per the Issue #6 directive). This gate references CAD-001's existing replacement proof as the basis for the LGPL-compliance analysis; it does not re-prove the replacement path end-to-end."
-  ],
-  "evidence_requirements": [
-    "Exact versions of every tested component recorded from the authoritative pinned sources, cross-checked against currently-importable distribution metadata where present.",
-    "Licenses identified from stable upstream statements and SPDX-classified.",
-    "Composition flag matrix complete (every component carries an explicit flag and severity); no composition approved.",
-    "Both deployment models (web + Electron/desktop) analysed with documented LGPL posture.",
-    "The adapter boundary (Architecture v1.1) identified as the LGPL-compliance mechanism, referencing the CAD-001 item-9 replacement proof.",
-    "No-GPL-contamination fact recorded.",
-    "Records/inventory benchmark reproducible from the committed pinned sources (no CAD engine exercise required)."
-  ],
-  "state": "MERGED",
-  "transitions": [
-    {
-      "from": "DRAFT",
-      "to": "READY",
-      "at": "2026-08-25T19:50:00Z",
-      "actor": "pectoraux",
-      "role": "architect",
-      "reason": "Architect execution directive on issue #6 (the directive is recorded on Issue #6): RESEARCH-CAD-006 is now the active substantive work item — exact-version licensing/composition EVIDENCE for the stack actually tested across CAD-001..005, covering BOTH the web and the Electron/desktop deployment models; no legal approval or production packaging change is implied; Architecture v1.1 frozen; the composition decision is LICENSE-001's. After CAD-006, RESEARCH-CAD-007 is the final CAD/BIM feasibility gate (adapter boundary, replacement path, existential end-to-end workflow).",
-      "references": {
-        "issue": 6
-      }
-    },
-    {
-      "from": "READY",
-      "to": "ASSIGNED",
-      "at": "2026-08-25T19:50:00Z",
-      "actor": "pectoraux",
-      "role": "product-owner",
-      "reason": "Execution directive assigns RESEARCH-CAD-006 to the implementation agent; dependencies RESEARCH-CAD-001..004 VERIFIED and RESEARCH-CAD-005 MERGED on GitHub at 719bd42 (the tested stack across CAD-001..005 is the assessment target).",
-      "references": {
-        "issue": 6,
-        "assignee": "z-ai-implementation-agent"
-      }
-    },
-    {
-      "from": "ASSIGNED",
-      "to": "IMPLEMENTING",
-      "at": "2026-08-25T19:52:00Z",
-      "actor": "z-ai-implementation-agent",
-      "role": "implementer",
-      "reason": "Implementation started on branch work/research-cad-006-licensing-composition (off origin/main 719bd42): building the records/inventory harness (offisos_licbench) covering exact-version recording, license identification, composition flags, both deployment models (web + Electron/desktop), and the adapter boundary (v1.1) as the LGPL-compliance mechanism; the feat commit cb5d988 carries the deliverable, the deterministic test suite (11/11) and the committed evidence run (30/0/0)."
-    },
-    {
-      "from": "IMPLEMENTING",
-      "to": "PR_OPEN",
-      "at": "2026-08-26T17:34:44Z",
-      "actor": "z-ai-implementation-agent",
-      "role": "implementer",
-      "reason": "Evidence package complete and re-validated on the merged branch fb0ff7f (built as cb5d988 + d3ab457 on 2026-08-25 against 719bd42; held unpushed by the CAD-005 dependency gate; cleared by merging main dcdc181 which carries RESEARCH-CAD-005 VERIFIED, per the standing instruction \"push CAD-006 once CAD-005 is VERIFIED\"). Local gauntlet on fb0ff7f: governance validate 137/137 (the prior single expected dependency-gate failure now legitimately cleared — CAD-005 VERIFIED via DEC-002), governance tests 58/58, check-protected 1/1 (27 changed paths, none protected), root typecheck clean, CAD-006 deterministic gate 11/11, evidence reproduction 30/0/0 semantically identical to the committed run-001 (all six benchmark files identical excluding timestamps). Branch pushed (one-shot URL, GIT_TERMINAL_PROMPT=0, -c credential.helper=, output redacted; the credential was a session environment variable only — never written to any file, worklog, commit or git-config). PR #31 opened against main. CI on the PR head: the work item workflow research-cad-006 GREEN (run 32984324167, attempt 2, after a platform-cancelled first provisioning attempt during a GitHub Actions major outage — no code change involved, documented in EV-003); the CI governance run queued behind the same outage is expected to confirm the locally-validated 137/137 (recorded transparently, not assumed). No CAD-006 content change across the main merge: research/cad-006/**, the CI workflow and the governance record are byte-identical to cb5d988/d3ab457 (evidence SHAs preserved). Lifecycle honesty: state advances to PR_OPEN only; no APPROVED or VERIFIED claim is made — verification is decided by the Architect per governance/README.md (LOCK-004). Records-only gate: no production packaging change, no architecture change, no legal-approval claim; Architecture v1.1 FROZEN; rules.ts untouched.",
-      "references": {
-        "pr": 31,
-        "issue": 6,
-        "evidence": [
-          "EV-001",
-          "EV-002",
-          "EV-003"
-        ],
-        "commit": "fb0ff7f36ac21cdb16d85679d2022522b9cb2970"
-      }
-    },
-    {
-      "from": "PR_OPEN",
-      "to": "VERIFYING",
-      "at": "2026-08-26T17:58:24Z",
-      "actor": "z-ai-implementation-agent",
-      "role": "implementer",
-      "reason": "PR #31 merged as 74f95529f20a0840f6e1189a37e3b9a3d9c8c34f (merged_by pectoraux). Merge-commit verification evidence gathered and recorded as EV-004: governance run 32997108160 and research-cad-006 run 32997108095 both success on the merge revision."
-    },
-    {
-      "from": "VERIFYING",
-      "to": "ARCHITECT_REVIEW",
-      "at": "2026-08-26T17:58:24Z",
-      "actor": "pectoraux",
-      "role": "architect",
-      "reason": "Verification evidence complete on the merge revision (EV-004; both merge-commit workflows green). Entered for Architect review per the recorded disposition timing (PR #31 comment 5429083028 at 17:57:57Z precedes the merge at 17:58:24Z — the review had already been performed; this transcription records it against the merged state).",
-      "references": {
-        "evidence": [
-          "EV-001",
-          "EV-002",
-          "EV-003",
-          "EV-004"
-        ]
-      }
-    },
-    {
-      "from": "ARCHITECT_REVIEW",
-      "to": "APPROVED",
-      "at": "2026-08-26T17:58:24Z",
-      "actor": "pectoraux",
-      "role": "architect",
-      "reason": "DEC-001: ARCHITECT DISPOSITION — APPROVED (PR #31 comment 5429083028), with the carried constraints (not legal approval; candidate subject to LGPL isolation/distribution obligations; production npm stack pending LICENSE-001; CAD-007 remains the final CAD/BIM feasibility gate).",
-      "references": {
-        "decision": "DEC-001",
-        "evidence": [
-          "EV-001",
-          "EV-002",
-          "EV-003",
-          "EV-004"
-        ]
-      }
-    },
-    {
-      "from": "APPROVED",
-      "to": "MERGED",
-      "at": "2026-08-26T17:58:24Z",
-      "actor": "pectoraux",
-      "role": "product-owner",
-      "reason": "PR #31 merged (merge performed by pectoraux); both merge-commit workflows green (EV-004). State recorded through MERGED only; VERIFIED remains the Architect's separate post-merge decision against 74f9552.",
-      "references": {
-        "merge_commit": "74f95529f20a0840f6e1189a37e3b9a3d9c8c34f",
-        "pr": 31,
-        "evidence": [
-          "EV-004"
-        ]
-      }
-    }
-  ],
-  "evidence": [
-    {
-      "id": "EV-001",
-      "type": "automated-test-suite",
-      "description": "Deterministic CI test suite for the RESEARCH-CAD-006 licensing/composition inventory: 11 tests running the full benchmark in-process and asserting zero failures and zero unknowns — version recording from authoritative pinned sources, license identification + SPDX classification, composition flag matrix completeness + no-approval invariant, both deployment models covered (web + Electron/desktop), the adapter boundary frozen at v1.1 with the LGPL user-replacement right preserved, no GPL in the tested stack, FreeCAD AppImage SHA256 integrity, and the environment-snapshot provenance sources (CAD-001 pins + CAD-001..005 snapshots + FreeCAD manifest).",
-      "produced_at": "2026-08-25T19:44:00Z",
-      "reproducible": true,
-      "reproduction": "cd research/cad-006 && python3 -m pip install -r requirements.txt && python3 -m pytest tests/ -q",
-      "references": {
-        "commit": "cb5d988357a95f789e6d32dbd4d0d5c337336a58"
-      }
-    },
-    {
-      "id": "EV-002",
-      "type": "inspectable-artifact",
-      "description": "Committed evidence run research/cad-006/evidence/run-001/: 30 pass / 0 fail / 0 unknown across six benchmark modules (versions, licenses, composition, deployment-web, deployment-desktop, replacement-path) with the exact licensing-relevant environment snapshot (provenance sources: CAD-001 requirements.txt pins, CAD-001..005 environment.json snapshot cross-reference, FreeCAD AppImage SHA256 manifest).",
-      "produced_at": "2026-08-25T19:44:35Z",
-      "reproducible": true,
-      "reproduction": "cd research/cad-006 && make bench (RUN_ID=run-001; resumable). The harness is pure-Python and needs no CAD engine importable; versions are read from the committed pinned sources and cross-checked against the currently-importable distribution metadata.",
-      "references": {
-        "artifact_path": "research/cad-006/evidence/run-001",
-        "commit": "cb5d988357a95f789e6d32dbd4d0d5c337336a58"
-      }
-    },
-    {
-      "id": "EV-003",
-      "type": "ci-run",
-      "description": "CI evidence for PR #31. SUBSTANTIVE RUN GREEN: research-cad-006 run 32984324167 (attempt 2, conclusion=success on head fb0ff7f, completed 2026-08-26T16:49:33Z) — the work item's own workflow executed the deterministic benchmark test suite (11/11) and the full evidence run (30 pass / 0 fail / 0 unknown, exit 0) on a clean ubuntu-latest + Python 3.12 + pytest-only toolchain (engines asserted from the committed snapshots exactly as designed) with the evidence artifact uploaded. GOVERNANCE: validated locally on the exact pushed tree fb0ff7f — governance validate 137/137 (the CAD-006 record validates with the dependency gate legitimately cleared: RESEARCH-CAD-005 VERIFIED at 719bd42 via DEC-002); the corresponding CI governance run 32984412826 was created 2026-08-26T15:13:11Z and remained QUEUED behind a GitHub Actions MAJOR OUTAGE (platform status: Actions major_outage; incident \"ramp up slowly\" — the first provisioning attempt of the research workflow was likewise platform-cancelled with jobs never created/startup_failure and succeeded on rerun once capacity returned). The outage-delayed governance run and the run on this record commit's head are expected to go green on the same tree the local validator already passed 137/137 on; any deviation is reported, not assumed. No workflow or code change was involved in any rerun — purely platform-queue operations.",
-      "produced_at": "2026-08-26T17:34:44Z",
-      "reproducible": true,
-      "references": {
-        "commit": "fb0ff7f36ac21cdb16d85679d2022522b9cb2970",
-        "workflow_run": "32984324167",
-        "pr": 31
-      },
-      "reproduction": "open the PR #31 checks: research-cad-006 run 32984324167 (success, attempt 2) on head fb0ff7f; locally: npm run governance -- validate (137/137), cd research/cad-006 && python3 -m pytest tests/ -q (11/11) && RUN_ID=ci-run python3 -m offisos_licbench.benchmarks.run_all ci-run (30/0/0, semantically identical to the committed evidence/run-001)"
-    },
-    {
-      "id": "EV-004",
-      "type": "ci-run",
-      "description": "Merge-commit CI green plus local reproduction on the merge revision. GitHub Actions on merge commit 74f95529f20a0840f6e1189a37e3b9a3d9c8c34f (PR #31, merged 2026-08-26T17:58:24Z by pectoraux): governance run 32997108160 (started 17:58:27Z, conclusion=success, https://github.com/pectoraux/offisos/actions/runs/32997108160) and research-cad-006 run 32997108095 (started 17:58:27Z, conclusion=success, https://github.com/pectoraux/offisos/actions/runs/32997108095 — the 11/11 deterministic licensing gate + 30/0/0 evidence reproduction with artifact upload, re-run on the merged tree). The two workflows triggered by the merge are exactly the paths the merge touched (governance + research/cad-006). Reproduce locally: npm run governance -- validate; cd research/cad-006 && make test (pytest 11/11); the licensing benchmark reproduction (RUN_ID=ci-run, 30/0/0) is documented in the CAD-006 record's EV-003.",
-      "produced_at": "2026-08-26T17:58:27Z",
-      "reproducible": true,
-      "references": {
-        "pr": 31,
-        "commit": "74f95529f20a0840f6e1189a37e3b9a3d9c8c34f",
-        "workflow_run": "https://github.com/pectoraux/offisos/actions/runs/32997108160 (governance, success); https://github.com/pectoraux/offisos/actions/runs/32997108095 (research-cad-006, success)"
-      }
-    }
-  ],
-  "decisions": [
-    {
-      "id": "DEC-001",
-      "status": "approved",
-      "decided_at": "2026-08-26T17:57:57Z",
-      "decided_by": "pectoraux",
-      "role": "architect",
-      "rationale": "Architect disposition on PR #31 (comment 5429083028, 2026-08-26T17:57:57Z): RESEARCH-CAD-006 satisfies the Issue #6 research gate — the exact-version inventory, license provenance, Web/SaaS vs Electron/desktop composition analysis, replacement-path evidence, deterministic 30/0/0 run, and green CI are sufficient for this work item's acceptance. Constraints carried forward: this is an architectural/research approval, not legal approval; the tested CAD/BIM dependency stack is acceptable as an evidence-backed candidate subject to the documented LGPL isolation/distribution obligations; the production application dependency stack (Electron/Next.js/React/npm packaging) remains outside Issue #6 scope and must be covered by the LICENSE-001 production composition audit before release packaging decisions; CAD-007 remains the final CAD/BIM feasibility gate. VERIFIED remains a separate post-merge Architect decision bound to the merge revision (74f9552) — not recorded by the implementer.",
-      "evidence_refs": [
-        "EV-001",
-        "EV-002",
-        "EV-003"
-      ]
-    }
+  "decisions":[
+    {"id":"DEC-002","status":"approved","decided_by":"pectoraux","role":"architect","decided_at":"2026-08-26T17:57:57Z","rationale":"PR #31 approval: the exact-version inventory, license provenance, Web/SaaS versus Electron/desktop composition analysis, replacement-path evidence, deterministic 30/0/0 run, and green CI were sufficient for the Issue #6 research gate. This was not legal approval and VERIFIED remained reserved for a separate post-merge decision."},
+    {"id":"DEC-003","status":"approved","decided_by":"pectoraux","role":"architect","decided_at":"2026-08-26T19:11:00Z","rationale":"Post-merge verification decision for RESEARCH-CAD-006. The work item is verified against merge commit 74f95529f20a0840f6e1189a37e3b9a3d9c8c34f using EV-004: governance run 32997108160 and research-cad-006 run 32997108095 both succeeded on that exact revision. This is research-gate verification only; no legal approval or production packaging authorization is granted."}
   ]
 }
