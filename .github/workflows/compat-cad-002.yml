@@ -1,0 +1,351 @@
+name: compat-cad-002
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "app/**"
+      - "apps/web/**"
+      - "apps/electron/**"
+      - ".github/workflows/compat-cad-002.yml"
+  pull_request:
+    paths:
+      - "app/**"
+      - "apps/web/**"
+      - "apps/electron/**"
+      - ".github/workflows/compat-cad-002.yml"
+
+# COMPAT-CAD-002: 3D/BIM authoring workflow (Issue #39, Architecture v1.1
+# FROZEN). Proves the BIM milestone on the pinned toolchain:
+#   - bim-shell: the FULL app suite WITH the real engine installed (python3 +
+#     cadquery-ocp / OCCT 7.8.1.1) — the 190 existing CAD/drafting tests stay
+#     green and the 70 new BIM tests (elements / geometry derivation / editops
+#     / workflow / occt realization / reference-extrude / host-parity) all
+#     run; the LOCK-018 forbidden-import scan now covers src/bim.
+#   - web-host-bim: the deployable Web host lints + typechecks + builds and
+#     serves the FULL BIM authoring workflow from the running dev server:
+#     story → walls → slab → openings → door/window → space through
+#     bim.createElements, exact coordinate/semantic assertions (opening
+#     distance, space area, cascade copies with re-pointed references),
+#     standard cameras, geometry realized through the real OCCT adapter with
+#     exact volume provenance attached, undo/redo, save/open with identical
+#     graph events hash, observed-semantics graph labels and typed failures.
+#   - electron-host-bim: the deployable Electron host builds and runs FIVE
+#     smokes — the engine-free regression smoke, the real-engine geometry
+#     smoke, the model-revisions smoke, the 2D drafting smoke (all
+#     regressions) and the new 14-step BIM BrowserWindow smoke (real OCCT
+#     happy path incl. build/undo/redo/save-open identity; typed engine-free
+#     path when OCP is absent).
+#
+# Engine isolation (LOCK-003/018): BIM authoring is engine-free; the OCCT
+# kernel runs only inside the adapter's disposable subprocess workers.
+
+jobs:
+  bim-shell:
+    name: BIM deterministic suite (OCCT 7.8.1.1 toolchain)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Set up Python (pinned toolchain)
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install the pinned OCCT engine (cadquery-ocp)
+        run: pip install cadquery-ocp==7.8.1.1.post1
+
+      - name: Install root toolchain (tsx + typescript + ajv)
+        run: npm install
+
+      - name: Typecheck app shell (incl. the BIM core)
+        run: node_modules/.bin/tsc --noEmit -p app/tsconfig.json
+
+      - name: "Full app test suite with the real engine (260 tests)"
+        working-directory: app
+        run: node --import tsx --test test/*.test.ts
+
+      - name: Forbidden-import static check (LOCK-018 incl. src/bim)
+        working-directory: app
+        run: node --import tsx --test test/no-forbidden-imports.test.ts
+
+      - name: Engine availability probe (pin check)
+        working-directory: app
+        run: |
+          echo '{"op":"ping"}' | python3 src/adapters/occt/worker/occt-worker.py
+          echo '{"op":"ping"}' | python3 src/adapters/occt/worker/occt-worker.py | grep -q '"engineVersion":"7.8.1.1.post1"'
+
+      - name: Extrude probe (COMPAT-CAD-002 vocabulary pin)
+        working-directory: app
+        run: |
+          echo '{"op":"prepare","recipe":[{"id":"s0","make":"extrude","profile":[[0,0],[1000,0],[1000,500],[0,500]],"height":200}],"result":"s0"}' \
+            | python3 src/adapters/occt/worker/occt-worker.py | grep -q '"volume":100000000.0'
+
+      - name: Upload test evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: compat-cad-002-shell-evidence
+          path: app/src
+          if-no-files-found: warn
+
+  web-host-bim:
+    name: Web host (Next.js 16 + BIM authoring smoke)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/web/package.json
+
+      - name: Set up Python (pinned toolchain)
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install the pinned OCCT engine (cadquery-ocp)
+        run: pip install cadquery-ocp==7.8.1.1.post1
+
+      - name: Install Web host deps
+        working-directory: apps/web
+        run: npm install
+
+      - name: Web host lint (ESLint)
+        working-directory: apps/web
+        run: npm run lint
+
+      - name: Web host typecheck (tsc --noEmit)
+        working-directory: apps/web
+        run: npx tsc --noEmit
+
+      - name: Web host build (next build --webpack)
+        working-directory: apps/web
+        run: npm run build
+
+      - name: Web host BIM authoring smoke (dev server)
+        working-directory: apps/web
+        env:
+          OFFISOS_OCCT_WORKER: ${{ github.workspace }}/app/src/adapters/occt/worker/occt-worker.py
+        run: |
+          npm run dev -- --webpack -p 3000 &
+          DEV_PID=$!
+          for i in $(seq 1 60); do
+            if curl -sS -o /dev/null http://localhost:3000/ 2>/dev/null; then break; fi
+            sleep 2
+          done
+          sleep 3
+          python3 /dev/stdin <<'PYEOF'
+          import json, math, urllib.request
+
+          def send(body):
+              req = urllib.request.Request(
+                  "http://localhost:3000/api/cad",
+                  data=json.dumps({"api": "1", "body": body}).encode(),
+                  headers={"Content-Type": "application/json"},
+                  method="POST",
+              )
+              with urllib.request.urlopen(req, timeout=120) as r:
+                  return json.loads(r.read())
+
+          def cmd(name, payload): return send({"type": "command", "name": name, "payload": payload})
+          def q(name, payload): return send({"type": "query", "name": name, "payload": payload})
+          ok = lambda r: r.get("ok") is True
+
+          # The representative BIM authoring workflow through the shared App API
+          # (Story → Walls → Slab → Openings → Door/Window → Space).
+          assert ok(cmd("document.create", {"entityId": "ci-compat-cad-002"})), "create"
+          r = cmd("bim.createElements", {"entities": [
+              {"type": "bim.story", "id": "story-gf", "name": "Ground Floor", "level": 0, "height": 3000},
+              {"type": "bim.wall", "id": "wall-south", "storyId": "story-gf", "start": [0, 0], "end": [6000, 0], "width": 300, "height": 3000},
+              {"type": "bim.wall", "id": "wall-east", "storyId": "story-gf", "start": [6000, 0], "end": [6000, 5000], "width": 300, "height": 3000},
+              {"type": "bim.wall", "id": "wall-north", "storyId": "story-gf", "start": [6000, 5000], "end": [0, 5000], "width": 300, "height": 3000},
+              {"type": "bim.wall", "id": "wall-west", "storyId": "story-gf", "start": [0, 5000], "end": [0, 0], "width": 300, "height": 3000},
+              {"type": "bim.slab", "id": "slab-g", "storyId": "story-gf", "corner1": [-300, -300], "corner2": [6300, 5300], "thickness": 200, "baseOffset": -200},
+              {"type": "bim.opening", "id": "op-door", "hostId": "wall-south", "distance": 500, "width": 900, "height": 2100, "sill": 0},
+              {"type": "bim.door", "id": "door-main", "openingId": "op-door", "swing": "left", "name": "Main entrance"},
+              {"type": "bim.opening", "id": "op-win", "hostId": "wall-south", "distance": 3500, "width": 1500, "height": 1200, "sill": 900},
+              {"type": "bim.window", "id": "win-1", "openingId": "op-win", "name": "Facade W1"},
+              {"type": "bim.space", "id": "space-office", "storyId": "story-gf", "name": "Office 1",
+               "footprint": [[0, 0], [6000, 0], [6000, 3000], [3000, 3000], [3000, 6000], [0, 6000]], "height": 3000},
+          ]})
+          assert ok(r) and r["value"]["created"] == [
+              "story-gf", "wall-south", "wall-east", "wall-north", "wall-west",
+              "slab-g", "op-door", "door-main", "op-win", "win-1", "space-office"], r.get("value", {}).get("created")
+
+          # Semantics extracted engine-free: space area exact at creation.
+          r = q("bim.getSemantics", {"elementId": "space-office"})
+          assert ok(r) and r["value"]["semantics"]["area"] == 27000000.0, r["value"]["semantics"]
+          r = q("bim.getBuilding", {})
+          assert ok(r) and len(r["value"]["stories"]) == 1 and len(r["value"]["stories"][0]["walls"]) == 4
+          south = next(w for w in r["value"]["stories"][0]["walls"] if w["elementId"] == "wall-south")
+          assert [o["elementId"] for o in south["openings"]] == ["op-door", "op-win"], south["openings"]
+          assert south["openings"][0]["fills"][0]["elementId"] == "door-main"
+
+          # 3D editing: opening moves ALONG the host axis exactly; cascade copy
+          # re-points hosted references to the minted wall copy.
+          assert ok(cmd("bim.move", {"ids": ["op-door"], "dx": 600, "dy": 0, "dz": 0}))
+          els = {e["id"]: e for e in q("document.getState", {})["value"]["elements"]}
+          assert els["op-door"]["props"]["distance"] == 1100, els["op-door"]["props"]
+          r = cmd("bim.copy", {"ids": ["wall-south"], "dx": 0, "dy": 5000, "dz": 0})
+          assert ok(r) and len(r["value"]["created"]) == 5, r["value"]
+          wall_copy, op_door_copy, door_copy, op_win_copy, win_copy = r["value"]["created"]
+          els = {e["id"]: e for e in q("document.getState", {})["value"]["elements"]}
+          assert els[op_door_copy]["props"]["hostId"] == wall_copy and els[op_door_copy]["props"]["distance"] == 1100
+          assert els[door_copy]["props"]["openingId"] == op_door_copy
+          assert els[op_win_copy]["props"]["hostId"] == wall_copy and els[win_copy]["props"]["openingId"] == op_win_copy
+          assert ok(cmd("bim.setProperties", {"elementId": "space-office", "patch": {"name": "Office 1A"}}))
+
+          # Standard camera: deterministic derivation from the derived bbox.
+          assert ok(cmd("bim.setSettings", {"settings": {"camera": {"preset": "iso"}}}))
+          r = q("bim.camera", {"preset": "iso"})
+          assert ok(r), r
+          bbox = r["value"]["bbox"]
+          assert bbox == [-300, -300, -200, 6300, 6000, 3000], bbox
+          cx, cy, cz = ((bbox[0]+bbox[3])/2, (bbox[1]+bbox[4])/2, (bbox[2]+bbox[5])/2)
+          d = 2 * math.dist([bbox[0], bbox[1], bbox[2]], [bbox[3], bbox[4], bbox[5]])
+          k = 1 / math.sqrt(3)
+          eye = r["value"]["camera"]["eye"]
+          assert abs(eye[0] - (cx + k*d)) < 1e-6 and abs(eye[1] - (cy - k*d)) < 1e-6, eye
+          assert r["value"]["camera"]["target"] == [cx, cy, cz]
+
+          # Geometry realized through the REAL OCCT adapter; provenance attached
+          # as one versioned revision; the story is skipped honestly.
+          r = cmd("bim.buildGeometry", {})
+          assert ok(r), r
+          built = {x["elementId"]: x for x in r["value"]["results"]}
+          assert r["value"]["built"] == 15 and len(r["value"]["skipped"]) == 1, (r["value"]["built"], r["value"]["skipped"])
+          assert r["value"]["skipped"][0]["elementId"] == "story-gf" and "level container" in r["value"]["skipped"][0]["reason"]
+          assert built["wall-south"]["meshToken"].startswith("occt:"), built["wall-south"]
+          assert built["wall-south"]["engine"]["engineId"] == "occt" and built["wall-south"]["engine"]["engineVersion"] == "7.8.1.1.post1"
+
+          # Undo removes the attached provenance; redo restores the same token.
+          assert ok(cmd("document.undo", {}))
+          els = {e["id"]: e for e in q("document.getState", {})["value"]["elements"]}
+          assert "meshToken" not in els["wall-south"]["props"], els["wall-south"]["props"]
+          assert ok(cmd("document.redo", {}))
+          els = {e["id"]: e for e in q("document.getState", {})["value"]["elements"]}
+          assert els["wall-south"]["props"]["meshToken"] == built["wall-south"]["meshToken"]
+
+          # Graph: OBSERVED semantics for BIM elements, engine-free identity.
+          ev = q("model.getGraphEvents", {})["value"]["events"]
+          added = [p for e in ev for p in e["payload"]["elements"] if p["element_id"] == "wall-south"]
+          assert all(p["uncertainty"]["semantics"] == "OBSERVED" for p in added), added
+          assert all(p["engineId"] is None for p in added), "canonical ids carry no engine identity"
+
+          # Save/open: identical identity incl. the camera preset; replay verifies.
+          assert ok(cmd("document.setSelection", {"ids": ["wall-south"]}))
+          saved = cmd("document.save", {})["value"]["bytes"]
+          events_hash = q("model.getGraphEvents", {})["value"]["events_hash"]
+          r = cmd("document.open", {"source": saved})
+          assert ok(r), r
+          st = r["value"]
+          assert len(st["elements"]) == 16, len(st["elements"])
+          assert st["bimSettings"]["camera"]["preset"] == "iso", st["bimSettings"]
+          assert st["selection"] == ["wall-south"], st["selection"]
+          assert q("model.getGraphEvents", {})["value"]["events_hash"] == events_hash, "events hash identical after reopen"
+          # versioned commands: create + move + copy + setProperties + build + undo + redo = 7
+          assert len(st["modelHistory"]["revisions"]) == 7, len(st["modelHistory"]["revisions"])
+          for k in range(0, 8):
+              rr = q("model.replay", {"revision_number": k})
+              assert ok(rr) and rr["value"]["verified"] is True, k
+
+          # Typed failures: no silent approximation.
+          r = cmd("bim.move", {"ids": ["op-door"], "dx": 0, "dy": 50, "dz": 0})
+          assert not r["ok"] and r["code"] == "bim_unsupported" and "cross-axis" in r["message"], r
+          r = cmd("bim.move", {"ids": ["door-main"], "dx": 10, "dy": 0, "dz": 0})
+          assert not r["ok"] and r["code"] == "bim_unsupported", r
+          r = cmd("bim.move", {"ids": ["story-gf"], "dx": 10, "dy": 0, "dz": 0})
+          assert not r["ok"] and "Z only" in r["message"], r
+          r = cmd("bim.delete", {"ids": ["story-gf"]})
+          assert not r["ok"] and "still referenced" in r["message"], r
+          print("WEB HOST BIM SMOKE PASS: story+walls+slab+openings+door/window+space; editing+cascades; cameras; OCCT realization; undo/redo; save/open identity; observed semantics; typed failures; events_hash=" + events_hash[:16] + "...")
+          PYEOF
+          kill $DEV_PID || true
+
+  electron-host-bim:
+    name: Electron host (build + regression smokes + BIM smoke)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/electron/package.json
+
+      - name: Set up Python (pinned toolchain)
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install the pinned OCCT engine (cadquery-ocp)
+        run: pip install cadquery-ocp==7.8.1.1.post1
+
+      - name: Install Electron runtime system libraries (xvfb + chromium deps)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends xvfb \
+            libnss3 libatk1.0-0 libatk-bridge2.0-0 libcups2 libxkbcommon0 \
+            libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 \
+            libpango-1.0-0 libcairo2
+          sudo apt-get install -y --no-install-recommends libasound2t64 || \
+            sudo apt-get install -y --no-install-recommends libasound2
+
+      - name: Install Electron host deps
+        working-directory: apps/electron
+        run: npm install
+
+      - name: Electron host typecheck (tsc --noEmit)
+        working-directory: apps/electron
+        run: npm run typecheck
+
+      - name: Electron host build (esbuild)
+        working-directory: apps/electron
+        run: npm run build
+
+      - name: Engine-free regression smoke (CAD-IMPLEMENT-001)
+        working-directory: apps/electron
+        run: npm run smoke
+
+      - name: Real-engine geometry regression smoke (CAD-IMPLEMENT-002)
+        working-directory: apps/electron
+        env:
+          OFFISOS_OCCT_WORKER: ${{ github.workspace }}/app/src/adapters/occt/worker/occt-worker.py
+        run: npm run smoke:geometry
+
+      - name: Model revisions + Graph bridge regression smoke (CAD-IMPLEMENT-003)
+        working-directory: apps/electron
+        run: npm run smoke:model
+
+      - name: 2D drafting regression smoke (COMPAT-CAD-001)
+        working-directory: apps/electron
+        run: npm run smoke:drafting
+
+      - name: BIM authoring smoke (COMPAT-CAD-002, real OCCT happy path)
+        working-directory: apps/electron
+        env:
+          OFFISOS_OCCT_WORKER: ${{ github.workspace }}/app/src/adapters/occt/worker/occt-worker.py
+        run: npm run smoke:bim
+
+      - name: Upload Electron smoke evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: compat-cad-002-electron-smoke
+          path: apps/electron/dist
+          if-no-files-found: warn
