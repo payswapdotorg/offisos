@@ -22,6 +22,7 @@ export {
 export {
   IDLE_PROMPT_STATE,
   applyPromptEvent,
+  describePrompt,
   runCommandScript,
   type PromptEngineState,
   type PromptEvent,

@@ -546,6 +546,13 @@ export function applyPromptEvent(
   }
 }
 
+/** The prompt + command name to display for a state (pure, side-effect free). */
+export function describePrompt(state: PromptEngineState): { readonly prompt: string | null; readonly commandName: string | null } {
+  const cmd = command(state);
+  const step = currentStep(state);
+  return { prompt: step === null ? null : step.prompt, commandName: cmd === null ? null : cmd.name };
+}
+
 // ---------------------------------------------------------------------------
 // Script harness — deterministic command scripts (tests + host smokes).
 // ---------------------------------------------------------------------------

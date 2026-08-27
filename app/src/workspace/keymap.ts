@@ -42,6 +42,11 @@ function isPlain(e: NormalizedKeyEvent): boolean {
  * mapped (the host's default behavior applies).
  */
 export function mapKeyEvent(event: NormalizedKeyEvent, zone: KeyFocusZone): KeyAction | null {
+  // The command-search chord works from EVERY zone (typing in the command
+  // line and pressing Ctrl+K must still open the palette).
+  if ((event.ctrl || event.meta) && !event.alt && event.key.toLowerCase() === "k") {
+    return { type: "palette", palette: "search" };
+  }
   if (zone === "commandLine") {
     if (event.key === "Escape") return { type: "cancel" };
     return null;
