@@ -349,6 +349,8 @@ def op_parse(req: dict[str, Any]) -> dict[str, Any]:
             if mp.Material == material:
                 props: dict[str, Any] = {}
                 for p in mp.Properties or []:
+                    if p is None:  # malformed external file — skip, never crash
+                        continue
                     value = p.NominalValue.wrappedValue if p.NominalValue is not None else None
                     props[p.Name or ""] = value
                 psets[mp.Name or ""] = props
@@ -370,7 +372,7 @@ def op_parse(req: dict[str, Any]) -> dict[str, Any]:
         relating = rel.RelatingMaterial
         if relating is None or not relating.is_a("IfcMaterial"):
             continue
-        for product in rel.RelatedElements or []:
+        for product in rel.RelatedObjects or []:
             if getattr(product, "GlobalId", None):
                 material_name_of[product.GlobalId] = relating.Name or ""
 

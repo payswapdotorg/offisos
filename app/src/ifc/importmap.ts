@@ -1078,21 +1078,9 @@ export function reconcileIfcImport(
         }
         componentDefCanonical.set(rawDefinitionId, definitionId);
       }
-      // Parameter-surface comparison against the existing definition, when present.
+      // Parameter-surface validation against the existing definition, when present.
       const existingDef = existingDefById.get(definitionId);
       if (existingDef !== undefined) {
-        const defParams = (existingDef.props.parameters as Record<string, number>) ?? {};
-        for (const key of new Set([...Object.keys(defParams), ...Object.keys(parameters)])) {
-          const expected = defParams[key];
-          const actual = parameters[key];
-          if (expected === undefined || actual === undefined) {
-            fields.push({ field: `definition.parameters.${key}`, classification: "lossy", expected, actual, note: "parameter surface differs between the document and the file" });
-          } else if (Math.abs(expected - actual) <= IFC_ROUNDTRIP_TOLERANCE_MM) {
-            fields.push(classifyNumber(`definition.parameters.${key}`, expected, actual));
-          } else {
-            fields.push({ field: `definition.parameters.${key}`, classification: "lossy", expected, actual, note: "definition default differs (instance overrides may pin values)" });
-          }
-        }
         // Override keys must belong to the definition's parameter schema —
         // keys outside it are DROPPED with an explicit lossy field (never stored).
         const defSchema = new Set(Object.keys((existingDef.props.parameters as Record<string, number>) ?? {}));
@@ -1133,6 +1121,16 @@ export function reconcileIfcImport(
       });
       componentDefCanonical.set(`@external:${el.globalId}`, definitionId);
     }
+    // CANONICAL MATERIAL REPRESENTATION (derivation semantics): the
+    // association is stored on the instance ONLY when it differs from the
+    // resolved definition's default — an inherited default is never
+    // materialized, so round trips reconcile unchanged.
+    const defDefaultMaterial = (() => {
+      const def = existingDefById.get(definitionId);
+      return def !== undefined ? (def.props.materialId as string | undefined) : undefined;
+    })();
+    const explicitMaterialId = materialId !== null && materialId !== defDefaultMaterial ? materialId : null;
+
     const res = resolveCanonicalId(isOffisosComponent ? identity : null, existingById, "bim.componentInstance");
     if (res.mode === "reconcile") {
       const inst = res.existing.props;
@@ -1148,13 +1146,21 @@ export function reconcileIfcImport(
         classifyNumber("rotation", rotation0, rotation),
         classifyNumber("baseOffset", baseOffset0, baseOffset),
         classifyValue("definitionId", inst.definitionId as string, definitionId),
-        classifyValue("materialId", (inst.materialId as string | undefined) ?? "", materialId ?? ""),
+        classifyValue("materialId", (inst.materialId as string | undefined) ?? "", explicitMaterialId ?? ""),
         classifyNumber("effectiveBox.sizeX", effectiveBoxOf(inst.definitionId as string, inst)[0], boxX),
         classifyNumber("effectiveBox.sizeY", effectiveBoxOf(inst.definitionId as string, inst)[1], boxY),
         classifyNumber("effectiveBox.sizeZ", effectiveBoxOf(inst.definitionId as string, inst)[2], boxZ),
       ];
       for (const key of new Set([...Object.keys(overrides0), ...Object.keys(overrides)])) {
         instanceFields.push(classifyNumber(`overrides.${key}`, overrides0[key] ?? Number.NaN, overrides[key] ?? Number.NaN));
+      }
+      // EFFECTIVE-parameter comparison (definition defaults ⊕ overrides vs
+      // the file's Param.* surface): the honest semantic comparison for the
+      // propagation model — instance state, not definition defaults.
+      const defParams0 = (existingDefById.get(definitionId)?.props.parameters as Record<string, number>) ?? {};
+      const effective0: Record<string, number> = { ...defParams0, ...overrides0 };
+      for (const key of new Set([...Object.keys(effective0), ...Object.keys(parameters)])) {
+        instanceFields.push(classifyNumber(`parameters.${key}`, effective0[key] ?? Number.NaN, parameters[key] ?? Number.NaN));
       }
       instanceFields.push(...fields);
       const changed: Record<string, unknown> = {};
@@ -1163,8 +1169,8 @@ export function reconcileIfcImport(
       if (Math.abs(rotation0 - rotation) > 1e-9) changed.rotation = rotation;
       if (Math.abs(baseOffset0 - baseOffset) > IFC_ROUNDTRIP_TOLERANCE_MM) changed.baseOffset = baseOffset;
       if ((inst.definitionId as string) !== definitionId) changed.definitionId = definitionId;
-      if ((materialId ?? "") !== ((inst.materialId as string | undefined) ?? "")) {
-        if (materialId !== null) changed.materialId = materialId;
+      if ((explicitMaterialId ?? "") !== ((inst.materialId as string | undefined) ?? "")) {
+        if (explicitMaterialId !== null) changed.materialId = explicitMaterialId;
         else changed.materialId = null;
       }
       const overridesChanged =
@@ -1185,7 +1191,7 @@ export function reconcileIfcImport(
         baseOffset,
         overrides: { ...overrides },
       };
-      if (materialId !== null) entity.materialId = materialId;
+      if (explicitMaterialId !== null) entity.materialId = explicitMaterialId;
       if (el.name !== "") entity.name = el.name;
       const minted = res.explicitId ?? (options.mintId !== undefined ? options.mintId() : null);
       if (minted !== null) entity.id = minted;
