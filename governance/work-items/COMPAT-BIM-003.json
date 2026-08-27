@@ -1,0 +1,55 @@
+{
+  "id": "COMPAT-BIM-003",
+  "title": "Reusable parametric components, materials, and model coordination on the verified CAD/BIM product",
+  "issue": 50,
+  "architecture_version": "1.1",
+  "requirements": ["BIM-001", "BIM-002", "IFC-001"],
+  "dependencies": ["RESEARCH-CAD-007", "COMPAT-CAD-003", "COMPAT-IFC-001"],
+  "objective": "Extend the verified CAD/BIM product beyond one-off BIM elements into reusable parametric building components and model-coordination primitives while preserving the frozen CADDocument/App API/Construction Graph architecture: family/component definitions produce typed instances with stable canonical identities and instance-to-definition provenance; materials exist as canonical domain data independent of OCCT/IfcOpenShell internals; grids and reference planes are canonical coordination elements (levels already exist as bim.story); definition edits propagate deterministically to instances and create immutable revisions; component/material semantics round-trip through the production IFC adapter with explicit LOSSY/UNSUPPORTED reporting; Construction Graph mappings stay keyed by canonical component/instance identities; Web/Electron produce equivalent semantic results through the shared App API.",
+  "acceptance_criteria": [
+    "A representative component definition can produce multiple instances with stable canonical definition/instance relationships.",
+    "Definition edits propagate deterministically to affected instances and create immutable revisions.",
+    "Materials are represented canonically with stable identity and provenance independent of OCCT/IfcOpenShell internals.",
+    "Grid/level/reference-plane data persists and survives save/open and replay.",
+    "Web and Electron produce equivalent semantic component/model-coordination results.",
+    "IFC export/import preserves supported component/material semantics or reports explicit LOSSY/UNSUPPORTED outcomes.",
+    "Construction Graph mapping remains independent of engine-native IDs.",
+    "Existing drafting, BIM, documentation, IFC, real-engine and governance suites remain green.",
+    "No protected architecture files are modified."
+  ],
+  "non_goals": [
+    "Full Revit/Archicad family-system parity.",
+    "Full constraint solver implementation (alignment constraints outside the supported set are reported explicitly as unsupported).",
+    "Advanced MEP/structural authoring.",
+    "Project/scheduling work (explicitly deferred by the Architect).",
+    "Architecture changes (Architecture v1.1 stays frozen).",
+    "Approval or verification claim by implementation."
+  ],
+  "risk_assumptions": [
+    "Issue #50 (scope) + Issue #51 (execution directive) + execution release comment 5440204020 are authoritative.",
+    "Component/material/coordination scope is carried by existing requirement IDs BIM-001/BIM-002/IFC-001; no new requirement IDs were added to spec/requirements.md (spec stays frozen).",
+    "COMPAT-CAD-001 remains a pre-existing architect-side governance close-out debt on main; it is not a dependency of this slice.",
+    "Parametric propagation is designed as derivation-from-definition (instances store placement plus explicit parameter overrides; effective parameters are computed deterministically) so no stale copy can drift; definition edits are themselves immutable revisions and instance impact is queryable.",
+    "IFC round-trip covers component instances (mapped per category to IfcDoor/IfcWindow/IfcWall/IfcFurnishingElement with identity psets) and materials (IfcMaterial + IfcRelAssociatesMaterial); grids/reference planes are coordination-only canonical data with explicit UNSUPPORTED classification in IFC exchange.",
+    "Toolchain pins follow the verified COMPAT-IFC-001 setup: cadquery-ocp==7.8.1.1.post1, ifcopenshell==0.8.5, IfcTester==0.8.5, numpy==2.1.3; known broken PyPI mirrors stay excluded."
+  ],
+  "evidence": [],
+  "decisions": [],
+  "transitions": [
+    {"from":"DRAFT","to":"READY","at":"2026-08-27T12:56:23Z","actor":"pectoraux","role":"architect","reason":"Issue #50 opened with the COMPAT-BIM-003 scope (reusable parametric components, materials, model coordination) on top of the verified CAD/BIM product.","references":{"issue":50}},
+    {"from":"READY","to":"ASSIGNED","at":"2026-08-27T13:58:11Z","actor":"pectoraux","role":"architect","reason":"Architect execution release comment 5440204020 released the dependency gate after COMPAT-IFC-001 was verified on main via close-out PR #63 (merge 9e4d9257).","references":{"issue":50,"assignee":"z-ai-implementation-agent"}},
+    {"from":"ASSIGNED","to":"IMPLEMENTING","at":"2026-08-27T14:08:03Z","actor":"z-ai-implementation-agent","role":"implementer","reason":"Implementation started on the released branch work/compat-bim-003-components-materials-coordination from the verified mainline 9e4d9257 after the dependency gate (RESEARCH-CAD-007, COMPAT-CAD-003, COMPAT-IFC-001 all VERIFIED) was verified clear.","references":{"issue":50}}
+  ],
+  "state":"IMPLEMENTING",
+  "evidence_requirements":[
+    "Deterministic component-definition/instance tests: multiple instances from one definition with stable canonical identities and definition provenance; strict LOCK-007 validation.",
+    "Propagation evidence: definition edits change instance effective parameters deterministically, create immutable revisions, and undo restores both; instance overrides survive propagation.",
+    "Materials evidence: canonical identity/provenance independent of engines; reference integrity (no dangling material references).",
+    "Coordination evidence: grids/reference planes persist through save/open and replay.",
+    "IFC round-trip evidence through the production adapter: component/material semantics preserved or explicitly classified LOSSY/UNSUPPORTED in the reconciliation report; identity psets preserve canonical ids; engine GlobalIds stay provenance-only.",
+    "Construction Graph evidence: component/instance/material/coordination elements project on canonical ids, independent of engine ids (LOCK-019).",
+    "Web/Electron parity through the shared App API and real transports.",
+    "Existing CAD, drafting, BIM, documentation, IFC, real-engine and governance suites remain green; LOCK-018 boundary holds for any engine code.",
+    "CI reproduces the component/material/coordination suite on the pinned toolchains with regressions green."
+  ]
+}
