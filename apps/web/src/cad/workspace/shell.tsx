@@ -259,7 +259,7 @@ export function WorkspaceShell(): React.JSX.Element {
             const key = action.action === "toggle.grid" ? "grid" : "snap";
             const settings = snapshot?.draftingSettings;
             const enabled = key === "grid" ? !(settings?.grid.enabled ?? true) : !(settings?.snap.enabled ?? true);
-            const res = await send({ type: "command", name: "drafting.setSettings" as Command["name"], payload: { [key]: { enabled } } });
+            const res = await send({ type: "command", name: "drafting.setSettings" as Command["name"], payload: { settings: { [key]: { enabled } } } });
             if (!res.ok) setError(`[drafting.setSettings] ${res.code}: ${res.message}`);
             break;
           }
@@ -373,7 +373,7 @@ export function WorkspaceShell(): React.JSX.Element {
           } else if (action.aid === "grid" || action.aid === "snap") {
             const settings = snapshot?.draftingSettings;
             const enabled = action.aid === "grid" ? !(settings?.grid.enabled ?? true) : !(settings?.snap.enabled ?? true);
-            void send({ type: "command", name: "drafting.setSettings" as Command["name"], payload: { [action.aid]: { enabled } } }).then(refresh);
+            void send({ type: "command", name: "drafting.setSettings" as Command["name"], payload: { settings: { [action.aid]: { enabled } } } }).then(refresh);
           } else {
             setHistoryLines((h) => [...h, "OSNAP modes are configured in the layers palette settings."]);
           }
@@ -649,7 +649,7 @@ export function WorkspaceShell(): React.JSX.Element {
               if (aid === "grid" || aid === "snap") {
                 const settings = snapshot?.draftingSettings;
                 const enabled = aid === "grid" ? !(settings?.grid.enabled ?? true) : !(settings?.snap.enabled ?? true);
-                void send({ type: "command", name: "drafting.setSettings" as Command["name"], payload: { [aid]: { enabled } } }).then(refresh);
+                void send({ type: "command", name: "drafting.setSettings" as Command["name"], payload: { settings: { [aid]: { enabled } } } }).then(refresh);
                 return;
               }
               setHistoryLines((h) => [...h, "OSNAP modes are configured in the layers palette settings."]);

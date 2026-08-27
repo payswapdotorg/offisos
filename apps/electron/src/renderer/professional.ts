@@ -260,7 +260,7 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
           const key = action.action === "toggle.grid" ? "grid" : "snap";
           const settings = state.snapshot?.draftingSettings;
           const enabled = key === "grid" ? !(settings?.grid.enabled ?? true) : !(settings?.snap.enabled ?? true);
-          await command("drafting.setSettings", { [key]: { enabled } });
+          await command("drafting.setSettings", { settings: { [key]: { enabled } } });
           break;
         }
         case "view.zoomExtents":

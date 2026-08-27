@@ -132,7 +132,7 @@ export function ModelCanvas(props: ModelCanvasProps): React.JSX.Element {
   );
 
   const toWorld = React.useCallback(
-    (sx: number, sy: number): Vec2 => [sx / zoom + pan.x, (canvasH - sy) / zoom],
+    (sx: number, sy: number): Vec2 => [sx / zoom + pan.x, (canvasH - sy) / zoom + pan.y],
     [pan, zoom, canvasH],
   );
 
@@ -144,7 +144,7 @@ export function ModelCanvas(props: ModelCanvasProps): React.JSX.Element {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           api: "1",
-          body: { type: "command", name: "drafting.setSettings", payload: { view: { pan: [p.x, p.y], zoom: z } } },
+          body: { type: "command", name: "drafting.setSettings", payload: { settings: { view: { pan: [p.x, p.y], zoom: z } } } },
         }),
       }).catch(() => undefined);
     }, 400);
