@@ -1,0 +1,92 @@
+{
+  "id": "COMPAT-CAD-003",
+  "title": "Construction documentation and drawing production on the verified CAD/BIM product",
+  "issue": 41,
+  "architecture_version": "1.1",
+  "requirements": [
+    "CAD-001",
+    "CAD-002",
+    "BIM-002"
+  ],
+  "dependencies": [
+    "RESEARCH-CAD-007",
+    "COMPAT-CAD-002"
+  ],
+  "objective": "Extend the verified CAD/BIM product (Architecture v1.1, post COMPAT-CAD-002) into construction-documentation workflows without leaving the shared CADDocument/App API/Construction Graph boundaries: drawing views derived from the BIM model (orthographic plans, elevations, sections and detail views with viewport state), dimensions/tags/annotations associated with canonical element identities, sheets/layouts/title blocks, deterministic view regeneration after model changes, immutable/replayable/persisted documentation revisions, Web/Electron parity for equivalent semantic drawing results, and export contracts for future PDF/DWG documentation adapters without committing to proprietary writers. The acceptance bar is the actual documentation workflow with deterministic assertions, not a visual mockup.",
+  "acceptance_criteria": [
+    "A representative building model can generate plan, elevation and section views through the shared App API in both hosts.",
+    "Dimensions/annotations remain associated with canonical element IDs (typed dangling reporting on reference loss; no silent re-targeting).",
+    "Model changes deterministically regenerate affected documentation (re-projection and annotation value refresh are pure functions of the model; identical inputs produce identical view content hashes).",
+    "Documentation revisions are immutable, replayable and persisted (view/sheet/annotation edits and regeneration value updates flow through the existing versioned command model and model history; save/open preserves them with identical content/history hashes).",
+    "Sheets/layouts/title blocks place views deterministically; the sheet export IR is a canonical deterministic artifact (the future PDF/DWG adapter contract).",
+    "Web and Electron produce equivalent semantic drawing results through their real transports (same view content hashes, same export IR hashes).",
+    "Existing 2D drafting, real-engine and BIM suites remain green (no regression).",
+    "New deterministic documentation tests are reproducible in CI.",
+    "Unsupported documentation/export operations (e.g. PDF/DWG writers, aligned-dimension modes outside the declared vocabulary) fail explicitly with typed errors; no silent approximation.",
+    "No protected architecture paths are modified."
+  ],
+  "non_goals": [
+    "Full AutoCAD/Archicad documentation parity.",
+    "Production PDF/DWG writer implementation (export contracts only).",
+    "Project/scheduling implementation or research (explicitly deferred by the Architect).",
+    "Architecture modification (Architecture v1.1 stays frozen).",
+    "Hidden-line removal or photorealistic rendering in elevations/sections (projected outlines are drawn wireframe; documented).",
+    "Cross/aligned dimension modes beyond the declared axis-aligned overall/clear vocabulary.",
+    "IFC documentation property sets (COMPAT-IFC-001 remains downstream).",
+    "Approval or verification claim by implementation."
+  ],
+  "risk_assumptions": [
+    "Issue #41 (scope) + Issue #45 (execution directive) are the authoritative scope. DIVERGENCE FLAG: the spec/work-items.md roadmap has no construction-documentation entry in the CAD track (COMPAT-CAD-001 -> COMPAT-BIM-001 -> COMPAT-IFC-001); the nearest name COMPAT-DOC-001 is the OFFICE track (DOCX, OFFICE-002/004) — a different workstream. Following the established precedent (issue is authoritative, divergence flagged — never silently reconciled), the record id is COMPAT-CAD-003.",
+    "DIVERGENCE FLAG (requirements registry): spec/requirements.md has no explicit construction-documentation requirement ID. The record maps the slice onto CAD-001 (professional-grade 2D drafting primitives — the documentation drawing output), CAD-002 (3D geometry workflows — the projected source) and BIM-002 (BIM semantics independent of editor implementation — annotations associated with canonical identities). Mapping documented, not silent.",
+    "Dependencies RESEARCH-CAD-007 and COMPAT-CAD-002 are both VERIFIED on main (ebddf227) at execution start — the governance dependency gate is clear (Issue #45 directive). COMPAT-CAD-001's record remains PR_OPEN on main (PR #38 merged at 9b27d16) — pre-existing architect-side close-out debt, flagged here; it is not a declared dependency of this slice.",
+    "Design decision (documentation revision model): view definitions, sheets and documentation annotations are VERSIONED document content through additive DocumentEdit types and annotation-kind elements — their lineage flows through the existing immutable model history. Projected primitives are DERIVED state, never stored: every view projection is a pure deterministic function of (view definition, current BIM elements) recomputed on demand; regeneration refreshes stored annotation values through one atomic versioned batch. Determinism is proven by re-computation (same inputs -> identical canonical view content hashes), not by trusting cached output.",
+    "Design decision (elevation/section fidelity): elevations draw projected outlines of all walls/slabs/openings without hidden-line removal; sections draw the projected outlines of elements intersecting the cut plane (cut profiles are projected outlines; filled cut hatching is a rendering concern). Both are documented limitations of this slice, honestly represented — no occlusion is inferred or approximated."
+  ],
+  "evidence": [],
+  "decisions": [],
+  "transitions": [
+    {
+      "from": "DRAFT",
+      "to": "READY",
+      "at": "2026-08-26T23:30:00Z",
+      "actor": "pectoraux",
+      "role": "architect",
+      "reason": "Issue #41 opened with the COMPAT-CAD-003 scope on top of merged PR #40; implementation prepared but held at the governance dependency gate (COMPAT-CAD-002 not yet VERIFIED).",
+      "references": {
+        "issue": 41
+      }
+    },
+    {
+      "from": "READY",
+      "to": "ASSIGNED",
+      "at": "2026-08-27T01:40:00Z",
+      "actor": "pectoraux",
+      "role": "architect",
+      "reason": "Architect execution directive (Issue #45) assigned COMPAT-CAD-003 to the implementation agent after COMPAT-CAD-002 was formally VERIFIED on main (close-out PR #43 merged as ebddf227, governance run #89 green); branch work/compat-cad-003-construction-docs fast-forwarded to the verified mainline.",
+      "references": {
+        "issue": 45,
+        "assignee": "z-ai-implementation-agent"
+      }
+    },
+    {
+      "from": "ASSIGNED",
+      "to": "IMPLEMENTING",
+      "at": "2026-08-27T01:57:00Z",
+      "actor": "z-ai-implementation-agent",
+      "role": "implementer",
+      "reason": "Construction-documentation implementation started on the assigned branch (dependency gate verified clear: RESEARCH-CAD-007 VERIFIED, COMPAT-CAD-002 VERIFIED on main ebddf227).",
+      "references": {
+        "issue": 41
+      }
+    }
+  ],
+  "state": "IMPLEMENTING",
+  "evidence_requirements": [
+    "Deterministic construction-documentation tests with exact projected coordinates and view content hashes (no declared tolerances needed for the analytic projection vocabulary; any numeric comparisons carry explicit tolerances).",
+    "Regeneration determinism evidence: model change -> view hash change -> undo -> identical hash restored; annotation values refreshed through immutable versioned revisions.",
+    "Persistence evidence: save/open round-trips preserve views, sheets, title blocks and annotations with identical content/history hashes.",
+    "Web and Electron host parity through the shared App API and the real transports (identical view content hashes and export IR hashes).",
+    "Typed explicit failures for unsupported documentation/export operations (docs_unsupported) and validation failures (docs_invalid).",
+    "Existing drafting, real-engine (OCCT) and BIM suites remain green; LOCK-018 forbidden-import scan extended to the documentation core."
+  ]
+}
