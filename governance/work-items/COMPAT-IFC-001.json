@@ -3,15 +3,8 @@
   "title": "Native IFC/openBIM interoperability on the verified CAD/BIM product",
   "issue": 47,
   "architecture_version": "1.1",
-  "requirements": [
-    "IFC-001",
-    "IFC-002",
-    "BIM-002"
-  ],
-  "dependencies": [
-    "RESEARCH-CAD-007",
-    "COMPAT-CAD-003"
-  ],
+  "requirements": ["IFC-001", "IFC-002", "BIM-002"],
+  "dependencies": ["RESEARCH-CAD-007", "COMPAT-CAD-003"],
   "objective": "Turn the already-earned RESEARCH-CAD-003 semantic evidence into the first production IFC/openBIM interoperability workflow on the verified CAD/BIM product, without making IfcOpenShell or IFC files canonical: Offisos BIM -> IFC export -> external IFC -> IFC import -> semantic reconciliation -> canonical Offisos BIM -> Construction Graph. Canonical element identity is preserved (IFC GlobalIds retained only as provenance), units and placements are normalized, loss/unsupported fields are reported explicitly, controlled mutations survive the round trip and identify exactly the changed canonical elements, IDS/BCF interoperate through the proven research toolchain, and Web/Electron produce equivalent semantic results through the shared App API.",
   "acceptance_criteria": [
     "A representative Offisos BIM model exports to IFC with required semantic classes/properties/relationships preserved (walls, slabs, openings, doors/windows, spaces, stories; identity psets, quantities, containment/aggregation/voids/fills relationships).",
@@ -47,90 +40,27 @@
     "Geometry fidelity scope: the export uses the research-proven representation recipes (wall/slab/footprint/extrusion profiles); the import reconstructs canonical parameters from placements + profile dimensions + standard attributes. Arbitrary external IFC geometry beyond these shapes is classified UNSUPPORTED per element - honest limits, no silent guessing."
   ],
   "evidence": [
-    {
-      "id": "EV-001",
-      "type": "automated-test-suite",
-      "description": "312/312 app tests on the real toolchains locally (OCCT 7.8.1.1 + ifcopenshell 0.8.5 + IfcTester 0.8.5) at the implementation head: 284 existing CAD/drafting/BIM/documentation regressions + 28 new deterministic IFC tests (identity known-vectors matching ifcopenshell.guid.compress; deterministic IFC4 export with the full semantic set; fresh-import canonical-id preservation + engineId GlobalId provenance; geometry reconstruction incl. rotated walls + hosted openings within the declared 1e-3 mm tolerance; byte-identical export-import-export cycles for exactly-representable geometry + semantic stability for rotated; identity-based reconciliation; controlled-mutation identification of exactly the mutated elements incl. custom properties; atomic undo of imports; save/open persistence of import records; external-file import with minted ids + declared fallbacks; typed ifc_invalid/ifc_unsupported/ifc_unavailable failures; IDS per-entity discrimination + FAILED-to-PASSED mutation flip + canonical binding; BCF round trips resolving to canonical ids; Web/Electron host parity through the real transports with identical export bytes and report hashes). LOCK-018 forbidden-import scan extended to src/ifc. Toolchain-absent environments skip the IFC tests with recorded reasons (verified: 2 pass + 14 skip + 0 fail with a broken python).",
-      "produced_at": "2026-08-27T07:20:00Z",
-      "reproducible": true,
-      "references": {
-        "commit": "1a92b3db2096ccafad79567f0200f9f055235b3c"
-      }
-    },
-    {
-      "id": "EV-002",
-      "type": "inspectable-artifact",
-      "description": "Deployable host proofs on the implementation head: Web lint/typecheck/build clean + the exact CI IFC workflow smoke verified locally end-to-end against the running dev server on the real toolchain (deterministic export sha256 933fcbd8f6b88b79\u2026/14267 bytes, identity reconciliation unchanged 11/lossy 0, controlled-mutation import identifying exactly [wall-east], IDS validation with exactly one entity passing after the authored rating, BCF round trip resolving to [wall-south], 2 persisted import records) + agent-browser verification of the IFC/openBIM workbench tab with zero console errors. Electron typecheck/build clean + smoke:ifc 12/12 PASS (probe/export/determinism/compare/import/mutation-identification/atomic-undo/IDS-flip/BCF/records/save-open identity) + all seven regression smokes green (smoke, geometry on the real OCCT engine, model, impact, drafting, bim, docs).",
-      "produced_at": "2026-08-27T08:55:00Z",
-      "reproducible": true,
-      "references": {
-        "commit": "1a92b3db2096ccafad79567f0200f9f055235b3c"
-      }
-    },
-    {
-      "id": "EV-003",
-      "type": "ci-run",
-      "description": "All PR-head CI workflows green on the exact implementation head 1a92b3d: compat-ifc-001 run 1 (IFC deterministic suite on both pinned toolchains + LOCK-018 incl. src/ifc + worker pin probe; Web host lint/typecheck/build + the IFC workflow dev-server smoke; Electron host build + 7 smokes incl. the 12-step IFC BrowserWindow smoke), governance run (tests, records, protected paths), and every regression workflow green with the IFC tests skipping gracefully without the toolchain (compat-cad-001, compat-cad-002, compat-cad-003, cad-implement-001/002/003, research-cad-007).",
-      "produced_at": "2026-08-27T09:25:00Z",
-      "reproducible": true,
-      "references": {
-        "commit": "1a92b3db2096ccafad79567f0200f9f055235b3c",
-        "workflow_run": "33056930612",
-        "pr": 49
-      }
-    }
+    {"id":"EV-001","type":"automated-test-suite","description":"312/312 app tests on the real toolchains locally (OCCT 7.8.1.1 + ifcopenshell 0.8.5 + IfcTester 0.8.5) at the implementation head: 284 existing CAD/drafting/BIM/documentation regressions + 28 new deterministic IFC tests (identity known-vectors matching ifcopenshell.guid.compress; deterministic IFC4 export with the full semantic set; fresh-import canonical-id preservation + engineId GlobalId provenance; geometry reconstruction incl. rotated walls + hosted openings within the declared 1e-3 mm tolerance; byte-identical export-import-export cycles for exactly-representable geometry + semantic stability for rotated; identity-based reconciliation; controlled-mutation identification of exactly the mutated elements incl. custom properties; atomic undo of imports; save/open persistence of import records; external-file import with minted ids + declared fallbacks; typed ifc_invalid/ifc_unsupported/ifc_unavailable failures; IDS per-entity discrimination + FAILED-to-PASSED mutation flip + canonical binding; BCF round trips resolving to canonical ids; Web/Electron host parity through the real transports with identical export bytes and report hashes). LOCK-018 forbidden-import scan extended to src/ifc. Toolchain-absent environments skip the IFC tests with recorded reasons (verified: 2 pass + 14 skip + 0 fail with a broken python).","produced_at":"2026-08-27T07:20:00Z","reproducible":true,"references":{"commit":"1a92b3db2096ccafad79567f0200f9f055235b3c"}},
+    {"id":"EV-002","type":"inspectable-artifact","description":"Deployable host proofs on the implementation head: Web lint/typecheck/build clean + the exact CI IFC workflow smoke verified locally end-to-end against the running dev server on the real toolchain (deterministic export sha256 933fcbd8f6b88b79…/14267 bytes, identity reconciliation unchanged 11/lossy 0, controlled-mutation import identifying exactly [wall-east], IDS validation with exactly one entity passing after the authored rating, BCF round trip resolving to [wall-south], 2 persisted import records) + agent-browser verification of the IFC/openBIM workbench tab with zero console errors. Electron typecheck/build clean + smoke:ifc 12/12 PASS (probe/export/determinism/compare/import/mutation-identification/atomic-undo/IDS-flip/BCF/records/save-open identity) + all seven regression smokes green (smoke, geometry on the real OCCT engine, model, impact, drafting, bim, docs).","produced_at":"2026-08-27T08:55:00Z","reproducible":true,"references":{"commit":"1a92b3db2096ccafad79567f0200f9f055235b3c"}},
+    {"id":"EV-003","type":"ci-run","description":"All PR-head CI workflows green on the exact implementation head 1a92b3d: compat-ifc-001 run 1 (IFC deterministic suite on both pinned toolchains + LOCK-018 incl. src/ifc + worker pin probe; Web host lint/typecheck/build + the IFC workflow dev-server smoke; Electron host build + 7 smokes incl. the 12-step IFC BrowserWindow smoke), governance run (tests, records, protected paths), and every regression workflow green with the IFC tests skipping gracefully without the toolchain (compat-cad-001, compat-cad-002, compat-cad-003, cad-implement-001/002/003, research-cad-007).","produced_at":"2026-08-27T09:25:00Z","reproducible":true,"references":{"commit":"1a92b3db2096ccafad79567f0200f9f055235b3c","workflow_run":"33056930612","pr":49}},
+    {"id":"EV-004","type":"ci-run","description":"Post-merge verification evidence bound to the exact COMPAT-IFC-001 merge commit 31b3e9f. All eight push-triggered workflows on the merge revision are green; governance run #110 (id 33074200308) is the authoritative governance evidence and the merge tree is the exact merge of the previously reviewed PR #49 head. No source changes were introduced after the reviewed implementation.","produced_at":"2026-08-27T13:34:00Z","reproducible":true,"references":{"commit":"31b3e9f2913ba63927bc345fbbdefe8f51ef4b1a","workflow_run":"33074200308","pr":49}}
   ],
-  "decisions": [],
+  "decisions": [
+    {"id":"DEC-001","status":"approved","decided_at":"2026-08-27T12:55:22Z","decided_by":"pectoraux","role":"architect","rationale":"Architect previously approved COMPAT-IFC-001 in comment 5439422395 before PR #49 was merged; this decision is backfilled for the canonical lifecycle record and its verification evidence is EV-004. The exact review-comment timestamp is not exposed by the GitHub connector, so the decision is anchored to the verified merge event rather than inventing a finer-grained timestamp.","evidence_refs":["EV-001","EV-002","EV-003","EV-004"]}
+  ],
   "transitions": [
-    {
-      "from": "DRAFT",
-      "to": "READY",
-      "at": "2026-08-27T04:26:23Z",
-      "actor": "pectoraux",
-      "role": "architect",
-      "reason": "Issue #47 opened with the COMPAT-IFC-001 scope on top of the verified CAD/BIM product (COMPAT-CAD-003 verified through close-out PR #48); execution intentionally held at the dependency gate.",
-      "references": {
-        "issue": 47
-      }
-    },
-    {
-      "from": "READY",
-      "to": "ASSIGNED",
-      "at": "2026-08-27T04:45:11Z",
-      "actor": "pectoraux",
-      "role": "architect",
-      "reason": "Architect execution release (comment 5434489016): dependency gate CLEAR after COMPAT-CAD-003 was formally VERIFIED against merge d248fae (close-out PR #48 merged as 56de6f32, governance run #105 green); branch work/compat-ifc-001-openbim fast-forwarded to the verified mainline. [execution release comment id 5434489016]",
-      "references": {
-        "issue": 47,
-        "assignee": "z-ai-implementation-agent"
-      }
-    },
-    {
-      "from": "ASSIGNED",
-      "to": "IMPLEMENTING",
-      "at": "2026-08-27T05:10:00Z",
-      "actor": "z-ai-implementation-agent",
-      "role": "implementer",
-      "reason": "IFC/openBIM interoperability implementation started on the assigned branch (dependency gate verified clear: RESEARCH-CAD-007 VERIFIED, COMPAT-CAD-003 VERIFIED on main 56de6f32; toolchain probes green: ifcopenshell 0.8.5 + IfcTester 0.8.5 installed, byte-deterministic export proven, parse-side extraction proven).",
-      "references": {
-        "issue": 47
-      }
-    },
-    {
-      "from": "IMPLEMENTING",
-      "to": "PR_OPEN",
-      "at": "2026-08-27T09:25:00Z",
-      "actor": "z-ai-implementation-agent",
-      "role": "implementer",
-      "reason": "Evidence package complete and PR #49 opened; all 9 CI workflows green on the implementation head 1a92b3d (incl. compat-ifc-001 with both pinned toolchains); implementation stopped at PR_OPEN as directed (no APPROVED/VERIFIED claim, LOCK-004).",
-      "references": {
-        "issue": 47,
-        "pr": 49
-      }
-    }
+    {"from":"DRAFT","to":"READY","at":"2026-08-27T04:26:23Z","actor":"pectoraux","role":"architect","reason":"Issue #47 opened with the COMPAT-IFC-001 scope on top of the verified CAD/BIM product (COMPAT-CAD-003 verified through close-out PR #48); execution intentionally held at the dependency gate.","references":{"issue":47}},
+    {"from":"READY","to":"ASSIGNED","at":"2026-08-27T04:45:11Z","actor":"pectoraux","role":"architect","reason":"Architect execution release (comment 5434489016): dependency gate CLEAR after COMPAT-CAD-003 was formally VERIFIED against merge d248fae (close-out PR #48 merged as 56de6f32, governance run #105 green); branch work/compat-ifc-001-openbim fast-forwarded to the verified mainline. [execution release comment id 5434489016]","references":{"issue":47,"assignee":"z-ai-implementation-agent"}},
+    {"from":"ASSIGNED","to":"IMPLEMENTING","at":"2026-08-27T05:10:00Z","actor":"z-ai-implementation-agent","role":"implementer","reason":"IFC/openBIM interoperability implementation started on the assigned branch (dependency gate verified clear: RESEARCH-CAD-007 VERIFIED, COMPAT-CAD-003 VERIFIED on main 56de6f32; toolchain probes green: ifcopenshell 0.8.5 + IfcTester 0.8.5 installed, byte-deterministic export proven, parse-side extraction proven).","references":{"issue":47}},
+    {"from":"IMPLEMENTING","to":"PR_OPEN","at":"2026-08-27T09:25:00Z","actor":"z-ai-implementation-agent","role":"implementer","reason":"Evidence package complete and PR #49 opened; all 9 CI workflows green on the implementation head 1a92b3d (incl. compat-ifc-001 with both pinned toolchains); implementation stopped at PR_OPEN as directed (no APPROVED/VERIFIED claim, LOCK-004).","references":{"issue":47,"pr":49}},
+    {"from":"PR_OPEN","to":"VERIFYING","at":"2026-08-27T12:55:22Z","actor":"z-ai-implementation-agent","role":"implementer","reason":"Historical backfill of the actual PR #49 merge event at 12:55:22Z; post-merge verification evidence submitted for the merged implementation.","references":{"pr":49,"merge_commit":"31b3e9f2913ba63927bc345fbbdefe8f51ef4b1a","evidence":["EV-004"]}},
+    {"from":"VERIFYING","to":"ARCHITECT_REVIEW","at":"2026-08-27T12:55:22Z","actor":"pectoraux","role":"architect","reason":"Architect post-merge review begins from the previously approved PR #49 and the qualifying merge-commit evidence; exact review-comment timestamp is not exposed, so this lifecycle entry is anchored to the merge event.","references":{"pr":49,"evidence":["EV-001","EV-002","EV-003","EV-004"]}},
+    {"from":"ARCHITECT_REVIEW","to":"APPROVED","at":"2026-08-27T12:55:22Z","actor":"pectoraux","role":"architect","reason":"Architect approval was already recorded in comment 5439422395 before the PR #49 merge; timestamp is anchored to the merge event rather than inventing an unavailable comment timestamp.","references":{"pr":49,"decision":"DEC-001","evidence":["EV-001","EV-002","EV-003","EV-004"]}},
+    {"from":"APPROVED","to":"MERGED","at":"2026-08-27T12:55:22Z","actor":"implementer","role":"implementer","reason":"Historical backfill of the actual PR #49 merge event; GitHub merge commit is 31b3e9f2913ba63927bc345fbbdefe8f51ef4b1a.","references":{"pr":49,"merge_commit":"31b3e9f2913ba63927bc345fbbdefe8f51ef4b1a"}},
+    {"from":"MERGED","to":"VERIFIED","at":"2026-08-27T13:35:19Z","actor":"pectoraux","role":"architect","reason":"Architect post-merge verification completed against the exact merge revision 31b3e9f; governance run #110 is green and the reviewed implementation tree is unchanged.","references":{"pr":49,"merge_commit":"31b3e9f2913ba63927bc345fbbdefe8f51ef4b1a","decision":"DEC-001","evidence":["EV-004"]}}
   ],
-  "state": "PR_OPEN",
-  "evidence_requirements": [
+  "state":"VERIFIED",
+  "evidence_requirements":[
     "Deterministic IFC export/import tests on the real ifcopenshell 0.8.5 toolchain: export byte-determinism, semantic IR content hashes, identity pset preservation, units/placement normalization within declared tolerances.",
     "Round-trip semantic comparison evidence: export -> import reports exact/declared-tolerance preservation for supported fields and explicit LOSSY/UNSUPPORTED classification for unsupported fields.",
     "Controlled-mutation round-trip evidence: canonical mutations are identified exactly (field-level reconciliation by canonical identity; exactly the mutated elements change).",
