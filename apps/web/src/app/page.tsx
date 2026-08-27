@@ -86,6 +86,7 @@ import type { ImpactCascadeResult } from "@/cad/client/http-transport";
 import { DraftingWorkbench } from "@/cad/drafting/workbench";
 import { BimWorkbench } from "@/cad/bim/workbench";
 import { DocsWorkbench } from "@/cad/docs/workbench";
+import { IfcWorkbench } from "@/cad/ifc/workbench";
 
 // --- Helpers --------------------------------------------------------------
 
@@ -134,7 +135,7 @@ function randomOffset(max: number): number {
 // --- Component -------------------------------------------------------------
 
 export default function Home() {
-  const [workbenchMode, setWorkbenchMode] = React.useState<"drafting" | "bim" | "docs">("drafting");
+  const [workbenchMode, setWorkbenchMode] = React.useState<"drafting" | "bim" | "docs" | "ifc">("drafting");
   const [snapshot, setSnapshot] = React.useState<CADDocumentSnapshot | null>(null);
   const [selection, setSel] = React.useState<string[]>([]);
   const [loading, setLoading] = React.useState(true);
@@ -542,7 +543,7 @@ export default function Home() {
           </div>
           <div className="flex items-center gap-2">
             <Badge variant="secondary" className="font-mono">
-              CAD-IMPLEMENT-003 · COMPAT-CAD-001/002/003 / v1.1
+              CAD-IMPLEMENT-003 · COMPAT-CAD-001/002/003 + IFC-001 / v1.1
             </Badge>
             {engine && (
               <Badge variant="outline" className="font-mono">
@@ -1131,22 +1132,43 @@ export default function Home() {
             >
               Documentation
             </Button>
+            <Button
+              role="tab"
+              size="sm"
+              variant={workbenchMode === "ifc" ? "default" : "outline"}
+              aria-selected={workbenchMode === "ifc"}
+              onClick={() => setWorkbenchMode("ifc")}
+            >
+              IFC / openBIM
+            </Button>
           </div>
-          {workbenchMode === "drafting" ? <DraftingWorkbench /> : workbenchMode === "bim" ? <BimWorkbench /> : <DocsWorkbench />}
+          {workbenchMode === "drafting" ? (
+            <DraftingWorkbench />
+          ) : workbenchMode === "bim" ? (
+            <BimWorkbench />
+          ) : workbenchMode === "docs" ? (
+            <DocsWorkbench />
+          ) : (
+            <IfcWorkbench />
+          )}
         </section>
       </main>
 
       <footer className="mt-auto border-t">
         <div className="px-4 sm:px-6 lg:px-8 py-4 text-xs text-muted-foreground">
-          Offisos CAD-IMPLEMENT-003 + COMPAT-CAD-001/002/003 — milestone: persistent
+          Offisos CAD-IMPLEMENT-003 + COMPAT-CAD-001/002/003 + COMPAT-IFC-001 — milestone: persistent
           model revisions + Construction Graph bridge (immutable revision
           history, save/open persistence, stable canonical element identity,
           deterministic graph events, Web/Electron parity); the 2D drafting +
           3D/BIM authoring workbenches (stories/walls/slabs/openings/doors/
-          windows/spaces, deterministic cameras, real OCCT geometry builds); and
-          the construction-documentation workbench (plan/elevation/section/detail
+          windows/spaces, deterministic cameras, real OCCT geometry builds); the
+          construction-documentation workbench (plan/elevation/section/detail
           views, annotations on canonical ids, deterministic regeneration, A1
-          sheets + the canonical Sheet IR export contract).
+          sheets + the canonical Sheet IR export contract); and the IFC/openBIM
+          interoperability workbench (deterministic IFC4 export, import +
+          reconciliation with field-level classification and declared fallbacks,
+          IDS validation bound to canonical ids, BCF issue round trips, persisted
+          import records — GlobalIds are provenance only).
           Architecture v1.1 FROZEN.
         </div>
       </footer>

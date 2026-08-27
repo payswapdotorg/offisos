@@ -704,7 +704,7 @@ def op_bcf_build(req: dict[str, Any]) -> dict[str, Any]:
                 topic_status=str(t.get("status", "Open")),
             )
             camera = np.array([0.0, 0.0, 0.0], dtype="float64")
-            handler.add_viewpoint_from_point_and_guids(camera, refs)
+            handler.add_viewpoint_from_point_and_guids(camera, *refs)
             comment_text = t.get("comment")
             if isinstance(comment_text, str) and comment_text:
                 comment = bcf_model.Comment(

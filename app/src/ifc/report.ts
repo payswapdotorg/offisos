@@ -77,9 +77,13 @@ export function ifcReportHash(report: IfcImportReport): string {
   return createHash("sha256").update(canonicalStringify(report)).digest("hex");
 }
 
-/** Build a field result (exact). */
+/** Build a field result (exact). Undefined expected/actual are OMITTED —
+ *  canonical JSON has no undefined (LOCK-007). */
 export function exactField(field: string, expected?: unknown, actual?: unknown): IfcFieldResult {
-  return { field, classification: "exact", expected, actual };
+  const out: Record<string, unknown> = { field, classification: "exact" };
+  if (expected !== undefined) out.expected = expected;
+  if (actual !== undefined) out.actual = actual;
+  return out as unknown as IfcFieldResult;
 }
 
 /** Build a field result (tolerance within the declared mm bound). */
@@ -87,13 +91,17 @@ export function toleranceField(field: string, expected: number, actual: number):
   return { field, classification: "tolerance", expected, actual, tolerance: IFC_ROUNDTRIP_TOLERANCE_MM };
 }
 
-/** Classify a numeric comparison (mm domain). */
+/** Classify a numeric comparison (mm domain). NaN operands classify lossy
+ *  with a note (never serialized as NaN — canonical JSON discipline). */
 export function classifyNumber(field: string, expected: number, actual: number): IfcFieldResult {
-  if (expected === actual) return exactField(field, expected, actual);
-  if (Math.abs(expected - actual) <= IFC_ROUNDTRIP_TOLERANCE_MM) {
-    return toleranceField(field, expected, actual);
+  if (Number.isFinite(expected) && Number.isFinite(actual)) {
+    if (expected === actual) return exactField(field, expected, actual);
+    if (Math.abs(expected - actual) <= IFC_ROUNDTRIP_TOLERANCE_MM) {
+      return toleranceField(field, expected, actual);
+    }
+    return { field, classification: "lossy", expected, actual };
   }
-  return { field, classification: "lossy", expected, actual };
+  return { field, classification: "lossy", note: "value missing on one side of the comparison" };
 }
 
 /** Classify a general value comparison. */

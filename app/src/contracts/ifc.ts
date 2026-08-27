@@ -12,11 +12,14 @@
 
 // --- Build request (deterministic IFC generation) ----------------------------
 
-/** Identity provenance written as Pset_OffisosIdentity on every element. */
+/** Identity provenance written as Pset_OffisosIdentity on every element.
+ *  IDENTITY ONLY: the export is a pure function of the canonical element
+ *  state — version metadata never enters the file (byte-determinism across
+ *  documents; the document history is the canonical revision record). */
 export interface IfcIdentity {
   readonly DomainId: string;
   readonly DomainKind: string;
-  readonly ModelRevision: string;
+  readonly ModelRevision?: string;
 }
 
 /** A story in the build request (IFC length units: metres). */

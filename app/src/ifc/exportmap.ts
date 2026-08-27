@@ -39,10 +39,9 @@ const KNOWN_PROPS = new Set([
 ]);
 
 /** Author-set extra props (e.g. FireRating) → Pset_OffisosCustom. */
-function customPropsOf(entity: BimEntity): Readonly<Record<string, string | number | boolean>> | undefined {
-  const source = entity as unknown as Readonly<Record<string, unknown>>;
+function customPropsOf(rawProps: Readonly<Record<string, unknown>>): Readonly<Record<string, string | number | boolean>> | undefined {
   const out: Record<string, string | number | boolean> = {};
-  for (const [key, value] of Object.entries(source)) {
+  for (const [key, value] of Object.entries(rawProps)) {
     if (KNOWN_PROPS.has(key)) continue;
     if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
       out[key] = value;
@@ -51,8 +50,9 @@ function customPropsOf(entity: BimEntity): Readonly<Record<string, string | numb
   return Object.keys(out).length > 0 ? out : undefined;
 }
 
-function identityOf(id: string, kind: string, modelRevision: string): IfcIdentity {
-  return { DomainId: id, DomainKind: kind, ModelRevision: modelRevision };
+function identityOf(id: string, kind: string): IfcIdentity {
+  // Identity ONLY — no version metadata (byte-determinism across documents).
+  return { DomainId: id, DomainKind: kind };
 }
 
 /** Deterministic wall length (mm). */
@@ -99,8 +99,8 @@ export interface IfcExportOutcome {
  * `projectName` names the IfcProject. */
 export function buildIfcExportRequest(
   entities: readonly BimEntity[],
+  rawPropsById: ReadonlyMap<string, Readonly<Record<string, unknown>>>,
   storyLevels: ReadonlyMap<string, number>,
-  modelRevision: string,
   projectName: string,
 ): IfcExportOutcome {
   const stories = entities.filter((e): e is StoryEntity => e.type === "bim.story");
@@ -135,7 +135,7 @@ export function buildIfcExportRequest(
       name: s.name,
       elevation: s.level * MM_TO_M,
       height: s.height * MM_TO_M,
-      identity: identityOf(s.id, "story", modelRevision),
+      identity: identityOf(s.id, "story"),
     }))
     .sort((a, b) => a.guid.localeCompare(b.guid));
 
@@ -153,9 +153,9 @@ export function buildIfcExportRequest(
         height: w.height * MM_TO_M,
         thickness: w.width * MM_TO_M,
         baseZ: (levelOf(w.storyId) + w.baseOffset) * MM_TO_M,
-        identity: identityOf(w.id, "wall", modelRevision),
+        identity: identityOf(w.id, "wall"),
         qtos: wallQtos(w, openingsByHost.get(w.id) ?? []),
-        ...(customPropsOf(w) !== undefined ? { custom: customPropsOf(w)! } : {}),
+        ...(customPropsOf(rawPropsById.get(w.id) ?? {}) !== undefined ? { custom: customPropsOf(rawPropsById.get(w.id) ?? {})! } : {}),
       };
     })
     .sort((a, b) => a.guid.localeCompare(b.guid));
@@ -172,9 +172,9 @@ export function buildIfcExportRequest(
         corner2: [s.corner2[0] * MM_TO_M, s.corner2[1] * MM_TO_M],
         thickness: s.thickness * MM_TO_M,
         baseZ: (levelOf(s.storyId) + s.baseOffset) * MM_TO_M,
-        identity: identityOf(s.id, "slab", modelRevision),
+        identity: identityOf(s.id, "slab"),
         qtos: { GrossVolume: w * h * s.thickness * MM_TO_M * MM_TO_M * MM_TO_M },
-        ...(customPropsOf(s) !== undefined ? { custom: customPropsOf(s)! } : {}),
+        ...(customPropsOf(rawPropsById.get(s.id) ?? {}) !== undefined ? { custom: customPropsOf(rawPropsById.get(s.id) ?? {})! } : {}),
       };
     })
     .sort((a, b) => a.guid.localeCompare(b.guid));
@@ -194,7 +194,7 @@ export function buildIfcExportRequest(
         width: o.width * MM_TO_M,
         height: o.height * MM_TO_M,
         thickness: host.width * MM_TO_M,
-        identity: identityOf(o.id, "opening", modelRevision),
+        identity: identityOf(o.id, "opening"),
       };
     })
     .sort((a, b) => a.guid.localeCompare(b.guid));
@@ -214,7 +214,7 @@ export function buildIfcExportRequest(
       storyGuid: storyGuid.get(entity.storyId)!,
       overallWidth: opening.width * MM_TO_M,
       overallHeight: opening.height * MM_TO_M,
-      identity: identityOf(entity.id, entity.type === "bim.door" ? "door" : "window", modelRevision),
+      identity: identityOf(entity.id, entity.type === "bim.door" ? "door" : "window"),
     };
     if (entity.type === "bim.door") {
       return { ...base, params: { Swing: entity.swing, LeafThickness: entity.leafThickness } };
@@ -240,9 +240,9 @@ export function buildIfcExportRequest(
         footprint: s.footprint.map((p) => [(p[0] - minX) * MM_TO_M, (p[1] - minY) * MM_TO_M] as const),
         height: s.height * MM_TO_M,
         longName: s.name,
-        identity: identityOf(s.id, "space", modelRevision),
+        identity: identityOf(s.id, "space"),
         qtos: { GrossFloorArea: s.area * MM_TO_M * MM_TO_M },
-        ...(customPropsOf(s) !== undefined ? { custom: customPropsOf(s)! } : {}),
+        ...(customPropsOf(rawPropsById.get(s.id) ?? {}) !== undefined ? { custom: customPropsOf(rawPropsById.get(s.id) ?? {})! } : {}),
       };
     })
     .sort((a, b) => a.guid.localeCompare(b.guid));

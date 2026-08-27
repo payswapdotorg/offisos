@@ -38,7 +38,9 @@ import {
 } from "../bim/elements.js";
 import type { Element } from "../contracts/caddocument.js";
 import {
+  IFC_ROUNDTRIP_TOLERANCE_MM,
   classifyNumber,
+  toleranceField,
   classifyValue,
   exactField,
   type IfcElementReport,
@@ -51,12 +53,81 @@ import {
 
 const IDENTITY_PSET = "Pset_OffisosIdentity";
 const PARAMS_PSET = "Pset_OffisosParams";
+
+/** Compare authored custom props (Pset_OffisosCustom) against the element's
+ *  current extra props; returns field results + the props patch (when any
+ *  key changed). Round-trips authored properties — never silently dropped. */
+function compareCustomProps(
+  source: Readonly<Record<string, unknown>>,
+  current: Readonly<Record<string, unknown>>,
+  knownKeys: readonly string[],
+): { fields: IfcFieldResult[]; changed: Record<string, unknown> | null } {
+  const fields: IfcFieldResult[] = [];
+  const changed: Record<string, unknown> = {};
+  const known = new Set(knownKeys);
+  const currentCustom: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(current)) {
+    if (!known.has(key) && (typeof value === "string" || typeof value === "number" || typeof value === "boolean")) {
+      currentCustom[key] = value;
+    }
+  }
+  const sourceKeys = new Set(Object.keys(source));
+  for (const key of new Set([...Object.keys(currentCustom), ...sourceKeys])) {
+    const expected = currentCustom[key];
+    const actual = source[key];
+    if (expected === undefined) {
+      fields.push({ field: `custom.${key}`, classification: "lossy", actual, note: "property added by the import" });
+      changed[key] = actual;
+    } else if (actual === undefined) {
+      fields.push({ field: `custom.${key}`, classification: "lossy", expected, note: "property absent in the source" });
+      changed[key] = null; // explicit removal (setProps null-removes? — documented removal)
+    } else if (expected === actual) {
+      fields.push({ field: `custom.${key}`, classification: "exact" });
+    } else if (typeof expected === "number" && typeof actual === "number" && Math.abs(expected - actual) <= IFC_ROUNDTRIP_TOLERANCE_MM) {
+      fields.push(toleranceField(`custom.${key}`, expected, actual));
+    } else {
+      fields.push({ field: `custom.${key}`, classification: "lossy", expected, actual });
+      changed[key] = actual;
+    }
+  }
+  return { fields, changed: Object.keys(changed).length > 0 ? changed : null };
+}
+
+
+/** Build a FULL setProps patch from the current props + changed keys
+ *  (setProps replaces the whole props object — partial patches would wipe
+ *  unchanged keys). A null value in `changed` REMOVES the key. */
+function fullPropsPatch(
+  current: Readonly<Record<string, unknown>>,
+  changed: Readonly<Record<string, unknown>>,
+): Record<string, unknown> {
+  const full: Record<string, unknown> = { ...current };
+  for (const [key, value] of Object.entries(changed)) {
+    if (value === null) {
+      delete full[key];
+    } else {
+      full[key] = value;
+    }
+  }
+  return full;
+}
+
 const EPS = 1e-9;
 
 export interface IfcImportOptions {
   /** Declared fallback for stories lacking Pset_OffisosParams.Height
    *  (canonical mm). Recorded in the report when applied. */
   readonly defaultStoryHeight?: number;
+  /** Declared fallback for spaces lacking height (canonical mm), mirroring
+   *  defaultStoryHeight. Recorded in the report when applied. */
+  readonly defaultSpaceHeight?: number;
+  /** Canonical-id mint for created elements with no preserved identity
+   *  (external files). The IMPORT path passes the document's mintElementId
+   *  so created elements get real `el-NNNNNN` ids and hosted references
+   *  resolve within the same batch; the DRY-RUN path omits it (created
+   *  elements report canonicalId: null and reference placeholders
+   *  internally). */
+  readonly mintId?: () => string;
 }
 
 export interface IfcImportRecord {
@@ -253,31 +324,38 @@ export function reconcileIfcImport(
       ];
       const changed: Record<string, unknown> = {};
       if (story.name !== name0) changed.name = story.name;
-      if (Math.abs(level - level0) > EPS) changed.level = level;
-      if (Math.abs(height - height0) > EPS) changed.height = height;
+      if (Math.abs(level - level0) > IFC_ROUNDTRIP_TOLERANCE_MM) changed.level = level;
+      if (Math.abs(height - height0) > IFC_ROUNDTRIP_TOLERANCE_MM) changed.height = height;
       const action = Object.keys(changed).length > 0 ? "reconciled" : "unchanged";
-      if (Object.keys(changed).length > 0) patches.push({ elementId: res.existing.id, patch: changed });
+      if (Object.keys(changed).length > 0) patches.push({ elementId: res.existing.id, patch: fullPropsPatch(res.existing.props, changed) });
       elements.push({ canonicalId: res.existing.id, globalId, ifcClass: "IfcBuildingStorey", name: story.name, action, fields: storyFields });
       mapping.push({ canonicalId: res.existing.id, globalId, ifcClass: "IfcBuildingStorey", action });
       storyIdByGlobalId.set(globalId, res.existing.id);
       storyLevelByCanonical.set(res.existing.id, level0);
     } else {
+      const minted = res.explicitId ?? (options.mintId !== undefined ? options.mintId() : null);
       const entity: Record<string, unknown> = { type: "bim.story", name: story.name, level, height };
-      if (res.explicitId !== null) entity.id = res.explicitId;
+      if (minted !== null) entity.id = minted;
       entities.push(entity);
       entityGlobalIds.push(globalId);
-      const canonicalId = res.explicitId ?? `@story:${globalId}`;
-      elements.push({ canonicalId: res.explicitId, globalId, ifcClass: "IfcBuildingStorey", name: story.name, action: "created", fields });
-      mapping.push({ canonicalId: res.explicitId, globalId, ifcClass: "IfcBuildingStorey", action: "created" });
+      const canonicalId = minted ?? `@story:${globalId}`;
+      elements.push({ canonicalId: minted, globalId, ifcClass: "IfcBuildingStorey", name: story.name, action: "created", fields });
+      mapping.push({ canonicalId: minted, globalId, ifcClass: "IfcBuildingStorey", action: "created" });
       storyIdByGlobalId.set(globalId, canonicalId);
       storyLevelByCanonical.set(canonicalId, level);
     }
   }
 
+  // story ids that carry a real canonical id (minted or preserved); placeholder
+  // ids (dry-run) resolve too — hosted elements reference them internally.
+  const realStoryIds = new Set<string>();
+  for (const id of storyIdByGlobalId.values()) {
+    if (!id.startsWith("@story:")) realStoryIds.add(id);
+  }
   const storyIdOf = (globalId: string | null): { id: string; level: number } | null => {
     if (globalId === null) return null;
     const id = storyIdByGlobalId.get(globalId);
-    if (id === undefined || id.startsWith("@story:")) return null;
+    if (id === undefined) return null;
     const level = storyLevelByCanonical.get(id);
     return level === undefined ? null : { id, level };
   };
@@ -351,13 +429,20 @@ export function reconcileIfcImport(
       ];
       const changed: Record<string, unknown> = {};
       if (el.name !== name0) changed.name = el.name;
-      if (Math.abs(start0[0] - start[0]) > EPS || Math.abs(start0[1] - start[1]) > EPS) changed.start = [start[0], start[1]];
-      if (Math.abs(end0[0] - end[0]) > EPS || Math.abs(end0[1] - end[1]) > EPS) changed.end = [end[0], end[1]];
-      if (Math.abs(width0 - width) > EPS) changed.width = width;
-      if (Math.abs(height0 - height) > EPS) changed.height = height;
-      if (Math.abs(baseOffset0 - baseOffset) > EPS) changed.baseOffset = baseOffset;
+      if (Math.abs(start0[0] - start[0]) > IFC_ROUNDTRIP_TOLERANCE_MM || Math.abs(start0[1] - start[1]) > IFC_ROUNDTRIP_TOLERANCE_MM) changed.start = [start[0], start[1]];
+      if (Math.abs(end0[0] - end[0]) > IFC_ROUNDTRIP_TOLERANCE_MM || Math.abs(end0[1] - end[1]) > IFC_ROUNDTRIP_TOLERANCE_MM) changed.end = [end[0], end[1]];
+      if (Math.abs(width0 - width) > IFC_ROUNDTRIP_TOLERANCE_MM) changed.width = width;
+      if (Math.abs(height0 - height) > IFC_ROUNDTRIP_TOLERANCE_MM) changed.height = height;
+      if (Math.abs(baseOffset0 - baseOffset) > IFC_ROUNDTRIP_TOLERANCE_MM) changed.baseOffset = baseOffset;
+      const custom = compareCustomProps(
+        (el.psets["Pset_OffisosCustom"] as Record<string, unknown> | undefined) ?? {},
+        res.existing.props,
+        ["bim", "type", "id", "name", "storyId", "start", "end", "width", "height", "baseOffset"],
+      );
+      wallFields.push(...custom.fields);
+      if (custom.changed !== null) Object.assign(changed, custom.changed);
       const action = Object.keys(changed).length > 0 ? "reconciled" : "unchanged";
-      if (Object.keys(changed).length > 0) patches.push({ elementId: res.existing.id, patch: changed });
+      if (Object.keys(changed).length > 0) patches.push({ elementId: res.existing.id, patch: fullPropsPatch(res.existing.props, changed) });
       elements.push({ canonicalId: res.existing.id, globalId: el.globalId, ifcClass: el.ifcClass, name: el.name, action, fields: wallFields });
       mapping.push({ canonicalId: res.existing.id, globalId: el.globalId, ifcClass: el.ifcClass, action });
       wallFrames.set(el.globalId, {
@@ -374,15 +459,16 @@ export function reconcileIfcImport(
         width, height, baseOffset,
       };
       if (el.name !== "") entity.name = el.name;
-      if (res.explicitId !== null) entity.id = res.explicitId;
+      const minted = res.explicitId ?? (options.mintId !== undefined ? options.mintId() : null);
+      if (minted !== null) entity.id = minted;
       entities.push(entity);
       entityGlobalIds.push(el.globalId);
-      const canonicalId = res.explicitId ?? `@wall:${el.globalId}`;
+      const canonicalId = minted ?? `@wall:${el.globalId}`;
       elements.push({
-        canonicalId: res.explicitId, globalId: el.globalId, ifcClass: el.ifcClass, name: el.name, action: "created",
+        canonicalId: minted, globalId: el.globalId, ifcClass: el.ifcClass, name: el.name, action: "created",
         fields: [exactField("start"), exactField("end"), exactField("width"), exactField("height"), exactField("baseOffset")],
       });
-      mapping.push({ canonicalId: res.explicitId, globalId: el.globalId, ifcClass: el.ifcClass, action: "created" });
+      mapping.push({ canonicalId: minted, globalId: el.globalId, ifcClass: el.ifcClass, action: "created" });
       wallFrames.set(el.globalId, { canonicalId, storyId: story.id, start, u: axis.u, width, baseZ: T[2] * scale });
     }
   }
@@ -427,13 +513,13 @@ export function reconcileIfcImport(
         classifyValue("hostId", hostId0, host.canonicalId),
       ];
       const changed: Record<string, unknown> = {};
-      if (Math.abs(distance0 - distance) > EPS) changed.distance = distance;
-      if (Math.abs(sill0 - sill) > EPS) changed.sill = sill;
-      if (Math.abs(width0 - width) > EPS) changed.width = width;
-      if (Math.abs(height0 - height) > EPS) changed.height = height;
+      if (Math.abs(distance0 - distance) > IFC_ROUNDTRIP_TOLERANCE_MM) changed.distance = distance;
+      if (Math.abs(sill0 - sill) > IFC_ROUNDTRIP_TOLERANCE_MM) changed.sill = sill;
+      if (Math.abs(width0 - width) > IFC_ROUNDTRIP_TOLERANCE_MM) changed.width = width;
+      if (Math.abs(height0 - height) > IFC_ROUNDTRIP_TOLERANCE_MM) changed.height = height;
       if (hostId0 !== host.canonicalId) changed.hostId = host.canonicalId;
       const action = Object.keys(changed).length > 0 ? "reconciled" : "unchanged";
-      if (Object.keys(changed).length > 0) patches.push({ elementId: res.existing.id, patch: changed });
+      if (Object.keys(changed).length > 0) patches.push({ elementId: res.existing.id, patch: fullPropsPatch(res.existing.props, changed) });
       elements.push({ canonicalId: res.existing.id, globalId: el.globalId, ifcClass: el.ifcClass, name: el.name, action, fields: openingFields });
       mapping.push({ canonicalId: res.existing.id, globalId: el.globalId, ifcClass: el.ifcClass, action });
       openingIdByGlobalId.set(el.globalId, res.existing.id);
@@ -444,15 +530,16 @@ export function reconcileIfcImport(
         distance, width, height, sill,
       };
       if (el.name !== "") entity.name = el.name;
-      if (res.explicitId !== null) entity.id = res.explicitId;
+      const minted = res.explicitId ?? (options.mintId !== undefined ? options.mintId() : null);
+      if (minted !== null) entity.id = minted;
       entities.push(entity);
       entityGlobalIds.push(el.globalId);
-      const canonicalId = res.explicitId ?? `@opening:${el.globalId}`;
+      const canonicalId = minted ?? `@opening:${el.globalId}`;
       elements.push({
-        canonicalId: res.explicitId, globalId: el.globalId, ifcClass: el.ifcClass, name: el.name, action: "created",
+        canonicalId: minted, globalId: el.globalId, ifcClass: el.ifcClass, name: el.name, action: "created",
         fields: [exactField("distance"), exactField("sill"), exactField("width"), exactField("height")],
       });
-      mapping.push({ canonicalId: res.explicitId, globalId: el.globalId, ifcClass: el.ifcClass, action: "created" });
+      mapping.push({ canonicalId: minted, globalId: el.globalId, ifcClass: el.ifcClass, action: "created" });
       openingIdByGlobalId.set(el.globalId, canonicalId);
     }
     openingHostWallByGlobalId.set(el.globalId, host);
@@ -510,12 +597,13 @@ export function reconcileIfcImport(
       if (el.name !== name0) changed.name = el.name;
       if ((f.openingId as string) !== openingId) changed.openingId = openingId;
       if (isDoor && ((f.swing as string | undefined) ?? "left") !== swing) changed.swing = swing;
-      if (isDoor && Math.abs(((f.leafThickness as number | undefined) ?? 40) - leafThickness) > EPS) changed.leafThickness = leafThickness;
+      if (isDoor && Math.abs(((f.leafThickness as number | undefined) ?? 40) - leafThickness) > IFC_ROUNDTRIP_TOLERANCE_MM) changed.leafThickness = leafThickness;
       const action = Object.keys(changed).length > 0 ? "reconciled" : "unchanged";
-      if (Object.keys(changed).length > 0) patches.push({ elementId: res.existing.id, patch: changed });
+      if (Object.keys(changed).length > 0) patches.push({ elementId: res.existing.id, patch: fullPropsPatch(res.existing.props, changed) });
       elements.push({ canonicalId: res.existing.id, globalId: el.globalId, ifcClass: el.ifcClass, name: el.name, action, fields: fillFields });
       mapping.push({ canonicalId: res.existing.id, globalId: el.globalId, ifcClass: el.ifcClass, action });
     } else {
+      const minted = res.explicitId ?? (options.mintId !== undefined ? options.mintId() : null);
       const entity: Record<string, unknown> = {
         type: expectedType,
         openingId,
@@ -526,11 +614,11 @@ export function reconcileIfcImport(
         entity.leafThickness = leafThickness;
       }
       if (el.name !== "") entity.name = el.name;
-      if (res.explicitId !== null) entity.id = res.explicitId;
+      if (minted !== null) entity.id = minted;
       entities.push(entity);
       entityGlobalIds.push(el.globalId);
-      elements.push({ canonicalId: res.explicitId, globalId: el.globalId, ifcClass: el.ifcClass, name: el.name, action: "created", fields });
-      mapping.push({ canonicalId: res.explicitId, globalId: el.globalId, ifcClass: el.ifcClass, action: "created" });
+      elements.push({ canonicalId: minted, globalId: el.globalId, ifcClass: el.ifcClass, name: el.name, action: "created", fields });
+      mapping.push({ canonicalId: minted, globalId: el.globalId, ifcClass: el.ifcClass, action: "created" });
     }
   }
 
@@ -571,12 +659,19 @@ export function reconcileIfcImport(
       ];
       const changed: Record<string, unknown> = {};
       if (el.name !== name0) changed.name = el.name;
-      if (Math.abs(c1[0] - corner1[0]) > EPS || Math.abs(c1[1] - corner1[1]) > EPS) changed.corner1 = [corner1[0], corner1[1]];
-      if (Math.abs(c2[0] - corner2[0]) > EPS || Math.abs(c2[1] - corner2[1]) > EPS) changed.corner2 = [corner2[0], corner2[1]];
-      if (Math.abs((s.thickness as number) - thickness) > EPS) changed.thickness = thickness;
-      if (Math.abs((s.baseOffset as number) - baseOffset) > EPS) changed.baseOffset = baseOffset;
+      if (Math.abs(c1[0] - corner1[0]) > IFC_ROUNDTRIP_TOLERANCE_MM || Math.abs(c1[1] - corner1[1]) > IFC_ROUNDTRIP_TOLERANCE_MM) changed.corner1 = [corner1[0], corner1[1]];
+      if (Math.abs(c2[0] - corner2[0]) > IFC_ROUNDTRIP_TOLERANCE_MM || Math.abs(c2[1] - corner2[1]) > IFC_ROUNDTRIP_TOLERANCE_MM) changed.corner2 = [corner2[0], corner2[1]];
+      if (Math.abs((s.thickness as number) - thickness) > IFC_ROUNDTRIP_TOLERANCE_MM) changed.thickness = thickness;
+      if (Math.abs((s.baseOffset as number) - baseOffset) > IFC_ROUNDTRIP_TOLERANCE_MM) changed.baseOffset = baseOffset;
+      const slabCustom = compareCustomProps(
+        (el.psets["Pset_OffisosCustom"] as Record<string, unknown> | undefined) ?? {},
+        res.existing.props,
+        ["bim", "type", "id", "name", "storyId", "corner1", "corner2", "thickness", "baseOffset"],
+      );
+      slabFields.push(...slabCustom.fields);
+      if (slabCustom.changed !== null) Object.assign(changed, slabCustom.changed);
       const action = Object.keys(changed).length > 0 ? "reconciled" : "unchanged";
-      if (Object.keys(changed).length > 0) patches.push({ elementId: res.existing.id, patch: changed });
+      if (Object.keys(changed).length > 0) patches.push({ elementId: res.existing.id, patch: fullPropsPatch(res.existing.props, changed) });
       elements.push({ canonicalId: res.existing.id, globalId: el.globalId, ifcClass: el.ifcClass, name: el.name, action, fields: slabFields });
       mapping.push({ canonicalId: res.existing.id, globalId: el.globalId, ifcClass: el.ifcClass, action });
     } else {
@@ -588,14 +683,15 @@ export function reconcileIfcImport(
         thickness, baseOffset,
       };
       if (el.name !== "") entity.name = el.name;
-      if (res.explicitId !== null) entity.id = res.explicitId;
+      const minted = res.explicitId ?? (options.mintId !== undefined ? options.mintId() : null);
+      if (minted !== null) entity.id = minted;
       entities.push(entity);
       entityGlobalIds.push(el.globalId);
       elements.push({
-        canonicalId: res.explicitId, globalId: el.globalId, ifcClass: el.ifcClass, name: el.name, action: "created",
+        canonicalId: minted, globalId: el.globalId, ifcClass: el.ifcClass, name: el.name, action: "created",
         fields: [exactField("corner1"), exactField("corner2"), exactField("thickness"), exactField("baseOffset")],
       });
-      mapping.push({ canonicalId: res.explicitId, globalId: el.globalId, ifcClass: el.ifcClass, action: "created" });
+      mapping.push({ canonicalId: minted, globalId: el.globalId, ifcClass: el.ifcClass, action: "created" });
     }
   }
 
@@ -626,6 +722,10 @@ export function reconcileIfcImport(
     if (typeof heightParam === "number") {
       height = (heightParam as number) * scale;
       fields.push(exactField("height"));
+    } else if (options.defaultSpaceHeight !== undefined) {
+      height = options.defaultSpaceHeight;
+      declaredFallbacks.push(`space '${el.name}': height fell back to the declared default ${options.defaultSpaceHeight} mm`);
+      fields.push({ field: "height", classification: "lossy", note: "source lacks space height; declared default applied" });
     } else {
       fields.push(unsupportedField("height", "source lacks space height (Pset_OffisosParams.Height)"));
     }
@@ -662,12 +762,19 @@ export function reconcileIfcImport(
       }
       const changed: Record<string, unknown> = {};
       if (name !== (s.name as string)) changed.name = name;
-      if (Math.abs((s.height as number) - height) > EPS) changed.height = height;
-      if (Math.abs((s.baseOffset as number) - baseOffset) > EPS) changed.baseOffset = baseOffset;
-      const fpChanged = fp0.length !== pts.length || fp0.some((p, i) => Math.abs(p[0] - pts[i]![0]) > EPS || Math.abs(p[1] - pts[i]![1]) > EPS);
+      if (Math.abs((s.height as number) - height) > IFC_ROUNDTRIP_TOLERANCE_MM) changed.height = height;
+      if (Math.abs((s.baseOffset as number) - baseOffset) > IFC_ROUNDTRIP_TOLERANCE_MM) changed.baseOffset = baseOffset;
+      const spaceCustom = compareCustomProps(
+        (el.psets["Pset_OffisosCustom"] as Record<string, unknown> | undefined) ?? {},
+        res.existing.props,
+        ["bim", "type", "id", "name", "storyId", "footprint", "height", "baseOffset", "area"],
+      );
+      spaceFields.push(...spaceCustom.fields);
+      if (spaceCustom.changed !== null) Object.assign(changed, spaceCustom.changed);
+      const fpChanged = fp0.length !== pts.length || fp0.some((p, i) => Math.abs(p[0] - pts[i]![0]) > IFC_ROUNDTRIP_TOLERANCE_MM || Math.abs(p[1] - pts[i]![1]) > IFC_ROUNDTRIP_TOLERANCE_MM);
       if (fpChanged) changed.footprint = pts.map((p) => [p[0], p[1]]);
       const action = Object.keys(changed).length > 0 ? "reconciled" : "unchanged";
-      if (Object.keys(changed).length > 0) patches.push({ elementId: res.existing.id, patch: changed });
+      if (Object.keys(changed).length > 0) patches.push({ elementId: res.existing.id, patch: fullPropsPatch(res.existing.props, changed) });
       elements.push({ canonicalId: res.existing.id, globalId: el.globalId, ifcClass: el.ifcClass, name, action, fields: spaceFields });
       mapping.push({ canonicalId: res.existing.id, globalId: el.globalId, ifcClass: el.ifcClass, action });
     } else {
@@ -678,11 +785,12 @@ export function reconcileIfcImport(
         footprint: pts.map((p) => [p[0], p[1]]),
         height, baseOffset,
       };
-      if (res.explicitId !== null) entity.id = res.explicitId;
+      const minted = res.explicitId ?? (options.mintId !== undefined ? options.mintId() : null);
+      if (minted !== null) entity.id = minted;
       entities.push(entity);
       entityGlobalIds.push(el.globalId);
-      elements.push({ canonicalId: res.explicitId, globalId: el.globalId, ifcClass: el.ifcClass, name, action: "created", fields });
-      mapping.push({ canonicalId: res.explicitId, globalId: el.globalId, ifcClass: el.ifcClass, action: "created" });
+      elements.push({ canonicalId: minted, globalId: el.globalId, ifcClass: el.ifcClass, name, action: "created", fields });
+      mapping.push({ canonicalId: minted, globalId: el.globalId, ifcClass: el.ifcClass, action: "created" });
     }
   }
 

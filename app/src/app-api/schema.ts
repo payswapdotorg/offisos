@@ -540,6 +540,7 @@ export const COMMAND_PAYLOAD_SCHEMAS: Readonly<Record<CommandName, object>> = {
     properties: {
       ifc: { type: "string" },
       defaultStoryHeight: { type: "number" },
+      defaultSpaceHeight: { type: "number" },
     },
     required: ["ifc"],
   },

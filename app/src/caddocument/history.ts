@@ -398,7 +398,8 @@ function isValidDocumentEdit(v: unknown): boolean {
     v.type !== "addLayer" && v.type !== "updateLayer" && v.type !== "removeLayer" &&
     v.type !== "addView" && v.type !== "updateView" && v.type !== "removeView" &&
     v.type !== "addSheet" && v.type !== "updateSheet" && v.type !== "removeSheet" &&
-    v.type !== "setViewRecord" && v.type !== "setSheetRecord"
+    v.type !== "setViewRecord" && v.type !== "setSheetRecord" &&
+    v.type !== "addIfcImport" && v.type !== "removeIfcImport"
   ) {
     return false;
   }
@@ -434,6 +435,12 @@ function isValidDocumentEdit(v: unknown): boolean {
   }
   if (v.type === "updateSheet" || v.type === "removeSheet") {
     return typeof v.sheetId === "string" && v.sheetId.length > 0;
+  }
+  if (v.type === "addIfcImport") {
+    return isPlainObject(v.record) && typeof (v.record as Record<string, unknown>).sourceHash === "string";
+  }
+  if (v.type === "removeIfcImport") {
+    return typeof v.recordId === "string" && v.recordId.length > 0;
   }
   if (v.type === "setViewRecord") {
     if (!isPlainObject(v.view)) return false;

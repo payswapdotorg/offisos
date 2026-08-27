@@ -88,6 +88,7 @@ const isImpactSmoke = process.argv.includes("--smoke-impact");
 const isDraftingSmoke = process.argv.includes("--smoke-drafting");
 const isBimSmoke = process.argv.includes("--smoke-bim");
 const isDocsSmoke = process.argv.includes("--smoke-docs");
+const isIfcSmoke = process.argv.includes("--smoke-ifc");
 
 function createWindow(): BrowserWindow {
   // app.getAppPath() is the directory containing this package's package.json
@@ -713,7 +714,9 @@ app.whenReady().then(() => {
               ? runBimSmoke(win)
               : isDocsSmoke
                 ? runDocsSmoke(win)
-                : null;
+                : isIfcSmoke
+                  ? runIfcSmoke(win)
+                  : null;
   if (smokeRun !== null) {
     smokeRun
       .then(() => {
@@ -1761,6 +1764,431 @@ async function runDocsSmoke(win: BrowserWindow): Promise<void> {
     chromeVersion: process.versions.chrome,
     steps,
     contentHash: null,
+    sceneHash: null,
+  });
+}
+
+/**
+ * COMPAT-IFC-001 / Issue #47: the IFC/openBIM interop smoke — the
+ * representative round-trip workflow through the FULL Electron chain:
+ * BrowserWindow → window.cad.send preload bridge → ipcMain →
+ * ElectronHost/IpcTransport → shared App API (ifc.*) → IfcInteropAdapter →
+ * IfcOpenShell 0.8.5 disposable Python worker. The smoke drives the REAL
+ * renderer UI (the IFC mode panel) for every surfaced control and uses
+ * window.cad.send directly only where the UI does not surface raw values
+ * (probe, the mutation edits, the persistence round trip).
+ *
+ * Every step's expectation was verified against the real engine in a
+ * rehearsal first — app/test/ifc-roundtrip.test.ts (+ ifc-idsbcf.test.ts) are
+ * the ground truth. One documented deviation from the task text: step 7
+ * ("mutate → re-export → import → exactly 2 reconciled") requires the document
+ * to hold the PRE-mutation state at import time — importing the mutated file
+ * into the document that already holds the mutated state reconciles NOTHING
+ * (all unchanged; the identity reconciliation the engine implements, exactly
+ * as the roundtrip test imports the mutated file into a document holding the
+ * pre-mutation state). The smoke therefore undoes the two mutation edits
+ * (through the UI) BEFORE importing the mutated export; step 8 then undoes the
+ * two imports (the same total of four undos the task text prescribed).
+ */
+async function runIfcSmoke(win: BrowserWindow): Promise<void> {
+  // Steps record {step, name, pass, detail} (ok mirrors pass for the shared
+  // SmokeResult envelope the runner reads).
+  interface IfcStep { step: string; name: string; pass: boolean; ok: boolean; detail: unknown }
+  const steps: IfcStep[] = [];
+  const push = (num: string, name: string, pass: boolean, detail: unknown): void => {
+    steps.push({ step: num, name, pass, ok: pass, detail });
+  };
+
+  await new Promise<void>((resolve) => {
+    win.webContents.once("did-finish-load", () => resolve());
+  });
+
+  // Rejection-capturing page evaluation (see runGeometrySmoke).
+  const page = async <T>(js: string): Promise<T> => {
+    const wrapped = (await win.webContents.executeJavaScript(
+      `(${js}).then((r) => ({ __smokeOk: true, r }), (e) => ({ __smokeOk: false, msg: String(e), stack: String((e && e.stack) || "") }))`,
+    )) as { __smokeOk: true; r: T } | { __smokeOk: false; msg: string; stack: string };
+    if (wrapped.__smokeOk !== true) {
+      throw new Error(`renderer call rejected: ${wrapped.msg}\n${wrapped.stack.slice(0, 800)}\nfor script: ${js.slice(0, 200)}`);
+    }
+    return wrapped.r;
+  };
+  const send = (request: CommandQueryRequest): Promise<CommandQueryResponse> =>
+    page<CommandQueryResponse>(`window.cad.send(${JSON.stringify(request)})`);
+  const cmd = (name: string, payload: unknown) =>
+    send({ type: "command", name: name as never, payload });
+  const qq = (name: string, payload: unknown) =>
+    send({ type: "query", name: name as never, payload });
+
+  /** Poll a page predicate until true (throws on timeout). */
+  const waitFor = async (predicateJs: string, timeoutMs: number, what: string): Promise<void> => {
+    const deadline = Date.now() + timeoutMs;
+    for (;;) {
+      const v = await page<boolean>(`(async () => (${predicateJs}))()`);
+      if (v === true) return;
+      if (Date.now() > deadline) throw new Error(`timeout waiting for ${what}`);
+      await new Promise((r) => setTimeout(r, 150));
+    }
+  };
+  /** Click a data-testid button in the page. */
+  const click = (testid: string): Promise<boolean> =>
+    page<boolean>(
+      `(async () => { const b = document.querySelector('[data-testid="${testid}"]'); if (!b) return false; b.click(); return true; })()`,
+    );
+  const readAttr = (testid: string, attr: string): Promise<string | null> =>
+    page<string | null>(
+      `(async () => { const e = document.querySelector('[data-testid="${testid}"]'); return e ? e.getAttribute("${attr}") : null; })()`,
+    );
+  const readText = (testid: string): Promise<string> =>
+    page<string>(
+      `(async () => { const e = document.querySelector('[data-testid="${testid}"]'); return e ? (e.textContent || "") : ""; })()`,
+    );
+  /** The ifc status protocol's monotonic run counter (set synchronously at
+   *  click time — disambiguates repeated op labels such as the fourth undo). */
+  const currentRun = async (): Promise<number> => {
+    const v = await readAttr("ifc-status", "data-run");
+    const n = v === null ? NaN : Number(v);
+    return Number.isFinite(n) ? n : 0;
+  };
+  /** Wait for the ifc status protocol to settle: state done|error for `op`
+   *  at run counter `run` AND the UI idle again (mode toggle re-enabled). */
+  const waitIfcOp = async (op: string, run: number, timeoutMs: number): Promise<{ state: string; op: string; run: string; text: string }> => {
+    await waitFor(
+      `(() => { const s = document.querySelector('[data-testid="ifc-status"]'); const m = document.querySelector('[data-testid="mode-ifc"]');` +
+        ` return !!s && (s.getAttribute("data-state") === "done" || s.getAttribute("data-state") === "error")` +
+        ` && s.getAttribute("data-op") === "${op}" && s.getAttribute("data-run") === "${run}" && !!m && !m.disabled; })()`,
+      timeoutMs,
+      `ifc op '${op}' #${run} to settle`,
+    );
+    return page<{ state: string; op: string; run: string; text: string }>(
+      `(async () => { const s = document.querySelector('[data-testid="ifc-status"]');` +
+        ` return { state: s ? s.getAttribute("data-state") : "none", op: s ? s.getAttribute("data-op") : "", run: s ? s.getAttribute("data-run") : "", text: s ? s.textContent : "" }; })()`,
+    );
+  };
+
+  // Direct document-state helpers for the non-UI assertions.
+  type SmokeElement = { id: string; props: Record<string, unknown> };
+  const elementsOf = async (): Promise<SmokeElement[]> => {
+    const r = await qq("document.getState", {});
+    if (!(r && r.ok)) return [];
+    const snap = r.value as CADDocumentSnapshot;
+    return snap.elements.map((e) => ({ id: e.id, props: (e.props ?? {}) as Record<string, unknown> }));
+  };
+  const wallNorthAtRest = (els: SmokeElement[]): boolean => {
+    const n = els.find((e) => e.id === "wall-north");
+    return (
+      n !== undefined &&
+      JSON.stringify(n.props.start) === JSON.stringify([6000, 5000]) &&
+      JSON.stringify(n.props.end) === JSON.stringify([0, 5000])
+    );
+  };
+  const wallEastNoFireRating = (els: SmokeElement[]): boolean => {
+    const e = els.find((x) => x.id === "wall-east");
+    return e !== undefined && !("FireRating" in e.props);
+  };
+  const importRecordIds = async (): Promise<string[] | null> => {
+    const r = await qq("ifc.listImports", {});
+    if (!(r && r.ok)) return null;
+    return ((r.value as { records: { id: string }[] }).records ?? []).map((x) => x.id);
+  };
+
+  const EXPECTED_COUNTS = { stories: 1, walls: 4, slabs: 1, openings: 2, doors: 1, windows: 1, spaces: 1 };
+
+  // 1. IFC mode is reachable and visible: header toggle + the panel; seed the
+  //    representative building (11 elements incl. the 30°-rotated wall).
+  const beforeToggle = await page<boolean>(
+    `(async () => !!document.querySelector('[data-testid="mode-ifc"]') && !!document.querySelector('[data-testid="mode-docs"]') && !!document.querySelector('[data-testid="mode-bim"]') && !!document.querySelector('[data-testid="mode-drafting"]'))()`,
+  );
+  const clickedMode = beforeToggle ? await click("mode-ifc") : false;
+  await waitFor(
+    `(() => { const c = document.querySelector('[data-testid="ifc-card"]'); const b = document.querySelector('[data-testid="mode-ifc"]');` +
+      ` return !!c && c.style.display !== "none" && !!b && b.getAttribute("aria-pressed") === "true"; })()`,
+    10000,
+    "IFC mode panel visible",
+  );
+  const ifcControls = [
+    "ifc-status", "ifc-seed", "ifc-seed-result", "ifc-export", "ifc-export-result",
+    "ifc-determinism", "ifc-determinism-result", "ifc-import", "ifc-import-result",
+    "ifc-compare", "ifc-compare-result", "ifc-ids", "ifc-ids-result", "ifc-bcf", "ifc-bcf-result",
+    "ifc-records", "ifc-records-list", "ifc-undo",
+  ];
+  const controlsPresent = await page<boolean>(
+    `(async () => ${JSON.stringify(ifcControls)}.every((t) => !!document.querySelector('[data-testid="' + t + '"]')))()`,
+  );
+  const run1 = await currentRun();
+  const clickedSeed = await click("ifc-seed");
+  const seedStatus = await waitIfcOp("seed", run1 + 1, 60000);
+  const seedCount = Number(await readAttr("ifc-seed", "data-count"));
+  const seedText = await readText("ifc-seed-result");
+  const contentHashSeeded = await page<string>(`window.cad.contentHash()`);
+  push(
+    "1",
+    "IFC mode visible (header toggle switches the panel in; all data-testid controls present) + seed the representative building via the UI → 11 elements",
+    beforeToggle && clickedMode && controlsPresent && clickedSeed && seedStatus.state === "done" && seedCount === 11,
+    controlsPresent
+      ? `mode-ifc clicked; ${ifcControls.length}/${ifcControls.length} ifc controls present; ${seedText} · seeded contentHash ${contentHashSeeded.slice(0, 12)}…`
+      : "ifc controls missing",
+  );
+
+  // 2. ifc.probe via window.cad.send → the real IfcOpenShell toolchain.
+  const probe = await qq("ifc.probe", {});
+  const probeValue = probe && probe.ok ? (probe.value as { available: boolean; engineVersion: string | null }) : null;
+  push(
+    "2",
+    "ifc.probe via window.cad.send → IfcOpenShell 0.8.5 worker available",
+    probeValue !== null && probeValue.available === true && probeValue.engineVersion === "0.8.5",
+    `available=${probeValue?.available ?? "n/a"} · engineVersion=${probeValue?.engineVersion ?? "n/a"}`,
+  );
+
+  // 3. Export through the UI → 64-hex sha256 + the exact element counts
+  //    (cross-checked against a direct export — byte-deterministic).
+  const run3 = await currentRun();
+  const clickedExport = await click("ifc-export");
+  const exportStatus = await waitIfcOp("export", run3 + 1, 90000);
+  const uiSha = await readAttr("ifc-export", "data-ifc-sha");
+  const uiCounts = await readAttr("ifc-export", "data-ifc-counts");
+  const exportText = await readText("ifc-export-result");
+  const directExport = await cmd("ifc.export", {});
+  const directExportValue =
+    directExport && directExport.ok
+      ? (directExport.value as { ifc: string; sha256: string; size: number; schema: string; counts: Record<string, number> })
+      : null;
+  const uiCountsParsed = uiCounts !== null ? (JSON.parse(uiCounts) as Record<string, number>) : null;
+  const countsOk =
+    uiCountsParsed !== null &&
+    JSON.stringify(uiCountsParsed) === JSON.stringify(EXPECTED_COUNTS) &&
+    JSON.stringify(directExportValue?.counts ?? null) === JSON.stringify(EXPECTED_COUNTS);
+  push(
+    "3",
+    "export via UI → deterministic IFC4 file: 64-hex sha256 + exact counts {stories:1,walls:4,slabs:1,openings:2,doors:1,windows:1,spaces:1} (== direct export)",
+    clickedExport && exportStatus.state === "done" &&
+      /^[0-9a-f]{64}$/.test(uiSha ?? "") && uiSha === directExportValue?.sha256 &&
+      directExportValue?.schema === "IFC4" && (directExportValue?.size ?? 0) > 1000 && countsOk,
+    `${exportText} · direct sha identical=${uiSha === directExportValue?.sha256} · size=${directExportValue?.size ?? "n/a"}`,
+  );
+
+  // 4. Determinism through the UI: two exports → byte-identical files.
+  const run4 = await currentRun();
+  const clickedDet = await click("ifc-determinism");
+  const detStatus = await waitIfcOp("determinism", run4 + 1, 150000);
+  const detAttr = await readAttr("ifc-determinism", "data-ifc-deterministic");
+  const detText = await readText("ifc-determinism-result");
+  push(
+    "4",
+    "determinism via UI (two ifc.export calls) → byte-identical files for equal inputs",
+    clickedDet && detStatus.state === "done" && detAttr === "true",
+    detText,
+  );
+
+  // 5. Compare through the UI + direct: the export reconciles against its own
+  //    document with zero loss (unchanged 11, lossy 0, 64-hex report hash).
+  const run5 = await currentRun();
+  const clickedCmp = await click("ifc-compare");
+  const cmpStatus = await waitIfcOp("compare", run5 + 1, 90000);
+  const cmpStatusAttr = await readAttr("ifc-compare", "data-ifc-compare-status");
+  const cmpHashAttr = await readAttr("ifc-compare", "data-ifc-compare-hash");
+  const cmpText = await readText("ifc-compare-result");
+  const directCompare = await qq("ifc.compare", { ifc: directExportValue?.ifc ?? "" });
+  const cmpValue =
+    directCompare && directCompare.ok
+      ? (directCompare.value as { report: { summary: Record<string, number> }; reportHash: string })
+      : null;
+  push(
+    "5",
+    "compare via UI (+ direct) → the export reconciles against its own document: unchanged 11, lossy 0, 64-hex report hash",
+    clickedCmp && cmpStatus.state === "done" && cmpStatusAttr === "clean" &&
+      cmpValue?.report.summary.unchanged === 11 && cmpValue.report.summary.lossy === 0 &&
+      cmpValue.report.summary.created === 0 && cmpValue.report.summary.reconciled === 0 &&
+      /^[0-9a-f]{64}$/.test(cmpValue?.reportHash ?? "") && cmpHashAttr === cmpValue?.reportHash,
+    `${cmpText} · direct summary=${JSON.stringify(cmpValue?.report.summary ?? null)} · reportHash identical=${cmpHashAttr === cmpValue?.reportHash}`,
+  );
+
+  // 6. Import the export into its own document through the UI → identity
+  //    reconciliation: nothing created, all 11 unchanged, record if-000001.
+  const run6 = await currentRun();
+  const clickedImp = await click("ifc-import");
+  const impStatus = await waitIfcOp("import", run6 + 1, 90000);
+  const recAttr = await readAttr("ifc-import", "data-ifc-record");
+  const sumAttr = await readAttr("ifc-import", "data-ifc-summary");
+  const impText = await readText("ifc-import-result");
+  const sum6 = sumAttr !== null ? (JSON.parse(sumAttr) as Record<string, number>) : null;
+  const els6 = await elementsOf();
+  const records6 = await importRecordIds();
+  push(
+    "6",
+    "import via UI → identity reconciliation: record if-000001, created 0, unchanged 11, no duplicate elements",
+    clickedImp && impStatus.state === "done" && recAttr === "if-000001" &&
+      sum6?.created === 0 && sum6?.reconciled === 0 && sum6?.unchanged === 11 && sum6?.lossy === 0 &&
+      els6.length === 11 && records6 !== null && records6.length === 1 && records6[0] === "if-000001",
+    `${impText} · elements=${els6.length} · records=${records6?.join(",") ?? "n/a"}`,
+  );
+
+  // 7. Controlled mutation identification (ENGINE TRUTH — see the module
+  //    comment): author FireRating REI120 on wall-east + move wall-north +500
+  //    (direct), re-export, UNDO the two mutations (UI) so the document holds
+  //    the pre-mutation state, then import the mutated file → EXACTLY the two
+  //    mutated elements reconcile (patched contains both).
+  const mut1 = await cmd("document.applyEdit", { edit: { type: "updateElement", elementId: "wall-east", patch: { FireRating: "REI120" } } });
+  const mut2 = await cmd("bim.move", { ids: ["wall-north"], dx: 0, dy: 500, dz: 0 });
+  const mutatedExport = await cmd("ifc.export", {});
+  const mutated =
+    mutatedExport && mutatedExport.ok
+      ? (mutatedExport.value as { ifc: string; sha256: string; counts: Record<string, number> })
+      : null;
+  const run7a = await currentRun();
+  const clickedUndo7a = await click("ifc-undo");
+  const undo7aStatus = await waitIfcOp("undo", run7a + 1, 30000);
+  const run7b = await currentRun();
+  const clickedUndo7b = await click("ifc-undo");
+  const undo7bStatus = await waitIfcOp("undo", run7b + 1, 30000);
+  const els7 = await elementsOf();
+  const impMut = await cmd("ifc.import", { ifc: mutated?.ifc ?? "" });
+  const impMutValue =
+    impMut && impMut.ok
+      ? (impMut.value as {
+          record: { id: string };
+          report: { summary: Record<string, number>; elements: { canonicalId: string | null; action: string }[] };
+          patched: string[];
+        })
+      : null;
+  const reconciled7 = impMutValue
+    ? impMutValue.report.elements.filter((e) => e.action === "reconciled").map((e) => e.canonicalId).sort()
+    : [];
+  const records7 = await importRecordIds();
+  push(
+    "7",
+    "controlled mutations (wall-east FireRating REI120 + wall-north move +500) re-exported → import identifies EXACTLY the two mutated elements",
+    !!mut1?.ok && !!mut2?.ok && mutated !== null && mutated.sha256 !== directExportValue?.sha256 &&
+      clickedUndo7a && undo7aStatus.state === "done" && clickedUndo7b && undo7bStatus.state === "done" &&
+      els7.length === 11 && wallNorthAtRest(els7) && wallEastNoFireRating(els7) &&
+      impMutValue !== null && JSON.stringify(reconciled7) === JSON.stringify(["wall-east", "wall-north"]) &&
+      impMutValue.report.summary.created === 0 && impMutValue.report.summary.unchanged === 9 &&
+      impMutValue.patched.includes("wall-east") && impMutValue.patched.includes("wall-north") &&
+      impMutValue.record.id === "if-000002" && records7 !== null && records7.length === 2,
+    `mutations ok · mutated export sha ${mutated?.sha256.slice(0, 8) ?? "—"}… (≠ v0 export) · undo ×2 restored the pre-mutation state (wall-north [6000,5000]→[0,5000], wall-east FireRating absent) · import → reconciled ${JSON.stringify(reconciled7)} · patched ${JSON.stringify(impMutValue?.patched ?? [])} · unchanged ${impMutValue?.report.summary.unchanged ?? "n/a"} · record ${impMutValue?.record.id ?? "—"} · records ${records7?.join(",") ?? "n/a"}`,
+  );
+
+  // 8. Undo the two imports (UI): each ifc.import is ONE atomic versioned
+  //    command — the record, the patches and the created elements revert
+  //    together; the document contentHash is restored to the seeded hash.
+  const run8a = await currentRun();
+  const clickedUndo8a = await click("ifc-undo");
+  const undo8aStatus = await waitIfcOp("undo", run8a + 1, 30000);
+  const records8a = await importRecordIds();
+  const els8a = await elementsOf();
+  const run8b = await currentRun();
+  const clickedUndo8b = await click("ifc-undo");
+  const undo8bStatus = await waitIfcOp("undo", run8b + 1, 30000);
+  const records8b = await importRecordIds();
+  const els8b = await elementsOf();
+  const contentHash8 = await page<string>(`window.cad.contentHash()`);
+  push(
+    "8",
+    "undo the two imports via UI → records 0, elements 11, patches reverted atomically; contentHash restored to the seeded hash",
+    clickedUndo8a && undo8aStatus.state === "done" &&
+      records8a !== null && records8a.length === 1 && records8a[0] === "if-000001" &&
+      els8a.length === 11 && wallNorthAtRest(els8a) && wallEastNoFireRating(els8a) &&
+      clickedUndo8b && undo8bStatus.state === "done" &&
+      records8b !== null && records8b.length === 0 && els8b.length === 11 &&
+      contentHash8 === contentHashSeeded,
+    `after undo#1: records ${records8a?.join(",") ?? "n/a"} · wall-north at rest=${wallNorthAtRest(els8a)} · wall-east FireRating absent=${wallEastNoFireRating(els8a)}; after undo#2: records ${records8b?.length ?? "n/a"} · elements ${els8b.length} · contentHash ${contentHash8.slice(0, 12)}… == seeded ${contentHashSeeded.slice(0, 12)}… (${contentHash8 === contentHashSeeded})`,
+  );
+
+  // 9. IDS validation through the UI: the fire-rating spec fails for all 4
+  //    applicable walls → author FireRating REI60 on wall-south (direct) →
+  //    exactly wall-south passes (per-entity discrimination).
+  const run9 = await currentRun();
+  const clickedIds1 = await click("ifc-ids");
+  const idsStatus1 = await waitIfcOp("ids", run9 + 1, 150000);
+  const idsAttr1 = await readAttr("ifc-ids", "data-ifc-ids-status");
+  const idsApplicable1 = await readAttr("ifc-ids", "data-ifc-ids-applicable");
+  const idsPassed1 = await readAttr("ifc-ids", "data-ifc-ids-passed");
+  const idsText1 = await readText("ifc-ids-result");
+  const author = await cmd("document.applyEdit", { edit: { type: "updateElement", elementId: "wall-south", patch: { FireRating: "REI60" } } });
+  const run9b = await currentRun();
+  const clickedIds2 = await click("ifc-ids");
+  const idsStatus2 = await waitIfcOp("ids", run9b + 1, 150000);
+  const idsAttr2 = await readAttr("ifc-ids", "data-ifc-ids-status");
+  const idsPassed2 = await readAttr("ifc-ids", "data-ifc-ids-passed");
+  const idsPassedIds2 = await readAttr("ifc-ids", "data-ifc-ids-passed-ids");
+  const idsText2 = await readText("ifc-ids-result");
+  push(
+    "9",
+    "IDS fire-rating validation via UI: 4 applicable walls, 0 passed → author FireRating REI60 on wall-south (direct) → exactly 1 passes",
+    clickedIds1 && idsStatus1.state === "done" && idsAttr1 === "fail" && idsApplicable1 === "4" && idsPassed1 === "0" &&
+      !!author?.ok && clickedIds2 && idsStatus2.state === "done" && idsAttr2 === "fail" &&
+      idsPassed2 === "1" && idsPassedIds2 === "wall-south",
+    `before: ${idsText1}; after: ${idsText2}`,
+  );
+
+  // 10. BCF topic round trip through the UI: create + parse; the IfcGuid
+  //     references must resolve back to the CANONICAL ids.
+  const run10 = await currentRun();
+  const clickedBcf = await click("ifc-bcf");
+  const bcfStatus = await waitIfcOp("bcf", run10 + 1, 90000);
+  const bcfResolved = await readAttr("ifc-bcf", "data-ifc-bcf-resolved");
+  const bcfSize = Number(await readAttr("ifc-bcf", "data-ifc-bcf-size"));
+  const bcfText = await readText("ifc-bcf-result");
+  push(
+    "10",
+    "BCF topic round trip via UI → references resolve back to the canonical ids (wall-east, wall-north)",
+    clickedBcf && bcfStatus.state === "done" && bcfResolved === "wall-east,wall-north" && bcfSize > 500,
+    bcfText,
+  );
+
+  // 11. Import records through the UI: after the atomic undos the record table
+  //     is empty — honestly reported, and identical to the direct query.
+  const run11 = await currentRun();
+  const clickedRecords = await click("ifc-records");
+  const recordsStatus = await waitIfcOp("records", run11 + 1, 30000);
+  const recordsCountAttr = await readAttr("ifc-records", "data-ifc-records-count");
+  const recordsText = await readText("ifc-records-list");
+  const recordsDirect = await importRecordIds();
+  push(
+    "11",
+    "import records via UI → 0 records after the undos (removed with the same undo); UI count == direct ifc.listImports",
+    clickedRecords && recordsStatus.state === "done" && recordsCountAttr === "0" &&
+      recordsDirect !== null && recordsDirect.length === 0 && /No import records/.test(recordsText),
+    `ui count=${recordsCountAttr ?? "n/a"} · direct count=${recordsDirect?.length ?? "n/a"} · ${recordsText}`,
+  );
+
+  // 12. Save → open round trip: the pre-save export still reconciles
+  //     all-unchanged against the RE-OPENED document, and the re-export is
+  //     byte-identical — canonical identity survived persistence.
+  const run12 = await currentRun();
+  const clickedExport12 = await click("ifc-export");
+  const export12Status = await waitIfcOp("export", run12 + 1, 90000);
+  const sha12 = await readAttr("ifc-export", "data-ifc-sha");
+  const export12Text = await readText("ifc-export-result");
+  const export12 = await cmd("ifc.export", {});
+  const export12Value = export12 && export12.ok ? (export12.value as { ifc: string; sha256: string }) : null;
+  const save12 = await cmd("document.save", {});
+  const saveBytes = save12 && save12.ok ? ((save12.value as { bytes: number[] }).bytes ?? null) : null;
+  const open12 = saveBytes !== null ? await cmd("document.open", { source: saveBytes }) : null;
+  const compare12 = await qq("ifc.compare", { ifc: export12Value?.ifc ?? "" });
+  const compare12Value =
+    compare12 && compare12.ok ? (compare12.value as { report: { summary: Record<string, number> } }) : null;
+  const reexport12 = await cmd("ifc.export", {});
+  const reexport12Sha = reexport12 && reexport12.ok ? ((reexport12.value as { sha256: string }).sha256) : "";
+  push(
+    "12",
+    "save → open round trip → the pre-save export reconciles all-unchanged (11, lossy 0) against the re-opened document; the re-export is byte-identical",
+    clickedExport12 && export12Status.state === "done" && /^[0-9a-f]{64}$/.test(sha12 ?? "") &&
+      sha12 === export12Value?.sha256 && sha12 !== directExportValue?.sha256 && !!open12?.ok &&
+      compare12Value?.report.summary.unchanged === 11 && compare12Value.report.summary.created === 0 &&
+      compare12Value.report.summary.reconciled === 0 && compare12Value.report.summary.lossy === 0 &&
+      reexport12Sha === sha12,
+    `${export12Text} · save/open ok · compare after open: unchanged=${compare12Value?.report.summary.unchanged ?? "n/a"} lossy=${compare12Value?.report.summary.lossy ?? "n/a"} created=${compare12Value?.report.summary.created ?? "n/a"} · re-export sha byte-identical=${reexport12Sha === sha12} (the authored FireRating changed the file: ${sha12 !== directExportValue?.sha256})`,
+  );
+
+  const allOk = steps.every((s) => s.ok);
+  writeSmokeOut({
+    ok: allOk,
+    electronVersion: process.versions.electron,
+    nodeVersion: process.versions.node,
+    chromeVersion: process.versions.chrome,
+    steps,
+    contentHash: contentHashSeeded,
     sceneHash: null,
   });
 }

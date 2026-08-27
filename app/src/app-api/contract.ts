@@ -1315,12 +1315,12 @@ export class AppApiHandler {
       const entities = snapshot.elements
         .map((el) => elementToBimEntityOrNull(el))
         .filter((e): e is NonNullable<typeof e> => e !== null);
+      const rawPropsById = new Map(snapshot.elements.map((el) => [el.id, el.props as Readonly<Record<string, unknown>>] as const));
       const storyLevels = new Map<string, number>();
       for (const entity of entities) {
         if (entity.type === "bim.story") storyLevels.set(entity.id, entity.level);
       }
-      const modelRevision = snapshot.version.version_id;
-      const outcome = buildIfcExportRequest(entities, storyLevels, modelRevision, projectName);
+      const outcome = buildIfcExportRequest(entities, rawPropsById, storyLevels, projectName);
       const built = await adapter.build(outcome.request);
       return ok({
         ifc: built.ifc,
@@ -1345,13 +1345,18 @@ export class AppApiHandler {
     if (adapter === null) {
       return err("ifc_unavailable", "no IFC interop adapter is bound to this host's engine bundle (bind one to use ifc.* interop)", false);
     }
-    const p = payload as { ifc?: unknown; defaultStoryHeight?: unknown } | null;
+    const p = payload as { ifc?: unknown; defaultStoryHeight?: unknown; defaultSpaceHeight?: unknown } | null;
     if (p === null || typeof p !== "object" || typeof p.ifc !== "string" || p.ifc.length === 0) {
       return err("bad_payload", "ifc.import requires an ifc base64 payload", true);
     }
-    const options = typeof p.defaultStoryHeight === "number" && Number.isFinite(p.defaultStoryHeight) && p.defaultStoryHeight > 0
-      ? { defaultStoryHeight: p.defaultStoryHeight }
-      : {};
+    const options: { defaultStoryHeight?: number; defaultSpaceHeight?: number; mintId?: () => string } = {};
+    if (typeof p.defaultStoryHeight === "number" && Number.isFinite(p.defaultStoryHeight) && p.defaultStoryHeight > 0) {
+      options.defaultStoryHeight = p.defaultStoryHeight;
+    }
+    if (typeof p.defaultSpaceHeight === "number" && Number.isFinite(p.defaultSpaceHeight) && p.defaultSpaceHeight > 0) {
+      options.defaultSpaceHeight = p.defaultSpaceHeight;
+    }
+    options.mintId = (): string => this.doc.mintElementId();
     try {
       const bytes = Buffer.from(p.ifc, "base64");
       const sourceHash = createHash("sha256").update(bytes).digest("hex");
