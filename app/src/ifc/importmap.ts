@@ -957,6 +957,56 @@ export function reconcileIfcImport(
     }
   };
 
+  // PRE-PASS (COMPAT-BIM-003): derive each to-be-created definition's DEFAULT
+  // parameters from NON-OVERRIDING instances before any definition is created.
+  // A single-pass create would stamp the creating instance's EFFECTIVE
+  // parameters as the definition defaults — wrong whenever that instance
+  // carries overrides (its effective value for an overridden key is NOT the
+  // definition default). For every parameter key, any instance that does NOT
+  // override the key witnesses the default; a key overridden by EVERY
+  // instance is unknowable from the file and falls back to the first-seen
+  // effective value (recorded as a declared approximation, never silent).
+  interface DefDefaults {
+    category: BimComponentCategory;
+    name: string;
+    defaults: Map<string, number>; // first non-overriding witness per key (deterministic sorted order)
+    seen: Map<string, number>; // first-seen effective value per key (approximation fallback)
+  }
+  const defDefaultsById = new Map<string, DefDefaults>();
+  for (const el of sorted) {
+    if (!(COMPONENT_CLASSES.has(el.ifcClass) && isComponentElement(el))) continue;
+    const pset = el.psets[COMPONENT_PSET] as Record<string, unknown> | undefined;
+    if (pset === undefined || pset === null) continue;
+    const rawDefinitionId = pset.DefinitionId;
+    const rawCategory = pset.Category;
+    if (typeof rawDefinitionId !== "string" || rawDefinitionId.length === 0) continue;
+    if (!isBimComponentCategory(rawCategory)) continue;
+    const params: Record<string, number> = {};
+    for (const [key, value] of Object.entries(pset)) {
+      if (key.startsWith("Param.") && typeof value === "number" && Number.isFinite(value)) {
+        params[key.slice("Param.".length)] = value * scale;
+      }
+    }
+    if (Object.keys(params).length === 0) continue;
+    const overrideKeys = typeof pset.OverrideKeys === "string" && pset.OverrideKeys.length > 0
+      ? new Set(pset.OverrideKeys.split(",").filter((k) => k.length > 0))
+      : new Set<string>();
+    let entry = defDefaultsById.get(rawDefinitionId);
+    if (entry === undefined) {
+      entry = {
+        category: rawCategory,
+        name: typeof pset.DefinitionName === "string" && pset.DefinitionName.length > 0 ? pset.DefinitionName : `${rawCategory} component`,
+        defaults: new Map<string, number>(),
+        seen: new Map<string, number>(),
+      };
+      defDefaultsById.set(rawDefinitionId, entry);
+    }
+    for (const [key, value] of Object.entries(params)) {
+      if (!entry.seen.has(key)) entry.seen.set(key, value);
+      if (!overrideKeys.has(key) && !entry.defaults.has(key)) entry.defaults.set(key, value);
+    }
+  }
+
   for (const el of sorted.filter((e) => (COMPONENT_CLASSES.has(e.ifcClass) && isComponentElement(e)) || e.ifcClass === "IfcFurnishingElement")) {
     const componentPset = el.psets[COMPONENT_PSET] as Record<string, unknown> | undefined;
     const isOffisosComponent = componentPset !== undefined && componentPset !== null;
@@ -1054,11 +1104,30 @@ export function reconcileIfcImport(
           }
           definitionId = existingDef.id;
         } else {
+          // DEFAULT parameters from the pre-pass (non-overriding witnesses),
+          // NOT the creating instance's effective parameters: a definition
+          // created from an overridden instance would pollute its defaults and
+          // every later non-overriding instance would derive wrong effective
+          // state (found by the Electron round-trip smoke probe).
+          const pre = defDefaultsById.get(rawDefinitionId);
+          const defParams: Record<string, number> = {};
+          const approximated = new Set<string>();
+          if (pre !== undefined) {
+            for (const [key, value] of pre.defaults) defParams[key] = value;
+            for (const [key, value] of pre.seen) {
+              if (!pre.defaults.has(key)) { // overridden by EVERY instance — unknowable from the file
+                defParams[key] = value;
+                approximated.add(key);
+              }
+            }
+          } else {
+            Object.assign(defParams, parameters); // defensive (pre-pass mirrors this predicate)
+          }
           const defEntity: Record<string, unknown> = {
             type: "bim.componentDef",
-            name: defName,
-            category,
-            parameters: { ...parameters },
+            name: pre !== undefined ? pre.name : defName,
+            category: pre !== undefined ? pre.category : category,
+            parameters: defParams,
           };
           let defId: string | null = null;
           if (!existingById.has(rawDefinitionId)) {
@@ -1072,8 +1141,16 @@ export function reconcileIfcImport(
           definitionId = defId ?? `@def:${rawDefinitionId}`;
           elements.push({
             canonicalId: defId,
-            globalId: null, ifcClass: "IfcComponentDefinition", name: defName, action: "created",
-            fields: Object.keys(parameters).map((k) => exactField(`parameters.${k}`)),
+            globalId: null, ifcClass: "IfcComponentDefinition",
+            name: pre !== undefined ? pre.name : defName, action: "created",
+            fields: Object.keys(defParams).sort().map((k) =>
+              approximated.has(k)
+                ? {
+                    field: `parameters.${k}`, classification: "lossy", actual: defParams[k],
+                    note: "definition default approximated from an overridden instance — every instance in the file overrides this key, so the authored default is not recoverable",
+                  } as IfcFieldResult
+                : exactField(`parameters.${k}`),
+            ),
           });
         }
         componentDefCanonical.set(rawDefinitionId, definitionId);

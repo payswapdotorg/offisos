@@ -343,7 +343,7 @@ test("Construction Graph mappings stay keyed by canonical ids (engine ids never 
   const allProjections = events.flatMap((e) => e.payload.elements ?? []);
   const projected = new Set(allProjections.map((p) => p.element_id));
   for (const id of [ids.wallDef, ids.deskDef, ids.desk1, ids.desk2, ids.concrete, ids.glass, ids.grid, ids.plane]) {
-    assert.ok(projected.has(id), `${id} is projected into the graph`);
+    assert.ok(id !== undefined && projected.has(id), `${id ?? "(missing)"} is projected into the graph`);
   }
   // Graph node ids derive from the document entity + canonical element id ONLY.
   for (const p of allProjections) {
@@ -404,6 +404,15 @@ test("export → import into a FRESH document preserves component/material seman
   assert.ok(Math.abs(desk1.position[0] - 3000) <= TOL);
   assert.ok(Math.abs(desk1.position[1] - 2000) <= TOL);
   assert.ok(Math.abs(desk1.rotation - Math.PI / 4) <= 1e-6);
+  // REGRESSION (definition defaults are NOT polluted by overridden instances):
+  // the definition's DEFAULT width is 1600 even though the file's first desk
+  // instance carries a 1200 override — a non-overriding instance witnesses the
+  // default. desk1 (no overrides) must derive the authored default, not the
+  // overridden value.
+  const deskDef = inv.definitions.find((d) => d.elementId === ids.deskDef)!;
+  assert.ok(Math.abs(deskDef.parameters.width! - 1600) <= TOL, "definition default width survives the round trip");
+  assert.ok(Math.abs(desk1.effectiveParameters.width! - 1600) <= TOL, "non-overriding instance derives the definition default");
+  assert.deepEqual(desk1.overrides, {}, "non-overriding instance stays override-free");
   // Materials reconcile on their identity psets (canonical ids preserved).
   const concrete = inv.materials.find((m) => m.elementId === ids.concrete)!;
   assert.equal(concrete.name, "Concrete C30");
@@ -428,7 +437,13 @@ test("export → import into the SAME document reconciles unchanged (identity-ba
   const h = ifcHandler();
   const ids = await authorComponents(h);
   const exported = val<{ ifc: string }>(await cmd(h, "ifc.export", {}));
-  const imported = val<{ created: string[]; patched: string[]; report: { summary: Record<string, number> } }>(
+  const imported = val<{
+    created: string[]; patched: string[];
+    report: {
+      summary: Record<string, number>;
+      elements: { canonicalId: string | null; ifcClass: string; action: string }[];
+    };
+  }>(
     await cmd(h, "ifc.import", { ifc: exported.ifc }),
   );
   // Everything already exists: nothing created, nothing patched (within the
