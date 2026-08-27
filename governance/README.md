@@ -1,7 +1,9 @@
 # ConstructionOS Repository Governance
 
-**Architecture version:** 1.0 (FROZEN)
-**Source of authority:** `spec/architecture-lock.md` (Section 2, Development workflow lock) and `spec/development-workflow.md`.
+**Architecture version:** 1.1 (FROZEN)  
+**Source of authority:** `spec/architecture-lock.md` (Section 2, Development workflow lock) and `spec/development-workflow.md`.  
+**Current roadmap:** [`spec/roadmap-v1.1.md`](../spec/roadmap-v1.1.md).  
+**Historical backlog:** `spec/work-items.md` is retained as the v1.0 historical backlog; it is not the current roadmap authority.  
 **Established by:** work item `ARCH-WF-001` (GitHub issue #11).
 
 This directory contains the **repository-backed controls** for the ConstructionOS development workflow. The process is executable, not just documented: a deterministic validator enforces the state machine, evidence policy and traceability rules on every pull request.
@@ -135,11 +137,11 @@ npm run governance -- check-protected --base main   # flags protected-path chang
 
 1. **Deterministic validation** — the validator and tests in `tools/governance/`.
 2. **CI gating** — the governance workflow must pass on every PR.
-3. **Branch protection** — *recommended, owned by the Product Owner:* require the `governance` status check and PR review on `main`. Until enabled, CI enforcement is advisory; the git history remains the audit trail either way.
+3. **Branch protection** — recommended and owned by the Product Owner; require the `governance` status check and PR review on `main`. Until enabled, CI enforcement is advisory; the git history remains the audit trail either way.
 4. **Architect review** — approval and verification decisions are role-restricted records; the Architect inspects evidence, not claims.
 
 ## 10. Known limitations / next steps
 
 - The ACR template and lifecycle, revision-bound verification invalidation, and the full architecture lock manifest are **ARCH-WF-002** (issue #12) — not this work item.
-- `spec/work-items.md` still carries the older ARCH-WF-001/ARCH-WF-002 definitions; GitHub issues #11/#12 are the current definitions. Reconciliation is flagged for the Architect (see the ARCH-WF-001 PR).
+- `spec/work-items.md` is a **historical v1.0 backlog**, not the current roadmap. The current Architecture v1.1 roadmap is `spec/roadmap-v1.1.md` and records the evolved CAD/BIM, Project, Office, platform, Graph, collaboration, AI and intelligence sequencing.
 - The validator does not call the GitHub API (validation is offline and deterministic); issue/PR linkage is structural (recorded references), not live-verified.
