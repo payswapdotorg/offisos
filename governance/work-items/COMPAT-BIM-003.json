@@ -75,9 +75,36 @@
         "workflow_run": "33088610470",
         "pr": 64
       }
+    },
+    {
+      "id": "EV-004",
+      "type": "ci-run",
+      "description": "Post-merge verification evidence bound to the exact COMPAT-BIM-003 merge commit 975854b0. All 25 check runs on that merge revision are green, including all nine push-triggered workflows: governance run #118 (id 33090855052), compat-bim-003 run #4 (id 33090855006 — components deterministic suite on both pinned toolchains incl. the 338-test app suite, Web components workflow smoke, Electron host build + 9 smokes incl. the components BrowserWindow smoke), compat-ifc-001 run #8, compat-cad-001 run #17, compat-cad-002 run #14, compat-cad-003 run #11, cad-implement-001 run #38, cad-implement-002 run #30 and cad-implement-003 run #24. The merge tree is the exact merge of the reviewed PR #64 head 54bd5cd — the architect's cleaned source-only head on top of the reviewed implementation head 77fdbd6 (removal of generated Python bytecode only; 28/28 PR-head check runs green on 54bd5cd and on 77fdbd6). No functional source changes were introduced after review.",
+      "produced_at": "2026-08-27T16:01:41Z",
+      "reproducible": true,
+      "references": {
+        "commit": "975854b0904ccb9eff789de6b12a60a5bbcafc11",
+        "workflow_run": "33090855052",
+        "pr": 64
+      }
     }
   ],
-  "decisions": [],
+  "decisions": [
+    {
+      "id": "DEC-001",
+      "status": "approved",
+      "decided_at": "2026-08-27T15:59:29Z",
+      "decided_by": "pectoraux",
+      "role": "architect",
+      "rationale": "Architect approval was exercised by merging PR #64 at 2026-08-27T15:59:29Z (merge commit 975854b0) after all 28 PR-head check runs were green on both the reviewed implementation head 77fdbd6 and the cleaned source-only merge head 54bd5cd. This decision is backfilled into the canonical lifecycle record; the timestamp is anchored to the verified merge event rather than inventing a finer-grained one.",
+      "evidence_refs": [
+        "EV-001",
+        "EV-002",
+        "EV-003",
+        "EV-004"
+      ]
+    }
+  ],
   "transitions": [
     {
       "from": "DRAFT",
@@ -124,9 +151,81 @@
         "issue": 50,
         "pr": 64
       }
+    },
+    {
+      "from": "PR_OPEN",
+      "to": "VERIFYING",
+      "at": "2026-08-27T15:59:29Z",
+      "actor": "z-ai-implementation-agent",
+      "role": "implementer",
+      "reason": "Historical backfill of the actual PR #64 merge event; post-merge verification evidence submitted for the merged implementation.",
+      "references": {
+        "pr": 64,
+        "merge_commit": "975854b0904ccb9eff789de6b12a60a5bbcafc11",
+        "evidence": [
+          "EV-004"
+        ]
+      }
+    },
+    {
+      "from": "VERIFYING",
+      "to": "ARCHITECT_REVIEW",
+      "at": "2026-08-27T15:59:29Z",
+      "actor": "pectoraux",
+      "role": "architect",
+      "reason": "Post-merge verification review initiated from the previously reviewed PR and qualifying merge evidence; timestamp anchored to the merge event.",
+      "references": {
+        "pr": 64,
+        "evidence": [
+          "EV-004"
+        ]
+      }
+    },
+    {
+      "from": "ARCHITECT_REVIEW",
+      "to": "APPROVED",
+      "at": "2026-08-27T15:59:29Z",
+      "actor": "pectoraux",
+      "role": "architect",
+      "reason": "Approval was exercised by the architect's merge of PR #64 after the full evidence package and green PR-head CI; timestamp anchored to the merge event.",
+      "references": {
+        "pr": 64,
+        "decision": "DEC-001",
+        "evidence": [
+          "EV-004"
+        ]
+      }
+    },
+    {
+      "from": "APPROVED",
+      "to": "MERGED",
+      "at": "2026-08-27T15:59:29Z",
+      "actor": "z-ai-implementation-agent",
+      "role": "implementer",
+      "reason": "Historical backfill of the actual PR #64 merge event at 2026-08-27T15:59:29Z (merge commit 975854b0).",
+      "references": {
+        "pr": 64,
+        "merge_commit": "975854b0904ccb9eff789de6b12a60a5bbcafc11"
+      }
+    },
+    {
+      "from": "MERGED",
+      "to": "VERIFIED",
+      "at": "2026-08-27T16:01:41Z",
+      "actor": "pectoraux",
+      "role": "architect",
+      "reason": "Architect verified the reviewed implementation against merge commit 975854b0 using qualifying post-merge governance evidence run #118 (all 25 check runs green on the merge revision, incl. compat-bim-003 run #4 on both pinned toolchains). The VERIFIED decision is exercised by the architect's merge of this governance-only close-out record.",
+      "references": {
+        "pr": 64,
+        "merge_commit": "975854b0904ccb9eff789de6b12a60a5bbcafc11",
+        "decision": "DEC-001",
+        "evidence": [
+          "EV-004"
+        ]
+      }
     }
   ],
-  "state": "PR_OPEN",
+  "state": "VERIFIED",
   "evidence_requirements": [
     "Deterministic component-definition/instance tests: multiple instances from one definition with stable canonical identities and definition provenance; strict LOCK-007 validation.",
     "Propagation evidence: definition edits change instance effective parameters deterministically, create immutable revisions, and undo restores both; instance overrides survive propagation.",
