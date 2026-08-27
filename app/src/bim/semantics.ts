@@ -119,6 +119,76 @@ export function extractElementSemantics(el: Element): BimSemanticRecord {
           baseOffset: p.baseOffset,
         },
       };
+    // --- COMPAT-BIM-003 (additive): components / materials / coordination ---
+    case "bim.componentDef":
+      return {
+        elementId: el.id,
+        type: entity.type,
+        semantics: {
+          role: "component-definition",
+          classification: entity.category,
+          name: p.name,
+          category: p.category,
+          parameters: p.parameters,
+          ...(p.materialId !== undefined ? { materialId: p.materialId } : {}),
+        },
+      };
+    case "bim.componentInstance":
+      return {
+        elementId: el.id,
+        type: entity.type,
+        semantics: {
+          role: "component-instance",
+          classification: "component",
+          definitionId: p.definitionId,
+          storyId: p.storyId,
+          position: p.position,
+          rotation: p.rotation,
+          baseOffset: p.baseOffset,
+          overrides: p.overrides,
+          ...(p.materialId !== undefined ? { materialId: p.materialId } : {}),
+          ...(p.name !== undefined ? { name: p.name } : {}),
+        },
+      };
+    case "bim.material":
+      return {
+        elementId: el.id,
+        type: entity.type,
+        semantics: {
+          role: "domain-data",
+          classification: "material",
+          name: p.name,
+          ...(p.description !== undefined ? { description: p.description } : {}),
+          ...(p.color !== undefined ? { color: p.color } : {}),
+          properties: p.properties,
+        },
+      };
+    case "bim.grid":
+      return {
+        elementId: el.id,
+        type: entity.type,
+        semantics: {
+          role: "coordination",
+          classification: "grid",
+          storyId: p.storyId,
+          name: p.name,
+          uLines: p.uLines,
+          vLines: p.vLines,
+        },
+      };
+    case "bim.referencePlane":
+      return {
+        elementId: el.id,
+        type: entity.type,
+        semantics: {
+          role: "coordination",
+          classification: "reference-plane",
+          storyId: p.storyId,
+          name: p.name,
+          start: p.start,
+          end: p.end,
+        },
+      };
   }
 }
 

@@ -45,6 +45,8 @@ import type {
   WallEntity,
 } from "./elements.js";
 import { BIM_COINCIDENCE_EPS } from "./elements.js";
+import type { ComponentDefEntity, ComponentInstanceEntity } from "./components.js";
+import { effectiveBox } from "./components.js";
 
 /** Declared boolean-cut overhang per side (mm). See module doc. */
 export const OPENING_CUT_OVERHANG = 1;
@@ -60,6 +62,9 @@ export interface BimGeometryContext {
   /** Hosted openings per host wall id, deterministically ordered
    *  (by distance, then id). */
   readonly openingsByHost: ReadonlyMap<string, readonly OpeningEntity[]>;
+  /** Component definitions by element id (COMPAT-BIM-003: instance
+   *  parametric derivation sources). */
+  readonly componentDefs: ReadonlyMap<string, ComponentDefEntity>;
 }
 
 /** Build the derivation context from a set of BIM entities (any iterable of
@@ -68,9 +73,11 @@ export function bimGeometryContext(entities: readonly BimEntity[]): BimGeometryC
   const stories = new Map<string, BimEntity>();
   const walls = new Map<string, WallEntity>();
   const byHost = new Map<string, OpeningEntity[]>();
+  const componentDefs = new Map<string, ComponentDefEntity>();
   for (const entity of entities) {
     if (entity.type === "bim.story") stories.set(entity.id, entity);
     if (entity.type === "bim.wall") walls.set(entity.id, entity);
+    if (entity.type === "bim.componentDef") componentDefs.set(entity.id, entity);
     if (entity.type === "bim.opening") {
       const list = byHost.get(entity.hostId) ?? [];
       list.push(entity);
@@ -84,7 +91,7 @@ export function bimGeometryContext(entities: readonly BimEntity[]): BimGeometryC
       [...list].sort((a, b) => (a.distance !== b.distance ? a.distance - b.distance : a.id < b.id ? -1 : 1)),
     );
   }
-  return { stories, walls, openingsByHost };
+  return { stories, walls, openingsByHost, componentDefs };
 }
 
 // --- Analytic plan helpers (fixed operation order for determinism) -----------
@@ -253,6 +260,47 @@ export function windowSolid(opening: OpeningEntity, host: WallEntity, ctx: BimGe
   };
 }
 
+/** Component instance footprint profile (COMPAT-BIM-003): the parametric
+ *  box's rotated rectangle in story-local XY, centered on the instance
+ *  position. Deterministic corner order: (−hx,−hy) → (+hx,−hy) →
+ *  (+hx,+hy) → (−hx,+hy). */
+export function componentInstanceProfile(
+  instance: ComponentInstanceEntity,
+  definition: ComponentDefEntity,
+): readonly Vec2[] {
+  const [sizeX, sizeY] = effectiveBox(definition, instance);
+  const hx = sizeX / 2;
+  const hy = sizeY / 2;
+  const cos = Math.cos(instance.rotation);
+  const sin = Math.sin(instance.rotation);
+  const corner = (sx: number, sy: number): Vec2 => [
+    instance.position[0] + cos * sx - sin * sy,
+    instance.position[1] + sin * sx + cos * sy,
+  ];
+  return [corner(-hx, -hy), corner(hx, -hy), corner(hx, hy), corner(-hx, hy)];
+}
+
+/** Component instance solid (COMPAT-BIM-003): the parametric box from the
+ *  EFFECTIVE parameters (definition defaults ⊕ instance overrides), centered
+ *  on the instance position in story-local XY, rotated by the instance
+ *  rotation about +Z, extruded +Z by the effective height from the story
+ *  level + baseOffset. Closed-form analytic construction — identical on every
+ *  host (§5.5 parity). */
+export function componentInstanceSolid(
+  instance: ComponentInstanceEntity,
+  definition: ComponentDefEntity,
+  ctx: BimGeometryContext,
+): GeometryDescriptor {
+  const level = storyLevelOf(ctx, instance.storyId);
+  const [, , sizeZ] = effectiveBox(definition, instance);
+  return {
+    shape: "extrude",
+    profile: componentInstanceProfile(instance, definition),
+    height: sizeZ,
+    base: [0, 0, level + instance.baseOffset],
+  };
+}
+
 /** Derive the solid descriptor for a BIM entity, or explain honestly why
  *  there is none (LOCK-007: a story is a level container, not a solid). */
 export function bimSolidDescriptor(
@@ -291,6 +339,34 @@ export function bimSolidDescriptor(
       return {
         descriptor: null,
         reason: `story '${entity.id}' is a level container — it has no own solid (hosted elements carry the geometry)`,
+      };
+    // --- COMPAT-BIM-003 (additive): components / materials / coordination ---
+    case "bim.componentInstance": {
+      const definition = ctx.componentDefs.get(entity.definitionId);
+      if (definition === undefined) {
+        return { descriptor: null, reason: `component instance '${entity.id}': definition '${entity.definitionId}' does not exist` };
+      }
+      return { descriptor: componentInstanceSolid(entity, definition, ctx), reason: null };
+    }
+    case "bim.componentDef":
+      return {
+        descriptor: null,
+        reason: `component definition '${entity.id}' is parametric domain data — instances carry the realized geometry`,
+      };
+    case "bim.material":
+      return {
+        descriptor: null,
+        reason: `material '${entity.id}' is canonical domain data — it has no solid (associations carry it)`,
+      };
+    case "bim.grid":
+      return {
+        descriptor: null,
+        reason: `grid '${entity.id}' is a coordination primitive — it has no solid (coordination data, not building geometry)`,
+      };
+    case "bim.referencePlane":
+      return {
+        descriptor: null,
+        reason: `reference plane '${entity.id}' is an infinite coordination plane — it has no solid`,
       };
   }
 }
@@ -373,6 +449,23 @@ export function bimWorldBBox(entity: BimEntity, ctx: BimGeometryContext): WorldB
         level + hostChain.host.baseOffset + hostChain.opening.sill + hostChain.opening.height,
       );
     }
+    // --- COMPAT-BIM-003 (additive) ---
+    case "bim.componentInstance": {
+      const definition = ctx.componentDefs.get(entity.definitionId);
+      if (definition === undefined) return null;
+      const [, , sizeZ] = effectiveBox(definition, entity);
+      const level = storyLevelOf(ctx, entity.storyId);
+      return profileBBox(
+        componentInstanceProfile(entity, definition),
+        level + entity.baseOffset,
+        level + entity.baseOffset + sizeZ,
+      );
+    }
+    case "bim.componentDef":
+    case "bim.material":
+    case "bim.grid":
+    case "bim.referencePlane":
+      return null; // domain data / coordination primitives — no solid extent
   }
 }
 

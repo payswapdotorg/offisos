@@ -61,6 +61,16 @@ import {
   setBimProperties,
   standardCamera,
 } from "../bim/index.js";
+// COMPAT-BIM-003: the pure component/material/coordination core.
+import {
+  effectiveBox,
+  effectiveMaterialId,
+  effectiveParameters,
+  type ComponentDefEntity,
+  type GridEntity,
+  type MaterialEntity,
+  type ReferencePlaneEntity,
+} from "../bim/index.js";
 // COMPAT-IFC-001: the pure IFC/openBIM core + the optional interop adapter
 // capability (LOCK-018 — the engine stays behind the adapter boundary).
 import {
@@ -490,6 +500,9 @@ export class AppApiHandler {
       // --- COMPAT-CAD-002 (additive): BIM queries ---
       case "bim.getBuilding":
         return this.qBimGetBuilding();
+      // --- COMPAT-BIM-003 (additive): component/material/coordination ---
+      case "bim.getComponents":
+        return this.qBimGetComponents();
       case "bim.getSemantics":
         return this.qBimGetSemantics(query.payload);
       case "bim.camera":
@@ -1007,6 +1020,100 @@ export class AppApiHandler {
       };
     });
     return ok({ stories: building, bimSettings: this.doc.bimSettings });
+  }
+
+  /** bim.getComponents (COMPAT-BIM-003, query) — the component/material/
+   *  coordination inventory with DERIVED state: every instance reports its
+   *  effective parameters (definition defaults ⊕ overrides) and effective
+   *  material — the observable result of deterministic parametric
+   *  propagation. Deterministic ordering (by id) throughout. */
+  private qBimGetComponents(): CommandQueryResponse {
+    const elements = this.doc.allElements();
+    const entities = elements
+      .map((el) => elementToBimEntityOrNull(el))
+      .filter((x): x is NonNullable<typeof x> => x !== null);
+    const definitions = new Map<string, ComponentDefEntity>();
+    for (const entity of entities) {
+      if (entity.type === "bim.componentDef") definitions.set(entity.id, entity);
+    }
+    const materials = entities
+      .filter((x): x is MaterialEntity => x.type === "bim.material")
+      .sort((a, b) => (a.id < b.id ? -1 : 1))
+      .map((material) => ({
+        elementId: material.id,
+        name: material.name,
+        ...(material.description !== undefined ? { description: material.description } : {}),
+        ...(material.color !== undefined ? { color: material.color } : {}),
+        properties: material.properties,
+      }));
+    const definitionRecords = [...definitions.values()]
+      .sort((a, b) => (a.id < b.id ? -1 : 1))
+      .map((def) => ({
+        elementId: def.id,
+        name: def.name,
+        category: def.category,
+        parameters: def.parameters,
+        ...(def.materialId !== undefined ? { materialId: def.materialId } : {}),
+      }));
+    const instances: unknown[] = [];
+    for (const entity of entities) {
+      if (entity.type !== "bim.componentInstance") continue;
+      const definition = definitions.get(entity.definitionId);
+      if (definition === undefined) {
+        return err(
+          "bim_invalid",
+          `component instance '${entity.id}' references missing definition '${entity.definitionId}' (stored props are inconsistent)`,
+          false,
+        );
+      }
+      instances.push({
+        elementId: entity.id,
+        definitionId: entity.definitionId,
+        ...(entity.name !== undefined ? { name: entity.name } : {}),
+        storyId: entity.storyId,
+        position: entity.position,
+        rotation: entity.rotation,
+        baseOffset: entity.baseOffset,
+        overrides: entity.overrides,
+        effectiveParameters: effectiveParameters(definition, entity),
+        effectiveBox: effectiveBox(definition, entity),
+        effectiveMaterialId: effectiveMaterialId(definition, entity),
+        ...(entity.materialId !== undefined ? { materialId: entity.materialId } : {}),
+      });
+    }
+    instances.sort((a, b) => ((a as { elementId: string }).elementId < (b as { elementId: string }).elementId ? -1 : 1));
+    const grids = entities
+      .filter((x): x is GridEntity => x.type === "bim.grid")
+      .sort((a, b) => (a.id < b.id ? -1 : 1))
+      .map((grid) => ({
+        elementId: grid.id,
+        storyId: grid.storyId,
+        name: grid.name,
+        uLines: grid.uLines,
+        vLines: grid.vLines,
+      }));
+    const referencePlanes = entities
+      .filter((x): x is ReferencePlaneEntity => x.type === "bim.referencePlane")
+      .sort((a, b) => (a.id < b.id ? -1 : 1))
+      .map((plane) => ({
+        elementId: plane.id,
+        storyId: plane.storyId,
+        name: plane.name,
+        start: plane.start,
+        end: plane.end,
+      }));
+    return ok({
+      materials,
+      definitions: definitionRecords,
+      instances,
+      grids,
+      referencePlanes,
+      // Declared unsupported set (LOCK-007): alignment constraints and
+      // full parametric constraint solving are outside this slice.
+      unsupported: {
+        alignmentConstraints: "alignment constraints are outside the supported set of this slice",
+      },
+    });
   }
 
   /** bim.getSemantics (query) — extracted semantic records (all BIM elements,
