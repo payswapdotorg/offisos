@@ -55,6 +55,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 
 import { AppApiHandler } from "@offisos/cad-app-shell/app-api";
 import { createOcctAdapterBundle } from "@offisos/cad-app-shell/adapters/occt";
+import { createIfcInteropAdapter } from "@offisos/cad-app-shell/adapters/ifc";
 import { createReferenceAdapterBundle } from "@offisos/cad-app-shell/adapters/reference";
 import { ElectronHost, IpcTransport } from "@offisos/cad-app-shell/host-electron";
 import { createRenderer } from "@offisos/cad-app-shell/renderer";
@@ -71,7 +72,9 @@ import type { SceneGraph } from "@offisos/cad-app-shell/contracts/scene";
 // wall-clock timeout, typed failures — CAD-005); the CAD-IMPLEMENT-001 smoke
 // flow (no geometry.prepare) runs engine-free.
 const CONFIG = {
-  adapterBundle: createOcctAdapterBundle(),
+  // COMPAT-IFC-001: the IFC interop adapter (IfcOpenShell 0.8.5 worker) is
+  // bound alongside the OCCT engines — ifc.* becomes available.
+  adapterBundle: createOcctAdapterBundle({ ifc: createIfcInteropAdapter() }),
   entityId: "electron-workspace",
   format: "offisos-occt",
   formatVersion: "1",

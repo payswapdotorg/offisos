@@ -35,6 +35,7 @@
 
 import { AppApiHandler } from "@offisos/cad-app-shell/app-api";
 import { createOcctAdapterBundle } from "@offisos/cad-app-shell/adapters/occt";
+import { createIfcInteropAdapter } from "@offisos/cad-app-shell/adapters/ifc";
 import type {
   CommandQueryRequest,
   CommandQueryResponse,
@@ -52,7 +53,9 @@ export const runtime = "nodejs";
  * call (lazy — no engine process until geometry is actually requested).
  */
 const handler = AppApiHandler.create({
-  adapterBundle: createOcctAdapterBundle(),
+  // COMPAT-IFC-001: the IFC interop adapter (IfcOpenShell 0.8.5 worker)
+  // is bound alongside the OCCT engines — ifc.* becomes available.
+  adapterBundle: createOcctAdapterBundle({ ifc: createIfcInteropAdapter() }),
   entityId: "web-workspace",
   format: "offisos-occt",
   formatVersion: "1",
