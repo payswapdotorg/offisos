@@ -24,6 +24,16 @@
  * elements from the building tree. Everything crosses the App API ONLY via
  * window.cad.send — no bim/* module is imported into the renderer (queries
  * only, nothing computed client-side).
+ *
+ * COMPAT-CAD-003 / Issue #41 (additive): a Construction documentation MODE
+ * completes the toggle (drafting + BIM behavior untouched). The docs panel
+ * seeds the representative building + plan/elevation/section/detail views,
+ * parametric dimensions + tags bound to canonical element ids, an A1 sheet
+ * with title block, regenerates deterministically, exports the canonical
+ * Sheet IR (PDF/DWG writers are typed docs_unsupported rejects), and proves
+ * undo/redo + save/open identity. Everything crosses the App API ONLY via
+ * window.cad.send — no docs/* module is imported into the renderer; the
+ * projection is pure deterministic TS inside the core (engine-free).
  */
 
 import type {
@@ -146,7 +156,30 @@ interface BimBuilding {
   bimSettings?: { camera?: { preset?: string } };
 }
 
-type WorkspaceMode = "drafting" | "bim";
+// COMPAT-CAD-003: structural shapes of the docs.* query responses (type-only —
+// no app-core module is imported; the wire values come from window.cad.send).
+interface DocsViewListItem {
+  view: { id: string; kind: string; title: string; direction?: string; storyId?: string };
+  contentHash: string | null;
+  primitiveCount: number;
+  skipCount: number;
+  error: string | null;
+}
+interface DocsViewGeometry {
+  view: { id: string; kind: string; title: string };
+  primitiveCount: number;
+  contentHash: string;
+  bbox: { uMin: number; uMax: number; vMin: number; vMax: number } | null;
+  annotations: { id: string; type: string; [k: string]: unknown }[];
+}
+interface DocsSheetListItem {
+  id: string;
+  title: string;
+  titleBlock: { projectName: string; sheetTitle: string; sheetNumber: string };
+  viewPlacements: { viewId: string }[];
+}
+
+type WorkspaceMode = "drafting" | "bim" | "docs";
 
 const state = {
   snapshot: null as CADDocumentSnapshot | null,
@@ -163,6 +196,11 @@ const state = {
   // COMPAT-CAD-002: BIM authoring mode (toggle alongside the drafting surface).
   mode: "drafting" as WorkspaceMode,
   bimBuilding: null as BimBuilding | null,
+  // COMPAT-CAD-003: construction documentation mode (third toggle position).
+  docsViews: [] as DocsViewListItem[],
+  docsSheets: [] as DocsSheetListItem[],
+  docsSelectedView: null as string | null,
+  docsRunCount: 0,
 };
 
 // --- DOM helpers ----------------------------------------------------------
@@ -206,6 +244,33 @@ interface Shell {
   bimPersistResult: HTMLElement;
   bimSummary: HTMLElement;
   bimTree: HTMLElement;
+  // COMPAT-CAD-003: mode toggle + construction documentation panel.
+  modeDocsBtn: HTMLButtonElement;
+  docsCard: HTMLElement;
+  docsStatus: HTMLElement;
+  docsSeedResult: HTMLElement;
+  docsViewKind: HTMLSelectElement;
+  docsViewStory: HTMLInputElement;
+  docsViewDirection: HTMLSelectElement;
+  docsViewAxis: HTMLSelectElement;
+  docsViewOffset: HTMLInputElement;
+  docsCreateViewBtn: HTMLButtonElement;
+  docsListViewsBtn: HTMLButtonElement;
+  docsViewList: HTMLElement;
+  docsGetGeometryBtn: HTMLButtonElement;
+  docsGeometryReadout: HTMLElement;
+  docsRegenerateBtn: HTMLButtonElement;
+  docsRegenReadout: HTMLElement;
+  docsCreateSheetBtn: HTMLButtonElement;
+  docsListSheetsBtn: HTMLButtonElement;
+  docsSheetList: HTMLElement;
+  docsExportBtn: HTMLButtonElement;
+  docsExportReadout: HTMLElement;
+  docsExportPdfBtn: HTMLButtonElement;
+  docsUndoBtn: HTMLButtonElement;
+  docsRedoBtn: HTMLButtonElement;
+  docsSaveOpenBtn: HTMLButtonElement;
+  docsPersistResult: HTMLElement;
   ddEid: HTMLElement;
   ddVid: HTMLElement;
   ddVn: HTMLElement;
@@ -236,6 +301,61 @@ const MINI_BUILDING_ENTITIES: readonly Record<string, unknown>[] = [
   { type: "bim.space", id: "space-office", storyId: "story-gf", name: "Office 1", footprint: [[0, 0], [6000, 0], [6000, 3000], [3000, 3000], [3000, 6000], [0, 6000]], height: 3000 },
 ];
 
+/** The documentation representative building (COMPAT-CAD-003, Issue #41).
+ *  Same canonical ids as the BIM card's mini building where they overlap
+ *  (story-gf, wall-south, op-door/door-main, slab-g, space-office) extended to
+ *  the full four-wall envelope + facade window the documentation workflow
+ *  projects (the app/test/docs-workflow.test.ts precedent): the plan view
+ *  needs wall-north for the overall dimension and op-win/win-1 for the window
+ *  symbol — 17 plan primitives, overall dim 5300, tag "Office 1 (27.00 m²)".
+ *  One atomic bim.createElements batch (one revision, one undo). */
+const DOCS_BUILDING_ENTITIES: readonly Record<string, unknown>[] = [
+  { type: "bim.story", id: "story-gf", name: "Ground Floor", level: 0, height: 3000 },
+  { type: "bim.wall", id: "wall-south", storyId: "story-gf", start: [0, 0], end: [6000, 0], width: 300, height: 3000 },
+  { type: "bim.wall", id: "wall-east", storyId: "story-gf", start: [6000, 0], end: [6000, 5000], width: 300, height: 3000 },
+  { type: "bim.wall", id: "wall-north", storyId: "story-gf", start: [6000, 5000], end: [0, 5000], width: 300, height: 3000 },
+  { type: "bim.wall", id: "wall-west", storyId: "story-gf", start: [0, 5000], end: [0, 0], width: 300, height: 3000 },
+  { type: "bim.slab", id: "slab-g", storyId: "story-gf", corner1: [-300, -300], corner2: [6300, 5300], thickness: 200, baseOffset: -200 },
+  { type: "bim.opening", id: "op-door", hostId: "wall-south", distance: 500, width: 900, height: 2100, sill: 0 },
+  { type: "bim.door", id: "door-main", openingId: "op-door", swing: "left", name: "Main entrance" },
+  { type: "bim.opening", id: "op-win", hostId: "wall-south", distance: 3500, width: 1500, height: 1200, sill: 900 },
+  { type: "bim.window", id: "win-1", openingId: "op-win", name: "Facade W1" },
+  { type: "bim.space", id: "space-office", storyId: "story-gf", name: "Office 1", footprint: [[0, 0], [6000, 0], [6000, 3000], [3000, 3000], [3000, 6000], [0, 6000]], height: 3000 },
+];
+
+/** The seeded documentation set: plan + front elevation + section + door
+ *  detail, the overall wall dimension + the office tag, and the A-101 sheet
+ *  (placements inside the drawable region [0,641]×[0,594], non-overlapping).
+ *  Minted ids on a fresh document: vw-000001..vw-000004, sh-000001. */
+const DOCS_SEED_VIEWS: readonly Record<string, unknown>[] = [
+  { kind: "plan", title: "Ground Floor Plan", storyId: "story-gf", scale: 50 },
+  { kind: "elevation", title: "Front Elevation", direction: "front", scale: 50 },
+  { kind: "section", title: "Section A-A", sectionAxis: "y", sectionOffset: 2500, scale: 50 },
+  { kind: "detail", title: "Door Detail 1", sourceViewId: "vw-000001", region: { x: 300, y: -300, w: 1400, h: 600 }, detailScale: 2 },
+];
+const DOCS_SEED_ANNOTATIONS: readonly Record<string, unknown>[] = [
+  { type: "docs.dim", viewId: "vw-000001", refIds: ["wall-south", "wall-north"], axis: "y", mode: "overall", offset: -1000 },
+  { type: "docs.tag", viewId: "vw-000001", targetId: "space-office" },
+];
+const DOCS_SEED_SHEET: Record<string, unknown> = {
+  title: "Ground Floor Documentation",
+  titleBlock: { projectName: "Offisos Demo", sheetTitle: "Ground Floor", sheetNumber: "A-101", author: "Z.ai", date: "2026-08-27" },
+  viewPlacements: [
+    { viewId: "vw-000001", x: 10, y: 10, w: 300, h: 280 },
+    { viewId: "vw-000002", x: 320, y: 10, w: 300, h: 280 },
+  ],
+};
+/** The UI-created second sheet (A-102): section + detail — the two views the
+ *  seed sheet does not place. Fixed date keeps the Sheet IR deterministic. */
+const DOCS_UI_SHEET: Record<string, unknown> = {
+  title: "Sections & Details",
+  titleBlock: { projectName: "Offisos Demo", sheetTitle: "Sections & Details", sheetNumber: "A-102", author: "Z.ai", date: "2026-08-27" },
+  viewPlacements: [
+    { viewId: "vw-000003", x: 10, y: 10, w: 300, h: 280 },
+    { viewId: "vw-000004", x: 320, y: 10, w: 300, h: 280 },
+  ],
+};
+
 function buildShell(root: HTMLElement): Shell {
   root.replaceChildren();
 
@@ -259,7 +379,13 @@ function buildShell(root: HTMLElement): Shell {
   modeBimBtn.setAttribute("data-testid", "mode-bim");
   modeBimBtn.setAttribute("aria-pressed", "false");
   modeBimBtn.style.cssText = "min-height:32px;border:0;border-radius:0;font-size:12px;";
-  modeWrap.append(modeDraftBtn, modeBimBtn);
+  // COMPAT-CAD-003: the third mode — construction documentation.
+  const modeDocsBtn = el("button");
+  modeDocsBtn.type = "button"; modeDocsBtn.textContent = "Documentation";
+  modeDocsBtn.setAttribute("data-testid", "mode-docs");
+  modeDocsBtn.setAttribute("aria-pressed", "false");
+  modeDocsBtn.style.cssText = "min-height:32px;border:0;border-radius:0;font-size:12px;";
+  modeWrap.append(modeDraftBtn, modeBimBtn, modeDocsBtn);
   header.append(hWrap, modeWrap, badge, engineBadge);
   root.append(header);
 
@@ -382,6 +508,139 @@ function buildShell(root: HTMLElement): Shell {
   bimBody.append(bimStatus, bimCtrls, bimMoveGroup, bimCamGroup, bimOpsGroup, bimBuildBusy, bimCreated, bimCameraReadout, bimBuildResult, bimPersistResult, bimSummary, bimTree);
   bimCard.append(bimBody);
 
+  // COMPAT-CAD-003: construction documentation panel (visible only in docs mode).
+  const docsCard = card(
+    "Construction documentation",
+    "COMPAT-CAD-003 — drawing production through the shared App API (docs.*). Views are projected deterministically from the BIM model (plan / elevation / section / detail), annotations bind to canonical element ids, sheets carry A1 title blocks; regeneration is the determinism proof and the canonical Sheet IR is the export contract (PDF/DWG writers fail typed docs_unsupported — explicit, no partial writer). Pure deterministic TS behind the frozen API: no engine involved.",
+  );
+  docsCard.setAttribute("data-testid", "docs-card");
+  docsCard.style.display = "none"; // drafting is the default mode
+  const docsBody = el("div", "card-c");
+
+  const docsStatus = el("p");
+  docsStatus.setAttribute("data-testid", "docs-status");
+  docsStatus.setAttribute("data-state", "idle");
+  docsStatus.setAttribute("data-op", "");
+  docsStatus.setAttribute("data-run", "0");
+  docsStatus.style.cssText = "margin:0 0 8px;font-family:ui-monospace,monospace;font-size:11px;color:var(--muted);";
+  docsStatus.textContent = "docs: idle";
+
+  const docsSeedGroup = el("div", "controls");
+  docsSeedGroup.style.marginBottom = "8px";
+  const bDocsSeed = btn("primary", "Seed documentation", "▦");
+  bDocsSeed.type = "button"; bDocsSeed.setAttribute("data-testid", "docs-seed");
+  bDocsSeed.title = "document.create + bim.createElements (representative building) + docs.createViews (plan/elevation/section/detail) + docs.addAnnotations (overall dim + office tag) + docs.regenerate + docs.createSheets (A-101)";
+  docsSeedGroup.append(bDocsSeed);
+
+  const docsMonoP = (testid: string, initial: string): HTMLElement => {
+    const p = el("p");
+    p.setAttribute("data-testid", testid);
+    p.style.cssText = "margin:0 0 8px;font-family:ui-monospace,monospace;font-size:11px;color:var(--fg);word-break:break-all;";
+    p.textContent = initial;
+    return p;
+  };
+  const docsSeedResult = docsMonoP("docs-seed-result", "seed: —");
+  docsSeedResult.setAttribute("data-count", "0");
+  docsSeedResult.setAttribute("data-annotations", "0");
+  docsSeedResult.setAttribute("data-regen-applied", "-1");
+  docsSeedResult.setAttribute("data-sheet", "");
+
+  // Create-view quick form: kind + story/source + direction + axis + offset
+  // (one compact row serving every kind; per-kind fields are composed on click).
+  const docsForm = el("div", "controls");
+  docsForm.style.marginBottom = "8px";
+  const fKind = docsSelectField("docs-view-kind", "kind", ["plan", "elevation", "section", "detail"], "plan");
+  const fStory = docsTextField("docs-view-story", "story / source view", "story-gf");
+  const fDirection = docsSelectField("docs-view-direction", "direction", ["front", "back", "left", "right"], "front");
+  const fAxis = docsSelectField("docs-view-axis", "axis", ["x", "y"], "y");
+  const fOffset = docsNumberField("docs-view-offset", "offset / scale", "2500");
+  const bDocsCreateView = btn("", "Create view", "+");
+  bDocsCreateView.type = "button"; bDocsCreateView.setAttribute("data-testid", "docs-create-view");
+  bDocsCreateView.title = "docs.createViews — plan uses the story; elevation the direction; section the axis + cut offset; detail the source view + magnification (offset field) with the representative region";
+  docsForm.append(fKind.wrap, fStory.wrap, fDirection.wrap, fAxis.wrap, fOffset.wrap, bDocsCreateView);
+
+  const docsViewsGroup = el("div", "controls");
+  docsViewsGroup.style.marginBottom = "8px";
+  const bDocsListViews = btn("", "List views", "≡");
+  bDocsListViews.type = "button"; bDocsListViews.setAttribute("data-testid", "docs-list-views");
+  const bDocsGetGeometry = btn("", "View geometry", "⌖");
+  bDocsGetGeometry.type = "button"; bDocsGetGeometry.setAttribute("data-testid", "docs-get-geometry");
+  bDocsGetGeometry.title = "docs.getViewGeometry of the selected view (click a row to select) — primitive count + content hash + bbox";
+  docsViewsGroup.append(bDocsListViews, bDocsGetGeometry);
+
+  const docsViewList = el("div");
+  docsViewList.setAttribute("data-testid", "docs-view-list");
+  docsViewList.setAttribute("role", "list");
+  docsViewList.style.cssText = "max-height:200px;overflow-y:auto;margin:0 0 8px;";
+  const docsGeometryReadout = docsMonoP("docs-geometry-readout", "geometry: —");
+  docsGeometryReadout.setAttribute("data-primitives", "");
+  docsGeometryReadout.setAttribute("data-hash", "");
+  docsGeometryReadout.setAttribute("data-bbox", "");
+
+  const docsOpsGroup = el("div", "controls");
+  docsOpsGroup.style.marginBottom = "8px";
+  const bDocsRegenerate = btn("primary", "Regenerate", "⟳");
+  bDocsRegenerate.type = "button"; bDocsRegenerate.setAttribute("data-testid", "docs-regenerate");
+  bDocsRegenerate.title = "docs.regenerate — recompute every view projection (canonical content hashes) + every annotation's derived values; a no-op records no revision";
+  const bDocsCreateSheet = btn("", "Create sheet", "▭");
+  bDocsCreateSheet.type = "button"; bDocsCreateSheet.setAttribute("data-testid", "docs-create-sheet");
+  bDocsCreateSheet.title = "docs.createSheets — A-102 placing the section + detail views (non-overlapping inside the drawable region)";
+  const bDocsListSheets = btn("", "List sheets", "▤");
+  bDocsListSheets.type = "button"; bDocsListSheets.setAttribute("data-testid", "docs-list-sheets");
+  docsOpsGroup.append(bDocsRegenerate, bDocsCreateSheet, bDocsListSheets);
+
+  const docsRegenReadout = docsMonoP("docs-regen-readout", "regen: —");
+  docsRegenReadout.setAttribute("data-applied", "");
+  docsRegenReadout.setAttribute("data-first-hash", "");
+
+  const docsSheetList = el("div");
+  docsSheetList.setAttribute("data-testid", "docs-sheet-list");
+  docsSheetList.setAttribute("role", "list");
+  docsSheetList.style.cssText = "max-height:160px;overflow-y:auto;margin:0 0 8px;";
+
+  const docsExportGroup = el("div", "controls");
+  docsExportGroup.style.marginBottom = "8px";
+  const bDocsExport = btn("primary", "Export sheet-ir", "⇩");
+  bDocsExport.type = "button"; bDocsExport.setAttribute("data-testid", "docs-export");
+  bDocsExport.title = "docs.exportSheet {format:'sheet-ir'} — the canonical deterministic Sheet IR + sha256 hash (the future PDF/DWG adapter contract)";
+  const bDocsExportPdf = btn("danger", "Export pdf (typed reject)", "✕");
+  bDocsExportPdf.type = "button"; bDocsExportPdf.setAttribute("data-testid", "docs-export-pdf");
+  bDocsExportPdf.title = "docs.exportSheet {format:'pdf'} — the writer is outside this slice; the request fails typed docs_unsupported (explicit, no partial writer)";
+  docsExportGroup.append(bDocsExport, bDocsExportPdf);
+  const docsExportReadout = docsMonoP("docs-export-readout", "export: —");
+  docsExportReadout.setAttribute("data-hash", "");
+  docsExportReadout.setAttribute("data-sheet", "");
+
+  const docsHistGroup = el("div", "controls");
+  const bDocsUndo = btn("", "Undo", "<");
+  bDocsUndo.type = "button"; bDocsUndo.setAttribute("data-testid", "docs-undo");
+  const bDocsRedo = btn("", "Redo", ">");
+  bDocsRedo.type = "button"; bDocsRedo.setAttribute("data-testid", "docs-redo");
+  const bDocsSaveOpen = btn("", "Save → Open", "⟲");
+  bDocsSaveOpen.type = "button"; bDocsSaveOpen.setAttribute("data-testid", "docs-save-open");
+  bDocsSaveOpen.title = "document.save then document.open(saved bytes) — graph events hash must be identical";
+  docsHistGroup.append(bDocsUndo, bDocsRedo, bDocsSaveOpen);
+  const docsPersistResult = docsMonoP("docs-persist-result", "persistence: —");
+  docsPersistResult.setAttribute("data-identical", "");
+
+  docsBody.append(
+    docsStatus,
+    docsSeedGroup,
+    docsSeedResult,
+    docsForm,
+    docsViewsGroup,
+    docsViewList,
+    docsGeometryReadout,
+    docsOpsGroup,
+    docsRegenReadout,
+    docsSheetList,
+    docsExportGroup,
+    docsExportReadout,
+    docsHistGroup,
+    docsPersistResult,
+  );
+  docsCard.append(docsBody);
+
   const editCard = card("Edit", "Add or remove geometry elements (dummy shapes).");
   const editBody = el("div", "card-c"); const editCtrls = el("div", "controls");
   const bBox = btn("primary", "Add Box", "#"); const bCircle = btn("primary", "Add Circle", "o"); const bDel = btn("danger", "Delete", "x");
@@ -428,7 +687,7 @@ function buildShell(root: HTMLElement): Shell {
   const errorEl = el("div", "alert"); errorEl.style.display = "none";
   errorEl.setAttribute("data-testid", "cad-error");
   errorEl.setAttribute("role", "alert");
-  nav.append(fileCard, occtCard, bimCard, editCard, histCard, revCard, selCard, verCard, errorEl);
+  nav.append(fileCard, occtCard, bimCard, docsCard, editCard, histCard, revCard, selCard, verCard, errorEl);
 
   main.append(canvasCard, nav);
   root.append(main);
@@ -460,6 +719,20 @@ function buildShell(root: HTMLElement): Shell {
   bBimUndo.addEventListener("click", () => void bimRun("undo", () => command("document.undo", {})));
   bBimRedo.addEventListener("click", () => void bimRun("redo", () => command("document.redo", {})));
   bBimSaveOpen.addEventListener("click", () => void onBimSaveOpen());
+  // COMPAT-CAD-003: mode toggle + documentation panel handlers.
+  modeDocsBtn.addEventListener("click", () => setMode("docs"));
+  bDocsSeed.addEventListener("click", () => void onDocsSeed());
+  bDocsCreateView.addEventListener("click", () => void onDocsCreateView());
+  bDocsListViews.addEventListener("click", () => void onDocsListViews());
+  bDocsGetGeometry.addEventListener("click", () => void onDocsGetGeometry());
+  bDocsRegenerate.addEventListener("click", () => void onDocsRegenerate());
+  bDocsCreateSheet.addEventListener("click", () => void onDocsCreateSheet());
+  bDocsListSheets.addEventListener("click", () => void onDocsListSheets());
+  bDocsExport.addEventListener("click", () => void onDocsExport());
+  bDocsExportPdf.addEventListener("click", () => void onDocsExportPdf());
+  bDocsUndo.addEventListener("click", () => void docsRun("undo", () => command("document.undo", {})));
+  bDocsRedo.addEventListener("click", () => void docsRun("redo", () => command("document.redo", {})));
+  bDocsSaveOpen.addEventListener("click", () => void onDocsSaveOpen());
   svg.addEventListener("click", () => {
     if (state.selection.length === 0) return;
     void run("Clear selection", () => command("document.setSelection", { ids: [] }));
@@ -493,6 +766,32 @@ function buildShell(root: HTMLElement): Shell {
     bimPersistResult,
     bimSummary,
     bimTree,
+    modeDocsBtn,
+    docsCard,
+    docsStatus,
+    docsSeedResult,
+    docsViewKind: fKind.select,
+    docsViewStory: fStory.input,
+    docsViewDirection: fDirection.select,
+    docsViewAxis: fAxis.select,
+    docsViewOffset: fOffset.input,
+    docsCreateViewBtn: bDocsCreateView,
+    docsListViewsBtn: bDocsListViews,
+    docsViewList,
+    docsGetGeometryBtn: bDocsGetGeometry,
+    docsGeometryReadout,
+    docsRegenerateBtn: bDocsRegenerate,
+    docsRegenReadout,
+    docsCreateSheetBtn: bDocsCreateSheet,
+    docsListSheetsBtn: bDocsListSheets,
+    docsSheetList,
+    docsExportBtn: bDocsExport,
+    docsExportReadout,
+    docsExportPdfBtn: bDocsExportPdf,
+    docsUndoBtn: bDocsUndo,
+    docsRedoBtn: bDocsRedo,
+    docsSaveOpenBtn: bDocsSaveOpen,
+    docsPersistResult,
     ddEid: rEid.dd,
     ddVid: rVid.dd,
     ddVn: rVn.dd,
@@ -534,6 +833,51 @@ function numField(testid: string, label: string, value: string): { wrap: HTMLEle
   input.setAttribute("data-testid", testid);
   input.setAttribute("aria-label", `BIM move ${label} (mm)`);
   input.style.cssText = "width:64px;font:inherit;font-size:12px;padding:4px 6px;border:1px solid var(--border);border-radius:6px;";
+  wrap.append(span, input);
+  return { wrap, input };
+}
+
+/** COMPAT-CAD-003: labeled docs-panel form fields (select / text / number). */
+function docsSelectField(testid: string, label: string, options: readonly string[], value: string): { wrap: HTMLElement; select: HTMLSelectElement } {
+  const wrap = el("label");
+  wrap.style.cssText = "display:inline-flex;align-items:center;gap:4px;font-size:12px;color:var(--muted);";
+  const span = el("span"); span.textContent = label;
+  const select = el("select");
+  for (const o of options) {
+    const opt = el("option");
+    opt.value = o; opt.textContent = o;
+    select.append(opt);
+  }
+  select.value = value;
+  select.setAttribute("data-testid", testid);
+  select.setAttribute("aria-label", `Documentation view ${label}`);
+  select.style.cssText = "font:inherit;font-size:12px;padding:4px 6px;border:1px solid var(--border);border-radius:6px;";
+  wrap.append(span, select);
+  return { wrap, select };
+}
+
+function docsTextField(testid: string, label: string, value: string): { wrap: HTMLElement; input: HTMLInputElement } {
+  const wrap = el("label");
+  wrap.style.cssText = "display:inline-flex;align-items:center;gap:4px;font-size:12px;color:var(--muted);";
+  const span = el("span"); span.textContent = label;
+  const input = el("input");
+  input.type = "text"; input.value = value;
+  input.setAttribute("data-testid", testid);
+  input.setAttribute("aria-label", `Documentation view ${label}`);
+  input.style.cssText = "width:110px;font:inherit;font-size:12px;padding:4px 6px;border:1px solid var(--border);border-radius:6px;";
+  wrap.append(span, input);
+  return { wrap, input };
+}
+
+function docsNumberField(testid: string, label: string, value: string): { wrap: HTMLElement; input: HTMLInputElement } {
+  const wrap = el("label");
+  wrap.style.cssText = "display:inline-flex;align-items:center;gap:4px;font-size:12px;color:var(--muted);";
+  const span = el("span"); span.textContent = label;
+  const input = el("input");
+  input.type = "number"; input.step = "any"; input.value = value;
+  input.setAttribute("data-testid", testid);
+  input.setAttribute("aria-label", `Documentation view ${label}`);
+  input.style.cssText = "width:70px;font:inherit;font-size:12px;padding:4px 6px;border:1px solid var(--border);border-radius:6px;";
   wrap.append(span, input);
   return { wrap, input };
 }
@@ -857,6 +1201,288 @@ async function onBimSaveOpen(): Promise<void> {
   });
 }
 
+// --- COMPAT-CAD-003: construction documentation actions (window.cad.send only)
+
+/** Docs status protocol: [data-state] idle|busy|done|error + [data-op] label +
+ *  [data-run] monotonic per-op counter — the deterministic handle the
+ *  BrowserWindow smoke waits on (the counter disambiguates repeated op labels
+ *  such as a second undo: the busy state + counter are set synchronously at
+ *  click time, so "run N settled" is unambiguous). */
+function setDocsStatus(st: "idle" | "busy" | "done" | "error", op: string, text: string): void {
+  if (!ui) return;
+  ui.docsStatus.setAttribute("data-state", st);
+  ui.docsStatus.setAttribute("data-op", op);
+  ui.docsStatus.textContent = text;
+}
+
+/** run() semantics for the docs panel (mirrors bimRun): busy state, typed-error
+ *  surface, refresh, and the [data-state]/[data-op]/[data-run] status protocol
+ *  the smoke polls. The error is set AFTER refresh() — refresh() itself resets
+ *  the alert on successful queries, so setting it before would clear the typed
+ *  message again. */
+async function docsRun(op: string, fn: () => Promise<CommandQueryResponse>): Promise<CommandQueryResponse | null> {
+  if (!ui) return null;
+  if (state.busy || state.loading) return null; // no interleaved docs ops (buttons disable, rows guard here)
+  state.docsRunCount += 1;
+  ui.docsStatus.setAttribute("data-run", String(state.docsRunCount));
+  setBusy(true);
+  setDocsStatus("busy", op, `docs ${op}: busy…`);
+  try {
+    const res = await fn();
+    await refresh();
+    if (!res.ok) {
+      setError(`[${op}] ${res.code}: ${res.message}`);
+      setDocsStatus("error", op, `docs ${op}: failed — ${res.code}: ${res.message}`);
+    } else {
+      setDocsStatus("done", op, `docs ${op}: done`);
+    }
+    return res;
+  } catch (e) {
+    await refresh();
+    setError(`[${op}] unexpected: ${(e as Error).message}`);
+    setDocsStatus("error", op, `docs ${op}: unexpected — ${(e as Error).message}`);
+    return null;
+  } finally {
+    setBusy(false);
+  }
+}
+
+/** Seed the full representative documentation set through the App API: fresh
+ *  document + the representative building + plan/elevation/section/detail
+ *  views + the overall dimension + office tag + regeneration (deriving the
+ *  annotation values) + the A-101 sheet. One docsRun wrapper — every command
+ *  crosses window.cad.send; a typed failure surfaces and stops the seed. */
+async function onDocsSeed(): Promise<void> {
+  if (!ui) return;
+  ui.docsSeedResult.setAttribute("data-count", "0");
+  ui.docsSeedResult.setAttribute("data-annotations", "0");
+  ui.docsSeedResult.setAttribute("data-regen-applied", "-1");
+  ui.docsSeedResult.setAttribute("data-sheet", "");
+  ui.docsSeedResult.textContent = "seed: —";
+  ui.docsGeometryReadout.setAttribute("data-primitives", "");
+  ui.docsGeometryReadout.setAttribute("data-hash", "");
+  ui.docsGeometryReadout.setAttribute("data-bbox", "");
+  ui.docsGeometryReadout.textContent = "geometry: —";
+  state.docsSelectedView = null;
+  let viewIds: string[] = [];
+  let annotationCount = 0;
+  let regenApplied = -1;
+  let sheetIds: string[] = [];
+  const res = await docsRun("seed", async () => {
+    const created = await command("document.create", { entityId: "compat-cad-003-electron" });
+    if (!created.ok) return created;
+    const building = await command("bim.createElements", { entities: DOCS_BUILDING_ENTITIES });
+    if (!building.ok) return building;
+    const views = await command("docs.createViews", { views: DOCS_SEED_VIEWS });
+    if (!views.ok) return views;
+    viewIds = (views.value as { created: string[] }).created;
+    const annotations = await command("docs.addAnnotations", { annotations: DOCS_SEED_ANNOTATIONS });
+    if (!annotations.ok) return annotations;
+    annotationCount = ((annotations.value as { created: string[] }).created ?? []).length;
+    const regen = await command("docs.regenerate", {});
+    if (!regen.ok) return regen;
+    regenApplied = (regen.value as { applied: number }).applied;
+    const sheets = await command("docs.createSheets", { sheets: [DOCS_SEED_SHEET] });
+    if (!sheets.ok) return sheets;
+    sheetIds = (sheets.value as { created: string[] }).created;
+    return sheets;
+  });
+  if (res !== null && res.ok) {
+    ui.docsSeedResult.setAttribute("data-count", String(viewIds.length));
+    ui.docsSeedResult.setAttribute("data-annotations", String(annotationCount));
+    ui.docsSeedResult.setAttribute("data-regen-applied", String(regenApplied));
+    ui.docsSeedResult.setAttribute("data-sheet", sheetIds[0] ?? "");
+    ui.docsSeedResult.textContent =
+      `seeded: ${viewIds.length} views (${viewIds.join(", ")}) · ${annotationCount} annotations · ` +
+      `regen applied ${regenApplied} · sheet ${sheetIds[0] ?? "—"}`;
+  }
+}
+
+/** Create one additional view from the quick form (docs.createViews). The
+ *  five fields compose per kind: plan ← story; elevation ← direction (+story
+ *  as optional scope); section ← axis + offset; detail ← source view + the
+ *  offset field as magnification with the representative region. */
+async function onDocsCreateView(): Promise<void> {
+  if (!ui) return;
+  const kind = ui.docsViewKind.value;
+  const story = ui.docsViewStory.value.trim();
+  const direction = ui.docsViewDirection.value;
+  const axis = ui.docsViewAxis.value;
+  const offset = readNum(ui.docsViewOffset, 0);
+  let view: Record<string, unknown>;
+  if (kind === "plan") {
+    view = { kind, title: `Plan (${story})`, storyId: story };
+  } else if (kind === "elevation") {
+    view = story !== "" ? { kind, title: `Elevation ${direction}`, direction, storyId: story } : { kind, title: `Elevation ${direction}`, direction };
+  } else if (kind === "section") {
+    view = { kind, title: `Section ${axis}=${Math.round(offset)}`, sectionAxis: axis, sectionOffset: offset };
+  } else {
+    view = { kind, title: `Detail (${story})`, sourceViewId: story, region: { x: 300, y: -300, w: 1400, h: 600 }, detailScale: offset };
+  }
+  await docsRun("create-view", () => command("docs.createViews", { views: [view] }));
+}
+
+/** docs.listViews — the rows render from the live state refresh() maintains. */
+async function onDocsListViews(): Promise<void> {
+  await docsRun("list-views", () => query("docs.listViews", {}));
+}
+
+/** docs.getViewGeometry of the selected view (row click) — readout: primitive
+ *  count + content hash prefix + bbox (+ the view's resolved annotations). */
+async function fetchDocsGeometry(viewId: string): Promise<void> {
+  if (!ui) return;
+  const res = await docsRun("get-geometry", () => query("docs.getViewGeometry", { viewId }));
+  if (res !== null && res.ok) {
+    const v = res.value as DocsViewGeometry;
+    const bbox = v.bbox;
+    ui.docsGeometryReadout.setAttribute("data-primitives", String(v.primitiveCount));
+    ui.docsGeometryReadout.setAttribute("data-hash", v.contentHash);
+    ui.docsGeometryReadout.setAttribute("data-bbox", JSON.stringify(bbox));
+    ui.docsGeometryReadout.textContent =
+      `${v.view.id} ${v.view.kind} · ${v.primitiveCount} primitives · hash ${v.contentHash.slice(0, 8)}… · ` +
+      (bbox !== null
+        ? `bbox [${bbox.uMin}, ${bbox.uMax}] × [${bbox.vMin}, ${bbox.vMax}]`
+        : "bbox —") +
+      ` · ${v.annotations.length} annotations`;
+  } else {
+    ui.docsGeometryReadout.setAttribute("data-primitives", "");
+    ui.docsGeometryReadout.setAttribute("data-hash", "");
+    ui.docsGeometryReadout.setAttribute("data-bbox", "");
+    ui.docsGeometryReadout.textContent = "geometry: failed — see the error alert";
+  }
+}
+
+/** The View geometry button: the selected view, or the first listed view. */
+async function onDocsGetGeometry(): Promise<void> {
+  if (!ui) return;
+  const viewId = state.docsSelectedView ?? state.docsViews[0]?.view.id ?? null;
+  if (viewId === null) {
+    await docsRun("get-geometry", () =>
+      Promise.resolve({
+        ok: false,
+        code: "docs_invalid",
+        message: "no view to inspect — seed the documentation set or create a view first",
+      } as CommandQueryResponse),
+    );
+    return;
+  }
+  await fetchDocsGeometry(viewId);
+}
+
+/** docs.regenerate — readout: applied update count + the first view's content
+ *  hash prefix (the determinism anchor). A no-op regeneration reports
+ *  applied 0 and records no revision (identical inputs → identical outputs). */
+async function onDocsRegenerate(): Promise<void> {
+  if (!ui) return;
+  const res = await docsRun("regenerate", () => command("docs.regenerate", {}));
+  if (res !== null && res.ok) {
+    const v = res.value as {
+      applied: number;
+      report: { views: { viewId: string; kind: string; contentHash: string | null; primitiveCount: number }[] };
+    };
+    const first = v.report.views[0];
+    ui.docsRegenReadout.setAttribute("data-applied", String(v.applied));
+    ui.docsRegenReadout.setAttribute("data-first-hash", first?.contentHash ?? "");
+    ui.docsRegenReadout.textContent =
+      `applied=${v.applied} · ${v.report.views.length} views · first ${first?.viewId ?? "—"} ` +
+      `(${first?.kind ?? "—"}, ${first?.primitiveCount ?? 0} primitives) hash ${first?.contentHash?.slice(0, 8) ?? "—"}…`;
+  } else {
+    ui.docsRegenReadout.setAttribute("data-applied", "");
+    ui.docsRegenReadout.setAttribute("data-first-hash", "");
+    ui.docsRegenReadout.textContent = "regen: failed — see the error alert";
+  }
+}
+
+/** docs.createSheets — the A-102 sheet placing section + detail. */
+async function onDocsCreateSheet(): Promise<void> {
+  await docsRun("create-sheet", () => command("docs.createSheets", { sheets: [DOCS_UI_SHEET] }));
+}
+
+/** docs.listSheets — the rows render from the live state refresh() maintains. */
+async function onDocsListSheets(): Promise<void> {
+  await docsRun("list-sheets", () => query("docs.listSheets", {}));
+}
+
+/** The first sheet's id (docs.listSheets — table order). */
+async function firstSheetId(): Promise<string | null> {
+  const res = await query("docs.listSheets", {});
+  if (!res.ok) return null;
+  const sheets = (res.value as { sheets: DocsSheetListItem[] }).sheets ?? [];
+  return sheets[0]?.id ?? null;
+}
+
+/** docs.exportSheet {format:"sheet-ir"} of the first sheet — readout: the
+ *  canonical 64-hex sha256 of the Sheet IR (the PDF/DWG adapter contract). */
+async function onDocsExport(): Promise<void> {
+  if (!ui) return;
+  const res = await docsRun("export", async () => {
+    const sheetId = await firstSheetId();
+    if (sheetId === null) {
+      return {
+        ok: false,
+        code: "docs_invalid",
+        message: "no sheet to export — create one first",
+      } as CommandQueryResponse;
+    }
+    return query("docs.exportSheet", { sheetId, format: "sheet-ir" });
+  });
+  if (res !== null && res.ok) {
+    const v = res.value as { format: string; sheetId: string; hash: string };
+    ui.docsExportReadout.setAttribute("data-hash", v.hash);
+    ui.docsExportReadout.setAttribute("data-sheet", v.sheetId);
+    ui.docsExportReadout.textContent = `${v.format} ${v.sheetId} · hash ${v.hash.slice(0, 16)}… (64-hex canonical)`;
+  } else {
+    ui.docsExportReadout.setAttribute("data-hash", "");
+    ui.docsExportReadout.setAttribute("data-sheet", "");
+    ui.docsExportReadout.textContent = "export: failed — see the error alert";
+  }
+}
+
+/** docs.exportSheet {format:"pdf"} — the writer is outside this slice: the
+ *  typed docs_unsupported failure surfaces in the shared cad-error alert. */
+async function onDocsExportPdf(): Promise<void> {
+  await docsRun("export-pdf", async () => {
+    const sheetId = await firstSheetId();
+    if (sheetId === null) {
+      return {
+        ok: false,
+        code: "docs_invalid",
+        message: "no sheet to export — create one first",
+      } as CommandQueryResponse;
+    }
+    return query("docs.exportSheet", { sheetId, format: "pdf" });
+  });
+}
+
+/** Save → open round trip through the SAME handler document: the Construction
+ *  Graph events hash before/after must be identical (identity proof) — the
+ *  BIM card's save/open pattern, docs readout. */
+async function onDocsSaveOpen(): Promise<void> {
+  if (!ui) return;
+  await docsRun("save-open", async () => {
+    const before = await query("model.getGraphEvents", {});
+    if (!before.ok) return before;
+    const hashBefore = (before.value as { events_hash: string }).events_hash;
+    const save = await command("document.save", {});
+    if (!save.ok) return save;
+    const bytes = (save.value as { bytes: number[] }).bytes;
+    const open = await command("document.open", { source: bytes });
+    if (!open.ok) return open;
+    const after = await query("model.getGraphEvents", {});
+    if (!after.ok) return after;
+    const hashAfter = (after.value as { events_hash: string }).events_hash;
+    const identical = hashAfter === hashBefore;
+    ui!.docsPersistResult.setAttribute("data-identical", identical ? "true" : "false");
+    ui!.docsPersistResult.textContent =
+      `events_hash ${hashBefore.slice(0, 16)}… → ${hashAfter.slice(0, 16)}… · identical=${identical}`;
+    // Surface a hash change as a typed failure of the round trip (the UI's own
+    // honest verdict — not an App API error code).
+    return identical
+      ? open
+      : ({ ok: false, code: "docs_invalid", message: "graph events hash changed across save/open" } as CommandQueryResponse);
+  });
+}
+
 // --- Refresh --------------------------------------------------------------
 
 let ui: Shell | null = null;
@@ -881,6 +1507,15 @@ async function refresh(): Promise<void> {
   if (state.mode === "bim") {
     const bimRes = await query("bim.getBuilding", {});
     state.bimBuilding = bimRes.ok ? ((bimRes.value as BimBuilding) ?? null) : null;
+  }
+  // COMPAT-CAD-003: docs mode additionally pulls the live view/sheet tables
+  // (fresh projections + content hashes — the rows stay current through every
+  // op, exactly like the BIM building tree).
+  if (state.mode === "docs") {
+    const viewsRes = await query("docs.listViews", {});
+    state.docsViews = viewsRes.ok ? ((viewsRes.value as { views: DocsViewListItem[] }).views ?? []) : [];
+    const sheetsRes = await query("docs.listSheets", {});
+    state.docsSheets = sheetsRes.ok ? ((sheetsRes.value as { sheets: DocsSheetListItem[] }).sheets ?? []) : [];
   }
   render();
 }
@@ -1194,6 +1829,86 @@ function render(): void {
     b.setAttribute("aria-pressed", preset === activePreset ? "true" : "false");
   }
   renderBimTree();
+
+  // COMPAT-CAD-003: mode toggle + documentation panel state.
+  ui.modeDocsBtn.setAttribute("aria-pressed", state.mode === "docs" ? "true" : "false");
+  ui.modeDocsBtn.disabled = state.busy;
+  ui.docsCard.style.display = state.mode === "docs" ? "" : "none";
+  const docsDisabled = state.busy || state.loading;
+  ui.docsCreateViewBtn.disabled = docsDisabled;
+  ui.docsListViewsBtn.disabled = docsDisabled;
+  ui.docsGetGeometryBtn.disabled = docsDisabled;
+  ui.docsRegenerateBtn.disabled = docsDisabled;
+  ui.docsCreateSheetBtn.disabled = docsDisabled;
+  ui.docsListSheetsBtn.disabled = docsDisabled;
+  ui.docsExportBtn.disabled = docsDisabled;
+  ui.docsExportPdfBtn.disabled = docsDisabled;
+  ui.docsSaveOpenBtn.disabled = docsDisabled;
+  ui.docsUndoBtn.disabled = docsDisabled || !canUndo;
+  ui.docsRedoBtn.disabled = docsDisabled || !canRedo;
+  renderDocsViews();
+  renderDocsSheets();
+}
+
+/** View rows from the live docs.listViews state (docs mode): id · kind ·
+ *  primitive count · content-hash prefix (8 chars). Clicking a row selects the
+ *  view and fetches its geometry (docs.getViewGeometry). */
+function renderDocsViews(): void {
+  if (!ui) return;
+  ui.docsViewList.replaceChildren();
+  if (state.docsViews.length === 0) {
+    const p = el("p");
+    p.style.cssText = "margin:0 0 8px;font-size:12px;color:var(--muted);";
+    p.textContent = "No views yet — seed the documentation set or create a view.";
+    ui.docsViewList.append(p);
+    return;
+  }
+  for (const v of state.docsViews) {
+    const selected = state.docsSelectedView === v.view.id;
+    const b = el("button");
+    b.type = "button";
+    b.setAttribute("data-testid", `docs-view-row-${v.view.id}`);
+    b.setAttribute("role", "listitem");
+    b.setAttribute("aria-pressed", selected ? "true" : "false");
+    b.setAttribute("aria-label", `Inspect view ${v.view.id} (${v.view.kind})`);
+    b.style.cssText =
+      "display:block;width:100%;text-align:left;margin-bottom:4px;padding:5px 10px;font-size:11px;font-family:ui-monospace,monospace;" +
+      "border:1px solid var(--border);border-radius:6px;background:transparent;color:var(--fg);cursor:pointer;" +
+      (selected ? "border-color:var(--accent);background:#fff7ed;" : "");
+    b.textContent =
+      `${v.view.id} · ${v.view.kind} · ${v.primitiveCount} primitives · ` +
+      (v.contentHash !== null ? `${v.contentHash.slice(0, 8)}…` : (v.error ?? "not projected"));
+    b.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      state.docsSelectedView = v.view.id;
+      void fetchDocsGeometry(v.view.id);
+    });
+    ui.docsViewList.append(b);
+  }
+}
+
+/** Sheet rows from the live docs.listSheets state (docs mode). */
+function renderDocsSheets(): void {
+  if (!ui) return;
+  ui.docsSheetList.replaceChildren();
+  if (state.docsSheets.length === 0) {
+    const p = el("p");
+    p.style.cssText = "margin:0 0 8px;font-size:12px;color:var(--muted);";
+    p.textContent = "No sheets yet — seed or create one.";
+    ui.docsSheetList.append(p);
+    return;
+  }
+  for (const s of state.docsSheets) {
+    const row = el("div");
+    row.setAttribute("data-testid", `docs-sheet-row-${s.id}`);
+    row.setAttribute("role", "listitem");
+    row.style.cssText =
+      "margin-bottom:4px;padding:5px 10px;font-size:11px;font-family:ui-monospace,monospace;" +
+      "border:1px solid var(--border);border-radius:6px;color:var(--fg);";
+    row.textContent =
+      `${s.id} · ${s.titleBlock.sheetNumber} ${s.titleBlock.sheetTitle} · ${s.viewPlacements.length} view(s) · ${s.titleBlock.projectName}`;
+    ui.docsSheetList.append(row);
+  }
 }
 
 /** Building tree + summary from the last bim.getBuilding query (BIM mode). */

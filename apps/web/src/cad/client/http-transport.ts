@@ -539,6 +539,254 @@ export function unwrapBimCreated(res: CommandQueryResponse): string[] | null {
   return v.created as string[];
 }
 
+// --- COMPAT-CAD-003: construction documentation through the shared App API -
+
+/** One documentation view definition (mirror of the wire, `docs.listViews` /
+ *  `docs.getViewGeometry`). */
+export interface DocsViewRecord {
+  id: string;
+  kind: "plan" | "elevation" | "section" | "detail";
+  title: string;
+  storyId?: string;
+  direction?: "front" | "back" | "left" | "right";
+  sectionAxis?: "x" | "y";
+  sectionOffset?: number;
+  sourceViewId?: string;
+  region?: { x: number; y: number; w: number; h: number };
+  detailScale?: number;
+  scale?: number;
+}
+
+/** Title block fields drawn in the fixed right strip of the A1 frame. */
+export interface DocsTitleBlock {
+  projectName: string;
+  sheetTitle: string;
+  sheetNumber: string;
+  author?: string;
+  date?: string;
+}
+
+/** One view placement on a sheet (sheet millimetres). */
+export interface DocsViewPlacement {
+  viewId: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+/** One documentation sheet/layout (mirror of the wire). */
+export interface DocsSheetRecord {
+  id: string;
+  title: string;
+  titleBlock: DocsTitleBlock;
+  viewPlacements: DocsViewPlacement[];
+}
+
+/** A projected drawing primitive in VIEW coordinates (mm); every primitive
+ *  carries the canonical `sourceId` of the element that produced it. */
+export type DocsViewPrimitive =
+  | { type: "line"; from: readonly [number, number]; to: readonly [number, number]; sourceId: string }
+  | { type: "polyline"; points: readonly (readonly [number, number])[]; closed: boolean; sourceId: string }
+  | { type: "circle"; center: readonly [number, number]; radius: number; sourceId: string }
+  | { type: "arc"; center: readonly [number, number]; radius: number; startAngle: number; endAngle: number; sourceId: string }
+  | { type: "text"; at: readonly [number, number]; text: string; sourceId: string };
+
+/** One annotation element resolved for a view (docs.dim | docs.tag | docs.note
+ *  props + the element id). */
+export interface DocsAnnotation {
+  id: string;
+  type: "docs.dim" | "docs.tag" | "docs.note";
+  viewId: string;
+  refIds?: readonly [string, string];
+  targetId?: string;
+  axis?: "x" | "y";
+  mode?: "overall" | "clear";
+  offset?: number;
+  x?: number;
+  y?: number;
+  text?: string;
+  /** Derived by docs.regenerate. */
+  measured?: number;
+  label?: string;
+  dangling?: boolean;
+  reason?: string;
+}
+
+/** One entry of the `docs.listViews` result. */
+export interface DocsViewListEntry {
+  view: DocsViewRecord;
+  contentHash: string | null;
+  primitiveCount: number;
+  skipCount: number;
+  error: string | null;
+}
+
+/** Response value of `docs.getViewGeometry` (mirror of the wire). */
+export interface DocsViewGeometryResult {
+  view: DocsViewRecord;
+  primitives: DocsViewPrimitive[];
+  skips: { elementId: string; reason: string }[];
+  bbox: { uMin: number; uMax: number; vMin: number; vMax: number } | null;
+  contentHash: string;
+  primitiveCount: number;
+  annotations: DocsAnnotation[];
+}
+
+/** One per-view row of the docs.regenerate report. */
+export interface DocsViewReport {
+  viewId: string;
+  kind: string;
+  title: string;
+  contentHash: string | null;
+  primitiveCount: number;
+  skipCount: number;
+  error: string | null;
+}
+
+/** One per-annotation row of the docs.regenerate report. */
+export interface DocsAnnotationReport {
+  id: string;
+  type: string;
+  viewId: string;
+  updated: boolean;
+  dangling: boolean;
+  reason: string | null;
+  measured: number | null;
+  label: string | null;
+}
+
+/** Response value of `docs.regenerate` (mirror of the wire). */
+export interface DocsRegenerateResult {
+  report: { views: DocsViewReport[]; annotations: DocsAnnotationReport[] };
+  applied: number;
+}
+
+/** Response value of `docs.exportSheet` (format "sheet-ir"). */
+export interface DocsExportResult {
+  format: "sheet-ir";
+  sheetId: string;
+  ir: unknown;
+  canonical: string;
+  hash: string;
+}
+
+export async function docsCreateViews(views: unknown[]): Promise<CommandQueryResponse> {
+  return command("docs.createViews", { views });
+}
+
+export async function docsRemoveView(viewId: string): Promise<CommandQueryResponse> {
+  return command("docs.removeView", { viewId });
+}
+
+export async function docsCreateSheets(sheets: unknown[]): Promise<CommandQueryResponse> {
+  return command("docs.createSheets", { sheets });
+}
+
+export async function docsRemoveSheet(sheetId: string): Promise<CommandQueryResponse> {
+  return command("docs.removeSheet", { sheetId });
+}
+
+export async function docsAddAnnotations(annotations: unknown[]): Promise<CommandQueryResponse> {
+  return command("docs.addAnnotations", { annotations });
+}
+
+export async function docsRemoveAnnotations(ids: string[]): Promise<CommandQueryResponse> {
+  return command("docs.removeAnnotations", { ids });
+}
+
+export async function docsRegenerate(): Promise<CommandQueryResponse> {
+  return command("docs.regenerate", {});
+}
+
+export async function docsListViews(): Promise<CommandQueryResponse> {
+  return query("docs.listViews", {});
+}
+
+export async function docsGetViewGeometry(viewId: string): Promise<CommandQueryResponse> {
+  return query("docs.getViewGeometry", { viewId });
+}
+
+export async function docsListSheets(): Promise<CommandQueryResponse> {
+  return query("docs.listSheets", {});
+}
+
+/** Export one sheet. format "sheet-ir" returns the canonical IR + hash;
+ *  "pdf"/"dwg" answer the typed `docs_unsupported` failure (contract only). */
+export async function docsExportSheet(sheetId: string, format: "sheet-ir" | "pdf" | "dwg"): Promise<CommandQueryResponse> {
+  return query("docs.exportSheet", { sheetId, format });
+}
+
+/** Extract the created-id list of a docs.createViews/createSheets/addAnnotations
+ *  ok response. */
+export function unwrapDocsCreated(res: CommandQueryResponse): string[] | null {
+  if (!res.ok) return null;
+  const v = res.value as { created?: unknown } | null;
+  if (typeof v !== "object" || v === null || !Array.isArray(v.created)) return null;
+  return v.created as string[];
+}
+
+/** Extract a DocsViewListEntry[] from a docs.listViews ok response. */
+export function unwrapDocsListViews(res: CommandQueryResponse): DocsViewListEntry[] | null {
+  if (!res.ok) return null;
+  const v = res.value as { views?: unknown } | null;
+  if (typeof v !== "object" || v === null || !Array.isArray(v.views)) return null;
+  return v.views as DocsViewListEntry[];
+}
+
+/** Extract a DocsViewGeometryResult from a docs.getViewGeometry ok response. */
+export function unwrapDocsViewGeometry(res: CommandQueryResponse): DocsViewGeometryResult | null {
+  if (!res.ok) return null;
+  const v = res.value as Partial<DocsViewGeometryResult> | null;
+  if (
+    typeof v !== "object" || v === null ||
+    typeof v.view !== "object" || v.view === null ||
+    !Array.isArray(v.primitives) || !Array.isArray(v.skips) ||
+    typeof v.contentHash !== "string" || typeof v.primitiveCount !== "number" ||
+    !Array.isArray(v.annotations)
+  ) {
+    return null;
+  }
+  return v as DocsViewGeometryResult;
+}
+
+/** Extract a DocsSheetRecord[] from a docs.listSheets ok response. */
+export function unwrapDocsListSheets(res: CommandQueryResponse): DocsSheetRecord[] | null {
+  if (!res.ok) return null;
+  const v = res.value as { sheets?: unknown } | null;
+  if (typeof v !== "object" || v === null || !Array.isArray(v.sheets)) return null;
+  return v.sheets as DocsSheetRecord[];
+}
+
+/** Extract a DocsRegenerateResult from a docs.regenerate ok response. */
+export function unwrapDocsRegenerate(res: CommandQueryResponse): DocsRegenerateResult | null {
+  if (!res.ok) return null;
+  const v = res.value as Partial<DocsRegenerateResult> | null;
+  if (
+    typeof v !== "object" || v === null ||
+    typeof v.report !== "object" || v.report === null ||
+    !Array.isArray(v.report.views) || !Array.isArray(v.report.annotations) ||
+    typeof v.applied !== "number"
+  ) {
+    return null;
+  }
+  return v as DocsRegenerateResult;
+}
+
+/** Extract a DocsExportResult from a docs.exportSheet ok response. */
+export function unwrapDocsExport(res: CommandQueryResponse): DocsExportResult | null {
+  if (!res.ok) return null;
+  const v = res.value as Partial<DocsExportResult> | null;
+  if (
+    typeof v !== "object" || v === null ||
+    typeof v.canonical !== "string" || typeof v.hash !== "string" ||
+    typeof v.sheetId !== "string"
+  ) {
+    return null;
+  }
+  return v as DocsExportResult;
+}
+
 export type {
   CADDocumentSnapshot,
   DocumentEdit,
