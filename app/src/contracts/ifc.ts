@@ -116,6 +116,44 @@ export interface IfcSpaceInput {
   readonly custom?: Readonly<Record<string, string | number | boolean>>;
 }
 
+// --- COMPAT-BIM-003 (additive): materials + component instances ---------------
+
+/** A canonical material in the build request. IfcMaterial has NO GlobalId —
+ *  `guid` is the deterministic association key derived from the canonical
+ *  material id (wire bookkeeping only); identity provenance rides in the
+ *  IfcMaterialProperties set named Pset_OffisosIdentity. */
+export interface IfcMaterialInput {
+  readonly guid: string;
+  readonly name: string;
+  readonly description?: string;
+  readonly identity: IfcIdentity;
+  /** Canonical material properties (+ color as R/G/B integers) → the
+   *  IfcMaterialProperties set named Pset_OffisosMaterial. */
+  readonly properties?: Readonly<Record<string, string | number | boolean>>;
+}
+
+/** A component instance (metres): a freestanding parametric box placed in the
+ *  story-local plane, mapped per category to IfcWall/IfcDoor/IfcWindow/
+ *  IfcFurnishingElement. The box is CENTERED on `position` (the worker shifts
+ *  the corner-anchored profile origin); `component` carries the
+ *  Pset_OffisosComponent provenance (DefinitionId, Category, effective
+ *  parameters, override keys) that the import reconciles on. */
+export interface IfcComponentInput {
+  readonly guid: string;
+  readonly name: string;
+  readonly storyGuid: string;
+  readonly category: "wall" | "door" | "window" | "furniture" | "fixture";
+  readonly position: readonly [number, number];
+  readonly rotation: number;
+  /** World Z of the box base (m). */
+  readonly baseZ: number;
+  /** Box extents [sizeX, sizeY, sizeZ] from the effective parameters (m). */
+  readonly size: readonly [number, number, number];
+  readonly identity: IfcIdentity;
+  readonly component: Readonly<Record<string, string | number | boolean>>;
+  readonly materialGuid?: string;
+}
+
 /** The complete deterministic build model (sorted, versioned, hashable). */
 export interface IfcBuildRequest {
   readonly projectName: string;
@@ -126,6 +164,9 @@ export interface IfcBuildRequest {
   readonly doors: readonly IfcFillInput[];
   readonly windows: readonly IfcFillInput[];
   readonly spaces: readonly IfcSpaceInput[];
+  // COMPAT-BIM-003 (additive; empty arrays on legacy callers).
+  readonly materials?: readonly IfcMaterialInput[];
+  readonly components?: readonly IfcComponentInput[];
 }
 
 export interface IfcBuildResult {
@@ -172,6 +213,8 @@ export interface IfcParsedElement {
   readonly hostGlobalId: string | null;
   /** Fills opening (doors/windows only). */
   readonly fillOpeningGlobalId: string | null;
+  /** Associated material NAME (COMPAT-BIM-003; IfcMaterial has no GlobalId). */
+  readonly materialName: string | null;
   readonly psets: Readonly<Record<string, Readonly<Record<string, unknown>>>>;
   readonly qtos: Readonly<Record<string, Readonly<Record<string, unknown>>>>;
   /** World placement translation (m, rounded 1e-9), when placed. */
@@ -187,17 +230,29 @@ export interface IfcParsedElement {
   readonly overallHeight: number | null;
 }
 
+/** A parsed material (COMPAT-BIM-003). `psets` carries the
+ *  IfcMaterialProperties sets keyed by name — Pset_OffisosIdentity carries the
+ *  canonical id for reconciliation; Pset_OffisosMaterial carries the canonical
+ *  material properties (+ color R/G/B). */
+export interface IfcParsedMaterial {
+  readonly name: string;
+  readonly description: string | null;
+  readonly psets: Readonly<Record<string, Readonly<Record<string, unknown>>>>;
+}
+
 export interface IfcParseResult {
   readonly schema: string;
   readonly lengthUnitName: string | null;
   readonly lengthUnitPrefix: string | null;
   readonly stories: readonly IfcParsedStory[];
   readonly elements: readonly IfcParsedElement[];
+  readonly materials: readonly IfcParsedMaterial[];
   readonly relationships: {
     readonly voids: number;
     readonly fills: number;
     readonly containment: number;
     readonly aggregation: number;
+    readonly materialAssociations: number;
   };
   readonly engineVersion: string;
 }

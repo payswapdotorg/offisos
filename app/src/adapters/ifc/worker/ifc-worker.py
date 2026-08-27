@@ -55,8 +55,21 @@ FIXED_TIMESTAMP = "2026-01-01T00:00:00"
 IDENTITY_PSET = "Pset_OffisosIdentity"
 PARAMS_PSET = "Pset_OffisosParams"
 CUSTOM_PSET = "Pset_OffisosCustom"
+MATERIAL_PSET = "Pset_OffisosMaterial"
+COMPONENT_PSET = "Pset_OffisosComponent"
 GUID_SALT = "offisos-ifc-root:v1"
 OPENING_LATERAL_OVERHANG = 0.002  # m — matches the canonical 1 mm cut overhang per side
+
+# COMPAT-BIM-003: component category → IFC class. Component walls/doors/windows
+# are FREESTANDING parametric boxes (they do not void/fill anything) — the
+# component pset distinguishes them from bim.wall/bim.door/bim.window exports.
+COMPONENT_IFC_CLASS = {
+    "wall": "IfcWall",
+    "door": "IfcDoor",
+    "window": "IfcWindow",
+    "furniture": "IfcFurnishingElement",
+    "fixture": "IfcFurnishingElement",
+}
 
 ELEMENT_CLASSES = {
     "IfcWall": "wall",
@@ -65,6 +78,7 @@ ELEMENT_CLASSES = {
     "IfcDoor": "door",
     "IfcWindow": "window",
     "IfcOpeningElement": "opening",
+    "IfcFurnishingElement": "furnishing",
 }
 
 
@@ -326,6 +340,40 @@ def op_parse(req: dict[str, Any]) -> dict[str, Any]:
         if getattr(fill, "GlobalId", None) and getattr(opening, "GlobalId", None):
             fill_of[fill.GlobalId] = opening.GlobalId
 
+    # COMPAT-BIM-003: materials (IfcMaterial has no GlobalId — identity and
+    # exchange semantics live in IfcMaterialProperties sets) + per-element
+    # material associations (IfcRelAssociatesMaterial → IfcMaterial by name).
+    def _material_psets(material: Any) -> dict[str, dict[str, Any]]:
+        psets: dict[str, dict[str, Any]] = {}
+        for mp in f.by_type("IfcMaterialProperties"):
+            if mp.Material == material:
+                props: dict[str, Any] = {}
+                for p in mp.Properties or []:
+                    value = p.NominalValue.wrappedValue if p.NominalValue is not None else None
+                    props[p.Name or ""] = value
+                psets[mp.Name or ""] = props
+        return psets
+
+    materials: list[dict[str, Any]] = []
+    for material in f.by_type("IfcMaterial"):
+        materials.append(
+            {
+                "name": material.Name or "",
+                "description": material.Description or None,
+                "psets": _material_psets(material),
+            }
+        )
+    materials.sort(key=lambda m: (m["name"], json.dumps(m["psets"], sort_keys=True)))
+
+    material_name_of: dict[str, str] = {}
+    for rel in f.by_type("IfcRelAssociatesMaterial"):
+        relating = rel.RelatingMaterial
+        if relating is None or not relating.is_a("IfcMaterial"):
+            continue
+        for product in rel.RelatedElements or []:
+            if getattr(product, "GlobalId", None):
+                material_name_of[product.GlobalId] = relating.Name or ""
+
     stories: list[dict[str, Any]] = []
     for storey in f.by_type("IfcBuildingStorey"):
         psets, qtos = clean_psets(storey)
@@ -363,6 +411,7 @@ def op_parse(req: dict[str, Any]) -> dict[str, Any]:
                     "storyGlobalId": story_of.get(product.GlobalId),
                     "hostGlobalId": host_of.get(product.GlobalId),
                     "fillOpeningGlobalId": fill_of.get(product.GlobalId),
+                    "materialName": material_name_of.get(product.GlobalId),
                     "psets": psets,
                     "qtos": qtos,
                     "placement": placement,
@@ -381,11 +430,13 @@ def op_parse(req: dict[str, Any]) -> dict[str, Any]:
         "lengthUnitPrefix": units["lengthUnitPrefix"],
         "stories": stories,
         "elements": elements,
+        "materials": materials,
         "relationships": {
             "voids": len(f.by_type("IfcRelVoidsElement")),
             "fills": len(f.by_type("IfcRelFillsElement")),
             "containment": len(f.by_type("IfcRelContainedInSpatialStructure")),
             "aggregation": len(f.by_type("IfcRelAggregates")),
+            "materialAssociations": len(f.by_type("IfcRelAssociatesMaterial")),
         },
     }
     out = identity_header()
@@ -601,6 +652,85 @@ def op_build(req: dict[str, Any]) -> dict[str, Any]:
             _add_qto(f, space, "Qto_SpaceCommon", dict(sp["qtos"]))
         if sp.get("custom"):
             _add_pset(f, space, CUSTOM_PSET, dict(sp["custom"]))
+
+    # --- COMPAT-BIM-003: materials ------------------------------------------------
+    # IfcMaterial is NOT an IfcRoot (no GlobalId): identity provenance and the
+    # canonical material properties ride as IfcMaterialProperties sets; the
+    # canonical id in the identity set is the reconciliation key on re-import.
+    def _add_material_pset(material: Any, name: str, properties: dict[str, Any]) -> None:
+        props = []
+        for key, value in dict(properties).items():
+            if isinstance(value, bool):
+                nominal = f.create_entity("IfcBoolean", value)
+            elif isinstance(value, (int, float)):
+                nominal = f.create_entity("IfcReal", float(value))
+            else:
+                nominal = f.create_entity("IfcLabel", str(value))
+            props.append(f.create_entity("IfcPropertySingleValue", key, None, nominal, None))
+        mp = f.create_entity("IfcMaterialProperties")
+        mp.Material = material
+        mp.Name = name
+        mp.Properties = props
+
+    materials_by_guid: dict[str, Any] = {}
+    for m in model.get("materials", []):
+        material = ifcopenshell.api.run(
+            "material.add_material", f, name=str(m["name"]),
+            description=str(m["description"]) if m.get("description") else None,
+        )
+        materials_by_guid[m["guid"]] = material
+        _add_material_pset(material, IDENTITY_PSET, dict(m["identity"]))
+        if m.get("properties"):
+            _add_material_pset(material, MATERIAL_PSET, dict(m["properties"]))
+
+    # --- COMPAT-BIM-003: component instances --------------------------------------
+    # Freestanding parametric boxes: profile spans local [0, sx] × [0, sy]
+    # (corner-anchored, like the opening void convention); the placement origin
+    # is shifted by −R·(sx/2, sy/2) so the box maps to the canonical CENTERED
+    # placement (the import reconstructs the centre from the profile bbox).
+    component_products: dict[str, Any] = {}
+    for c in model.get("components", []):
+        ifc_class = COMPONENT_IFC_CLASS[str(c["category"])]
+        comp = ifcopenshell.api.run("root.create_entity", f, ifc_class=ifc_class, name=c["name"] or "")
+        comp.GlobalId = c["guid"]
+        locked.add(comp.id())
+        ifcopenshell.api.run(
+            "spatial.assign_container", f, products=[comp], relating_structure=storeys[c["storyGuid"]]
+        )
+        sx, sy, sz = (float(c["size"][0]), float(c["size"][1]), float(c["size"][2]))
+        rect = builder.rectangle(size=np.array([sx, sy], dtype="float64"))
+        item = builder.extrude(rect, sz)
+        rep = f.createIfcShapeRepresentation(body, "Body", "SweptSolid", item if isinstance(item, list) else [item])
+        ifcopenshell.api.run("geometry.assign_representation", f, product=comp, representation=rep)
+        if ifc_class in ("IfcDoor", "IfcWindow"):
+            ifcopenshell.api.run(
+                "attribute.edit_attributes", f, product=comp,
+                attributes={"OverallWidth": sx, "OverallHeight": sz},
+            )
+        cos_r, sin_r = float(np.cos(float(c["rotation"]))), float(np.sin(float(c["rotation"])))
+        px, py = float(c["position"][0]), float(c["position"][1])
+        tx = px - (cos_r * sx / 2.0 - sin_r * sy / 2.0)
+        ty = py - (sin_r * sx / 2.0 + cos_r * sy / 2.0)
+        ifcopenshell.api.run(
+            "geometry.edit_object_placement", f, product=comp,
+            matrix=(
+                (cos_r, -sin_r, 0.0, tx),
+                (sin_r, cos_r, 0.0, ty),
+                (0.0, 0.0, 1.0, float(c["baseZ"])),
+                (0.0, 0.0, 0.0, 1.0),
+            ),
+        )
+        _add_pset(f, comp, IDENTITY_PSET, dict(c["identity"]))
+        _add_pset(f, comp, COMPONENT_PSET, dict(c["component"]))
+        component_products[c["guid"]] = comp
+
+    # Material associations (deterministic component order — sorted by the TS side).
+    for c in model.get("components", []):
+        if c.get("materialGuid"):
+            ifcopenshell.api.run(
+                "material.assign_material", f, products=[component_products[c["guid"]]],
+                material=materials_by_guid[c["materialGuid"]],
+            )
 
     # Deterministic GlobalIds for every remaining IfcRoot (relationships,
     # psets, spatial structure): STEP-id-keyed normalization. Combined with

@@ -101,7 +101,12 @@ test("ifc.export produces a deterministic IFC4 file with the full semantic set",
   );
   assert.equal(again.sha256, sha256, "export bytes are byte-identical for equal inputs");
   assert.equal(again.schema, "IFC4");
-  assert.deepEqual(again.counts, { stories: 1, walls: 4, slabs: 1, openings: 2, doors: 1, windows: 1, spaces: 1 });
+  assert.deepEqual(again.counts, {
+    stories: 1, walls: 4, slabs: 1, openings: 2, doors: 1, windows: 1, spaces: 1,
+    // COMPAT-BIM-003 (additive): the seed model carries no materials/components
+    // and no coordination primitives — the counts report that explicitly.
+    materials: 0, components: 0, gridsNotExported: 0, referencePlanesNotExported: 0,
+  });
   assert.ok(again.size > 1000);
 });
 
