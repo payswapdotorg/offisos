@@ -89,6 +89,7 @@ const isDraftingSmoke = process.argv.includes("--smoke-drafting");
 const isBimSmoke = process.argv.includes("--smoke-bim");
 const isDocsSmoke = process.argv.includes("--smoke-docs");
 const isIfcSmoke = process.argv.includes("--smoke-ifc");
+const isComponentsSmoke = process.argv.includes("--smoke-components");
 
 function createWindow(): BrowserWindow {
   // app.getAppPath() is the directory containing this package's package.json
@@ -716,7 +717,9 @@ app.whenReady().then(() => {
                 ? runDocsSmoke(win)
                 : isIfcSmoke
                   ? runIfcSmoke(win)
-                  : null;
+                  : isComponentsSmoke
+                    ? runComponentsSmoke(win)
+                    : null;
   if (smokeRun !== null) {
     smokeRun
       .then(() => {
@@ -1892,7 +1895,13 @@ async function runIfcSmoke(win: BrowserWindow): Promise<void> {
     return ((r.value as { records: { id: string }[] }).records ?? []).map((x) => x.id);
   };
 
-  const EXPECTED_COUNTS = { stories: 1, walls: 4, slabs: 1, openings: 2, doors: 1, windows: 1, spaces: 1 };
+  // COMPAT-BIM-003 grew the export counts surface additively: materials,
+  // components, gridsNotExported and referencePlanesNotExported are now always
+  // reported (0 for a pure-building model — honest, never silent).
+  const EXPECTED_COUNTS = {
+    stories: 1, walls: 4, slabs: 1, openings: 2, doors: 1, windows: 1, spaces: 1,
+    materials: 0, components: 0, gridsNotExported: 0, referencePlanesNotExported: 0,
+  };
 
   // 1. IFC mode is reachable and visible: header toggle + the panel; seed the
   //    representative building (11 elements incl. the 30°-rotated wall).
@@ -2189,6 +2198,248 @@ async function runIfcSmoke(win: BrowserWindow): Promise<void> {
     chromeVersion: process.versions.chrome,
     steps,
     contentHash: contentHashSeeded,
+    sceneHash: null,
+  });
+}
+
+// --- COMPAT-BIM-003: components/materials/coordination smoke (Issue #50) -------
+
+/** Drive the Components mode panel through the real UI and assert each step
+ *  (5 steps — see test/smoke-components.mjs for the reproducible runner). */
+async function runComponentsSmoke(win: BrowserWindow): Promise<void> {
+  interface CompStep { step: string; name: string; pass: boolean; ok: boolean; detail: unknown }
+  const steps: CompStep[] = [];
+  const push = (num: string, name: string, pass: boolean, detail: unknown): void => {
+    steps.push({ step: num, name, pass, ok: pass, detail });
+  };
+
+  await new Promise<void>((resolve) => {
+    win.webContents.once("did-finish-load", () => resolve());
+  });
+
+  // Rejection-capturing page evaluation (see runGeometrySmoke).
+  const page = async <T>(js: string): Promise<T> => {
+    const wrapped = (await win.webContents.executeJavaScript(
+      `(${js}).then((r) => ({ __smokeOk: true, r }), (e) => ({ __smokeOk: false, msg: String(e), stack: String((e && e.stack) || "") }))`,
+    )) as { __smokeOk: true; r: T } | { __smokeOk: false; msg: string; stack: string };
+    if (wrapped.__smokeOk !== true) {
+      throw new Error(`renderer call rejected: ${wrapped.msg}\n${wrapped.stack.slice(0, 800)}\nfor script: ${js.slice(0, 200)}`);
+    }
+    return wrapped.r;
+  };
+  const send = (request: CommandQueryRequest): Promise<CommandQueryResponse> =>
+    page<CommandQueryResponse>(`window.cad.send(${JSON.stringify(request)})`);
+  const cmd = (name: string, payload: unknown) =>
+    send({ type: "command", name: name as never, payload });
+  const qq = (name: string, payload: unknown) =>
+    send({ type: "query", name: name as never, payload });
+
+  const waitFor = async (predicateJs: string, timeoutMs: number, what: string): Promise<void> => {
+    const deadline = Date.now() + timeoutMs;
+    for (;;) {
+      const v = await page<boolean>(`(async () => (${predicateJs}))()`);
+      if (v === true) return;
+      if (Date.now() > deadline) throw new Error(`timeout waiting for ${what}`);
+      await new Promise((r) => setTimeout(r, 150));
+    }
+  };
+  const click = (testid: string): Promise<boolean> =>
+    page<boolean>(
+      `(async () => { const b = document.querySelector('[data-testid="${testid}"]'); if (!b) return false; b.click(); return true; })()`,
+    );
+  const readAttr = (testid: string, attr: string): Promise<string | null> =>
+    page<string | null>(
+      `(async () => { const e = document.querySelector('[data-testid="${testid}"]'); return e ? e.getAttribute("${attr}") : null; })()`,
+    );
+  const readText = (testid: string): Promise<string> =>
+    page<string>(
+      `(async () => { const e = document.querySelector('[data-testid="${testid}"]'); return e ? (e.textContent || "") : ""; })()`,
+    );
+  /** The components status protocol's monotonic run counter. */
+  const currentRun = async (): Promise<number> => {
+    const v = await readAttr("comp-status", "data-run");
+    const n = v === null ? NaN : Number(v);
+    return Number.isFinite(n) ? n : 0;
+  };
+  /** Wait for the comp status protocol to settle: state done|error for `op`
+   *  at run counter `run` AND the UI idle again (mode toggle re-enabled). */
+  const waitCompOp = async (op: string, run: number, timeoutMs: number): Promise<{ state: string; op: string; text: string }> => {
+    await waitFor(
+      `(() => { const s = document.querySelector('[data-testid="comp-status"]'); const m = document.querySelector('[data-testid="mode-components"]');` +
+        ` return !!s && (s.getAttribute("data-state") === "done" || s.getAttribute("data-state") === "error")` +
+        ` && s.getAttribute("data-op") === "${op}" && s.getAttribute("data-run") === "${run}" && !!m && !m.disabled; })()`,
+      timeoutMs,
+      `comp op '${op}' #${run} to settle`,
+    );
+    return page<{ state: string; op: string; text: string }>(
+      `(async () => { const s = document.querySelector('[data-testid="comp-status"]');` +
+        ` return { state: s ? s.getAttribute("data-state") : "none", op: s ? s.getAttribute("data-op") : "", text: s ? s.textContent : "" }; })()`,
+    );
+  };
+
+  // Direct inventory helper (the derived parametric state).
+  interface CompInventory {
+    materials: { elementId: string; name: string }[];
+    definitions: { elementId: string; category: string; parameters: Record<string, number> }[];
+    instances: {
+      elementId: string; definitionId: string; overrides: Record<string, number>;
+      effectiveParameters: Record<string, number>; effectiveMaterialId: string | null;
+    }[];
+    grids: { elementId: string; name: string }[];
+    referencePlanes: { elementId: string; name: string }[];
+    unsupported: Record<string, string>;
+  }
+  const inventory = async (): Promise<CompInventory | null> => {
+    const r = await qq("bim.getComponents", {});
+    if (!(r && r.ok)) return null;
+    return r.value as CompInventory;
+  };
+
+  // 1. Components mode is reachable and visible: the fifth header toggle +
+  //    the panel; seed the representative component model (13 entities —
+  //    story + 2 materials + 3 definitions + 5 instances incl. one with a
+  //    width override + structural grid + reference plane).
+  const beforeToggle = await page<boolean>(
+    `(async () => !!document.querySelector('[data-testid="mode-ifc"]') && !!document.querySelector('[data-testid="mode-components"]'))()`,
+  );
+  const clickedMode = beforeToggle ? await click("mode-components") : false;
+  await waitFor(
+    `(() => { const c = document.querySelector('[data-testid="comp-card"]'); const b = document.querySelector('[data-testid="mode-components"]');` +
+      ` return !!c && c.style.display !== "none" && !!b && b.getAttribute("aria-pressed") === "true"; })()`,
+    10000,
+    "Components mode panel visible",
+  );
+  const compControls = [
+    "comp-status", "comp-seed", "comp-seed-result", "comp-width", "comp-propagate",
+    "comp-propagate-result", "comp-roundtrip", "comp-roundtrip-result", "comp-undo",
+  ];
+  const controlsPresent = await page<boolean>(
+    `(async () => ${JSON.stringify(compControls)}.every((t) => !!document.querySelector('[data-testid="' + t + '"]')))()`,
+  );
+  const run1 = await currentRun();
+  const clickedSeed = await click("comp-seed");
+  const seedStatus = await waitCompOp("seed", run1 + 1, 60000);
+  const seedCount = Number(await readAttr("comp-seed", "data-count"));
+  const seedText = await readText("comp-seed-result");
+  const inv1 = await inventory();
+  const seedInventoryOk =
+    inv1 !== null && inv1.materials.length === 2 && inv1.definitions.length === 3 &&
+    inv1.instances.length === 5 && inv1.grids.length === 1 && inv1.referencePlanes.length === 1;
+  push(
+    "1",
+    "Components mode visible (the fifth toggle switches the panel in; all data-testid controls present) + seed the representative component model via the UI → 13 elements (2 materials · 3 definitions · 5 instances · 1 grid · 1 reference plane)",
+    beforeToggle && clickedMode && controlsPresent && clickedSeed && seedStatus.state === "done" && seedCount === 13 && seedInventoryOk,
+    controlsPresent
+      ? `${compControls.length}/${compControls.length} comp controls present; ${seedText} · inventory: ${inv1?.materials.length ?? "?"} materials / ${inv1?.definitions.length ?? "?"} definitions / ${inv1?.instances.length ?? "?"} instances / ${inv1?.grids.length ?? "?"} grids / ${inv1?.referencePlanes.length ?? "?"} reference planes`
+      : "comp controls missing",
+  );
+
+  // 2. Derived parametric state (direct bim.getComponents): effective
+  //    parameters = definition ⊕ overrides (the override PINS its key), the
+  //    wall inherits the definition's default material, the door carries an
+  //    instance material, and the unsupported set is declared explicitly.
+  const inv2 = await inventory();
+  const desk1 = inv2?.instances.find((i) => i.elementId === "inst-desk-1") ?? null;
+  const desk2 = inv2?.instances.find((i) => i.elementId === "inst-desk-2") ?? null;
+  const wallA = inv2?.instances.find((i) => i.elementId === "inst-wall-a") ?? null;
+  const door1 = inv2?.instances.find((i) => i.elementId === "inst-door-1") ?? null;
+  const derivedOk =
+    inv2 !== null && desk1 !== null && desk2 !== null && wallA !== null && door1 !== null &&
+    Math.abs((desk1.effectiveParameters.width ?? NaN) - 1600) <= 1e-3 &&
+    Object.keys(desk1.overrides).length === 0 &&
+    Math.abs((desk2.effectiveParameters.width ?? NaN) - 1200) <= 1e-3 &&
+    Math.abs((desk2.overrides.width ?? NaN) - 1200) <= 1e-3 &&
+    wallA.effectiveMaterialId === "mat-concrete" &&
+    door1.effectiveMaterialId === "mat-glass" &&
+    typeof inv2.unsupported.alignmentConstraints === "string" && inv2.unsupported.alignmentConstraints.length > 0;
+  push(
+    "2",
+    "derived state via bim.getComponents → effective parameters = definition ⊕ overrides (desk1 1600 no overrides; desk2 1200 PINNED by its override); the wall inherits the definition default material (concrete); the door carries an instance material (glazing); the unsupported set is declared",
+    derivedOk,
+    `desk1 eff.width=${desk1?.effectiveParameters.width ?? "n/a"} (ovr ${JSON.stringify(desk1?.overrides ?? {})}); desk2 eff.width=${desk2?.effectiveParameters.width ?? "n/a"} (ovr ${JSON.stringify(desk2?.overrides ?? {})}); wallA material=${wallA?.effectiveMaterialId ?? "n/a"}; door1 material=${door1?.effectiveMaterialId ?? "n/a"}; unsupported: ${Object.keys(inv2?.unsupported ?? {}).join(",") || "none"}`,
+  );
+
+  // 3. Parametric propagation through the UI: edit the desk definition's
+  //    width default (1800) → every instance's EFFECTIVE width follows
+  //    deterministically EXCEPT the override, which PINS its key.
+  const run3 = await currentRun();
+  const clickedPropagate = await click("comp-propagate");
+  const propStatus = await waitCompOp("propagate", run3 + 1, 60000);
+  const propAttr = await readAttr("comp-propagate", "data-propagated");
+  const propText = await readText("comp-propagate-result");
+  const inv3 = await inventory();
+  const desk1p = inv3?.instances.find((i) => i.elementId === "inst-desk-1") ?? null;
+  const desk2p = inv3?.instances.find((i) => i.elementId === "inst-desk-2") ?? null;
+  const propagatedOk =
+    inv3 !== null && desk1p !== null && desk2p !== null &&
+    Math.abs((desk1p.effectiveParameters.width ?? NaN) - 1800) <= 1e-3 &&
+    Math.abs((desk2p.effectiveParameters.width ?? NaN) - 1200) <= 1e-3;
+  push(
+    "3",
+    "definition edit propagates via the UI (bim.setProperties on the desk definition; width default 1600 → 1800) → the plain instance follows (1800); the override PINS its key (1200)",
+    clickedPropagate && propStatus.state === "done" && propAttr === "true" && propagatedOk,
+    `${propText} · direct: desk1 eff.width=${desk1p?.effectiveParameters.width ?? "n/a"}, desk2 eff.width=${desk2p?.effectiveParameters.width ?? "n/a"}`,
+  );
+
+  // 4. Atomic undo through the UI: the definition edit is ONE immutable
+  //    revision — undo restores the previous derived state exactly.
+  const run4 = await currentRun();
+  const clickedUndo = await click("comp-undo");
+  const undoStatus = await waitCompOp("undo", run4 + 1, 30000);
+  const inv4 = await inventory();
+  const desk1u = inv4?.instances.find((i) => i.elementId === "inst-desk-1") ?? null;
+  const desk2u = inv4?.instances.find((i) => i.elementId === "inst-desk-2") ?? null;
+  const undoneOk =
+    inv4 !== null && desk1u !== null && desk2u !== null &&
+    Math.abs((desk1u.effectiveParameters.width ?? NaN) - 1600) <= 1e-3 &&
+    Math.abs((desk2u.effectiveParameters.width ?? NaN) - 1200) <= 1e-3;
+  push(
+    "4",
+    "atomic undo via the UI (document.undo — the definition edit is ONE immutable revision) → desk1 restores 1600; desk2 stays pinned at 1200",
+    clickedUndo && undoStatus.state === "done" && undoneOk,
+    `desk1 eff.width=${desk1u?.effectiveParameters.width ?? "n/a"} (expect 1600); desk2 eff.width=${desk2u?.effectiveParameters.width ?? "n/a"} (expect 1200)`,
+  );
+
+  // 5. The IFC round trip through the UI: export (deterministic; components +
+  //    materials exported; the grid/reference plane declared NOT exported) →
+  //    fresh document → identity-preserving import → zero-loss compare, and
+  //    the definition DEFAULTS are reconstructed from non-overriding
+  //    instances (not polluted by the overridden one).
+  const run5 = await currentRun();
+  const clickedRt = await click("comp-roundtrip");
+  const rtStatus = await waitCompOp("roundtrip", run5 + 1, 180000);
+  const rtSha = await readAttr("comp-roundtrip", "data-rt-sha");
+  const rtSummaryRaw = await readAttr("comp-roundtrip", "data-rt-summary");
+  const rtText = await readText("comp-roundtrip-result");
+  const rtSummary = rtSummaryRaw !== null ? (JSON.parse(rtSummaryRaw) as Record<string, number>) : null;
+  const inv5 = await inventory();
+  const desk1r = inv5?.instances.find((i) => i.elementId === "inst-desk-1") ?? null;
+  const desk2r = inv5?.instances.find((i) => i.elementId === "inst-desk-2") ?? null;
+  const defDeskr = inv5?.definitions.find((d) => d.elementId === "def-desk") ?? null;
+  const roundtripOk =
+    inv5 !== null && desk1r !== null && desk2r !== null && defDeskr !== null &&
+    rtSummary !== null && rtSummary.unchanged === 8 && rtSummary.created === 0 &&
+    rtSummary.reconciled === 0 && rtSummary.lossy === 0 && (rtSummary.unsupportedFields ?? 0) === 0 &&
+    inv5.materials.length === 2 && inv5.definitions.length === 3 && inv5.instances.length === 5 &&
+    inv5.grids.length === 0 && inv5.referencePlanes.length === 0 &&
+    Math.abs((defDeskr.parameters.width ?? NaN) - 1600) <= 1e-3 &&
+    Math.abs((desk1r.effectiveParameters.width ?? NaN) - 1600) <= 1e-3 && Object.keys(desk1r.overrides).length === 0 &&
+    Math.abs((desk2r.effectiveParameters.width ?? NaN) - 1200) <= 1e-3 && Math.abs((desk2r.overrides.width ?? NaN) - 1200) <= 1e-3;
+  push(
+    "5",
+    "component IFC round-trip via the UI (export → fresh document → import → compare) → zero loss (unchanged 8, lossy 0); definition defaults reconstructed from the NON-OVERRIDING instance (1600, not the 1200 override); the override survives pinned; the grid/reference plane are declared canonical-only (absent after import)",
+    clickedRt && rtStatus.state === "done" && /^[0-9a-f]{64}$/.test(rtSha ?? "") && roundtripOk,
+    `${rtText} · post-round-trip: def-desk width=${defDeskr?.parameters.width ?? "n/a"}, desk1 eff.width=${desk1r?.effectiveParameters.width ?? "n/a"} (ovr ${JSON.stringify(desk1r?.overrides ?? {})}), desk2 eff.width=${desk2r?.effectiveParameters.width ?? "n/a"} (ovr ${JSON.stringify(desk2r?.overrides ?? {})})`,
+  );
+
+  const allOk = steps.every((s) => s.ok);
+  writeSmokeOut({
+    ok: allOk,
+    electronVersion: process.versions.electron,
+    nodeVersion: process.versions.node,
+    chromeVersion: process.versions.chrome,
+    steps,
+    contentHash: null,
     sceneHash: null,
   });
 }

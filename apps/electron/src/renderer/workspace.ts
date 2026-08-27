@@ -221,7 +221,7 @@ interface IfcRecordItem {
   schema: string;
 }
 
-type WorkspaceMode = "drafting" | "bim" | "docs" | "ifc";
+type WorkspaceMode = "drafting" | "bim" | "docs" | "ifc" | "components";
 
 const state = {
   snapshot: null as CADDocumentSnapshot | null,
@@ -247,6 +247,8 @@ const state = {
   ifcRunCount: 0,
   ifcLastExport: null as { ifc: string; sha256: string } | null,
   ifcRecords: [] as IfcRecordItem[],
+  // COMPAT-BIM-003: components mode (fifth toggle position).
+  compRunCount: 0,
 };
 
 // --- DOM helpers ----------------------------------------------------------
@@ -338,6 +340,18 @@ interface Shell {
   ifcRecordsBtn: HTMLButtonElement;
   ifcRecordsList: HTMLElement;
   ifcUndoBtn: HTMLButtonElement;
+  // COMPAT-BIM-003: the components panel.
+  modeComponentsBtn: HTMLButtonElement;
+  compCard: HTMLElement;
+  compStatus: HTMLElement;
+  compSeedBtn: HTMLButtonElement;
+  compSeedResult: HTMLElement;
+  compWidthInput: HTMLInputElement;
+  compPropagateBtn: HTMLButtonElement;
+  compPropagateResult: HTMLElement;
+  compRoundtripBtn: HTMLButtonElement;
+  compRoundtripResult: HTMLElement;
+  compUndoBtn: HTMLButtonElement;
   ddEid: HTMLElement;
   ddVid: HTMLElement;
   ddVn: HTMLElement;
@@ -524,7 +538,13 @@ function buildShell(root: HTMLElement): Shell {
   modeIfcBtn.setAttribute("data-testid", "mode-ifc");
   modeIfcBtn.setAttribute("aria-pressed", "false");
   modeIfcBtn.style.cssText = "min-height:32px;border:0;border-radius:0;font-size:12px;";
-  modeWrap.append(modeDraftBtn, modeBimBtn, modeDocsBtn, modeIfcBtn);
+  // COMPAT-BIM-003: the fifth mode — reusable components/materials/coordination.
+  const modeComponentsBtn = el("button");
+  modeComponentsBtn.type = "button"; modeComponentsBtn.textContent = "Components";
+  modeComponentsBtn.setAttribute("data-testid", "mode-components");
+  modeComponentsBtn.setAttribute("aria-pressed", "false");
+  modeComponentsBtn.style.cssText = "min-height:32px;border:0;border-radius:0;font-size:12px;";
+  modeWrap.append(modeDraftBtn, modeBimBtn, modeDocsBtn, modeIfcBtn, modeComponentsBtn);
   header.append(hWrap, modeWrap, badge, engineBadge);
   root.append(header);
 
@@ -893,6 +913,83 @@ function buildShell(root: HTMLElement): Shell {
   );
   ifcCard.append(ifcBody);
 
+  // COMPAT-BIM-003: components/materials/coordination panel (visible only in
+  // Components mode). Reusable definitions → instances → materials → grids →
+  // propagation → IFC round trip, all through the shared App API.
+  const compCard = card(
+    "Components / Materials / Coordination",
+    "COMPAT-BIM-003 — reusable parametric components through the shared App API. Definitions author typed instances with stable canonical identities; effective parameters derive from definition defaults ⊕ overrides (a definition edit propagates deterministically; overrides pin their keys); materials are canonical domain data with reference integrity; grids/reference planes are persisted coordination primitives; the IFC round trip preserves component/material semantics with field-level classification.",
+  );
+  compCard.setAttribute("data-testid", "comp-card");
+  compCard.style.display = "none"; // drafting is the default mode
+  const compBody = el("div", "card-c");
+
+  const compStatus = el("p");
+  compStatus.setAttribute("data-testid", "comp-status");
+  compStatus.setAttribute("data-state", "idle");
+  compStatus.setAttribute("data-op", "");
+  compStatus.setAttribute("data-run", "0");
+  compStatus.style.cssText = "margin:0 0 8px;font-family:ui-monospace,monospace;font-size:11px;color:var(--muted);";
+  compStatus.textContent = "components: idle";
+
+  const compSeedGroup = el("div", "controls");
+  compSeedGroup.style.marginBottom = "8px";
+  const bCompSeed = btn("primary", "Seed component model", "▲");
+  bCompSeed.type = "button"; bCompSeed.setAttribute("data-testid", "comp-seed");
+  bCompSeed.setAttribute("data-count", "0");
+  bCompSeed.title = "document.create + bim.createElements (the representative component model: story + 2 materials + 3 definitions + 5 instances incl. one with overrides + grid + reference plane — one atomic versioned batch)";
+  compSeedGroup.append(bCompSeed);
+
+  const compMonoP = (testid: string, initial: string): HTMLElement => {
+    const p = el("p");
+    p.setAttribute("data-testid", testid);
+    p.style.cssText = "margin:0 0 8px;font-family:ui-monospace,monospace;font-size:11px;color:var(--fg);word-break:break-all;";
+    p.textContent = initial;
+    return p;
+  };
+  const compSeedResult = compMonoP("comp-seed-result", "seed: —");
+
+  const compPropGroup = el("div", "controls");
+  compPropGroup.style.marginBottom = "8px";
+  const compWidthInput = el("input");
+  compWidthInput.setAttribute("data-testid", "comp-width");
+  compWidthInput.setAttribute("aria-label", "desk definition width default (mm)");
+  compWidthInput.setAttribute("inputmode", "decimal");
+  compWidthInput.value = "1800";
+  compWidthInput.style.cssText = "width:90px;border:1px solid var(--border);border-radius:4px;padding:4px 6px;font-family:ui-monospace,monospace;font-size:12px;background:transparent;color:var(--fg);";
+  const bCompPropagate = btn("primary", "Propagate definition edit", "⇄");
+  bCompPropagate.type = "button"; bCompPropagate.setAttribute("data-testid", "comp-propagate");
+  bCompPropagate.setAttribute("data-propagated", "");
+  bCompPropagate.title = "bim.setProperties on the desk definition (width default ← the input) — every instance's EFFECTIVE parameters follow deterministically; overrides pin their keys (bim.getComponents observes the derived state)";
+  const bCompUndo = btn("", "Undo", "<");
+  bCompUndo.type = "button"; bCompUndo.setAttribute("data-testid", "comp-undo");
+  bCompUndo.title = "document.undo — the definition edit is ONE immutable revision; undo restores the previous effective state";
+  compPropGroup.append(compWidthInput, bCompPropagate, bCompUndo);
+
+  const compPropagateResult = compMonoP("comp-propagate-result", "propagation: —");
+
+  const compRtGroup = el("div", "controls");
+  compRtGroup.style.marginBottom = "8px";
+  const bCompRoundtrip = btn("primary", "Component IFC round-trip", "◎");
+  bCompRoundtrip.type = "button"; bCompRoundtrip.setAttribute("data-testid", "comp-roundtrip");
+  bCompRoundtrip.setAttribute("data-rt-sha", "");
+  bCompRoundtrip.setAttribute("data-rt-summary", "");
+  bCompRoundtrip.title = "ifc.export → document.create (fresh) → ifc.import → ifc.compare — component/material semantics survive with canonical identities preserved; grids/reference planes are explicitly NOT exported (declared)";
+  compRtGroup.append(bCompRoundtrip);
+
+  const compRoundtripResult = compMonoP("comp-roundtrip-result", "round-trip: —");
+
+  compBody.append(
+    compStatus,
+    compSeedGroup,
+    compSeedResult,
+    compPropGroup,
+    compPropagateResult,
+    compRtGroup,
+    compRoundtripResult,
+  );
+  compCard.append(compBody);
+
   const editCard = card("Edit", "Add or remove geometry elements (dummy shapes).");
   const editBody = el("div", "card-c"); const editCtrls = el("div", "controls");
   const bBox = btn("primary", "Add Box", "#"); const bCircle = btn("primary", "Add Circle", "o"); const bDel = btn("danger", "Delete", "x");
@@ -939,7 +1036,7 @@ function buildShell(root: HTMLElement): Shell {
   const errorEl = el("div", "alert"); errorEl.style.display = "none";
   errorEl.setAttribute("data-testid", "cad-error");
   errorEl.setAttribute("role", "alert");
-  nav.append(fileCard, occtCard, bimCard, docsCard, ifcCard, editCard, histCard, revCard, selCard, verCard, errorEl);
+  nav.append(fileCard, occtCard, bimCard, docsCard, ifcCard, compCard, editCard, histCard, revCard, selCard, verCard, errorEl);
 
   main.append(canvasCard, nav);
   root.append(main);
@@ -996,6 +1093,12 @@ function buildShell(root: HTMLElement): Shell {
   bIfcBcf.addEventListener("click", () => void onIfcBcf());
   bIfcRecords.addEventListener("click", () => void onIfcRecords());
   bIfcUndo.addEventListener("click", () => void ifcRun("undo", () => command("document.undo", {})));
+  // COMPAT-BIM-003: components panel wiring.
+  modeComponentsBtn.addEventListener("click", () => setMode("components"));
+  bCompSeed.addEventListener("click", () => void onCompSeed());
+  bCompPropagate.addEventListener("click", () => void onCompPropagate());
+  bCompUndo.addEventListener("click", () => void compRun("undo", () => command("document.undo", {})));
+  bCompRoundtrip.addEventListener("click", () => void onCompRoundtrip());
   svg.addEventListener("click", () => {
     if (state.selection.length === 0) return;
     void run("Clear selection", () => command("document.setSelection", { ids: [] }));
@@ -1075,6 +1178,18 @@ function buildShell(root: HTMLElement): Shell {
     ifcRecordsBtn: bIfcRecords,
     ifcRecordsList,
     ifcUndoBtn: bIfcUndo,
+    // COMPAT-BIM-003: the components panel.
+    modeComponentsBtn,
+    compCard,
+    compStatus,
+    compSeedBtn: bCompSeed,
+    compSeedResult,
+    compWidthInput,
+    compPropagateBtn: bCompPropagate,
+    compPropagateResult,
+    compRoundtripBtn: bCompRoundtrip,
+    compRoundtripResult,
+    compUndoBtn: bCompUndo,
     ddEid: rEid.dd,
     ddVid: rVid.dd,
     ddVn: rVn.dd,
@@ -2031,6 +2146,182 @@ async function onIfcRecords(): Promise<void> {
   await ifcRun("records", () => query("ifc.listImports", {}));
 }
 
+// --- COMPAT-BIM-003: components/materials/coordination handlers ---------------
+
+/** The representative component model — the EXACT model from
+ *  app/test/components-workflow.test.ts: story + 2 materials + 3 definitions +
+ *  5 instances (one with a width override) + structural grid + reference
+ *  plane. 13 entities; one atomic bim.createElements batch. */
+const COMPONENT_MODEL_ENTITIES: readonly Record<string, unknown>[] = [
+  { type: "bim.story", id: "story-gf", name: "Ground Floor", level: 0, height: 3000 },
+  { type: "bim.material", id: "mat-concrete", name: "Concrete C30", description: "Structural concrete", color: [128, 128, 128], properties: { Density: 2400, FireRating: "REI90" } },
+  { type: "bim.material", id: "mat-glass", name: "Low-E Glazing", color: [180, 210, 230], properties: { UValue: 1.2, Recyclable: true } },
+  { type: "bim.componentDef", id: "def-wall-300", name: "Exterior Wall 300", category: "wall", parameters: { length: 4000, width: 300, height: 3000 }, materialId: "mat-concrete" },
+  { type: "bim.componentDef", id: "def-door-900", name: "Interior Door 900", category: "door", parameters: { width: 900, height: 2100, leafThickness: 40 } },
+  { type: "bim.componentDef", id: "def-desk", name: "Workstation Desk", category: "furniture", parameters: { width: 1600, depth: 800, height: 750 } },
+  { type: "bim.componentInstance", id: "inst-wall-a", definitionId: "def-wall-300", storyId: "story-gf", position: [2000, 1000], rotation: 0 },
+  { type: "bim.componentInstance", id: "inst-wall-b", definitionId: "def-wall-300", storyId: "story-gf", position: [2000, 4000], rotation: Math.PI / 2 },
+  { type: "bim.componentInstance", id: "inst-door-1", definitionId: "def-door-900", storyId: "story-gf", position: [500, 2500], rotation: 0, materialId: "mat-glass" },
+  { type: "bim.componentInstance", id: "inst-desk-1", definitionId: "def-desk", storyId: "story-gf", position: [3000, 2000], rotation: Math.PI / 4 },
+  { type: "bim.componentInstance", id: "inst-desk-2", definitionId: "def-desk", storyId: "story-gf", position: [4500, 2000], rotation: 0, overrides: { width: 1200 }, name: "Compact desk" },
+  { type: "bim.grid", id: "grid-structural", storyId: "story-gf", name: "Structural grid", uLines: [-3000, 3000, 9000], vLines: [0, 5000] },
+  { type: "bim.referencePlane", id: "plane-ax", storyId: "story-gf", name: "Axis A reference", start: [-3000, 0], end: [-3000, 5000] },
+];
+
+/** Derived component inventory shape (bim.getComponents response slice). */
+interface ComponentInventoryValue {
+  materials?: { elementId: string; name: string }[];
+  definitions?: { elementId: string; name: string; category: string; parameters: Record<string, number> }[];
+  instances?: { elementId: string; definitionId: string; effectiveParameters: Record<string, number>; overrides: Record<string, number>; effectiveMaterialId: string | null }[];
+  grids?: { elementId: string; name: string }[];
+  referencePlanes?: { elementId: string; name: string }[];
+}
+
+function setCompStatus(st: "idle" | "busy" | "done" | "error", op: string, text: string): void {
+  if (!ui) return;
+  ui.compStatus.setAttribute("data-state", st);
+  ui.compStatus.setAttribute("data-op", op);
+  ui.compStatus.textContent = text;
+}
+
+/** run() semantics for the components panel (mirrors ifcRun): busy state,
+ *  typed-error surface AFTER refresh, re-entrancy guard, and the
+ *  [data-state]/[data-op]/[data-run] status protocol the smoke polls. */
+async function compRun(op: string, fn: () => Promise<CommandQueryResponse>): Promise<CommandQueryResponse | null> {
+  if (!ui) return null;
+  if (state.busy || state.loading) return null;
+  state.compRunCount += 1;
+  ui.compStatus.setAttribute("data-run", String(state.compRunCount));
+  setBusy(true);
+  setCompStatus("busy", op, `components ${op}: busy…`);
+  try {
+    const res = await fn();
+    await refresh();
+    if (!res.ok) {
+      setError(`[${op}] ${res.code}: ${res.message}`);
+      setCompStatus("error", op, `components ${op}: failed — ${res.code}: ${res.message}`);
+    } else {
+      setCompStatus("done", op, `components ${op}: done`);
+    }
+    return res;
+  } catch (e) {
+    await refresh();
+    setError(`[${op}] unexpected: ${(e as Error).message}`);
+    setCompStatus("error", op, `components ${op}: unexpected — ${(e as Error).message}`);
+    return null;
+  } finally {
+    setBusy(false);
+  }
+}
+
+/** Seed the representative component model: fresh document + ONE atomic
+ *  bim.createElements batch (13 entities — the app test model). */
+async function onCompSeed(): Promise<void> {
+  if (!ui) return;
+  ui.compSeedBtn.setAttribute("data-count", "0");
+  ui.compSeedResult.textContent = "seed: —";
+  ui.compPropagateBtn.setAttribute("data-propagated", "");
+  ui.compPropagateResult.textContent = "propagation: —";
+  ui.compRoundtripBtn.setAttribute("data-rt-sha", "");
+  ui.compRoundtripBtn.setAttribute("data-rt-summary", "");
+  ui.compRoundtripResult.textContent = "round-trip: —";
+  let createdIds: string[] = [];
+  const res = await compRun("seed", async () => {
+    const created = await command("document.create", { entityId: "compat-bim-003-electron" });
+    if (!created.ok) return created;
+    const model = await command("bim.createElements", { entities: COMPONENT_MODEL_ENTITIES });
+    if (!model.ok) return model;
+    createdIds = (model.value as { created?: string[] }).created ?? [];
+    return model;
+  });
+  if (res !== null && res.ok) {
+    ui.compSeedBtn.setAttribute("data-count", String(createdIds.length));
+    ui.compSeedResult.textContent = `seeded ${createdIds.length} elements (${createdIds.join(", ")})`;
+  }
+}
+
+/** The parametric propagation proof: edit the desk definition's width default,
+ *  then observe the derived state (bim.getComponents) — plain instances follow
+ *  the new default; the override PINS its key. */
+async function onCompPropagate(): Promise<void> {
+  if (!ui) return;
+  ui.compPropagateBtn.setAttribute("data-propagated", "");
+  let before: ComponentInventoryValue | null = null;
+  let after: ComponentInventoryValue | null = null;
+  const res = await compRun("propagate", async () => {
+    const width = Number(ui!.compWidthInput.value);
+    if (!Number.isFinite(width) || width <= 0) {
+      return { ok: false, code: "bim_invalid", message: `width must be a finite positive number (got "${ui!.compWidthInput.value}")` } as CommandQueryResponse;
+    }
+    const beforeRes = await query("bim.getComponents", {});
+    if (beforeRes.ok) before = beforeRes.value as ComponentInventoryValue;
+    const props = (before?.definitions ?? []).find((d) => d.elementId === "def-desk");
+    if (props === undefined) {
+      return { ok: false, code: "bim_invalid", message: "the desk definition is missing — seed the component model first" } as CommandQueryResponse;
+    }
+    const edited = await command("bim.setProperties", {
+      elementId: "def-desk",
+      patch: { parameters: { ...props.parameters, width } },
+    });
+    if (!edited.ok) return edited;
+    const afterRes = await query("bim.getComponents", {});
+    if (afterRes.ok) after = afterRes.value as ComponentInventoryValue;
+    return edited;
+  });
+  const desksBefore = ((before as ComponentInventoryValue | null)?.instances ?? []).filter((i: { definitionId: string }) => i.definitionId === "def-desk");
+  const desksAfter = ((after as ComponentInventoryValue | null)?.instances ?? []).filter((i: { definitionId: string }) => i.definitionId === "def-desk");
+  const propagated =
+    res !== null && res.ok &&
+    desksBefore.length === desksAfter.length && desksAfter.length > 0 &&
+    desksAfter.every((d: { elementId: string; effectiveParameters: Record<string, number>; overrides: Record<string, number> }, i: number) => {
+      const before = desksBefore[i]!;
+      const pinned = before.overrides.width !== undefined;
+      return pinned ? d.effectiveParameters.width === before.effectiveParameters.width : d.effectiveParameters.width !== before.effectiveParameters.width;
+    });
+  ui.compPropagateBtn.setAttribute("data-propagated", propagated ? "true" : "false");
+  if (propagated) {
+    const summary = desksAfter
+      .map((d: { elementId: string; effectiveParameters: Record<string, number>; overrides: Record<string, number> }, i: number) => `${d.elementId}: ${desksBefore[i]!.effectiveParameters.width}→${d.effectiveParameters.width}${d.overrides.width !== undefined ? " (pinned)" : ""}`)
+      .join(" · ");
+    ui.compPropagateResult.textContent = `propagated: ${summary}`;
+  } else {
+    ui.compPropagateResult.textContent = "propagation: failed — see the error alert";
+  }
+}
+
+/** The IFC round-trip proof: export → fresh document → import → compare. */
+async function onCompRoundtrip(): Promise<void> {
+  if (!ui) return;
+  ui.compRoundtripBtn.setAttribute("data-rt-sha", "");
+  ui.compRoundtripBtn.setAttribute("data-rt-summary", "");
+  let rtSha = "";
+  let rtSummary: Record<string, number> | null = null;
+  const res = await compRun("roundtrip", async () => {
+    const exported = await command("ifc.export", { projectName: "Component Tower" });
+    if (!exported.ok) return exported;
+    const v = exported.value as { ifc: string; sha256: string; counts: Record<string, number> };
+    rtSha = v.sha256;
+    const created = await command("document.create", { entityId: "compat-bim-003-roundtrip" });
+    if (!created.ok) return created;
+    const imported = await command("ifc.import", { ifc: v.ifc });
+    if (!imported.ok) return imported;
+    const compared = await query("ifc.compare", { ifc: v.ifc });
+    if (compared.ok) {
+      rtSummary = (compared.value as { report: { summary: Record<string, number> } }).report.summary;
+    }
+    return imported;
+  });
+  if (res !== null && res.ok && rtSummary !== null) {
+    ui.compRoundtripBtn.setAttribute("data-rt-sha", rtSha);
+    ui.compRoundtripBtn.setAttribute("data-rt-summary", JSON.stringify(rtSummary));
+    const s = rtSummary as Record<string, number>;
+    ui.compRoundtripResult.textContent =
+      `round-trip · sha256 ${rtSha.slice(0, 16)}… · compare: ${s.unchanged} unchanged · ${s.reconciled} reconciled · ${s.created} created · lossy ${s.lossy} · unsupported fields ${s.unsupportedFields}`;
+  } else {
+    ui.compRoundtripResult.textContent = "round-trip: failed — see the error alert";
+  }
+}
+
 // --- Refresh --------------------------------------------------------------
 
 let ui: Shell | null = null;
@@ -2418,6 +2709,16 @@ function render(): void {
   ui.ifcRecordsBtn.disabled = ifcDisabled;
   ui.ifcUndoBtn.disabled = ifcDisabled || !canUndo;
   renderIfcRecords();
+
+  // COMPAT-BIM-003: mode toggle + components panel state.
+  ui.modeComponentsBtn.setAttribute("aria-pressed", state.mode === "components" ? "true" : "false");
+  ui.modeComponentsBtn.disabled = state.busy;
+  ui.compCard.style.display = state.mode === "components" ? "" : "none";
+  const compDisabled = state.busy || state.loading;
+  ui.compSeedBtn.disabled = compDisabled;
+  ui.compPropagateBtn.disabled = compDisabled;
+  ui.compUndoBtn.disabled = compDisabled || !canUndo;
+  ui.compRoundtripBtn.disabled = compDisabled;
 }
 
 /** View rows from the live docs.listViews state (docs mode): id · kind ·

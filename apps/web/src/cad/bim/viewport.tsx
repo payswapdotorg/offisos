@@ -37,7 +37,11 @@ export type BimBoxType =
   | "bim.space"
   | "bim.opening"
   | "bim.door"
-  | "bim.window";
+  | "bim.window"
+  // COMPAT-BIM-003: component instances render as their derived parametric
+  // boxes (definitions/materials/grids/reference planes have no solid and
+  // never reach the viewport).
+  | "bim.componentInstance";
 
 export interface BimBox {
   readonly id: string;
@@ -75,6 +79,7 @@ const TYPE_STYLE: Record<BimBoxType, { fill: string; stroke: string; layer: numb
   "bim.door": { fill: "rgba(217,119,6,0.30)", stroke: "#b45309", layer: 3 },
   "bim.window": { fill: "rgba(45,212,191,0.32)", stroke: "#0f766e", layer: 3 },
   "bim.space": { fill: "rgba(13,148,136,0.10)", stroke: "#0d9488", layer: 4 },
+  "bim.componentInstance": { fill: "rgba(139,92,246,0.22)", stroke: "#7c3aed", layer: 3 },
 };
 
 const GRID_COLOR = "#e5e7eb";

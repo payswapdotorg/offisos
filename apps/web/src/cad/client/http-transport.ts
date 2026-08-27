@@ -484,6 +484,13 @@ export async function bimCamera(preset: string): Promise<CommandQueryResponse> {
   return query("bim.camera", { preset });
 }
 
+/** The component/material/coordination inventory with derived parametric
+ *  state (COMPAT-BIM-003): effective parameters, effective materials,
+ *  grids/reference planes and the declared unsupported set. */
+export async function bimGetComponents(): Promise<CommandQueryResponse> {
+  return query("bim.getComponents", {});
+}
+
 /** Extract a BimOpResult from an ok response (defensive). */
 export function unwrapBimOp(res: CommandQueryResponse): BimOpResult | null {
   if (!res.ok) return null;
