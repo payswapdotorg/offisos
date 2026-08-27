@@ -1,0 +1,347 @@
+name: compat-bim-003
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "app/**"
+      - "apps/web/**"
+      - "apps/electron/**"
+      - ".github/workflows/compat-bim-003.yml"
+  pull_request:
+    paths:
+      - "app/**"
+      - "apps/web/**"
+      - "apps/electron/**"
+      - ".github/workflows/compat-bim-003.yml"
+
+# COMPAT-BIM-003: reusable parametric components / canonical materials /
+# coordination primitives (Issue #50, Architecture v1.1 FROZEN). Proves the
+# components milestone on the pinned toolchains:
+#   - components-shell: the FULL app suite with BOTH real engines installed
+#     (cadquery-ocp / OCCT 7.8.1.1 for geometry; ifcopenshell 0.8.5 +
+#     IfcTester 0.8.5 for IFC/openBIM) — the 312 pre-existing CAD/drafting/
+#     BIM/documentation/IFC tests stay green and the 26 new component tests
+#     (strict-constructor matrices incl. effective-parameter derivation +
+#     propagation invariants; definition→instance relationships; typed
+#     rejects; propagation with immutable revisions + undo; whitelisted
+#     instance edits; material reference integrity; coordination persistence
+#     + verified replay; graph identity on canonical ids; IFC export
+#     determinism with component/material counts + explicit grid
+#     non-export; fresh/same-document round trips incl. definition-default
+#     reconstruction from NON-OVERRIDING instances; controlled-mutation
+#     identification; zero-loss compare; external furnishing with declared
+#     fallbacks) all run; the LOCK-018 forbidden-import scan covers src/bim
+#     incl. the component core.
+#   - web-host-components: the deployable Web host lints + typechecks +
+#     builds and serves the FULL component workflow from the running dev
+#     server: seed (13 entities, one atomic versioned batch) → derived
+#     inventory (effective parameters = definition ⊕ overrides; effective
+#     materials inherited + overridden; declared unsupported set) →
+#     definition-edit propagation (deterministic; override PINS its key) →
+#     atomic undo → deterministic IFC export (components + materials;
+#     grids/reference planes declared NOT exported) → fresh-document import
+#     (identity-preserving; definition defaults from NON-OVERRIDING
+#     instances) → zero-loss compare.
+#   - electron-host-components: the deployable Electron host builds and runs
+#     NINE smokes — the eight regression smokes (engine-free, real-engine
+#     geometry, model revisions, impact, drafting, BIM, documentation, IFC)
+#     and the new 5-step components BrowserWindow smoke driving the real UI
+#     (mode toggle + seed → derived state → propagation with pinned override
+#     → atomic undo → IFC round trip with zero-loss compare and honest
+#     definition-default reconstruction).
+#
+# Engine isolation (LOCK-003/018): IfcOpenShell/IfcTester run ONLY inside the
+# IFC adapter's disposable Python worker; the component core (src/bim) is pure
+# TypeScript; no engine import leaks into the renderer/CADDocument/App API
+# (enforced by the LOCK-018 scan).
+
+jobs:
+  components-shell:
+    name: Components deterministic suite (OCCT 7.8.1.1 + ifcopenshell 0.8.5 toolchains)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Set up Python (pinned toolchain)
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install the pinned OCCT engine (cadquery-ocp)
+        run: pip install cadquery-ocp==7.8.1.1.post1
+
+      - name: Install the pinned IFC toolchain (ifcopenshell + IfcTester)
+        run: pip install ifcopenshell==0.8.5 IfcTester==0.8.5 numpy==2.1.3
+
+      - name: Install root toolchain (tsx + typescript + ajv)
+        run: npm install
+
+      - name: Typecheck app shell (incl. the components core)
+        run: node_modules/.bin/tsc --noEmit -p app/tsconfig.json
+
+      - name: "Full app test suite with both real engines (338 tests)"
+        working-directory: app
+        run: node --import tsx --test test/*.test.ts
+
+      - name: Forbidden-import static check (LOCK-018 incl. src/bim components)
+        working-directory: app
+        run: node --import tsx --test test/no-forbidden-imports.test.ts
+
+      - name: IFC worker availability probe (pin check)
+        working-directory: app
+        run: |
+          echo '{"op":"ping"}' | python3 src/adapters/ifc/worker/ifc-worker.py
+          echo '{"op":"ping"}' | python3 src/adapters/ifc/worker/ifc-worker.py | grep -q '"engineVersion":"0.8.5"'
+
+      - name: Upload test evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: compat-bim-003-shell-evidence
+          path: app/src
+          if-no-files-found: warn
+
+  web-host-components:
+    name: Web host (Next.js 16 + components workflow smoke)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/web/package.json
+
+      - name: Set up Python (pinned toolchain)
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install the pinned engines (OCCT + ifcopenshell)
+        run: pip install cadquery-ocp==7.8.1.1.post1 ifcopenshell==0.8.5 IfcTester==0.8.5 numpy==2.1.3
+
+      - name: Install Web host deps
+        working-directory: apps/web
+        run: npm install
+
+      - name: Web host lint (ESLint)
+        working-directory: apps/web
+        run: npm run lint
+
+      - name: Web host typecheck (tsc --noEmit)
+        working-directory: apps/web
+        run: npx tsc --noEmit
+
+      - name: Web host build (next build --webpack)
+        working-directory: apps/web
+        run: npm run build
+
+      - name: Web host components workflow smoke (dev server)
+        working-directory: apps/web
+        env:
+          OFFISOS_OCCT_WORKER: ${{ github.workspace }}/app/src/adapters/occt/worker/occt-worker.py
+          OFFISOS_IFC_WORKER: ${{ github.workspace }}/app/src/adapters/ifc/worker/ifc-worker.py
+        run: |
+          npm run dev -- --webpack -p 3000 &
+          DEV_PID=$!
+          for i in $(seq 1 60); do
+            if curl -sS -o /dev/null http://localhost:3000/ 2>/dev/null; then break; fi
+            sleep 2
+          done
+          sleep 3
+          python3 /dev/stdin <<'PYEOF'
+          import json, urllib.request
+
+          def send(body):
+              req = urllib.request.Request(
+                  "http://localhost:3000/api/cad",
+                  data=json.dumps({"api": "1", "body": body}).encode(),
+                  headers={"Content-Type": "application/json"},
+                  method="POST",
+              )
+              with urllib.request.urlopen(req, timeout=180) as r:
+                  return json.loads(r.read())
+
+          def cmd(name, payload): return send({"type": "command", "name": name, "payload": payload})
+          def q(name, payload): return send({"type": "query", "name": name, "payload": payload})
+          ok = lambda r: r.get("ok") is True
+          def val(r):
+              assert ok(r), json.dumps(r)[:400]
+              return r["value"]
+
+          TOL = 1e-3
+
+          # The representative component model (the components-workflow test model):
+          # story + 2 materials + 3 definitions + 5 instances (one with a width
+          # override) + structural grid + reference plane — 13 entities, ONE
+          # atomic versioned batch.
+          MODEL = [
+              {"type": "bim.story", "id": "story-gf", "name": "Ground Floor", "level": 0, "height": 3000},
+              {"type": "bim.material", "id": "mat-concrete", "name": "Concrete C30", "description": "Structural concrete", "color": [128, 128, 128], "properties": {"Density": 2400, "FireRating": "REI90"}},
+              {"type": "bim.material", "id": "mat-glass", "name": "Low-E Glazing", "color": [180, 210, 230], "properties": {"UValue": 1.2, "Recyclable": True}},
+              {"type": "bim.componentDef", "id": "def-wall-300", "name": "Exterior Wall 300", "category": "wall", "parameters": {"length": 4000, "width": 300, "height": 3000}, "materialId": "mat-concrete"},
+              {"type": "bim.componentDef", "id": "def-door-900", "name": "Interior Door 900", "category": "door", "parameters": {"width": 900, "height": 2100, "leafThickness": 40}},
+              {"type": "bim.componentDef", "id": "def-desk", "name": "Workstation Desk", "category": "furniture", "parameters": {"width": 1600, "depth": 800, "height": 750}},
+              {"type": "bim.componentInstance", "id": "inst-wall-a", "definitionId": "def-wall-300", "storyId": "story-gf", "position": [2000, 1000], "rotation": 0},
+              {"type": "bim.componentInstance", "id": "inst-wall-b", "definitionId": "def-wall-300", "storyId": "story-gf", "position": [2000, 4000], "rotation": 1.5707963267948966},
+              {"type": "bim.componentInstance", "id": "inst-door-1", "definitionId": "def-door-900", "storyId": "story-gf", "position": [500, 2500], "rotation": 0, "materialId": "mat-glass"},
+              {"type": "bim.componentInstance", "id": "inst-desk-1", "definitionId": "def-desk", "storyId": "story-gf", "position": [3000, 2000], "rotation": 0.7853981633974483},
+              {"type": "bim.componentInstance", "id": "inst-desk-2", "definitionId": "def-desk", "storyId": "story-gf", "position": [4500, 2000], "rotation": 0, "overrides": {"width": 1200}, "name": "Compact desk"},
+              {"type": "bim.grid", "id": "grid-structural", "storyId": "story-gf", "name": "Structural grid", "uLines": [-3000, 3000, 9000], "vLines": [0, 5000]},
+              {"type": "bim.referencePlane", "id": "plane-ax", "storyId": "story-gf", "name": "Axis A reference", "start": [-3000, 0], "end": [-3000, 5000]},
+          ]
+
+          # 1. Seed.
+          assert ok(cmd("document.create", {"entityId": "ci-compat-bim-003"}))
+          seeded = val(cmd("bim.createElements", {"entities": MODEL}))
+          assert len(seeded["created"]) == 13, seeded["created"]
+          print("WEB HOST COMPONENTS SMOKE: seeded", len(seeded["created"]), "elements (one atomic batch)")
+
+          # 2. Derived inventory: effective parameters/materials + declared unsupported.
+          inv = val(q("bim.getComponents", {}))
+          assert len(inv["materials"]) == 2 and len(inv["definitions"]) == 3 and len(inv["instances"]) == 5
+          assert len(inv["grids"]) == 1 and len(inv["referencePlanes"]) == 1
+          desk1 = next(i for i in inv["instances"] if i["elementId"] == "inst-desk-1")
+          desk2 = next(i for i in inv["instances"] if i["elementId"] == "inst-desk-2")
+          walla = next(i for i in inv["instances"] if i["elementId"] == "inst-wall-a")
+          door1 = next(i for i in inv["instances"] if i["elementId"] == "inst-door-1")
+          assert abs(desk1["effectiveParameters"]["width"] - 1600) <= TOL and desk1["overrides"] == {}
+          assert abs(desk2["effectiveParameters"]["width"] - 1200) <= TOL and abs(desk2["overrides"]["width"] - 1200) <= TOL
+          assert walla["effectiveMaterialId"] == "mat-concrete", walla["effectiveMaterialId"]
+          assert door1["effectiveMaterialId"] == "mat-glass", door1["effectiveMaterialId"]
+          assert "alignmentConstraints" in inv["unsupported"]
+          print("WEB HOST COMPONENTS SMOKE: derived state exact (desk1 1600 / desk2 1200 pinned / materials inherited+overridden / unsupported declared)")
+
+          # 3. Definition-edit propagation: the default follows; the override pins.
+          desk_def = next(d for d in inv["definitions"] if d["elementId"] == "def-desk")
+          assert ok(cmd("bim.setProperties", {"elementId": "def-desk", "patch": {"parameters": {**desk_def["parameters"], "width": 1800}}}))
+          inv = val(q("bim.getComponents", {}))
+          desk1 = next(i for i in inv["instances"] if i["elementId"] == "inst-desk-1")
+          desk2 = next(i for i in inv["instances"] if i["elementId"] == "inst-desk-2")
+          assert abs(desk1["effectiveParameters"]["width"] - 1800) <= TOL, desk1["effectiveParameters"]
+          assert abs(desk2["effectiveParameters"]["width"] - 1200) <= TOL, desk2["effectiveParameters"]
+          print("WEB HOST COMPONENTS SMOKE: propagation deterministic (desk1 1600→1800; desk2 pinned 1200)")
+
+          # 4. Atomic undo: ONE immutable revision; the derived state restores.
+          assert ok(cmd("document.undo", {}))
+          inv = val(q("bim.getComponents", {}))
+          desk1 = next(i for i in inv["instances"] if i["elementId"] == "inst-desk-1")
+          assert abs(desk1["effectiveParameters"]["width"] - 1600) <= TOL, desk1["effectiveParameters"]
+          print("WEB HOST COMPONENTS SMOKE: atomic undo restored the derived state (desk1 back to 1600)")
+
+          # 5. Deterministic IFC export: components + materials; grids/refplanes declared.
+          e1 = val(cmd("ifc.export", {"projectName": "Component Tower"}))
+          assert e1["counts"]["materials"] == 2, e1["counts"]
+          assert e1["counts"]["components"] == 5, e1["counts"]
+          assert e1["counts"]["gridsNotExported"] == 1, e1["counts"]
+          assert e1["counts"]["referencePlanesNotExported"] == 1, e1["counts"]
+          e2 = val(cmd("ifc.export", {"projectName": "Component Tower"}))
+          assert e2["sha256"] == e1["sha256"], "export determinism"
+          print("WEB HOST COMPONENTS SMOKE: export deterministic", e1["sha256"][:16], e1["size"], "bytes; grids/refplanes declared NOT exported")
+
+          # 6. Fresh-document import: identity-preserving; definition defaults
+          #    from NON-OVERRIDING instances (not the overridden one).
+          assert ok(cmd("document.create", {"entityId": "ci-compat-bim-003-roundtrip"}))
+          imported = val(cmd("ifc.import", {"ifc": e1["ifc"]}))
+          assert len(imported["created"]) == 11, imported["created"]
+          assert imported["report"]["summary"]["lossy"] == 0, imported["report"]["summary"]
+          inv = val(q("bim.getComponents", {}))
+          desk_def = next(d for d in inv["definitions"] if d["elementId"] == "def-desk")
+          desk1 = next(i for i in inv["instances"] if i["elementId"] == "inst-desk-1")
+          desk2 = next(i for i in inv["instances"] if i["elementId"] == "inst-desk-2")
+          assert abs(desk_def["parameters"]["width"] - 1600) <= TOL, desk_def["parameters"]
+          assert abs(desk1["effectiveParameters"]["width"] - 1600) <= TOL and desk1["overrides"] == {}
+          assert abs(desk2["effectiveParameters"]["width"] - 1200) <= TOL and abs(desk2["overrides"]["width"] - 1200) <= TOL
+          assert len(inv["grids"]) == 0 and len(inv["referencePlanes"]) == 0
+          print("WEB HOST COMPONENTS SMOKE: import preserved semantics (def-desk 1600; desk1 1600; desk2 1200 pinned; coordination canonical-only)")
+
+          # 7. Zero-loss compare against the round-tripped document.
+          compared = val(q("ifc.compare", {"ifc": e1["ifc"]}))
+          s = compared["report"]["summary"]
+          assert s["unchanged"] == 8 and s["created"] == 0 and s["reconciled"] == 0, s
+          assert s["lossy"] == 0 and s["unsupportedFields"] == 0, s
+          print("WEB HOST COMPONENTS SMOKE: compare zero-loss (unchanged 8, lossy 0, unsupported fields 0)")
+          print("WEB HOST COMPONENTS SMOKE: ALL PASS")
+          PYEOF
+          SMOKE_STATUS=$?
+          kill $DEV_PID 2>/dev/null || true
+          exit $SMOKE_STATUS
+
+  electron-host-components:
+    name: Electron host (build + 9 smokes incl. the components BrowserWindow smoke)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/electron/package.json
+
+      - name: Set up Python (pinned toolchain)
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install the pinned engines (OCCT + ifcopenshell)
+        run: pip install cadquery-ocp==7.8.1.1.post1 ifcopenshell==0.8.5 IfcTester==0.8.5 numpy==2.1.3
+
+      - name: Install Xvfb (headless display)
+        run: sudo apt-get update && sudo apt-get install -y xvfb
+
+      - name: Install Electron host deps
+        working-directory: apps/electron
+        run: npm install
+
+      - name: Electron host typecheck
+        working-directory: apps/electron
+        run: npm run typecheck
+
+      - name: Electron host build
+        working-directory: apps/electron
+        run: npm run build
+
+      - name: Electron regression smokes (engine-free, geometry, model, impact, drafting, BIM, documentation, IFC)
+        working-directory: apps/electron
+        env:
+          OFFISOS_OCCT_WORKER: ${{ github.workspace }}/app/src/adapters/occt/worker/occt-worker.py
+          OFFISOS_IFC_WORKER: ${{ github.workspace }}/app/src/adapters/ifc/worker/ifc-worker.py
+        run: |
+          npm run smoke
+          npm run smoke:geometry
+          npm run smoke:model
+          npm run smoke:impact
+          npm run smoke:drafting
+          npm run smoke:bim
+          npm run smoke:docs
+          npm run smoke:ifc
+
+      - name: Electron components smoke (5-step real-UI BrowserWindow smoke)
+        working-directory: apps/electron
+        env:
+          OFFISOS_OCCT_WORKER: ${{ github.workspace }}/app/src/adapters/occt/worker/occt-worker.py
+          OFFISOS_IFC_WORKER: ${{ github.workspace }}/app/src/adapters/ifc/worker/ifc-worker.py
+        run: npm run smoke:components
+
+      - name: Upload components smoke evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: compat-bim-003-electron-evidence
+          path: apps/electron/dist/smoke-components-result.json
+          if-no-files-found: warn
