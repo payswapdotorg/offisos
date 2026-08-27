@@ -120,6 +120,8 @@ export interface RecordRevisionInput {
   /** COMPAT-CAD-003: current documentation sheet mint-sequence counter
    *  (persisted on the history; never-reused `sh-NNNNNN` identities). */
   readonly nextSheetSequence: number;
+  /** COMPAT-IFC-001: the import-record mint counter after this revision. */
+  readonly nextIfcImportSequence?: number;
 }
 
 /** Append one immutable revision to a history (returns a NEW frozen
@@ -149,6 +151,7 @@ export function appendRevision(input: RecordRevisionInput): ModelHistory {
     next_layer_sequence: Math.max(history.next_layer_sequence ?? 1, input.nextLayerSequence),
     next_view_sequence: Math.max(history.next_view_sequence ?? 1, input.nextViewSequence),
     next_sheet_sequence: Math.max(history.next_sheet_sequence ?? 1, input.nextSheetSequence),
+    next_ifc_import_sequence: Math.max(history.next_ifc_import_sequence ?? 1, input.nextIfcImportSequence ?? 1),
     revisions: deepFreeze([...history.revisions, revision]),
   });
 }
@@ -169,6 +172,7 @@ export function createdHistory(entityId: string, format: string, formatVersion: 
     next_layer_sequence: 1,
     next_view_sequence: 1,
     next_sheet_sequence: 1,
+    next_ifc_import_sequence: 1,
     revisions: [],
   });
 }
@@ -197,6 +201,7 @@ export function openedHistory(
     next_layer_sequence: 1,
     next_view_sequence: 1,
     next_sheet_sequence: 1,
+    next_ifc_import_sequence: 1,
     revisions: [],
   });
 }
@@ -304,6 +309,14 @@ export function applyEditToElements(map: Map<string, Element>, edit: DocumentEdi
     case "setSheetRecord": {
       if (edit.sheetId === undefined || edit.sheet === undefined) throw new Error("replay: setSheetRecord requires sheetId + sheet");
       break; // sheet-table edit: element-set no-op
+    }
+    case "addIfcImport": {
+      if (edit.record === undefined) throw new Error("replay: addIfcImport requires record");
+      break; // import-record-table edit: element-set no-op
+    }
+    case "removeIfcImport": {
+      if (edit.recordId === undefined) throw new Error("replay: removeIfcImport requires recordId");
+      break; // import-record-table edit: element-set no-op
     }
     default: {
       const _exhaustive = edit satisfies never;
@@ -498,6 +511,14 @@ export function validateModelHistory(history: unknown): asserts history is Model
       history.next_sheet_sequence < 1)
   ) {
     throw new Error("modelHistory.next_sheet_sequence must be a positive integer when present");
+  }
+  if (
+    history.next_ifc_import_sequence !== undefined &&
+    (typeof history.next_ifc_import_sequence !== "number" ||
+      !Number.isInteger(history.next_ifc_import_sequence) ||
+      history.next_ifc_import_sequence < 1)
+  ) {
+    throw new Error("modelHistory.next_ifc_import_sequence must be a positive integer when present");
   }
   if (!Array.isArray(history.revisions)) throw new Error("modelHistory.revisions must be an array");
   for (const [i, rev] of history.revisions.entries()) {

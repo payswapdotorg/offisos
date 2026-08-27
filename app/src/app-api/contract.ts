@@ -61,6 +61,18 @@ import {
   setBimProperties,
   standardCamera,
 } from "../bim/index.js";
+// COMPAT-IFC-001: the pure IFC/openBIM core + the optional interop adapter
+// capability (LOCK-018 — the engine stays behind the adapter boundary).
+import {
+  buildIfcExportRequest,
+  ifcGuidFor,
+  importEntitiesToElements,
+  ifcReportHash,
+  reconcileIfcImport,
+  type IfcImportReport,
+} from "../ifc/index.js";
+import { isIfcInteropProvider } from "../contracts/adapter.js";
+import type { IfcInteropAdapter } from "../contracts/adapter.js";
 // COMPAT-CAD-003: the pure construction-documentation core (LOCK-018 scanned).
 import {
   annotationElement,
@@ -201,6 +213,12 @@ export class AppApiHandler {
         return this.cmdDocsRemoveAnnotations(command.payload);
       case "docs.regenerate":
         return this.cmdDocsRegenerate();
+      case "ifc.export":
+        return this.cmdIfcExport(command.payload);
+      case "ifc.import":
+        return this.cmdIfcImport(command.payload);
+      case "ifc.bcfCreate":
+        return this.cmdIfcBcfCreate(command.payload);
       default: {
         const _exhaustive: never = command.name;
         return err("unknown_command", `unknown command: ${JSON.stringify(_exhaustive)}`);
@@ -485,6 +503,16 @@ export class AppApiHandler {
         return this.qDocsListSheets();
       case "docs.exportSheet":
         return this.qDocsExportSheet(query.payload);
+      case "ifc.probe":
+        return this.qIfcProbe();
+      case "ifc.compare":
+        return this.qIfcCompare(query.payload);
+      case "ifc.idsValidate":
+        return this.qIfcIdsValidate(query.payload);
+      case "ifc.bcfParse":
+        return this.qIfcBcfParse(query.payload);
+      case "ifc.listImports":
+        return this.qIfcListImports();
       default: {
         const _exhaustive: never = query.name;
         return err("unknown_query", `unknown query: ${JSON.stringify(_exhaustive)}`);
@@ -1254,6 +1282,292 @@ export class AppApiHandler {
     } catch (e) {
       return err("docs_invalid", (e as Error).message, false);
     }
+  }
+
+  // --- COMPAT-IFC-001 (additive): IFC/openBIM interoperability -------------
+  // Typed-error convention: ifc_unavailable = no interop adapter bound to
+  // this host's engine bundle (hosts opt in); ifc_invalid = payload/file/
+  // validation failure; ifc_unsupported = an operation outside the declared
+  // vocabulary (e.g. unsupported source units). All explicit (LOCK-007);
+  // loss/unsupported FIELD semantics live in the reconciliation reports.
+
+  /** Fixed deterministic import-record timestamp (deterministic records;
+   *  the record is already distinguished by its source + report hashes). */
+  static readonly IFC_IMPORT_NOW = "2026-01-01T00:00:00.000Z";
+
+  private ifcInterop(): IfcInteropAdapter | null {
+    const candidate: unknown = this.adapters.ifc;
+    return candidate !== undefined && isIfcInteropProvider(candidate) ? candidate : null;
+  }
+
+  /** ifc.export — deterministically export the document's BIM model to IFC
+   *  bytes (byte-identical for equal inputs; identity psets carry the
+   *  canonical ids; GlobalIds derive from them). */
+  private async cmdIfcExport(payload: unknown): Promise<CommandQueryResponse> {
+    const adapter = this.ifcInterop();
+    if (adapter === null) {
+      return err("ifc_unavailable", "no IFC interop adapter is bound to this host's engine bundle (bind one to use ifc.* interop)", false);
+    }
+    const p = payload as { projectName?: unknown } | null;
+    const projectName = p !== null && typeof p.projectName === "string" && p.projectName.length > 0 ? p.projectName : "Offisos Export";
+    try {
+      const snapshot = this.doc.snapshot();
+      const entities = snapshot.elements
+        .map((el) => elementToBimEntityOrNull(el))
+        .filter((e): e is NonNullable<typeof e> => e !== null);
+      const storyLevels = new Map<string, number>();
+      for (const entity of entities) {
+        if (entity.type === "bim.story") storyLevels.set(entity.id, entity.level);
+      }
+      const modelRevision = snapshot.version.version_id;
+      const outcome = buildIfcExportRequest(entities, storyLevels, modelRevision, projectName);
+      const built = await adapter.build(outcome.request);
+      return ok({
+        ifc: built.ifc,
+        size: built.size,
+        sha256: built.sha256,
+        schema: "IFC4",
+        engineVersion: built.engineVersion,
+        counts: outcome.counts,
+      });
+    } catch (e) {
+      if (isAdapterFailure(e)) return err(e.code, e.message, e.retryable);
+      return err("ifc_invalid", (e as Error).message, false);
+    }
+  }
+
+  /** ifc.import — parse + reconcile an IFC file into the canonical model as
+   *  ONE atomic versioned command (created elements + reconciliation
+   *  patches + the deterministic import record; one revision, one undo).
+   *  GlobalIds are retained as engineId provenance only (LOCK-019). */
+  private async cmdIfcImport(payload: unknown): Promise<CommandQueryResponse> {
+    const adapter = this.ifcInterop();
+    if (adapter === null) {
+      return err("ifc_unavailable", "no IFC interop adapter is bound to this host's engine bundle (bind one to use ifc.* interop)", false);
+    }
+    const p = payload as { ifc?: unknown; defaultStoryHeight?: unknown } | null;
+    if (p === null || typeof p !== "object" || typeof p.ifc !== "string" || p.ifc.length === 0) {
+      return err("bad_payload", "ifc.import requires an ifc base64 payload", true);
+    }
+    const options = typeof p.defaultStoryHeight === "number" && Number.isFinite(p.defaultStoryHeight) && p.defaultStoryHeight > 0
+      ? { defaultStoryHeight: p.defaultStoryHeight }
+      : {};
+    try {
+      const bytes = Buffer.from(p.ifc, "base64");
+      const sourceHash = createHash("sha256").update(bytes).digest("hex");
+      const parsed = await adapter.parse(p.ifc);
+      const snapshot = this.doc.snapshot();
+      const outcome = reconcileIfcImport(parsed, sourceHash, snapshot.elements, options);
+      const newElements = importEntitiesToElements(outcome.entities, (i) => outcome.globalIds[i] ?? null);
+      const edits: DocumentEdit[] = newElements.map((element) => ({ type: "addElement", element }) as DocumentEdit);
+      for (const patch of outcome.patches) {
+        edits.push({ type: "setProps", elementId: patch.elementId, patch: patch.patch });
+      }
+      edits.push({
+        type: "addIfcImport",
+        record: { ...outcome.record, id: "", at: AppApiHandler.IFC_IMPORT_NOW },
+      });
+      this.doc.execute({ type: "applyEdits", edits });
+      const records = this.doc.ifcImportRecords;
+      const record = records[records.length - 1];
+      return ok({
+        record,
+        report: outcome.report,
+        reportHash: outcome.record.reportHash,
+        created: newElements.map((e) => e.id).filter((id) => id.length > 0),
+        patched: outcome.patches.map((patch) => patch.elementId),
+        snapshot: this.doc.snapshot(),
+      });
+    } catch (e) {
+      if (isAdapterFailure(e)) return err(e.code, e.message, e.retryable);
+      const message = (e as Error).message;
+      if (message.startsWith("IFC import: unsupported length unit")) {
+        return err("ifc_unsupported", message, false);
+      }
+      return err("ifc_invalid", message, false);
+    }
+  }
+
+  /** ifc.bcfCreate — build a BCF-XML v3 .bcf container binding topics to
+   *  CANONICAL elements (IfcGuids derived deterministically from the
+   *  canonical ids). BCF is a transport contract, never the system of
+   *  record (Issue #47). */
+  private async cmdIfcBcfCreate(payload: unknown): Promise<CommandQueryResponse> {
+    const adapter = this.ifcInterop();
+    if (adapter === null) {
+      return err("ifc_unavailable", "no IFC interop adapter is bound to this host's engine bundle (bind one to use ifc.* interop)", false);
+    }
+    const p = payload as { topics?: unknown } | null;
+    if (p === null || typeof p !== "object" || !Array.isArray(p.topics) || p.topics.length === 0) {
+      return err("bad_payload", "ifc.bcfCreate requires a non-empty topics array", true);
+    }
+    try {
+      const topics = p.topics.map((raw, index) => {
+        if (typeof raw !== "object" || raw === null) {
+          throw new Error(`topics[${index}] must be an object`);
+        }
+        const t = raw as Record<string, unknown>;
+        if (typeof t.title !== "string" || t.title.length === 0) {
+          throw new Error(`topics[${index}].title must be a non-empty string`);
+        }
+        if (typeof t.description !== "string") {
+          throw new Error(`topics[${index}].description must be a string`);
+        }
+        const elementIds = Array.isArray(t.elementIds) ? t.elementIds : [];
+        const known = new Set(this.doc.allElements().map((el) => el.id));
+        for (const id of elementIds) {
+          if (typeof id !== "string" || !known.has(id)) {
+            throw new Error(`topics[${index}]: element id '${String(id)}' does not exist in the document`);
+          }
+        }
+        return {
+          title: t.title,
+          description: t.description,
+          author: typeof t.author === "string" ? t.author : "offisos",
+          type: typeof t.type === "string" ? t.type : "Issue",
+          status: typeof t.status === "string" ? t.status : "Open",
+          references: (elementIds as string[]).map((id) => ifcGuidFor(id)),
+          comment: typeof t.comment === "string" && t.comment.length > 0 ? t.comment : null,
+          commentAuthor: typeof t.commentAuthor === "string" ? t.commentAuthor : null,
+        };
+      });
+      const built = await adapter.buildBcf(topics);
+      return ok({ bcf: built.bcf, size: built.size, referencedCanonicalIds: topics.flatMap((t) => t.references).length });
+    } catch (e) {
+      if (isAdapterFailure(e)) return err(e.code, e.message, e.retryable);
+      return err("ifc_invalid", (e as Error).message, false);
+    }
+  }
+
+  /** ifc.probe — engine/toolchain availability. */
+  private async qIfcProbe(): Promise<CommandQueryResponse> {
+    const adapter = this.ifcInterop();
+    if (adapter === null) {
+      return ok({ available: false, engineVersion: null, message: "no IFC interop adapter is bound to this host's engine bundle" });
+    }
+    const probe = await adapter.probe();
+    return ok(probe);
+  }
+
+  /** ifc.compare — dry-run reconciliation of an IFC file against the current
+   *  canonical state (field-level exact/tolerance/lossy/unsupported). */
+  private async qIfcCompare(payload: unknown): Promise<CommandQueryResponse> {
+    const adapter = this.ifcInterop();
+    if (adapter === null) {
+      return err("ifc_unavailable", "no IFC interop adapter is bound to this host's engine bundle (bind one to use ifc.* interop)", false);
+    }
+    const p = payload as { ifc?: unknown } | null;
+    if (p === null || typeof p !== "object" || typeof p.ifc !== "string" || p.ifc.length === 0) {
+      return err("bad_payload", "ifc.compare requires an ifc base64 payload", true);
+    }
+    try {
+      const bytes = Buffer.from(p.ifc, "base64");
+      const sourceHash = createHash("sha256").update(bytes).digest("hex");
+      const parsed = await adapter.parse(p.ifc);
+      const outcome = reconcileIfcImport(parsed, sourceHash, this.doc.snapshot().elements, {});
+      return ok({ report: outcome.report, reportHash: outcome.record.reportHash });
+    } catch (e) {
+      if (isAdapterFailure(e)) return err(e.code, e.message, e.retryable);
+      const message = (e as Error).message;
+      if (message.startsWith("IFC import: unsupported length unit")) {
+        return err("ifc_unsupported", message, false);
+      }
+      return err("ifc_invalid", message, false);
+    }
+  }
+
+  /** ifc.idsValidate — IDS validation through the proven IfcTester toolchain,
+   *  with every per-entity result bound to canonical provenance (the
+   *  identity pset DomainId; null for external entities). */
+  private async qIfcIdsValidate(payload: unknown): Promise<CommandQueryResponse> {
+    const adapter = this.ifcInterop();
+    if (adapter === null) {
+      return err("ifc_unavailable", "no IFC interop adapter is bound to this host's engine bundle (bind one to use ifc.* interop)", false);
+    }
+    const p = payload as { ifc?: unknown; ids?: unknown } | null;
+    if (p === null || typeof p !== "object" || typeof p.ids !== "string" || p.ids.trim().length === 0) {
+      return err("bad_payload", "ifc.idsValidate requires a non-empty ids XML string", true);
+    }
+    try {
+      let ifcPayload: string = typeof p.ifc === "string" && p.ifc.length > 0 ? p.ifc : "";
+      if (ifcPayload.length === 0) {
+        // default: validate the current document's export
+        const exportResult = await this.cmdIfcExport({ projectName: "Offisos IDS Validation" });
+        if (exportResult.ok !== true) {
+          return exportResult;
+        }
+        ifcPayload = (exportResult.value as { ifc: string }).ifc;
+      }
+      const [result, parsed] = await Promise.all([
+        adapter.validateIds(ifcPayload, p.ids as string),
+        adapter.parse(ifcPayload),
+      ]);
+      const canonicalByGuid = new Map<string, string>();
+      for (const el of parsed.elements) {
+        const identity = el.psets["Pset_OffisosIdentity"] as Record<string, unknown> | undefined;
+        const domainId = identity?.DomainId;
+        if (typeof domainId === "string" && domainId.length > 0) {
+          canonicalByGuid.set(el.globalId, domainId);
+        }
+      }
+      const classByGuid = new Map(parsed.elements.map((el) => [el.globalId, el.ifcClass] as const));
+      const nameByGuid = new Map(parsed.elements.map((el) => [el.globalId, el.name] as const));
+      const specs = result.specs.map((spec) => ({
+        name: spec.name,
+        status: spec.status,
+        entities: spec.applicable.map((guid) => ({
+          globalId: guid,
+          canonicalId: canonicalByGuid.get(guid) ?? null,
+          ifcClass: classByGuid.get(guid) ?? null,
+          name: nameByGuid.get(guid) ?? null,
+          passed: spec.passed.includes(guid),
+        })),
+      }));
+      return ok({ specs, schema: parsed.schema });
+    } catch (e) {
+      if (isAdapterFailure(e)) return err(e.code, e.message, e.retryable);
+      return err("ifc_invalid", (e as Error).message, false);
+    }
+  }
+
+  /** ifc.bcfParse — parse a .bcf container; every IfcGuid reference resolves
+   *  back to a canonical element id when one exists in the current document
+   *  (derived guid match or engineId provenance). BCF never becomes the
+   *  system of record. */
+  private async qIfcBcfParse(payload: unknown): Promise<CommandQueryResponse> {
+    const adapter = this.ifcInterop();
+    if (adapter === null) {
+      return err("ifc_unavailable", "no IFC interop adapter is bound to this host's engine bundle (bind one to use ifc.* interop)", false);
+    }
+    const p = payload as { bcf?: unknown } | null;
+    if (p === null || typeof p !== "object" || typeof p.bcf !== "string" || p.bcf.length === 0) {
+      return err("bad_payload", "ifc.bcfParse requires a bcf base64 payload", true);
+    }
+    try {
+      const parsed = await adapter.parseBcf(p.bcf);
+      // canonical resolution: derived guids (exports) + engineId provenance (imports)
+      const canonicalByGuid = new Map<string, string>();
+      for (const el of this.doc.allElements()) {
+        canonicalByGuid.set(ifcGuidFor(el.id), el.id);
+        if (typeof el.engineId === "string" && el.engineId.length > 0) {
+          canonicalByGuid.set(el.engineId, el.id);
+        }
+      }
+      const topics = parsed.topics.map((topic) => ({
+        ...topic,
+        references: topic.references,
+        resolvedCanonicalIds: topic.references.map((guid) => canonicalByGuid.get(guid) ?? null),
+      }));
+      return ok({ topics });
+    } catch (e) {
+      if (isAdapterFailure(e)) return err(e.code, e.message, e.retryable);
+      return err("ifc_invalid", (e as Error).message, false);
+    }
+  }
+
+  /** ifc.listImports — the persisted deterministic import records. */
+  private qIfcListImports(): CommandQueryResponse {
+    return ok({ records: this.doc.ifcImportRecords });
   }
 
   // --- COMPAT-CAD-003 (additive): documentation queries ----------------------

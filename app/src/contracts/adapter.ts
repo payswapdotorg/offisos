@@ -98,3 +98,17 @@ export interface EngineAdapterBundle {
   readonly file: FileEngineAdapter;
   readonly ifc?: IfcInteropAdapter;
 }
+
+/** COMPAT-IFC-001: runtime capability probe — is the bound bundle's optional
+ *  `ifc` field a real IFC interop adapter? (The App API fails typed
+ *  `ifc_unavailable` when absent — hosts opt in by binding it.) */
+export function isIfcInteropProvider(value: unknown): value is IfcInteropAdapter {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    (value as { adapterMark?: unknown }).adapterMark === ADAPTER_BOUNDARY_MARK &&
+    typeof (value as { engineId?: unknown }).engineId === "string" &&
+    typeof (value as { probe?: unknown }).probe === "function" &&
+    typeof (value as { build?: unknown }).build === "function"
+  );
+}

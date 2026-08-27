@@ -532,6 +532,40 @@ export const COMMAND_PAYLOAD_SCHEMAS: Readonly<Record<CommandName, object>> = {
     required: ["ids"],
   },
   "docs.regenerate": { type: "object", properties: {} },
+
+  // COMPAT-IFC-001 (additive): IFC/openBIM interoperability commands.
+  "ifc.export": { type: "object", properties: { projectName: { type: "string" } } },
+  "ifc.import": {
+    type: "object",
+    properties: {
+      ifc: { type: "string" },
+      defaultStoryHeight: { type: "number" },
+    },
+    required: ["ifc"],
+  },
+  "ifc.bcfCreate": {
+    type: "object",
+    properties: {
+      topics: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            title: { type: "string" },
+            description: { type: "string" },
+            author: { type: "string" },
+            type: { type: "string" },
+            status: { type: "string" },
+            comment: { type: "string" },
+            commentAuthor: { type: "string" },
+            elementIds: { type: "array", items: { type: "string" } },
+          },
+          required: ["title", "description"],
+        },
+      },
+    },
+    required: ["topics"],
+  },
 };
 
 export const QUERY_PAYLOAD_SCHEMAS: Readonly<Record<QueryName, object>> = {
@@ -610,6 +644,25 @@ export const QUERY_PAYLOAD_SCHEMAS: Readonly<Record<QueryName, object>> = {
     },
     required: ["sheetId", "format"],
   },
+
+  // COMPAT-IFC-001 (additive): IFC/openBIM read-only surfaces.
+  "ifc.probe": { type: "object", properties: {} },
+  "ifc.compare": {
+    type: "object",
+    properties: { ifc: { type: "string" } },
+    required: ["ifc"],
+  },
+  "ifc.idsValidate": {
+    type: "object",
+    properties: { ifc: { type: "string" }, ids: { type: "string" } },
+    required: ["ids"],
+  },
+  "ifc.bcfParse": {
+    type: "object",
+    properties: { bcf: { type: "string" } },
+    required: ["bcf"],
+  },
+  "ifc.listImports": { type: "object", properties: {} },
 };
 
 export const WIRE_ENVELOPE_SCHEMA = {

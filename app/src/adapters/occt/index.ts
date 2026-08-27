@@ -22,7 +22,7 @@
  * CADDocument redesign).
  */
 
-import type { EngineAdapterBundle } from "../../contracts/adapter.js";
+import type { EngineAdapterBundle, IfcInteropAdapter } from "../../contracts/adapter.js";
 import { createOcctBimAdapter } from "./occt-bim-adapter.js";
 import { createOcctGeometryAdapter } from "./occt-geometry-adapter.js";
 import type { OcctGeometryAdapterOptions } from "./occt-geometry-adapter.js";
@@ -43,13 +43,18 @@ export { OcctFileAdapter, OCCT_FILE_FORMAT } from "./occt-file-adapter.js";
 export { createOcctBimAdapter } from "./occt-bim-adapter.js";
 export type * from "./worker-protocol.js";
 
-/** Create the real OCCT EngineAdapterBundle. */
-export function createOcctAdapterBundle(options: OcctGeometryAdapterOptions = {}): EngineAdapterBundle {
+/** Create the real OCCT EngineAdapterBundle. COMPAT-IFC-001 (additive +
+ *  optional): pass `ifc` to bind the IFC interop adapter alongside the OCCT
+ *  engines — hosts opt in; the bundle stays byte-compatible without it. */
+export function createOcctAdapterBundle(
+  options: OcctGeometryAdapterOptions & { ifc?: IfcInteropAdapter } = {},
+): EngineAdapterBundle {
   const geometry = createOcctGeometryAdapter(options);
   const bim = createOcctBimAdapter(() => geometry.engineVersion);
   return {
     geometry,
     bim,
     file: OcctFileAdapter,
+    ...(options.ifc !== undefined ? { ifc: options.ifc } : {}),
   };
 }

@@ -239,6 +239,50 @@ export interface CADDocumentSnapshot {
   /** COMPAT-CAD-003: documentation sheets/layouts (absent on legacy
  *   *  snapshots; same versioned-command-model contract as docsViews). */
   readonly docsSheets?: readonly DocsSheetRecord[];
+  /** COMPAT-IFC-001: deterministic IFC import records (absent on legacy
+ *   *  snapshots; append-only through the addIfcImport edit — every import
+ *   *  is ONE versioned command carrying its provenance record). */
+  readonly ifcImports?: readonly IfcImportRecordView[];
+}
+
+/** One canonical↔GlobalId provenance mapping entry of an IFC import
+ *  (COMPAT-IFC-001). GlobalIds are provenance ONLY — canonical identity is
+ *  the DomainId carried in the identity psets (LOCK-019). */
+export interface IfcImportMappingEntry {
+  readonly canonicalId: string | null;
+  readonly globalId: string;
+  readonly ifcClass: string;
+  readonly action: "created" | "reconciled" | "unchanged" | "unsupported";
+}
+
+/** The persisted deterministic record of one IFC import (COMPAT-IFC-001):
+ *  source file hash + schema + declared unit normalization + the
+ *  reconciliation report hash + summary + the per-element provenance
+ *  mapping. `if-NNNNNN` ids are minted by the document (monotonic, never
+ *  reused); `at` is a fixed deterministic timestamp. */
+export interface IfcImportRecordView {
+  readonly id: string;
+  readonly at: string;
+  /** SHA-256 of the imported IFC file bytes. */
+  readonly sourceHash: string;
+  readonly schema: string;
+  readonly lengthUnitName: string | null;
+  readonly lengthUnitPrefix: string | null;
+  /** Declared factor file-length-units → canonical mm. */
+  readonly scaleToMm: number;
+  /** SHA-256 of the canonical reconciliation report. */
+  readonly reportHash: string;
+  readonly summary: {
+    readonly created: number;
+    readonly reconciled: number;
+    readonly unchanged: number;
+    readonly unsupported: number;
+    readonly exact: number;
+    readonly tolerance: number;
+    readonly lossy: number;
+    readonly unsupportedFields: number;
+  };
+  readonly mapping: readonly IfcImportMappingEntry[];
 }
 
 /** A reversible document edit (undo/redo semantics, §5.4). The inverse is
@@ -369,4 +413,23 @@ export type DocumentEdit =
       readonly patch?: undefined;
       readonly sheetId: string;
       readonly sheet: DocsSheetRecord;
+    }
+  // --- COMPAT-IFC-001 (additive) ---
+  | {
+      /** Append one deterministic IFC import record (part of the ONE atomic
+       *  versioned batch that also adds/reconciles the imported elements —
+       *  undo removes both together). */
+      readonly type: "addIfcImport";
+      readonly elementId?: undefined;
+      readonly element?: undefined;
+      readonly patch?: undefined;
+      readonly record: IfcImportRecordView;
+    }
+  | {
+      /** Remove an import record (the addIfcImport inverse for undo/replay). */
+      readonly type: "removeIfcImport";
+      readonly elementId?: undefined;
+      readonly element?: undefined;
+      readonly patch?: undefined;
+      readonly recordId: string;
     };
