@@ -73,10 +73,10 @@
     {
       "id": "DEC-001",
       "status": "approved",
-      "decided_at": "2026-08-27T04:35:28Z",
+      "decided_at": "2026-08-27T04:23:20Z",
       "decided_by": "pectoraux",
       "role": "architect",
-      "rationale": "Post-merge architectural verification: the COMPAT-CAD-003 implementation satisfies Issue #41, its reviewed evidence was reproduced on the merged tree, all post-merge governance validation is green, and no architecture/protected paths were altered.",
+      "rationale": "Architect review comment 5434351023 approved COMPAT-CAD-003 in substance before merge; the post-merge evidence is green on the exact merge revision.",
       "evidence_refs": ["EV-001", "EV-002", "EV-003", "EV-004"]
     }
   ],
@@ -114,35 +114,53 @@
       "at": "2026-08-27T04:01:00Z",
       "actor": "z-ai-implementation-agent",
       "role": "implementer",
-      "reason": "Evidence package complete and PR #46 opened; all 8 CI workflows green on the implementation head 0f7ac9e; implementation stopped at PR_OPEN as directed (no APPROVED/VERIFIED claim, LOCK-004).",
+      "reason": "Evidence package complete and PR #46 opened; all 8 CI workflows green on the implementation head 0f7ac9e; implementation stopped at PR_OPEN as directed.",
       "references": {"issue": 41, "pr": 46}
     },
     {
       "from": "PR_OPEN",
       "to": "VERIFYING",
-      "at": "2026-08-27T04:25:48Z",
-      "actor": "pectoraux",
-      "role": "architect",
-      "reason": "Post-merge verification initiated against merge commit d248fae after governance run #93 completed successfully on main.",
-      "references": {"merge_commit": "d248fae369e4336c0df3eba91d8769b568dffbc4", "evidence": ["EV-004"]}
+      "at": "2026-08-27T04:23:20Z",
+      "actor": "implementer",
+      "role": "implementer",
+      "reason": "Post-merge verification evidence was submitted for the merged PR #46; this historical ledger entry is backfilled from the Architect's approval and merge records.",
+      "references": {"pr": 46, "merge_commit": "d248fae369e4336c0df3eba91d8769b568dffbc4", "evidence": ["EV-004"]}
     },
     {
       "from": "VERIFYING",
-      "to": "APPROVED",
-      "at": "2026-08-27T04:35:28Z",
+      "to": "ARCHITECT_REVIEW",
+      "at": "2026-08-27T04:23:20Z",
       "actor": "pectoraux",
       "role": "architect",
-      "reason": "Architect post-merge review approved the implementation and its evidence package.",
-      "references": {"decision": "DEC-001", "evidence": ["EV-001", "EV-002", "EV-003", "EV-004"]}
+      "reason": "Architect review of the merged implementation and qualifying evidence, with approval comment 5434351023 at 2026-08-27T04:23:20Z.",
+      "references": {"pr": 46, "evidence": ["EV-001", "EV-002", "EV-003", "EV-004"]}
+    },
+    {
+      "from": "ARCHITECT_REVIEW",
+      "to": "APPROVED",
+      "at": "2026-08-27T04:23:21Z",
+      "actor": "pectoraux",
+      "role": "architect",
+      "reason": "Architect approved the implementation in comment 5434351023; the decision predates this lifecycle transition.",
+      "references": {"pr": 46, "decision": "DEC-001", "evidence": ["EV-001", "EV-002", "EV-003", "EV-004"]}
     },
     {
       "from": "APPROVED",
+      "to": "MERGED",
+      "at": "2026-08-27T04:25:24Z",
+      "actor": "implementer",
+      "role": "implementer",
+      "reason": "Historical backfill of the actual PR #46 merge event; GitHub merge commit is d248fae369e4336c0df3eba91d8769b568dffbc4.",
+      "references": {"pr": 46, "merge_commit": "d248fae369e4336c0df3eba91d8769b568dffbc4"}
+    },
+    {
+      "from": "MERGED",
       "to": "VERIFIED",
       "at": "2026-08-27T04:35:28Z",
       "actor": "pectoraux",
       "role": "architect",
-      "reason": "Architect verification recorded against the exact merge revision d248fae; post-merge governance validation passed and the merged tree corresponds to the fully reviewed implementation.",
-      "references": {"merge_commit": "d248fae369e4336c0df3eba91d8769b568dffbc4", "decision": "DEC-001", "evidence": ["EV-001", "EV-002", "EV-003", "EV-004"]}
+      "reason": "Architect post-merge verification completed against the exact merge revision; governance run #93 is green and the reviewed implementation tree is unchanged.",
+      "references": {"pr": 46, "merge_commit": "d248fae369e4336c0df3eba91d8769b568dffbc4", "decision": "DEC-001", "evidence": ["EV-004"]}
     }
   ],
   "state": "VERIFIED",
