@@ -27,6 +27,7 @@ import type {
   DraftingSettings,
   LayerRecord,
   SnapKind,
+  IfcImportRecordView,
 } from "../contracts/caddocument.js";
 import { DOCS_SHEET_FRAME as SHEET_FRAME } from "../contracts/caddocument.js";
 
@@ -457,6 +458,85 @@ export function deriveSheetSequence(sheets: readonly DocsSheetRecord[]): number 
   let max = 0;
   for (const sheet of sheets) {
     const m = /^sh-(\d{6,})$/.exec(sheet.id);
+    if (m !== null && m[1] !== undefined) max = Math.max(max, Number.parseInt(m[1], 10));
+  }
+  return max + 1;
+}
+
+
+// --- COMPAT-IFC-001: IFC import records ----------------------------------------
+
+const IFC_IMPORT_ACTIONS = ["created", "reconciled", "unchanged", "unsupported"] as const;
+
+/** Validate an IFC import record view (LOCK-007: strict, first failure wins). */
+export function validateIfcImportRecord(record: unknown): IfcImportRecordView {
+  if (typeof record !== "object" || record === null || Array.isArray(record)) {
+    throw new Error("ifc import record must be an object");
+  }
+  const r = record as Record<string, unknown>;
+  if (typeof r.id !== "string" || r.id.length === 0) {
+    throw new Error("ifc import record id must be a non-empty string");
+  }
+  if (typeof r.at !== "string" || r.at.length === 0) {
+    throw new Error(`ifc import record '${r.id}': at must be a non-empty string`);
+  }
+  if (typeof r.sourceHash !== "string" || !/^[0-9a-f]{64}$/.test(r.sourceHash)) {
+    throw new Error(`ifc import record '${r.id}': sourceHash must be a sha256 hex string`);
+  }
+  if (typeof r.schema !== "string" || r.schema.length === 0) {
+    throw new Error(`ifc import record '${r.id}': schema must be a non-empty string`);
+  }
+  if (r.lengthUnitName !== null && typeof r.lengthUnitName !== "string") {
+    throw new Error(`ifc import record '${r.id}': lengthUnitName must be a string or null`);
+  }
+  if (r.lengthUnitPrefix !== null && typeof r.lengthUnitPrefix !== "string") {
+    throw new Error(`ifc import record '${r.id}': lengthUnitPrefix must be a string or null`);
+  }
+  if (!isFiniteNumber(r.scaleToMm) || (r.scaleToMm as number) <= 0) {
+    throw new Error(`ifc import record '${r.id}': scaleToMm must be a positive finite number`);
+  }
+  if (typeof r.reportHash !== "string" || !/^[0-9a-f]{64}$/.test(r.reportHash)) {
+    throw new Error(`ifc import record '${r.id}': reportHash must be a sha256 hex string`);
+  }
+  const summary = r.summary;
+  if (typeof summary !== "object" || summary === null) {
+    throw new Error(`ifc import record '${r.id}': summary must be an object`);
+  }
+  for (const key of ["created", "reconciled", "unchanged", "unsupported", "exact", "tolerance", "lossy", "unsupportedFields"]) {
+    const v = (summary as Record<string, unknown>)[key];
+    if (!Number.isInteger(v) || (v as number) < 0) {
+      throw new Error(`ifc import record '${r.id}': summary.${key} must be a non-negative integer`);
+    }
+  }
+  if (!Array.isArray(r.mapping)) {
+    throw new Error(`ifc import record '${r.id}': mapping must be an array`);
+  }
+  for (const raw of r.mapping) {
+    if (typeof raw !== "object" || raw === null) {
+      throw new Error(`ifc import record '${r.id}': each mapping entry must be an object`);
+    }
+    const m = raw as Record<string, unknown>;
+    if (typeof m.globalId !== "string" || m.globalId.length === 0) {
+      throw new Error(`ifc import record '${r.id}': mapping entry globalId must be a non-empty string`);
+    }
+    if (m.canonicalId !== null && typeof m.canonicalId !== "string") {
+      throw new Error(`ifc import record '${r.id}': mapping entry canonicalId must be a string or null`);
+    }
+    if (typeof m.ifcClass !== "string" || m.ifcClass.length === 0) {
+      throw new Error(`ifc import record '${r.id}': mapping entry ifcClass must be a non-empty string`);
+    }
+    if (!(IFC_IMPORT_ACTIONS as readonly string[]).includes(m.action as string)) {
+      throw new Error(`ifc import record '${r.id}': mapping entry action must be one of ${IFC_IMPORT_ACTIONS.join("/")}`);
+    }
+  }
+  return record as IfcImportRecordView;
+}
+
+/** Derive the import-record mint-sequence counter from existing ids (`if-NNNNNN`). */
+export function deriveIfcImportSequence(records: readonly IfcImportRecordView[]): number {
+  let max = 0;
+  for (const record of records) {
+    const m = /^if-(\d{6,})$/.exec(record.id);
     if (m !== null && m[1] !== undefined) max = Math.max(max, Number.parseInt(m[1], 10));
   }
   return max + 1;

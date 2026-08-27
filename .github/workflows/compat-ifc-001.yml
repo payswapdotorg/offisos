@@ -1,0 +1,336 @@
+name: compat-ifc-001
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "app/**"
+      - "apps/web/**"
+      - "apps/electron/**"
+      - ".github/workflows/compat-ifc-001.yml"
+  pull_request:
+    paths:
+      - "app/**"
+      - "apps/web/**"
+      - "apps/electron/**"
+      - ".github/workflows/compat-ifc-001.yml"
+
+# COMPAT-IFC-001: native IFC/openBIM interoperability (Issue #47, Architecture
+# v1.1 FROZEN). Proves the IFC milestone on the pinned toolchains:
+#   - ifc-shell: the FULL app suite with BOTH real engines installed
+#     (cadquery-ocp / OCCT 7.8.1.1 for geometry; ifcopenshell 0.8.5 +
+#     IfcTester 0.8.5 for IFC/openBIM) — the 284 existing CAD/drafting/BIM/
+#     documentation tests stay green and the 28 new IFC tests (identity
+#     known-vectors, deterministic export, import/reconciliation geometry,
+#     cycles, controlled mutations, persistence, external files, typed
+#     failures, IDS/BCF, host-parity) all run; the LOCK-018 forbidden-import
+#     scan now covers src/ifc.
+#   - web-host-ifc: the deployable Web host lints + typechecks + builds and
+#     serves the FULL IFC workflow from the running dev server: BIM model →
+#     deterministic IFC4 export (byte-identical twice) → identity
+#     reconciliation (unchanged 11 / lossy 0) → dry-run comparison → IDS
+#     validation bound to canonical ids → BCF round trip resolving back to
+#     canonical ids → persisted import records.
+#   - electron-host-ifc: the deployable Electron host builds and runs SEVEN
+#     smokes — the six regression smokes (engine-free, real-engine geometry,
+#     model revisions, drafting, BIM, documentation) and the new 12-step IFC
+#     BrowserWindow smoke driving the real UI (probe/export/determinism/
+#     compare/import/mutation-identification/atomic-undo/IDS flip/BCF/
+#     records/save-open identity).
+#
+# Engine isolation (LOCK-003/018): IfcOpenShell/IfcTester/bcf-client run ONLY
+# inside the IFC adapter's disposable Python worker; the IFC core (src/ifc)
+# is pure TypeScript; no engine import leaks into the renderer/CADDocument/
+# App API (enforced by the LOCK-018 scan).
+
+jobs:
+  ifc-shell:
+    name: IFC deterministic suite (OCCT 7.8.1.1 + ifcopenshell 0.8.5 toolchains)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Set up Python (pinned toolchain)
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install the pinned OCCT engine (cadquery-ocp)
+        run: pip install cadquery-ocp==7.8.1.1.post1
+
+      - name: Install the pinned IFC toolchain (ifcopenshell + IfcTester)
+        run: pip install ifcopenshell==0.8.5 IfcTester==0.8.5 numpy==2.1.3
+
+      - name: Install root toolchain (tsx + typescript + ajv)
+        run: npm install
+
+      - name: Typecheck app shell (incl. the IFC core)
+        run: node_modules/.bin/tsc --noEmit -p app/tsconfig.json
+
+      - name: "Full app test suite with both real engines (312 tests)"
+        working-directory: app
+        run: node --import tsx --test test/*.test.ts
+
+      - name: Forbidden-import static check (LOCK-018 incl. src/ifc)
+        working-directory: app
+        run: node --import tsx --test test/no-forbidden-imports.test.ts
+
+      - name: IFC worker availability probe (pin check)
+        working-directory: app
+        run: |
+          echo '{"op":"ping"}' | python3 src/adapters/ifc/worker/ifc-worker.py
+          echo '{"op":"ping"}' | python3 src/adapters/ifc/worker/ifc-worker.py | grep -q '"engineVersion":"0.8.5"'
+
+      - name: Upload test evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: compat-ifc-001-shell-evidence
+          path: app/src
+          if-no-files-found: warn
+
+  web-host-ifc:
+    name: Web host (Next.js 16 + IFC workflow smoke)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/web/package.json
+
+      - name: Set up Python (pinned toolchain)
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install the pinned engines (OCCT + ifcopenshell)
+        run: pip install cadquery-ocp==7.8.1.1.post1 ifcopenshell==0.8.5 IfcTester==0.8.5 numpy==2.1.3
+
+      - name: Install Web host deps
+        working-directory: apps/web
+        run: npm install
+
+      - name: Web host lint (ESLint)
+        working-directory: apps/web
+        run: npm run lint
+
+      - name: Web host typecheck (tsc --noEmit)
+        working-directory: apps/web
+        run: npx tsc --noEmit
+
+      - name: Web host build (next build --webpack)
+        working-directory: apps/web
+        run: npm run build
+
+      - name: Web host IFC workflow smoke (dev server)
+        working-directory: apps/web
+        env:
+          OFFISOS_OCCT_WORKER: ${{ github.workspace }}/app/src/adapters/occt/worker/occt-worker.py
+          OFFISOS_IFC_WORKER: ${{ github.workspace }}/app/src/adapters/ifc/worker/ifc-worker.py
+        run: |
+          npm run dev -- --webpack -p 3000 &
+          DEV_PID=$!
+          for i in $(seq 1 60); do
+            if curl -sS -o /dev/null http://localhost:3000/ 2>/dev/null; then break; fi
+            sleep 2
+          done
+          sleep 3
+          python3 /dev/stdin <<'PYEOF'
+          import json, urllib.request
+
+          def send(body):
+              req = urllib.request.Request(
+                  "http://localhost:3000/api/cad",
+                  data=json.dumps({"api": "1", "body": body}).encode(),
+                  headers={"Content-Type": "application/json"},
+                  method="POST",
+              )
+              with urllib.request.urlopen(req, timeout=180) as r:
+                  return json.loads(r.read())
+
+          def cmd(name, payload): return send({"type": "command", "name": name, "payload": payload})
+          def q(name, payload): return send({"type": "query", "name": name, "payload": payload})
+          ok = lambda r: r.get("ok") is True
+
+          # The representative IFC workflow (the ifc-roundtrip test building):
+          # BIM model → deterministic export → identity reconciliation →
+          # comparison → IDS → BCF → persisted records.
+          assert ok(cmd("document.create", {"entityId": "ci-compat-ifc-001"})), "create"
+          assert ok(cmd("bim.createElements", {"entities": [
+              {"type": "bim.story", "id": "story-gf", "name": "Ground Floor", "level": 0, "height": 3000},
+              {"type": "bim.wall", "id": "wall-south", "storyId": "story-gf", "start": [0, 0], "end": [6000, 0], "width": 300, "height": 3000},
+              {"type": "bim.wall", "id": "wall-east", "storyId": "story-gf", "start": [6000, 0], "end": [6000, 5000], "width": 300, "height": 3000},
+              {"type": "bim.wall", "id": "wall-north", "storyId": "story-gf", "start": [6000, 5000], "end": [0, 5000], "width": 300, "height": 3000},
+              {"type": "bim.wall", "id": "wall-rot", "storyId": "story-gf", "start": [1000, 2000], "end": [4000, 5000], "width": 250, "height": 2800, "baseOffset": 200},
+              {"type": "bim.slab", "id": "slab-g", "storyId": "story-gf", "corner1": [-300, -300], "corner2": [6300, 5300], "thickness": 200, "baseOffset": -200},
+              {"type": "bim.opening", "id": "op-door", "hostId": "wall-south", "distance": 500, "width": 900, "height": 2100, "sill": 0},
+              {"type": "bim.opening", "id": "op-door-rot", "hostId": "wall-rot", "distance": 1000, "width": 800, "height": 2000, "sill": 100},
+              {"type": "bim.door", "id": "door-main", "openingId": "op-door", "swing": "right", "leafThickness": 45},
+              {"type": "bim.window", "id": "window-rot", "openingId": "op-door-rot"},
+              {"type": "bim.space", "id": "space-office", "storyId": "story-gf", "name": "Office 1",
+               "footprint": [[0, 0], [6000, 0], [6000, 3000], [3000, 3000], [3000, 6000], [0, 6000]], "height": 3000},
+          ]}))
+
+          # engine probe
+          r = q("ifc.probe", {})
+          assert ok(r) and r["value"]["available"] is True and r["value"]["engineVersion"] == "0.8.5", r
+
+          # deterministic export: exact counts + byte-identical second export
+          r = cmd("ifc.export", {})
+          assert ok(r), r
+          e1 = r["value"]
+          assert e1["schema"] == "IFC4"
+          assert e1["counts"] == {"stories": 1, "walls": 4, "slabs": 1, "openings": 2, "doors": 1, "windows": 1, "spaces": 1}, e1["counts"]
+          r = cmd("ifc.export", {})
+          assert r["value"]["sha256"] == e1["sha256"], "export determinism"
+          print("WEB HOST IFC SMOKE: export deterministic", e1["sha256"][:16], e1["size"], "bytes")
+
+          # dry-run comparison: the export reconciles against its own document
+          r = q("ifc.compare", {"ifc": e1["ifc"]})
+          assert ok(r), r
+          s = r["value"]["report"]["summary"]
+          assert s["unchanged"] == 11 and s["lossy"] == 0 and s["created"] == 0, s
+
+          # identity reconciliation import: all unchanged, record persisted
+          r = cmd("ifc.import", {"ifc": e1["ifc"]})
+          assert ok(r), r
+          assert r["value"]["record"]["id"] == "if-000001", r["value"]["record"]["id"]
+          s = r["value"]["report"]["summary"]
+          assert s["unchanged"] == 11 and s["lossy"] == 0 and s["created"] == 0, s
+
+          # controlled mutation → exactly the mutated element reconciles
+          assert ok(cmd("document.applyEdit", {"edit": {"type": "updateElement", "elementId": "wall-east", "patch": {"FireRating": "REI120"}}}))
+          r = cmd("ifc.export", {})
+          assert ok(r)
+          assert ok(cmd("document.undo", {}))
+          r = cmd("ifc.import", {"ifc": r["value"]["ifc"]})
+          assert ok(r), r
+          s = r["value"]["report"]["summary"]
+          assert s["reconciled"] == 1 and s["unchanged"] == 10, s
+          assert r["value"]["patched"] == ["wall-east"], r["value"]["patched"]
+
+          # IDS validation bound to canonical provenance
+          ids_xml = """<ids xmlns="http://standards.buildingsmart.org/IDS" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://standards.buildingsmart.org/IDS http://standards.buildingsmart.org/IDS/1.0/ids.xsd">
+              <info><title>Fire rating declared</title></info>
+              <specifications>
+                  <specification name="Walls must declare fire ratings" ifcVersion="IFC2X3 IFC4 IFC4X3_ADD2">
+                      <applicability minOccurs="1" maxOccurs="unbounded">
+                          <entity><name><simpleValue>IFCWALL</simpleValue></name></entity>
+                      </applicability>
+                      <requirements>
+                          <property dataType="IFCLABEL" cardinality="required">
+                              <propertySet><simpleValue>Pset_OffisosCustom</simpleValue></propertySet>
+                              <baseName><simpleValue>FireRating</simpleValue></baseName>
+                          </property>
+                      </requirements>
+                  </specification>
+              </specifications>
+          </ids>"""
+          r = q("ifc.idsValidate", {"ids": ids_xml})
+          assert ok(r), r
+          spec = r["value"]["specs"][0]
+          assert spec["status"] == "fail" and len(spec["entities"]) == 4, spec
+          # wall-east carries FireRating (re-added by the mutation import
+          # above) → exactly ONE entity passes; the other three fail.
+          passed = [e for e in spec["entities"] if e["passed"]]
+          assert len(passed) == 1 and passed[0]["canonicalId"] == "wall-east", passed
+          assert all(e["canonicalId"] in ("wall-south", "wall-east", "wall-north", "wall-rot") for e in spec["entities"])
+
+          # BCF round trip: references resolve back to canonical ids
+          r = cmd("ifc.bcfCreate", {"topics": [{"title": "Verify wall-south", "description": "Check the rating.", "elementIds": ["wall-south"]}]})
+          assert ok(r), r
+          assert r["value"]["size"] > 500
+          r = q("ifc.bcfParse", {"bcf": r["value"]["bcf"]})
+          assert ok(r), r
+          topic = r["value"]["topics"][0]
+          assert topic["title"] == "Verify wall-south"
+          assert topic["resolvedCanonicalIds"] == ["wall-south"], topic["resolvedCanonicalIds"]
+
+          # persisted import records
+          r = q("ifc.listImports", {})
+          assert ok(r) and len(r["value"]["records"]) == 2, r["value"]["records"]
+
+          print("WEB HOST IFC SMOKE: ALL PASS")
+          PYEOF
+          SMOKE_STATUS=$?
+          kill $DEV_PID 2>/dev/null || true
+          exit $SMOKE_STATUS
+
+  electron-host-ifc:
+    name: Electron host (build + 7 smokes incl. the IFC BrowserWindow smoke)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/electron/package.json
+
+      - name: Set up Python (pinned toolchain)
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install the pinned engines (OCCT + ifcopenshell)
+        run: pip install cadquery-ocp==7.8.1.1.post1 ifcopenshell==0.8.5 IfcTester==0.8.5 numpy==2.1.3
+
+      - name: Install Xvfb (headless display)
+        run: sudo apt-get update && sudo apt-get install -y xvfb
+
+      - name: Install Electron host deps
+        working-directory: apps/electron
+        run: npm install
+
+      - name: Electron host typecheck
+        working-directory: apps/electron
+        run: npm run typecheck
+
+      - name: Electron host build
+        working-directory: apps/electron
+        run: npm run build
+
+      - name: Electron regression smokes (engine-free, geometry, model, drafting, BIM, documentation)
+        working-directory: apps/electron
+        env:
+          OFFISOS_OCCT_WORKER: ${{ github.workspace }}/app/src/adapters/occt/worker/occt-worker.py
+          OFFISOS_IFC_WORKER: ${{ github.workspace }}/app/src/adapters/ifc/worker/ifc-worker.py
+        run: |
+          npm run smoke
+          npm run smoke:geometry
+          npm run smoke:model
+          npm run smoke:impact
+          npm run smoke:drafting
+          npm run smoke:bim
+          npm run smoke:docs
+
+      - name: Electron IFC smoke (12-step real-UI BrowserWindow smoke)
+        working-directory: apps/electron
+        env:
+          OFFISOS_OCCT_WORKER: ${{ github.workspace }}/app/src/adapters/occt/worker/occt-worker.py
+          OFFISOS_IFC_WORKER: ${{ github.workspace }}/app/src/adapters/ifc/worker/ifc-worker.py
+        run: npm run smoke:ifc
+
+      - name: Upload IFC smoke evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: compat-ifc-001-electron-evidence
+          path: apps/electron/dist/smoke-ifc-result.json
+          if-no-files-found: warn

@@ -787,6 +787,327 @@ export function unwrapDocsExport(res: CommandQueryResponse): DocsExportResult | 
   return v as DocsExportResult;
 }
 
+// --- COMPAT-IFC-001: IFC/openBIM interop through the shared App API ---------
+
+/** Per-kind element counts of an `ifc.export` (mirror of the wire). */
+export interface IfcExportCounts {
+  stories: number;
+  walls: number;
+  slabs: number;
+  openings: number;
+  doors: number;
+  windows: number;
+  spaces: number;
+}
+
+/** Response value of `ifc.export` (mirror of the wire). */
+export interface IfcExportResult {
+  /** Base64 of the deterministic IFC file bytes. */
+  ifc: string;
+  size: number;
+  /** SHA-256 of the IFC bytes (the determinism proof). */
+  sha256: string;
+  schema: string;
+  engineVersion: string;
+  counts: IfcExportCounts;
+}
+
+/** Field-level preservation classification of a reconciliation field. */
+export type IfcFieldClassification = "exact" | "tolerance" | "lossy" | "unsupported";
+
+/** One field comparison of the reconciliation report (mirror of the wire). */
+export interface IfcFieldResult {
+  field: string;
+  classification: IfcFieldClassification;
+  expected?: unknown;
+  actual?: unknown;
+  /** Declared tolerance for tolerance-classified numeric fields (mm). */
+  tolerance?: number;
+  note?: string;
+}
+
+/** Per-element reconciliation action. */
+export type IfcElementAction = "created" | "reconciled" | "unchanged" | "unsupported";
+
+/** One element row of the reconciliation report (mirror of the wire). */
+export interface IfcElementReport {
+  canonicalId: string | null;
+  globalId: string | null;
+  ifcClass: string;
+  name: string;
+  action: IfcElementAction;
+  fields: IfcFieldResult[];
+}
+
+/** The canonical reconciliation report of `ifc.import` / `ifc.compare`. */
+export interface IfcImportReport {
+  source: {
+    sha256: string;
+    schema: string;
+    lengthUnitName: string | null;
+    lengthUnitPrefix: string | null;
+    /** Declared factor file-length-units → canonical mm. */
+    scaleToMm: number;
+  };
+  elements: IfcElementReport[];
+  summary: {
+    created: number;
+    reconciled: number;
+    unchanged: number;
+    unsupported: number;
+    exact: number;
+    tolerance: number;
+    lossy: number;
+    unsupportedFields: number;
+  };
+  /** Caller-declared fallbacks actually applied (recorded, never silent). */
+  declaredFallbacks: string[];
+}
+
+/** One canonical↔GlobalId provenance mapping entry of an import record. */
+export interface IfcImportMappingEntry {
+  canonicalId: string | null;
+  globalId: string;
+  ifcClass: string;
+  action: IfcElementAction;
+}
+
+/** The persisted deterministic record of one IFC import (`if-NNNNNN`). */
+export interface IfcImportRecord {
+  id: string;
+  at: string;
+  sourceHash: string;
+  schema: string;
+  lengthUnitName: string | null;
+  lengthUnitPrefix: string | null;
+  scaleToMm: number;
+  reportHash: string;
+  summary: IfcImportReport["summary"];
+  mapping: IfcImportMappingEntry[];
+}
+
+/** Response value of `ifc.import` (mirror of the wire). */
+export interface IfcImportResult {
+  record: IfcImportRecord;
+  report: IfcImportReport;
+  reportHash: string;
+  created: string[];
+  patched: string[];
+  snapshot: unknown;
+}
+
+/** One BCF topic request of `ifc.bcfCreate` (canonical element ids). */
+export interface IfcBcfTopicRequest {
+  title: string;
+  description: string;
+  author?: string;
+  type?: string;
+  status?: string;
+  comment?: string;
+  commentAuthor?: string;
+  elementIds: string[];
+}
+
+/** Response value of `ifc.bcfCreate` (mirror of the wire). */
+export interface IfcBcfCreateResult {
+  /** Base64 of the .bcf container bytes. */
+  bcf: string;
+  size: number;
+  /** Count of referenced IfcGuids (derived from the canonical ids). */
+  referencedCanonicalIds: number;
+}
+
+/** Response value of `ifc.probe` (mirror of the wire). */
+export interface IfcProbeResult {
+  available: boolean;
+  engineVersion: string | null;
+  message: string | null;
+}
+
+/** Response value of `ifc.compare` (mirror of the wire). */
+export interface IfcCompareResult {
+  report: IfcImportReport;
+  reportHash: string;
+}
+
+/** One per-entity IDS validation result bound to canonical provenance. */
+export interface IfcIdsEntityResult {
+  globalId: string;
+  canonicalId: string | null;
+  ifcClass: string | null;
+  name: string | null;
+  passed: boolean;
+}
+
+/** One IDS specification result of `ifc.idsValidate`. */
+export interface IfcIdsSpecResult {
+  name: string;
+  status: "pass" | "fail";
+  entities: IfcIdsEntityResult[];
+}
+
+/** Response value of `ifc.idsValidate` (mirror of the wire). */
+export interface IfcIdsValidateResult {
+  specs: IfcIdsSpecResult[];
+  schema: string;
+}
+
+/** One comment of a parsed BCF topic. */
+export interface IfcBcfParsedComment {
+  author: string;
+  comment: string;
+  date: string;
+}
+
+/** One parsed BCF topic with references resolved back to canonical ids
+ *  (null when unresolvable — never fabricated). */
+export interface IfcBcfParsedTopic {
+  guid: string;
+  title: string;
+  description: string;
+  type: string;
+  status: string;
+  comments: IfcBcfParsedComment[];
+  references: string[];
+  resolvedCanonicalIds: (string | null)[];
+}
+
+/** Response value of `ifc.bcfParse` (mirror of the wire). */
+export interface IfcBcfParseResult {
+  topics: IfcBcfParsedTopic[];
+}
+
+export async function ifcExport(projectName?: string): Promise<CommandQueryResponse> {
+  return command("ifc.export", projectName === undefined ? {} : { projectName });
+}
+
+/** Import + reconcile an IFC file as ONE atomic versioned command. The
+ *  optional declared fallbacks (mm) are recorded in the report, never silent. */
+export async function ifcImport(payload: {
+  ifc: string;
+  defaultStoryHeight?: number;
+  defaultSpaceHeight?: number;
+}): Promise<CommandQueryResponse> {
+  return command("ifc.import", payload);
+}
+
+export async function ifcBcfCreate(topics: IfcBcfTopicRequest[]): Promise<CommandQueryResponse> {
+  return command("ifc.bcfCreate", { topics });
+}
+
+export async function ifcProbe(): Promise<CommandQueryResponse> {
+  return query("ifc.probe", {});
+}
+
+export async function ifcCompare(ifc: string): Promise<CommandQueryResponse> {
+  return query("ifc.compare", { ifc });
+}
+
+/** Validate an IDS specification. `ifc` omitted → the current document's
+ *  export (server-side default). */
+export async function ifcIdsValidate(ids: string, ifc?: string): Promise<CommandQueryResponse> {
+  return query("ifc.idsValidate", ifc === undefined ? { ids } : { ifc, ids });
+}
+
+export async function ifcBcfParse(bcf: string): Promise<CommandQueryResponse> {
+  return query("ifc.bcfParse", { bcf });
+}
+
+export async function ifcListImports(): Promise<CommandQueryResponse> {
+  return query("ifc.listImports", {});
+}
+
+/** Extract an IfcExportResult from an ifc.export ok response. */
+export function unwrapIfcExport(res: CommandQueryResponse): IfcExportResult | null {
+  if (!res.ok) return null;
+  const v = res.value as Partial<IfcExportResult> | null;
+  if (
+    typeof v !== "object" || v === null ||
+    typeof v.ifc !== "string" || typeof v.sha256 !== "string" ||
+    typeof v.size !== "number" || typeof v.schema !== "string" ||
+    typeof v.counts !== "object" || v.counts === null
+  ) {
+    return null;
+  }
+  return v as IfcExportResult;
+}
+
+/** Extract an IfcImportResult from an ifc.import ok response. */
+export function unwrapIfcImport(res: CommandQueryResponse): IfcImportResult | null {
+  if (!res.ok) return null;
+  const v = res.value as Partial<IfcImportResult> | null;
+  if (
+    typeof v !== "object" || v === null ||
+    typeof v.record !== "object" || v.record === null ||
+    typeof v.report !== "object" || v.report === null ||
+    typeof v.reportHash !== "string" ||
+    !Array.isArray(v.report.elements) ||
+    !Array.isArray(v.created) || !Array.isArray(v.patched)
+  ) {
+    return null;
+  }
+  return v as IfcImportResult;
+}
+
+/** Extract an IfcProbeResult from an ifc.probe ok response. */
+export function unwrapIfcProbe(res: CommandQueryResponse): IfcProbeResult | null {
+  if (!res.ok) return null;
+  const v = res.value as Partial<IfcProbeResult> | null;
+  if (typeof v !== "object" || v === null || typeof v.available !== "boolean") return null;
+  return v as IfcProbeResult;
+}
+
+/** Extract an IfcCompareResult from an ifc.compare ok response. */
+export function unwrapIfcCompare(res: CommandQueryResponse): IfcCompareResult | null {
+  if (!res.ok) return null;
+  const v = res.value as Partial<IfcCompareResult> | null;
+  if (
+    typeof v !== "object" || v === null ||
+    typeof v.report !== "object" || v.report === null ||
+    !Array.isArray(v.report.elements) || typeof v.reportHash !== "string"
+  ) {
+    return null;
+  }
+  return v as IfcCompareResult;
+}
+
+/** Extract an IfcIdsValidateResult from an ifc.idsValidate ok response. */
+export function unwrapIfcIdsValidate(res: CommandQueryResponse): IfcIdsValidateResult | null {
+  if (!res.ok) return null;
+  const v = res.value as Partial<IfcIdsValidateResult> | null;
+  if (typeof v !== "object" || v === null || !Array.isArray(v.specs)) return null;
+  return v as IfcIdsValidateResult;
+}
+
+/** Extract an IfcBcfCreateResult from an ifc.bcfCreate ok response. */
+export function unwrapIfcBcfCreate(res: CommandQueryResponse): IfcBcfCreateResult | null {
+  if (!res.ok) return null;
+  const v = res.value as Partial<IfcBcfCreateResult> | null;
+  if (
+    typeof v !== "object" || v === null ||
+    typeof v.bcf !== "string" || typeof v.size !== "number"
+  ) {
+    return null;
+  }
+  return v as IfcBcfCreateResult;
+}
+
+/** Extract an IfcBcfParseResult from an ifc.bcfParse ok response. */
+export function unwrapIfcBcfParse(res: CommandQueryResponse): IfcBcfParseResult | null {
+  if (!res.ok) return null;
+  const v = res.value as Partial<IfcBcfParseResult> | null;
+  if (typeof v !== "object" || v === null || !Array.isArray(v.topics)) return null;
+  return v as IfcBcfParseResult;
+}
+
+/** Extract an IfcImportRecord[] from an ifc.listImports ok response. */
+export function unwrapIfcListImports(res: CommandQueryResponse): IfcImportRecord[] | null {
+  if (!res.ok) return null;
+  const v = res.value as { records?: unknown } | null;
+  if (typeof v !== "object" || v === null || !Array.isArray(v.records)) return null;
+  return v.records as IfcImportRecord[];
+}
+
 export type {
   CADDocumentSnapshot,
   DocumentEdit,

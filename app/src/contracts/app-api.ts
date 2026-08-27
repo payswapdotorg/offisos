@@ -64,7 +64,12 @@ export type CommandName =
   | "docs.removeSheet"
   | "docs.addAnnotations"
   | "docs.removeAnnotations"
-  | "docs.regenerate";
+  | "docs.regenerate"
+  // COMPAT-IFC-001 (additive): IFC/openBIM interoperability (export bytes,
+  // reconciling import, BCF topic containers). Read-only surfaces are queries.
+  | "ifc.export"
+  | "ifc.import"
+  | "ifc.bcfCreate";
 
 // --- Query names (non-mutating) ---
 // `document.getSelection` returns the ephemeral editor selection (orthogonal
@@ -105,7 +110,14 @@ export type QueryName =
   | "docs.listViews"
   | "docs.getViewGeometry"
   | "docs.listSheets"
-  | "docs.exportSheet";
+  | "docs.exportSheet"
+  // COMPAT-IFC-001 (additive): IFC engine probe, dry-run reconciliation,
+  // IDS validation, BCF parsing and the persisted import-record list.
+  | "ifc.probe"
+  | "ifc.compare"
+  | "ifc.idsValidate"
+  | "ifc.bcfParse"
+  | "ifc.listImports";
 
 export interface Command {
   readonly type: "command";

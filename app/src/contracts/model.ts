@@ -103,6 +103,9 @@ export interface ModelHistory {
    *  document-minted documentation sheet ids (`sh-000001`, …). Never reused.
    *  Absent on legacy histories. */
   readonly next_sheet_sequence?: number;
+  /** COMPAT-IFC-001: monotonic mint counter for `if-NNNNNN` import-record
+   *  identities (additive-optional; absent on legacy histories). */
+  readonly next_ifc_import_sequence?: number;
   /** Append-only revision log (revisions[i].revision_number === i + 1). */
   readonly revisions: readonly ModelRevision[];
 }

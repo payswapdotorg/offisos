@@ -179,7 +179,49 @@ interface DocsSheetListItem {
   viewPlacements: { viewId: string }[];
 }
 
-type WorkspaceMode = "drafting" | "bim" | "docs";
+// COMPAT-IFC-001: structural shapes of the ifc.* responses (type-only — no
+// app-core module is imported; the wire values come from window.cad.send).
+interface IfcExportValue {
+  ifc: string;
+  size: number;
+  sha256: string;
+  schema: string;
+  engineVersion: string;
+  counts: Record<string, number>;
+}
+interface IfcReconSummary {
+  created: number;
+  reconciled: number;
+  unchanged: number;
+  lossy: number;
+}
+interface IfcImportValue {
+  record: { id: string; reportHash: string; summary: IfcReconSummary };
+  report: { summary: IfcReconSummary; elements: { canonicalId: string | null; action: string }[] };
+  reportHash: string;
+  created: string[];
+  patched: string[];
+}
+interface IfcCompareValue {
+  report: { summary: IfcReconSummary };
+  reportHash: string;
+}
+interface IfcIdsValue {
+  specs: { name: string; status: "pass" | "fail"; entities: { canonicalId: string | null; passed: boolean }[] }[];
+  schema: string;
+}
+interface IfcBcfParsedValue {
+  topics: { title: string; references: string[]; resolvedCanonicalIds: (string | null)[] }[];
+}
+interface IfcRecordItem {
+  id: string;
+  sourceHash: string;
+  reportHash: string;
+  summary: IfcReconSummary;
+  schema: string;
+}
+
+type WorkspaceMode = "drafting" | "bim" | "docs" | "ifc";
 
 const state = {
   snapshot: null as CADDocumentSnapshot | null,
@@ -201,6 +243,10 @@ const state = {
   docsSheets: [] as DocsSheetListItem[],
   docsSelectedView: null as string | null,
   docsRunCount: 0,
+  // COMPAT-IFC-001: IFC/openBIM interop mode (fourth toggle position).
+  ifcRunCount: 0,
+  ifcLastExport: null as { ifc: string; sha256: string } | null,
+  ifcRecords: [] as IfcRecordItem[],
 };
 
 // --- DOM helpers ----------------------------------------------------------
@@ -271,6 +317,27 @@ interface Shell {
   docsRedoBtn: HTMLButtonElement;
   docsSaveOpenBtn: HTMLButtonElement;
   docsPersistResult: HTMLElement;
+  // COMPAT-IFC-001: mode toggle + IFC/openBIM interop panel.
+  modeIfcBtn: HTMLButtonElement;
+  ifcCard: HTMLElement;
+  ifcStatus: HTMLElement;
+  ifcSeedBtn: HTMLButtonElement;
+  ifcSeedResult: HTMLElement;
+  ifcExportBtn: HTMLButtonElement;
+  ifcExportResult: HTMLElement;
+  ifcDeterminismBtn: HTMLButtonElement;
+  ifcDeterminismResult: HTMLElement;
+  ifcImportBtn: HTMLButtonElement;
+  ifcImportResult: HTMLElement;
+  ifcCompareBtn: HTMLButtonElement;
+  ifcCompareResult: HTMLElement;
+  ifcIdsBtn: HTMLButtonElement;
+  ifcIdsResult: HTMLElement;
+  ifcBcfBtn: HTMLButtonElement;
+  ifcBcfResult: HTMLElement;
+  ifcRecordsBtn: HTMLButtonElement;
+  ifcRecordsList: HTMLElement;
+  ifcUndoBtn: HTMLButtonElement;
   ddEid: HTMLElement;
   ddVid: HTMLElement;
   ddVn: HTMLElement;
@@ -356,6 +423,72 @@ const DOCS_UI_SHEET: Record<string, unknown> = {
   ],
 };
 
+/** The IFC representative building (COMPAT-IFC-001, Issue #47) — the EXACT
+ *  building from app/test/ifc-roundtrip.test.ts: the four-wall envelope of the
+ *  docs precedent with wall-west REPLACED by a 30°-rotated wall (start [1000,
+ *  2000] → end [4000, 5000], width 250, height 2800, baseOffset 200) so the
+ *  export→import placement-rotation reconstruction is exercised, its hosted
+ *  opening + window fill, and the door with swing + leafThickness params.
+ *  11 entities; one atomic bim.createElements batch (one revision, one undo). */
+const IFC_BUILDING_ENTITIES: readonly Record<string, unknown>[] = [
+  { type: "bim.story", id: "story-gf", name: "Ground Floor", level: 0, height: 3000 },
+  { type: "bim.wall", id: "wall-south", storyId: "story-gf", start: [0, 0], end: [6000, 0], width: 300, height: 3000 },
+  { type: "bim.wall", id: "wall-east", storyId: "story-gf", start: [6000, 0], end: [6000, 5000], width: 300, height: 3000 },
+  { type: "bim.wall", id: "wall-north", storyId: "story-gf", start: [6000, 5000], end: [0, 5000], width: 300, height: 3000 },
+  { type: "bim.wall", id: "wall-rot", storyId: "story-gf", start: [1000, 2000], end: [4000, 5000], width: 250, height: 2800, baseOffset: 200 },
+  { type: "bim.slab", id: "slab-g", storyId: "story-gf", corner1: [-300, -300], corner2: [6300, 5300], thickness: 200, baseOffset: -200 },
+  { type: "bim.opening", id: "op-door", hostId: "wall-south", distance: 500, width: 900, height: 2100, sill: 0 },
+  { type: "bim.opening", id: "op-door-rot", hostId: "wall-rot", distance: 1000, width: 800, height: 2000, sill: 100 },
+  { type: "bim.door", id: "door-main", openingId: "op-door", swing: "right", leafThickness: 45 },
+  { type: "bim.window", id: "window-rot", openingId: "op-door-rot" },
+  { type: "bim.space", id: "space-office", storyId: "story-gf", name: "Office 1", footprint: [[0, 0], [6000, 0], [6000, 3000], [3000, 3000], [3000, 6000], [0, 6000]], height: 3000 },
+];
+
+/** The IDS fixture (app/test/fixtures/ids-fire-rating.xml, embedded verbatim at
+ *  build time — the renderer bundles constants, it never reads the repo): the
+ *  "Walls must declare fire ratings" specification requiring
+ *  Pset_OffisosCustom.FireRating on every IFCWALL. */
+const IDS_FIRE_RATING_XML = `<ids xmlns="http://standards.buildingsmart.org/IDS" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://standards.buildingsmart.org/IDS http://standards.buildingsmart.org/IDS/1.0/ids.xsd">
+    <info>
+        <title>Fire rating declared</title>
+    </info>
+    <specifications>
+        <specification name="Walls must declare fire ratings" ifcVersion="IFC2X3 IFC4 IFC4X3_ADD2">
+            <applicability minOccurs="1" maxOccurs="unbounded">
+                <entity>
+                    <name>
+                        <simpleValue>IFCWALL</simpleValue>
+                    </name>
+                </entity>
+            </applicability>
+            <requirements>
+                <property dataType="IFCLABEL" cardinality="required">
+                    <propertySet>
+                        <simpleValue>Pset_OffisosCustom</simpleValue>
+                    </propertySet>
+                    <baseName>
+                        <simpleValue>FireRating</simpleValue>
+                    </baseName>
+                </property>
+            </requirements>
+        </specification>
+    </specifications>
+</ids>`;
+
+/** The BCF topic the card round-trips: one issue referencing two canonical
+ *  walls (IfcGuids derived deterministically from the canonical ids — BCF is a
+ *  transport contract, never the system of record). */
+const IFC_BCF_TOPIC: Record<string, unknown> = {
+  title: "Verify wall-north fire rating",
+  description: "The north wall must be checked against the IDS specification.",
+  author: "architect",
+  type: "Issue",
+  status: "Open",
+  comment: "Checked against IDS: missing rating.",
+  commentAuthor: "reviewer",
+  elementIds: ["wall-north", "wall-east"],
+};
+
 function buildShell(root: HTMLElement): Shell {
   root.replaceChildren();
 
@@ -385,7 +518,13 @@ function buildShell(root: HTMLElement): Shell {
   modeDocsBtn.setAttribute("data-testid", "mode-docs");
   modeDocsBtn.setAttribute("aria-pressed", "false");
   modeDocsBtn.style.cssText = "min-height:32px;border:0;border-radius:0;font-size:12px;";
-  modeWrap.append(modeDraftBtn, modeBimBtn, modeDocsBtn);
+  // COMPAT-IFC-001: the fourth mode — IFC/openBIM interoperability.
+  const modeIfcBtn = el("button");
+  modeIfcBtn.type = "button"; modeIfcBtn.textContent = "IFC";
+  modeIfcBtn.setAttribute("data-testid", "mode-ifc");
+  modeIfcBtn.setAttribute("aria-pressed", "false");
+  modeIfcBtn.style.cssText = "min-height:32px;border:0;border-radius:0;font-size:12px;";
+  modeWrap.append(modeDraftBtn, modeBimBtn, modeDocsBtn, modeIfcBtn);
   header.append(hWrap, modeWrap, badge, engineBadge);
   root.append(header);
 
@@ -641,6 +780,119 @@ function buildShell(root: HTMLElement): Shell {
   );
   docsCard.append(docsBody);
 
+  // COMPAT-IFC-001: IFC/openBIM interop panel (visible only in IFC mode).
+  const ifcCard = card(
+    "IFC / openBIM",
+    "COMPAT-IFC-001 — native IFC interoperability through the shared App API (ifc.*) behind the frozen adapter boundary. Deterministic IFC4 export (identity psets carry the CANONICAL ids; GlobalIds are provenance only), field-level reconciliation on import with declared lossy fallbacks, IDS validation and BCF topics bound to canonical elements. IfcOpenShell 0.8.5 runs in a disposable Python worker per call — failures are typed.",
+  );
+  ifcCard.setAttribute("data-testid", "ifc-card");
+  ifcCard.style.display = "none"; // drafting is the default mode
+  const ifcBody = el("div", "card-c");
+
+  const ifcStatus = el("p");
+  ifcStatus.setAttribute("data-testid", "ifc-status");
+  ifcStatus.setAttribute("data-state", "idle");
+  ifcStatus.setAttribute("data-op", "");
+  ifcStatus.setAttribute("data-run", "0");
+  ifcStatus.style.cssText = "margin:0 0 8px;font-family:ui-monospace,monospace;font-size:11px;color:var(--muted);";
+  ifcStatus.textContent = "ifc: idle";
+
+  const ifcSeedGroup = el("div", "controls");
+  ifcSeedGroup.style.marginBottom = "8px";
+  const bIfcSeed = btn("primary", "Seed representative building", "▲");
+  bIfcSeed.type = "button"; bIfcSeed.setAttribute("data-testid", "ifc-seed");
+  bIfcSeed.setAttribute("data-count", "0");
+  bIfcSeed.title = "document.create + bim.createElements (the ifc-roundtrip representative building: story + 4 walls incl. a 30°-rotated wall + slab + 2 openings + door + window + space) — the export/import test model";
+  ifcSeedGroup.append(bIfcSeed);
+
+  const ifcMonoP = (testid: string, initial: string): HTMLElement => {
+    const p = el("p");
+    p.setAttribute("data-testid", testid);
+    p.style.cssText = "margin:0 0 8px;font-family:ui-monospace,monospace;font-size:11px;color:var(--fg);word-break:break-all;";
+    p.textContent = initial;
+    return p;
+  };
+  const ifcSeedResult = ifcMonoP("ifc-seed-result", "seed: —");
+
+  const ifcIoGroup = el("div", "controls");
+  ifcIoGroup.style.marginBottom = "8px";
+  const bIfcExport = btn("primary", "Export IFC", "⇧");
+  bIfcExport.type = "button"; bIfcExport.setAttribute("data-testid", "ifc-export");
+  bIfcExport.setAttribute("data-ifc-sha", "");
+  bIfcExport.setAttribute("data-ifc-counts", "");
+  bIfcExport.title = "ifc.export — deterministic IFC4 bytes of the current BIM model (sha256 + element counts); the file becomes the card's import/compare payload";
+  const bIfcDeterminism = btn("", "Determinism ×2", "≡");
+  bIfcDeterminism.type = "button"; bIfcDeterminism.setAttribute("data-testid", "ifc-determinism");
+  bIfcDeterminism.setAttribute("data-ifc-deterministic", "");
+  bIfcDeterminism.title = "two ifc.export calls — byte-identical files for equal inputs (the determinism contract)";
+  const bIfcImport = btn("", "Import (last export)", "⇩");
+  bIfcImport.type = "button"; bIfcImport.setAttribute("data-testid", "ifc-import");
+  bIfcImport.setAttribute("data-ifc-record", "");
+  bIfcImport.setAttribute("data-ifc-summary", "");
+  bIfcImport.title = "ifc.import of the card's last export — ONE atomic versioned command: identity reconciliation against the current document + a persisted deterministic import record";
+  const bIfcCompare = btn("", "Compare", "⇄");
+  bIfcCompare.type = "button"; bIfcCompare.setAttribute("data-testid", "ifc-compare");
+  bIfcCompare.setAttribute("data-ifc-compare-status", "");
+  bIfcCompare.setAttribute("data-ifc-compare-hash", "");
+  bIfcCompare.title = "ifc.compare — dry-run reconciliation of the last export against the current canonical state (field-level exact/tolerance/lossy)";
+  ifcIoGroup.append(bIfcExport, bIfcDeterminism, bIfcImport, bIfcCompare);
+
+  const ifcExportResult = ifcMonoP("ifc-export-result", "export: —");
+  const ifcDeterminismResult = ifcMonoP("ifc-determinism-result", "determinism: —");
+  const ifcImportResult = ifcMonoP("ifc-import-result", "import: —");
+  const ifcCompareResult = ifcMonoP("ifc-compare-result", "compare: —");
+
+  const ifcOpenBimGroup = el("div", "controls");
+  ifcOpenBimGroup.style.marginBottom = "8px";
+  const bIfcIds = btn("", "IDS validate", "✓");
+  bIfcIds.type = "button"; bIfcIds.setAttribute("data-testid", "ifc-ids");
+  bIfcIds.setAttribute("data-ifc-ids-status", "");
+  bIfcIds.setAttribute("data-ifc-ids-applicable", "");
+  bIfcIds.setAttribute("data-ifc-ids-passed", "");
+  bIfcIds.setAttribute("data-ifc-ids-passed-ids", "");
+  bIfcIds.title = "ifc.idsValidate — the fire-rating IDS specification (IfcTester 0.8.5) against the current document's export; per-entity results bound to canonical provenance";
+  const bIfcBcf = btn("", "BCF topic round trip", "◎");
+  bIfcBcf.type = "button"; bIfcBcf.setAttribute("data-testid", "ifc-bcf");
+  bIfcBcf.setAttribute("data-ifc-bcf-resolved", "");
+  bIfcBcf.setAttribute("data-ifc-bcf-size", "");
+  bIfcBcf.title = "ifc.bcfCreate (one issue referencing wall-north + wall-east) then ifc.bcfParse — the references must resolve back to the CANONICAL ids";
+  const bIfcRecords = btn("", "Import records", "▤");
+  bIfcRecords.type = "button"; bIfcRecords.setAttribute("data-testid", "ifc-records");
+  bIfcRecords.setAttribute("data-ifc-records-count", "");
+  bIfcRecords.title = "ifc.listImports — the persisted deterministic import records (removed with the same undo as their elements)";
+  ifcOpenBimGroup.append(bIfcIds, bIfcBcf, bIfcRecords);
+
+  const ifcIdsResult = ifcMonoP("ifc-ids-result", "ids: —");
+  const ifcBcfResult = ifcMonoP("ifc-bcf-result", "bcf: —");
+
+  const ifcRecordsList = el("div");
+  ifcRecordsList.setAttribute("data-testid", "ifc-records-list");
+  ifcRecordsList.setAttribute("role", "list");
+  ifcRecordsList.style.cssText = "max-height:160px;overflow-y:auto;margin:0 0 8px;";
+
+  const ifcHistGroup = el("div", "controls");
+  const bIfcUndo = btn("", "Undo", "<");
+  bIfcUndo.type = "button"; bIfcUndo.setAttribute("data-testid", "ifc-undo");
+  bIfcUndo.title = "document.undo — ifc.import is ONE atomic versioned command: undo removes elements, patches AND the import record together";
+  ifcHistGroup.append(bIfcUndo);
+
+  ifcBody.append(
+    ifcStatus,
+    ifcSeedGroup,
+    ifcSeedResult,
+    ifcIoGroup,
+    ifcExportResult,
+    ifcDeterminismResult,
+    ifcImportResult,
+    ifcCompareResult,
+    ifcOpenBimGroup,
+    ifcIdsResult,
+    ifcBcfResult,
+    ifcRecordsList,
+    ifcHistGroup,
+  );
+  ifcCard.append(ifcBody);
+
   const editCard = card("Edit", "Add or remove geometry elements (dummy shapes).");
   const editBody = el("div", "card-c"); const editCtrls = el("div", "controls");
   const bBox = btn("primary", "Add Box", "#"); const bCircle = btn("primary", "Add Circle", "o"); const bDel = btn("danger", "Delete", "x");
@@ -687,7 +939,7 @@ function buildShell(root: HTMLElement): Shell {
   const errorEl = el("div", "alert"); errorEl.style.display = "none";
   errorEl.setAttribute("data-testid", "cad-error");
   errorEl.setAttribute("role", "alert");
-  nav.append(fileCard, occtCard, bimCard, docsCard, editCard, histCard, revCard, selCard, verCard, errorEl);
+  nav.append(fileCard, occtCard, bimCard, docsCard, ifcCard, editCard, histCard, revCard, selCard, verCard, errorEl);
 
   main.append(canvasCard, nav);
   root.append(main);
@@ -733,6 +985,17 @@ function buildShell(root: HTMLElement): Shell {
   bDocsUndo.addEventListener("click", () => void docsRun("undo", () => command("document.undo", {})));
   bDocsRedo.addEventListener("click", () => void docsRun("redo", () => command("document.redo", {})));
   bDocsSaveOpen.addEventListener("click", () => void onDocsSaveOpen());
+  // COMPAT-IFC-001: mode toggle + IFC/openBIM panel handlers.
+  modeIfcBtn.addEventListener("click", () => setMode("ifc"));
+  bIfcSeed.addEventListener("click", () => void onIfcSeed());
+  bIfcExport.addEventListener("click", () => void onIfcExport());
+  bIfcDeterminism.addEventListener("click", () => void onIfcDeterminism());
+  bIfcImport.addEventListener("click", () => void onIfcImport());
+  bIfcCompare.addEventListener("click", () => void onIfcCompare());
+  bIfcIds.addEventListener("click", () => void onIfcIds());
+  bIfcBcf.addEventListener("click", () => void onIfcBcf());
+  bIfcRecords.addEventListener("click", () => void onIfcRecords());
+  bIfcUndo.addEventListener("click", () => void ifcRun("undo", () => command("document.undo", {})));
   svg.addEventListener("click", () => {
     if (state.selection.length === 0) return;
     void run("Clear selection", () => command("document.setSelection", { ids: [] }));
@@ -792,6 +1055,26 @@ function buildShell(root: HTMLElement): Shell {
     docsRedoBtn: bDocsRedo,
     docsSaveOpenBtn: bDocsSaveOpen,
     docsPersistResult,
+    modeIfcBtn,
+    ifcCard,
+    ifcStatus,
+    ifcSeedBtn: bIfcSeed,
+    ifcSeedResult,
+    ifcExportBtn: bIfcExport,
+    ifcExportResult,
+    ifcDeterminismBtn: bIfcDeterminism,
+    ifcDeterminismResult,
+    ifcImportBtn: bIfcImport,
+    ifcImportResult,
+    ifcCompareBtn: bIfcCompare,
+    ifcCompareResult,
+    ifcIdsBtn: bIfcIds,
+    ifcIdsResult,
+    ifcBcfBtn: bIfcBcf,
+    ifcBcfResult,
+    ifcRecordsBtn: bIfcRecords,
+    ifcRecordsList,
+    ifcUndoBtn: bIfcUndo,
     ddEid: rEid.dd,
     ddVid: rVid.dd,
     ddVn: rVn.dd,
@@ -1483,6 +1766,271 @@ async function onDocsSaveOpen(): Promise<void> {
   });
 }
 
+// --- COMPAT-IFC-001: IFC/openBIM actions (window.cad.send only) ------------
+
+/** IFC status protocol: [data-state] idle|busy|done|error + [data-op] label +
+ *  [data-run] monotonic per-op counter — the deterministic handle the
+ *  BrowserWindow smoke waits on (mirrors the docs protocol; the counter is set
+ *  SYNCHRONOUSLY at click time so repeated op labels — a second export, the
+ *  fourth undo — wait deterministically). */
+function setIfcStatus(st: "idle" | "busy" | "done" | "error", op: string, text: string): void {
+  if (!ui) return;
+  ui.ifcStatus.setAttribute("data-state", st);
+  ui.ifcStatus.setAttribute("data-op", op);
+  ui.ifcStatus.textContent = text;
+}
+
+/** run() semantics for the IFC panel (mirrors docsRun): busy state, typed-error
+ *  surface AFTER refresh, re-entrancy guard, and the [data-state]/[data-op]/
+ *  [data-run] status protocol the smoke polls. */
+async function ifcRun(op: string, fn: () => Promise<CommandQueryResponse>): Promise<CommandQueryResponse | null> {
+  if (!ui) return null;
+  if (state.busy || state.loading) return null; // no interleaved ifc ops (buttons disable, actions guard here)
+  state.ifcRunCount += 1;
+  ui.ifcStatus.setAttribute("data-run", String(state.ifcRunCount));
+  setBusy(true);
+  setIfcStatus("busy", op, `ifc ${op}: busy…`);
+  try {
+    const res = await fn();
+    await refresh();
+    if (!res.ok) {
+      setError(`[${op}] ${res.code}: ${res.message}`);
+      setIfcStatus("error", op, `ifc ${op}: failed — ${res.code}: ${res.message}`);
+    } else {
+      setIfcStatus("done", op, `ifc ${op}: done`);
+    }
+    return res;
+  } catch (e) {
+    await refresh();
+    setError(`[${op}] unexpected: ${(e as Error).message}`);
+    setIfcStatus("error", op, `ifc ${op}: unexpected — ${(e as Error).message}`);
+    return null;
+  } finally {
+    setBusy(false);
+  }
+}
+
+/** Clear every IFC readout (seed resets the whole card state). */
+function resetIfcReadouts(): void {
+  if (!ui) return;
+  state.ifcLastExport = null;
+  ui.ifcSeedBtn.setAttribute("data-count", "0");
+  ui.ifcSeedResult.textContent = "seed: —";
+  ui.ifcExportBtn.setAttribute("data-ifc-sha", "");
+  ui.ifcExportBtn.setAttribute("data-ifc-counts", "");
+  ui.ifcExportResult.textContent = "export: —";
+  ui.ifcDeterminismBtn.setAttribute("data-ifc-deterministic", "");
+  ui.ifcDeterminismResult.textContent = "determinism: —";
+  ui.ifcImportBtn.setAttribute("data-ifc-record", "");
+  ui.ifcImportBtn.setAttribute("data-ifc-summary", "");
+  ui.ifcImportResult.textContent = "import: —";
+  ui.ifcCompareBtn.setAttribute("data-ifc-compare-status", "");
+  ui.ifcCompareBtn.setAttribute("data-ifc-compare-hash", "");
+  ui.ifcCompareResult.textContent = "compare: —";
+  ui.ifcIdsBtn.setAttribute("data-ifc-ids-status", "");
+  ui.ifcIdsBtn.setAttribute("data-ifc-ids-applicable", "");
+  ui.ifcIdsBtn.setAttribute("data-ifc-ids-passed", "");
+  ui.ifcIdsBtn.setAttribute("data-ifc-ids-passed-ids", "");
+  ui.ifcIdsResult.textContent = "ids: —";
+  ui.ifcBcfBtn.setAttribute("data-ifc-bcf-resolved", "");
+  ui.ifcBcfBtn.setAttribute("data-ifc-bcf-size", "");
+  ui.ifcBcfResult.textContent = "bcf: —";
+}
+
+/** Seed the representative IFC building: fresh document + ONE atomic
+ *  bim.createElements batch (11 entities — the app/test/ifc-roundtrip.test.ts
+ *  building incl. the 30°-rotated wall). One ifcRun wrapper. */
+async function onIfcSeed(): Promise<void> {
+  if (!ui) return;
+  resetIfcReadouts();
+  let createdIds: string[] = [];
+  const res = await ifcRun("seed", async () => {
+    const created = await command("document.create", { entityId: "compat-ifc-001-electron" });
+    if (!created.ok) return created;
+    const building = await command("bim.createElements", { entities: IFC_BUILDING_ENTITIES });
+    if (!building.ok) return building;
+    createdIds = (building.value as { created?: string[] }).created ?? [];
+    return building;
+  });
+  if (res !== null && res.ok) {
+    ui.ifcSeedBtn.setAttribute("data-count", String(createdIds.length));
+    ui.ifcSeedResult.textContent = `seeded ${createdIds.length} elements (${createdIds.join(", ")})`;
+  }
+}
+
+/** ifc.export — the deterministic IFC4 file of the current BIM model; the
+ *  payload becomes the card's import/compare input. */
+async function onIfcExport(): Promise<void> {
+  if (!ui) return;
+  const res = await ifcRun("export", () => command("ifc.export", {}));
+  if (res !== null && res.ok) {
+    const v = res.value as IfcExportValue;
+    state.ifcLastExport = { ifc: v.ifc, sha256: v.sha256 };
+    ui.ifcExportBtn.setAttribute("data-ifc-sha", v.sha256);
+    ui.ifcExportBtn.setAttribute("data-ifc-counts", JSON.stringify(v.counts));
+    const counts = Object.entries(v.counts).map(([kind, n]) => `${n} ${kind}`).join(" · ");
+    ui.ifcExportResult.textContent =
+      `export · ${v.schema} · ${v.size} bytes · engine ${v.engineVersion} · sha256 ${v.sha256.slice(0, 16)}… · ${counts}`;
+  } else {
+    ui.ifcExportBtn.setAttribute("data-ifc-sha", "");
+    ui.ifcExportBtn.setAttribute("data-ifc-counts", "");
+    ui.ifcExportResult.textContent = "export: failed — see the error alert";
+  }
+}
+
+/** Two ifc.export calls — the determinism proof: byte-identical files for
+ *  equal inputs (equal sha256). */
+async function onIfcDeterminism(): Promise<void> {
+  if (!ui) return;
+  let firstSha: string | null = null;
+  let secondSha: string | null = null;
+  const res = await ifcRun("determinism", async () => {
+    const a = await command("ifc.export", {});
+    if (!a.ok) return a;
+    const b = await command("ifc.export", {});
+    if (!b.ok) return b;
+    firstSha = (a.value as IfcExportValue).sha256;
+    secondSha = (b.value as IfcExportValue).sha256;
+    return b;
+  });
+  const deterministic = res !== null && res.ok && firstSha !== null && firstSha === secondSha;
+  ui.ifcDeterminismBtn.setAttribute("data-ifc-deterministic", deterministic ? "true" : "false");
+  if (deterministic) {
+    ui.ifcDeterminismResult.textContent =
+      `deterministic: true — two exports byte-identical (sha256 ${(firstSha ?? "").slice(0, 16)}…)`;
+  } else {
+    ui.ifcDeterminismResult.textContent = "determinism: failed — see the error alert";
+  }
+}
+
+/** ifc.import of the card's last export — ONE atomic versioned command: the
+ *  identity reconciliation report + the persisted deterministic record. */
+async function onIfcImport(): Promise<void> {
+  if (!ui) return;
+  const res = await ifcRun("import", async () => {
+    const last = state.ifcLastExport;
+    if (last === null) {
+      return {
+        ok: false,
+        code: "ifc_invalid",
+        message: "no IFC file to import — export first",
+      } as CommandQueryResponse;
+    }
+    return command("ifc.import", { ifc: last.ifc });
+  });
+  if (res !== null && res.ok) {
+    const v = res.value as IfcImportValue;
+    const s = v.report.summary;
+    ui.ifcImportBtn.setAttribute("data-ifc-record", v.record.id);
+    ui.ifcImportBtn.setAttribute("data-ifc-summary", JSON.stringify(s));
+    ui.ifcImportResult.textContent =
+      `import ${v.record.id} · created ${s.created} · reconciled ${s.reconciled} · unchanged ${s.unchanged} · ` +
+      `lossy ${s.lossy} · patched ${(v.patched ?? []).join(", ") || "—"} · reportHash ${v.reportHash.slice(0, 8)}…`;
+  } else {
+    ui.ifcImportBtn.setAttribute("data-ifc-record", "");
+    ui.ifcImportBtn.setAttribute("data-ifc-summary", "");
+    ui.ifcImportResult.textContent = "import: failed — see the error alert";
+  }
+}
+
+/** ifc.compare — the dry-run reconciliation of the last export against the
+ *  current canonical state: "clean" iff nothing to create/reconcile and no
+ *  lossy fields (the round-trip invariant). */
+async function onIfcCompare(): Promise<void> {
+  if (!ui) return;
+  const res = await ifcRun("compare", async () => {
+    const last = state.ifcLastExport;
+    if (last === null) {
+      return {
+        ok: false,
+        code: "ifc_invalid",
+        message: "no IFC file to compare — export first",
+      } as CommandQueryResponse;
+    }
+    return query("ifc.compare", { ifc: last.ifc });
+  });
+  if (res !== null && res.ok) {
+    const v = res.value as IfcCompareValue;
+    const s = v.report.summary;
+    const clean = s.created === 0 && s.reconciled === 0 && s.lossy === 0;
+    ui.ifcCompareBtn.setAttribute("data-ifc-compare-status", clean ? "clean" : "drift");
+    ui.ifcCompareBtn.setAttribute("data-ifc-compare-hash", v.reportHash);
+    ui.ifcCompareResult.textContent =
+      `compare · ${clean ? "clean" : "drift"} · created ${s.created} · reconciled ${s.reconciled} · ` +
+      `unchanged ${s.unchanged} · lossy ${s.lossy} · reportHash ${v.reportHash.slice(0, 8)}…`;
+  } else {
+    ui.ifcCompareBtn.setAttribute("data-ifc-compare-status", "");
+    ui.ifcCompareBtn.setAttribute("data-ifc-compare-hash", "");
+    ui.ifcCompareResult.textContent = "compare: failed — see the error alert";
+  }
+}
+
+/** ifc.idsValidate — the fire-rating IDS specification against the CURRENT
+ *  document's export: per-entity results bound to canonical provenance. */
+async function onIfcIds(): Promise<void> {
+  if (!ui) return;
+  const res = await ifcRun("ids", () => query("ifc.idsValidate", { ids: IDS_FIRE_RATING_XML }));
+  if (res !== null && res.ok) {
+    const v = res.value as IfcIdsValue;
+    const spec = v.specs[0];
+    if (spec === undefined) {
+      ui.ifcIdsBtn.setAttribute("data-ifc-ids-status", "fail");
+      ui.ifcIdsResult.textContent = "ids: no specification result";
+      return;
+    }
+    const passedIds = spec.entities.filter((e) => e.passed).map((e) => e.canonicalId ?? "?").sort();
+    ui.ifcIdsBtn.setAttribute("data-ifc-ids-status", spec.status);
+    ui.ifcIdsBtn.setAttribute("data-ifc-ids-applicable", String(spec.entities.length));
+    ui.ifcIdsBtn.setAttribute("data-ifc-ids-passed", String(passedIds.length));
+    ui.ifcIdsBtn.setAttribute("data-ifc-ids-passed-ids", passedIds.join(","));
+    ui.ifcIdsResult.textContent =
+      `IDS '${spec.name}' · ${spec.status} · ${spec.entities.length} applicable walls · ` +
+      `${passedIds.length} passed${passedIds.length > 0 ? ` (${passedIds.join(", ")})` : ""} · ${v.schema}`;
+  } else {
+    ui.ifcIdsBtn.setAttribute("data-ifc-ids-status", "");
+    ui.ifcIdsBtn.setAttribute("data-ifc-ids-applicable", "");
+    ui.ifcIdsBtn.setAttribute("data-ifc-ids-passed", "");
+    ui.ifcIdsBtn.setAttribute("data-ifc-ids-passed-ids", "");
+    ui.ifcIdsResult.textContent = "ids: failed — see the error alert";
+  }
+}
+
+/** ifc.bcfCreate → ifc.bcfParse round trip: one issue referencing two canonical
+ *  walls; the parsed references must resolve back to the CANONICAL ids (BCF is
+ *  a transport contract, never the system of record). */
+async function onIfcBcf(): Promise<void> {
+  if (!ui) return;
+  let resolved: string[] = [];
+  let size = 0;
+  const res = await ifcRun("bcf", async () => {
+    const created = await command("ifc.bcfCreate", { topics: [IFC_BCF_TOPIC] });
+    if (!created.ok) return created;
+    const built = created.value as { bcf: string; size: number; referencedCanonicalIds: number };
+    size = built.size;
+    const parsed = await query("ifc.bcfParse", { bcf: built.bcf });
+    if (!parsed.ok) return parsed;
+    const topic = (parsed.value as IfcBcfParsedValue).topics[0];
+    resolved = (topic?.resolvedCanonicalIds ?? []).filter((id): id is string => id !== null);
+    return parsed;
+  });
+  if (res !== null && res.ok) {
+    ui.ifcBcfBtn.setAttribute("data-ifc-bcf-resolved", [...resolved].sort().join(","));
+    ui.ifcBcfBtn.setAttribute("data-ifc-bcf-size", String(size));
+    ui.ifcBcfResult.textContent =
+      `BCF round trip · ${size} bytes · topic '${String(IFC_BCF_TOPIC.title)}' · ` +
+      `references resolved to ${[...resolved].sort().join(", ")}`;
+  } else {
+    ui.ifcBcfBtn.setAttribute("data-ifc-bcf-resolved", "");
+    ui.ifcBcfBtn.setAttribute("data-ifc-bcf-size", "");
+    ui.ifcBcfResult.textContent = "bcf: failed — see the error alert";
+  }
+}
+
+/** ifc.listImports — the rows render from the live state refresh() maintains. */
+async function onIfcRecords(): Promise<void> {
+  await ifcRun("records", () => query("ifc.listImports", {}));
+}
+
 // --- Refresh --------------------------------------------------------------
 
 let ui: Shell | null = null;
@@ -1516,6 +2064,12 @@ async function refresh(): Promise<void> {
     state.docsViews = viewsRes.ok ? ((viewsRes.value as { views: DocsViewListItem[] }).views ?? []) : [];
     const sheetsRes = await query("docs.listSheets", {});
     state.docsSheets = sheetsRes.ok ? ((sheetsRes.value as { sheets: DocsSheetListItem[] }).sheets ?? []) : [];
+  }
+  // COMPAT-IFC-001: ifc mode additionally pulls the persisted import records
+  // (the list stays current through every op incl. undo — engine-free query).
+  if (state.mode === "ifc") {
+    const ifcRes = await query("ifc.listImports", {});
+    state.ifcRecords = ifcRes.ok ? ((ifcRes.value as { records: IfcRecordItem[] }).records ?? []) : [];
   }
   render();
 }
@@ -1848,6 +2402,22 @@ function render(): void {
   ui.docsRedoBtn.disabled = docsDisabled || !canRedo;
   renderDocsViews();
   renderDocsSheets();
+
+  // COMPAT-IFC-001: mode toggle + IFC/openBIM panel state.
+  ui.modeIfcBtn.setAttribute("aria-pressed", state.mode === "ifc" ? "true" : "false");
+  ui.modeIfcBtn.disabled = state.busy;
+  ui.ifcCard.style.display = state.mode === "ifc" ? "" : "none";
+  const ifcDisabled = state.busy || state.loading;
+  ui.ifcSeedBtn.disabled = ifcDisabled;
+  ui.ifcExportBtn.disabled = ifcDisabled;
+  ui.ifcDeterminismBtn.disabled = ifcDisabled;
+  ui.ifcImportBtn.disabled = ifcDisabled;
+  ui.ifcCompareBtn.disabled = ifcDisabled;
+  ui.ifcIdsBtn.disabled = ifcDisabled;
+  ui.ifcBcfBtn.disabled = ifcDisabled;
+  ui.ifcRecordsBtn.disabled = ifcDisabled;
+  ui.ifcUndoBtn.disabled = ifcDisabled || !canUndo;
+  renderIfcRecords();
 }
 
 /** View rows from the live docs.listViews state (docs mode): id · kind ·
@@ -1908,6 +2478,34 @@ function renderDocsSheets(): void {
     row.textContent =
       `${s.id} · ${s.titleBlock.sheetNumber} ${s.titleBlock.sheetTitle} · ${s.viewPlacements.length} view(s) · ${s.titleBlock.projectName}`;
     ui.docsSheetList.append(row);
+  }
+}
+
+/** Import-record rows from the live ifc.listImports state (ifc mode): id ·
+ *  schema · source/report hash prefixes · the reconciliation summary. The
+ *  current count is mirrored onto the records button (data-ifc-records-count). */
+function renderIfcRecords(): void {
+  if (!ui) return;
+  ui.ifcRecordsBtn.setAttribute("data-ifc-records-count", String(state.ifcRecords.length));
+  ui.ifcRecordsList.replaceChildren();
+  if (state.ifcRecords.length === 0) {
+    const p = el("p");
+    p.style.cssText = "margin:0 0 8px;font-size:12px;color:var(--muted);";
+    p.textContent = "No import records — import an IFC file first.";
+    ui.ifcRecordsList.append(p);
+    return;
+  }
+  for (const r of state.ifcRecords) {
+    const row = el("div");
+    row.setAttribute("data-testid", `ifc-record-row-${r.id}`);
+    row.setAttribute("role", "listitem");
+    row.style.cssText =
+      "margin-bottom:4px;padding:5px 10px;font-size:11px;font-family:ui-monospace,monospace;" +
+      "border:1px solid var(--border);border-radius:6px;color:var(--fg);word-break:break-all;";
+    row.textContent =
+      `${r.id} · ${r.schema} · source ${r.sourceHash.slice(0, 8)}… · report ${r.reportHash.slice(0, 8)}… · ` +
+      `created ${r.summary.created} · reconciled ${r.summary.reconciled} · unchanged ${r.summary.unchanged} · lossy ${r.summary.lossy}`;
+    ui.ifcRecordsList.append(row);
   }
 }
 

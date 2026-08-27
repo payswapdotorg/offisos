@@ -15,7 +15,8 @@
     "smoke:impact": "node test/smoke-impact.mjs",
     "smoke:drafting": "node test/smoke-drafting.mjs",
     "smoke:bim": "node test/smoke-bim.mjs",
-    "smoke:docs": "node test/smoke-docs.mjs"
+    "smoke:docs": "node test/smoke-docs.mjs",
+    "smoke:ifc": "node test/smoke-ifc.mjs"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",

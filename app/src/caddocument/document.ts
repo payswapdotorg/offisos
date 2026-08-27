@@ -30,6 +30,7 @@ import type {
   BimSettings,
   CADDocumentSnapshot,
   DocsSheetRecord,
+  IfcImportRecordView,
   DocsViewRecord,
   DocumentEdit,
   DraftingSettings,
@@ -54,6 +55,8 @@ import {
   elementLayerReference,
   validateBimSettings,
   validateDocsSheetRecord,
+  validateIfcImportRecord,
+  deriveIfcImportSequence,
   validateDocsViewRecord,
   validateDraftingSettings,
   validateLayerRecord,
@@ -114,6 +117,11 @@ export class CADDocument {
   private readonly docsSheets: Map<string, DocsSheetRecord> = new Map();
   /** COMPAT-CAD-003: monotonic mint counter for `sh-NNNNNN` identities. */
   private nextSheetSequence: number;
+  /** COMPAT-IFC-001: deterministic IFC import records (insertion-ordered,
+   *  append-only through addIfcImport — one record per import command). */
+  private readonly ifcImports: Map<string, IfcImportRecordView> = new Map();
+  /** COMPAT-IFC-001: monotonic mint counter for `if-NNNNNN` identities. */
+  private nextIfcImportSequence: number;
   /** Ephemeral editor selection (§5.4 editor state). Orthogonal to the
    *  versioned document content: it is NOT in the version-id derivation and
    *  NOT in the parity content hash (§5.5). Since COMPAT-CAD-001 it IS
@@ -139,6 +147,8 @@ export class CADDocument {
     nextViewSequence: number,
     docsSheets: Iterable<DocsSheetRecord>,
     nextSheetSequence: number,
+    ifcImports: Iterable<IfcImportRecordView>,
+    nextIfcImportSequence: number,
   ) {
     this.version = version;
     for (const e of elements) this.elements.set(e.id, e);
@@ -157,6 +167,8 @@ export class CADDocument {
     this.nextViewSequence = nextViewSequence;
     for (const s of docsSheets) this.docsSheets.set(s.id, s);
     this.nextSheetSequence = nextSheetSequence;
+    for (const r of ifcImports) this.ifcImports.set(r.id, r);
+    this.nextIfcImportSequence = nextIfcImportSequence;
   }
 
   /** Open a snapshot: load state, set version, clear undo/redo, adopt the
@@ -203,6 +215,10 @@ export class CADDocument {
     for (const view of docsViews) validateDocsViewRecord(view);
     const docsSheets = [...(snapshot.docsSheets ?? [])];
     for (const sheet of docsSheets) validateDocsSheetRecord(sheet);
+    // COMPAT-IFC-001: adopt the deterministic import records when present
+    // (validated structurally, LOCK-007); a legacy snapshot opens with none.
+    const ifcImports = [...(snapshot.ifcImports ?? [])];
+    for (const record of ifcImports) validateIfcImportRecord(record);
     return new CADDocument(
       snapshot.version,
       snapshot.elements,
@@ -221,6 +237,8 @@ export class CADDocument {
       Math.max(deriveViewSequence(docsViews), history.next_view_sequence ?? 1),
       docsSheets,
       Math.max(deriveSheetSequence(docsSheets), history.next_sheet_sequence ?? 1),
+      ifcImports,
+      Math.max(deriveIfcImportSequence(ifcImports), history.next_ifc_import_sequence ?? 1),
     );
   }
 
@@ -248,6 +266,8 @@ export class CADDocument {
       1,
       [],
       1,
+      [],
+      1,
     );
   }
 
@@ -267,6 +287,10 @@ export class CADDocument {
   /** COMPAT-CAD-001: the persistent drawing layer table (insertion order). */
   get layerTable(): readonly LayerRecord[] {
     return [...this.layers.values()];
+  }
+  /** COMPAT-IFC-001: the deterministic IFC import records (insertion order). */
+  get ifcImportRecords(): readonly IfcImportRecordView[] {
+    return [...this.ifcImports.values()];
   }
   /** COMPAT-CAD-001: the non-versioned drafting workspace settings. */
   get draftingSettings(): DraftingSettings {
@@ -336,6 +360,7 @@ export class CADDocument {
       nextLayerSequence: this.nextLayerSequence,
       nextViewSequence: this.nextViewSequence,
       nextSheetSequence: this.nextSheetSequence,
+      nextIfcImportSequence: this.nextIfcImportSequence,
     });
     return inverse;
   }
@@ -442,6 +467,9 @@ export class CADDocument {
       // so legacy snapshots stay byte-identical (additive-optional contract).
       ...(this.docsViews.size > 0 ? { docsViews: [...this.docsViews.values()] } : {}),
       ...(this.docsSheets.size > 0 ? { docsSheets: [...this.docsSheets.values()] } : {}),
+      // COMPAT-IFC-001: deterministic import records — omitted when none so
+      // legacy snapshots stay byte-identical (additive-optional contract).
+      ...(this.ifcImports.size > 0 ? { ifcImports: [...this.ifcImports.values()] } : {}),
     };
   }
 
@@ -504,6 +532,22 @@ export class CADDocument {
       const sheet = validateDocsSheetRecord({ ...edit.sheet, id: minted });
       return { ...edit, sheet } as DocumentEdit;
     }
+    // COMPAT-IFC-001: addIfcImport mints an `if-NNNNNN` identity when missing.
+    if (edit.type === "addIfcImport") {
+      const raw = edit.record as { id?: unknown };
+      if (typeof raw.id === "string" && raw.id.length > 0) {
+        const record = validateIfcImportRecord(edit.record);
+        if (this.ifcImports.has(record.id)) {
+          throw new Error(
+            `addIfcImport: record id '${record.id}' already exists — canonical record identity must not be reused while the record exists`,
+          );
+        }
+        return edit;
+      }
+      const minted = this.mintIfcImportId();
+      const record = validateIfcImportRecord({ ...edit.record, id: minted });
+      return { ...edit, record } as DocumentEdit;
+    }
     if (edit.type !== "addElement") return edit;
     const element = edit.element;
     if (element === undefined) throw new Error("addElement requires element");
@@ -557,6 +601,14 @@ export class CADDocument {
   mintSheetId(): string {
     const minted = `sh-${String(this.nextSheetSequence).padStart(6, "0")}`;
     this.nextSheetSequence += 1;
+    return minted;
+  }
+
+  /** COMPAT-IFC-001: mint the next `if-NNNNNN` import-record identity
+   *  (document authority; monotonic, never reused). */
+  mintIfcImportId(): string {
+    const minted = `if-${String(this.nextIfcImportSequence).padStart(6, "0")}`;
+    this.nextIfcImportSequence += 1;
     return minted;
   }
 
@@ -717,6 +769,19 @@ export class CADDocument {
           }
         }
         this.docsSheets.set(sheet.id, sheet);
+        break;
+      }
+      case "addIfcImport": {
+        if (edit.record === undefined) throw new Error("addIfcImport requires record");
+        const record = validateIfcImportRecord(edit.record);
+        if (this.ifcImports.has(record.id)) throw new Error(`addIfcImport: record id '${record.id}' already exists`);
+        this.ifcImports.set(record.id, record);
+        break;
+      }
+      case "removeIfcImport": {
+        if (edit.recordId === undefined) throw new Error("removeIfcImport requires recordId");
+        if (!this.ifcImports.has(edit.recordId)) throw new Error(`removeIfcImport: no record '${edit.recordId}'`);
+        this.ifcImports.delete(edit.recordId);
         break;
       }
       case "updateSheet": {
@@ -902,6 +967,16 @@ export class CADDocument {
       case "addSheet": {
         if (edit.sheet === undefined) throw new Error("addSheet requires sheet");
         return { type: "removeSheet", sheetId: edit.sheet.id };
+      }
+      case "addIfcImport": {
+        if (edit.record === undefined) throw new Error("addIfcImport requires record");
+        return { type: "removeIfcImport", recordId: edit.record.id };
+      }
+      case "removeIfcImport": {
+        if (edit.recordId === undefined) throw new Error("removeIfcImport requires recordId");
+        const current = this.ifcImports.get(edit.recordId);
+        if (current === undefined) throw new Error(`removeIfcImport: no record '${edit.recordId}'`);
+        return { type: "addIfcImport", record: current };
       }
       case "updateSheet": {
         if (edit.sheetId === undefined || edit.patch === undefined) {
