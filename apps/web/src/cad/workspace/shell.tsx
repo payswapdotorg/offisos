@@ -612,6 +612,7 @@ export function WorkspaceShell(): React.JSX.Element {
                   void executePlan({ appApi: result.appApi, ui: [], echo: [] });
                 }}
                 onCommandStart={startCommand}
+                zoomExtentsSignal={zoomExtentsSignal}
               />
             )}
             {view === "bim3d" && <BimWorkbench />}

@@ -63,6 +63,8 @@ export interface ModelCanvasProps {
   readonly onSelectionChange: (ids: readonly string[]) => void;
   readonly onGripEdit: (result: GripEditResult) => void;
   readonly onCommandStart: (commandId: string) => void;
+  /** Increments when ZOOMEXTENTS runs — the canvas fits the visible model. */
+  readonly zoomExtentsSignal: number;
 }
 
 interface DragState {
@@ -173,6 +175,52 @@ export function ModelCanvas(props: ModelCanvasProps): React.JSX.Element {
     }
     return engineState.lastPoint;
   }, [activeStep, engineState]);
+
+  // ZOOMEXTENTS: fit every visible entity in the viewport (deterministic
+  // bounds + padding; stories are excluded — they have no plan geometry).
+  React.useEffect(() => {
+    if (props.zoomExtentsSignal === 0) return;
+    const elements = visibleEntities;
+    if (elements.length === 0) return;
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    for (const el of elements) {
+      const entity = parseDraftEntity(el);
+      const p = el.props as Record<string, unknown>;
+      const points: Vec2[] = [];
+      if (entity !== null) {
+        if (entity.type === "line") points.push(entity.from, entity.to);
+        else if (entity.type === "polyline") points.push(...entity.points);
+        else if (entity.type === "circle") {
+          points.push([entity.center[0] - entity.radius, entity.center[1] - entity.radius], [entity.center[0] + entity.radius, entity.center[1] + entity.radius]);
+        } else if (entity.type === "rectangle") points.push(entity.corner1, entity.corner2);
+      } else if (p.type === "bim.wall" && Array.isArray(p.start) && Array.isArray(p.end)) {
+        points.push(p.start as unknown as Vec2, p.end as unknown as Vec2);
+      } else if (p.type === "bim.slab" && Array.isArray(p.corner1) && Array.isArray(p.corner2)) {
+        points.push(p.corner1 as unknown as Vec2, p.corner2 as unknown as Vec2);
+      } else {
+        continue;
+      }
+      for (const pt of points) {
+        minX = Math.min(minX, pt[0]);
+        minY = Math.min(minY, pt[1]);
+        maxX = Math.max(maxX, pt[0]);
+        maxY = Math.max(maxY, pt[1]);
+      }
+    }
+    if (!Number.isFinite(minX)) return;
+    const w = canvasRef.current?.clientWidth ?? 900;
+    const pad = 600;
+    const spanX = Math.max(maxX - minX + pad * 2, 1);
+    const spanY = Math.max(maxY - minY + pad * 2, 1);
+    const z = Math.min(w / spanX, canvasH / spanY);
+    setZoom(z);
+    setPan({ x: minX - pad - (w / z - spanX) / 2, y: minY - pad - (canvasH / z - spanY) / 2 });
+    persistView({ x: minX - pad - (w / z - spanX) / 2, y: minY - pad - (canvasH / z - spanY) / 2 }, z);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [props.zoomExtentsSignal]);
 
   /** Constrain (aids) → snap (osnap) — the canonical composition order. */
   const constrainedSnapped = React.useCallback(
@@ -462,9 +510,9 @@ export function ModelCanvas(props: ModelCanvasProps): React.JSX.Element {
           points.push([entity.center[0] - entity.radius, entity.center[1] - entity.radius], [entity.center[0] + entity.radius, entity.center[1] + entity.radius]);
         } else if (entity.type === "rectangle") points.push(entity.corner1, entity.corner2);
       } else if (props.type === "bim.wall") {
-        points.push(props.start as Vec2, props.end as Vec2);
+        points.push(props.start as unknown as Vec2, props.end as unknown as Vec2);
       } else if (props.type === "bim.slab") {
-        points.push(props.corner1 as Vec2, props.corner2 as Vec2);
+        points.push(props.corner1 as unknown as Vec2, props.corner2 as unknown as Vec2);
       }
       for (const p of points) {
         minX = Math.min(minX, p[0]);
