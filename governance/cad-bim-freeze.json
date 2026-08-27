@@ -1,0 +1,25 @@
+{
+  "product": "CAD/BIM",
+  "architecture_version": "1.0",
+  "status": "FROZEN",
+  "parent_architecture": "ConstructionOS 1.1",
+  "effective_parent_revision": "161d02840aea1a5d94892f189d2f91974e3fe5cd",
+  "purpose": "Freeze the internal CAD/BIM product architecture, UI model, semantic boundaries, parity requirements and staged implementation roadmap without modifying the frozen ConstructionOS platform architecture.",
+  "artifacts": [
+    "spec/cad-bim/architecture.md",
+    "spec/cad-bim/lock.md",
+    "spec/cad-bim/requirements.md",
+    "spec/cad-bim/dependency-graph.md",
+    "spec/cad-bim/ui.md",
+    "spec/cad-bim/roadmap.md"
+  ],
+  "parity_targets": ["AutoCAD-class professional drafting", "Archicad-class BIM and documentation"],
+  "parity_definition": "Equivalent professional workflows, semantics, persistence, interoperability, task completion and performance; never copied source code or private/proprietary implementation details.",
+  "change_policy": "Feature work may evolve within this freeze. Changes to these architectural invariants require CAD/BIM Product Architecture v2.0 and an explicit Architecture Change Request under the parent ConstructionOS governance process.",
+  "initial_feature_program": "CAD-PARITY-001",
+  "project_and_sheets_policy": "Project and Sheets implementations may develop in parallel in other repositories/branches and integrate later through the shared ConstructionOS domain/application contracts; they are not dependencies of CAD parity.",
+  "notes": [
+    "The existing COMPAT-CAD-004 partial branch is superseded by this parity program and should not be merged.",
+    "ConstructionOS Architecture 1.1 remains FROZEN and is not modified by this product architecture package."
+  ]
+}
