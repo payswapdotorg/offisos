@@ -1,0 +1,368 @@
+name: compat-cad-003
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "app/**"
+      - "apps/web/**"
+      - "apps/electron/**"
+      - ".github/workflows/compat-cad-003.yml"
+  pull_request:
+    paths:
+      - "app/**"
+      - "apps/web/**"
+      - "apps/electron/**"
+      - ".github/workflows/compat-cad-003.yml"
+
+# COMPAT-CAD-003: construction documentation and drawing production (Issue
+# #41, Architecture v1.1 FROZEN). Proves the documentation milestone on the
+# pinned toolchain:
+#   - docs-shell: the FULL app suite WITH the real engine installed (python3 +
+#     cadquery-ocp / OCCT 7.8.1.1) — the 260 existing CAD/drafting/BIM tests
+#     stay green and the 24 new documentation tests (projection exactness /
+#     workflow / entities validation / host-parity) all run; the LOCK-018
+#     forbidden-import scan now covers src/docs.
+#   - web-host-docs: the deployable Web host lints + typechecks + builds and
+#     serves the FULL documentation workflow from the running dev server:
+#     BIM model → plan/elevation/section/detail views with EXACT projected
+#     coordinates and content hashes → canonical-ID-bound dimensions/tags
+#     with exact derived values (5300/4700 → parametric 5800 after a model
+#     move → 5300 restored by undo) → sheets/title blocks with validated
+#     placements → canonical Sheet-IR export (byte-identical hash, twice) →
+#     typed docs_unsupported for pdf/dwg → save/open identity.
+#   - electron-host-docs: the deployable Electron host builds and runs SIX
+#     smokes — the engine-free regression, real-engine geometry, model
+#     revisions, 2D drafting, BIM authoring (all regressions) and the new
+#     12-step documentation BrowserWindow smoke (real UI through the full
+#     chain incl. parametric regeneration + undo + sheet export + typed pdf
+#     reject + save/open identity).
+#
+# Engine isolation (LOCK-003/018): documentation projection is pure analytic
+# TS (src/docs); the OCCT kernel runs only inside the adapter's disposable
+# subprocess workers.
+
+jobs:
+  docs-shell:
+    name: Documentation deterministic suite (OCCT 7.8.1.1 toolchain)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Set up Python (pinned toolchain)
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install the pinned OCCT engine (cadquery-ocp)
+        run: pip install cadquery-ocp==7.8.1.1.post1
+
+      - name: Install root toolchain (tsx + typescript + ajv)
+        run: npm install
+
+      - name: Typecheck app shell (incl. the documentation core)
+        run: node_modules/.bin/tsc --noEmit -p app/tsconfig.json
+
+      - name: "Full app test suite with the real engine (284 tests)"
+        working-directory: app
+        run: node --import tsx --test test/*.test.ts
+
+      - name: Forbidden-import static check (LOCK-018 incl. src/docs)
+        working-directory: app
+        run: node --import tsx --test test/no-forbidden-imports.test.ts
+
+      - name: Engine availability probe (pin check)
+        working-directory: app
+        run: |
+          echo '{"op":"ping"}' | python3 src/adapters/occt/worker/occt-worker.py
+          echo '{"op":"ping"}' | python3 src/adapters/occt/worker/occt-worker.py | grep -q '"engineVersion":"7.8.1.1.post1"'
+
+      - name: Extrude probe (vocabulary pin)
+        working-directory: app
+        run: |
+          echo '{"op":"prepare","recipe":[{"id":"s0","make":"extrude","profile":[[0,0],[1000,0],[1000,500],[0,500]],"height":200}],"result":"s0"}' \
+            | python3 src/adapters/occt/worker/occt-worker.py | grep -q '"volume":100000000.0'
+
+      - name: Upload test evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: compat-cad-003-shell-evidence
+          path: app/src
+          if-no-files-found: warn
+
+  web-host-docs:
+    name: Web host (Next.js 16 + documentation workflow smoke)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/web/package.json
+
+      - name: Set up Python (pinned toolchain)
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install the pinned OCCT engine (cadquery-ocp)
+        run: pip install cadquery-ocp==7.8.1.1.post1
+
+      - name: Install Web host deps
+        working-directory: apps/web
+        run: npm install
+
+      - name: Web host lint (ESLint)
+        working-directory: apps/web
+        run: npm run lint
+
+      - name: Web host typecheck (tsc --noEmit)
+        working-directory: apps/web
+        run: npx tsc --noEmit
+
+      - name: Web host build (next build --webpack)
+        working-directory: apps/web
+        run: npm run build
+
+      - name: Web host documentation workflow smoke (dev server)
+        working-directory: apps/web
+        env:
+          OFFISOS_OCCT_WORKER: ${{ github.workspace }}/app/src/adapters/occt/worker/occt-worker.py
+        run: |
+          npm run dev -- --webpack -p 3000 &
+          DEV_PID=$!
+          for i in $(seq 1 60); do
+            if curl -sS -o /dev/null http://localhost:3000/ 2>/dev/null; then break; fi
+            sleep 2
+          done
+          sleep 3
+          python3 /dev/stdin <<'PYEOF'
+          import json, urllib.request
+
+          def send(body):
+              req = urllib.request.Request(
+                  "http://localhost:3000/api/cad",
+                  data=json.dumps({"api": "1", "body": body}).encode(),
+                  headers={"Content-Type": "application/json"},
+                  method="POST",
+              )
+              with urllib.request.urlopen(req, timeout=120) as r:
+                  return json.loads(r.read())
+
+          def cmd(name, payload): return send({"type": "command", "name": name, "payload": payload})
+          def q(name, payload): return send({"type": "query", "name": name, "payload": payload})
+          ok = lambda r: r.get("ok") is True
+
+          # The representative documentation workflow: BIM model → views →
+          # annotations → regeneration → sheet → export contract.
+          assert ok(cmd("document.create", {"entityId": "ci-compat-cad-003"})), "create"
+          assert ok(cmd("bim.createElements", {"entities": [
+              {"type": "bim.story", "id": "story-gf", "name": "Ground Floor", "level": 0, "height": 3000},
+              {"type": "bim.wall", "id": "wall-south", "storyId": "story-gf", "start": [0, 0], "end": [6000, 0], "width": 300, "height": 3000},
+              {"type": "bim.wall", "id": "wall-east", "storyId": "story-gf", "start": [6000, 0], "end": [6000, 5000], "width": 300, "height": 3000},
+              {"type": "bim.wall", "id": "wall-north", "storyId": "story-gf", "start": [6000, 5000], "end": [0, 5000], "width": 300, "height": 3000},
+              {"type": "bim.wall", "id": "wall-west", "storyId": "story-gf", "start": [0, 5000], "end": [0, 0], "width": 300, "height": 3000},
+              {"type": "bim.slab", "id": "slab-g", "storyId": "story-gf", "corner1": [-300, -300], "corner2": [6300, 5300], "thickness": 200, "baseOffset": -200},
+              {"type": "bim.opening", "id": "op-door", "hostId": "wall-south", "distance": 500, "width": 900, "height": 2100, "sill": 0},
+              {"type": "bim.door", "id": "door-main", "openingId": "op-door", "swing": "left", "name": "Main entrance"},
+              {"type": "bim.opening", "id": "op-win", "hostId": "wall-south", "distance": 3500, "width": 1500, "height": 1200, "sill": 900},
+              {"type": "bim.window", "id": "win-1", "openingId": "op-win", "name": "Facade W1"},
+              {"type": "bim.space", "id": "space-office", "storyId": "story-gf", "name": "Office 1",
+               "footprint": [[0, 0], [6000, 0], [6000, 3000], [3000, 3000], [3000, 6000], [0, 6000]], "height": 3000},
+          ]}))
+
+          # Views: plan / elevation / section mint canonical identities; the
+          # plan projects EXACTLY 17 primitives with the exact bbox.
+          r = cmd("docs.createViews", {"views": [
+              {"kind": "plan", "title": "Ground Floor Plan", "storyId": "story-gf", "scale": 50},
+              {"kind": "elevation", "title": "Front Elevation", "direction": "front"},
+              {"kind": "section", "title": "Section A-A", "sectionAxis": "y", "sectionOffset": 2500},
+          ]})
+          assert ok(r) and r["value"]["created"] == ["vw-000001", "vw-000002", "vw-000003"], r["value"]["created"]
+          r = q("docs.getViewGeometry", {"viewId": "vw-000001"})
+          assert ok(r), r
+          g = r["value"]
+          assert g["primitiveCount"] == 17, g["primitiveCount"]
+          assert g["bbox"] == {"uMin": -300, "uMax": 6300, "vMin": -300, "vMax": 6000}, g["bbox"]
+          plan_hash = g["contentHash"]
+          assert len(plan_hash) == 64
+          # Determinism: the same projection re-derives the identical hash.
+          assert q("docs.getViewGeometry", {"viewId": "vw-000001"})["value"]["contentHash"] == plan_hash
+          # The story is the one honest skip (level container).
+          assert [s["elementId"] for s in g["skips"]] == ["story-gf"], g["skips"]
+          # Detail view crops the source plan deterministically.
+          r = cmd("docs.createViews", {"views": [{"kind": "detail", "title": "Door Detail", "sourceViewId": "vw-000001", "region": {"x": 300, "y": -300, "w": 1400, "h": 600}, "detailScale": 2}]})
+          assert ok(r) and r["value"]["created"] == ["vw-000004"]
+          r = q("docs.getViewGeometry", {"viewId": "vw-000004"})
+          assert ok(r) and 0 < r["value"]["primitiveCount"] < 17
+
+          # Annotations bound to CANONICAL ids; regeneration derives EXACT values.
+          r = cmd("docs.addAnnotations", {"annotations": [
+              {"type": "docs.dim", "viewId": "vw-000001", "refIds": ["wall-south", "wall-north"], "axis": "y", "mode": "overall", "offset": -1000},
+              {"type": "docs.dim", "viewId": "vw-000001", "refIds": ["wall-south", "wall-north"], "axis": "y", "mode": "clear"},
+              {"type": "docs.tag", "viewId": "vw-000001", "targetId": "space-office"},
+              {"type": "docs.tag", "viewId": "vw-000001", "targetId": "door-main"},
+              {"type": "docs.note", "viewId": "vw-000001", "x": 3000, "y": 5500, "text": "Check tolerances"},
+          ]})
+          assert ok(r) and len(r["value"]["created"]) == 5
+          r = cmd("docs.regenerate", {})
+          assert ok(r) and r["value"]["applied"] == 4, r["value"]["applied"]
+          anns = {a["id"]: a for a in q("docs.getViewGeometry", {"viewId": "vw-000001"})["value"]["annotations"]}
+          created = ["el-000001", "el-000002", "el-000003", "el-000004", "el-000005"]
+          assert anns[created[0]]["measured"] == 5300, anns[created[0]]
+          assert anns[created[1]]["measured"] == 4700, anns[created[1]]
+          assert anns[created[2]]["label"] == "Office 1 (27.00 m²)", anns[created[2]]
+          assert anns[created[3]]["label"] == "door-main (900×2100 mm)", anns[created[3]]
+
+          # Parametric regeneration: model change → new measured value; undo
+          # restores BOTH the model and the derived documentation values.
+          assert ok(cmd("bim.move", {"ids": ["wall-north"], "dx": 0, "dy": 500, "dz": 0}))
+          assert ok(cmd("docs.regenerate", {}))
+          anns = {a["id"]: a for a in q("docs.getViewGeometry", {"viewId": "vw-000001"})["value"]["annotations"]}
+          assert anns[created[0]]["measured"] == 5800, anns[created[0]]
+          assert q("docs.getViewGeometry", {"viewId": "vw-000001"})["value"]["contentHash"] != plan_hash
+          assert ok(cmd("document.undo", {}))  # undo regeneration
+          assert ok(cmd("document.undo", {}))  # undo the move
+          assert q("docs.getViewGeometry", {"viewId": "vw-000001"})["value"]["contentHash"] == plan_hash
+
+          # Sheets + title blocks: placements validated; export IR canonical.
+          r = cmd("docs.createSheets", {"sheets": [{
+              "title": "Ground Floor Documentation",
+              "titleBlock": {"projectName": "Offisos Demo", "sheetTitle": "Ground Floor", "sheetNumber": "A-101", "author": "CI", "date": "2026-08-27"},
+              "viewPlacements": [
+                  {"viewId": "vw-000001", "x": 10, "y": 10, "w": 300, "h": 280},
+                  {"viewId": "vw-000002", "x": 320, "y": 10, "w": 300, "h": 280},
+              ],
+          }]})
+          assert ok(r) and r["value"]["created"] == ["sh-000001"]
+          e1 = q("docs.exportSheet", {"sheetId": "sh-000001", "format": "sheet-ir"})["value"]
+          e2 = q("docs.exportSheet", {"sheetId": "sh-000001", "format": "sheet-ir"})["value"]
+          assert e1["hash"] == e2["hash"] and len(e1["hash"]) == 64
+          assert e1["ir"]["sheet"]["titleBlock"]["sheetNumber"] == "A-101"
+          assert e1["ir"]["sheet"]["frame"] == {"width": 841, "height": 594, "titleBlockWidth": 200}
+          assert [v["viewId"] for v in e1["ir"]["views"]] == ["vw-000001", "vw-000002"]
+
+          # Typed failures: pdf/dwg writers are contracts only; placement
+          # overlap and unknown views are rejected; removeView is blocked
+          # while referenced (no silent cascade).
+          r = q("docs.exportSheet", {"sheetId": "sh-000001", "format": "pdf"})
+          assert not r["ok"] and r["code"] == "docs_unsupported" and "not implemented" in r["message"], r
+          r = q("docs.exportSheet", {"sheetId": "sh-000001", "format": "dwg"})
+          assert not r["ok"] and r["code"] == "docs_unsupported", r
+          r = cmd("docs.createSheets", {"sheets": [{"title": "Bad", "titleBlock": {"projectName": "P", "sheetTitle": "T", "sheetNumber": "1"}, "viewPlacements": [
+              {"viewId": "vw-000001", "x": 100, "y": 100, "w": 200, "h": 200},
+              {"viewId": "vw-000002", "x": 200, "y": 200, "w": 200, "h": 200}]}]})
+          assert not r["ok"] and r["code"] == "docs_invalid" and "overlap" in r["message"], r
+          r = cmd("docs.removeView", {"viewId": "vw-000001"})
+          assert not r["ok"] and r["code"] == "docs_invalid" and "placed on 1 sheet" in r["message"], r
+          r = cmd("docs.createViews", {"views": [{"kind": "plan", "title": "P", "storyId": "nope"}]})
+          assert not r["ok"] and r["code"] == "docs_invalid", r
+
+          # Save/open: documentation state + lineage preserved identically;
+          # regeneration after open is a no-op (values already current).
+          content_before = q("document.getState", {})["value"]
+          views_before = q("docs.listViews", {})["value"]["views"]
+          saved = cmd("document.save", {})["value"]["bytes"]
+          assert ok(cmd("document.open", {"source": saved}))
+          st = q("document.getState", {})["value"]
+          assert len(st["docsViews"]) == 4 and len(st["docsSheets"]) == 1
+          assert q("docs.listViews", {})["value"]["views"] == views_before
+          assert q("docs.exportSheet", {"sheetId": "sh-000001", "format": "sheet-ir"})["value"]["hash"] == e1["hash"]
+          r = cmd("docs.regenerate", {})
+          assert ok(r) and r["value"]["applied"] == 0, r["value"]["applied"]
+
+          print("WEB HOST DOCS SMOKE PASS: model→views(plan/elevation/section/detail)→annotations(5300/4700/labels)→parametric(5800)→undo→sheet(A-101)→sheet-ir(twice-identical)→typed(pdf/dwg/overlap/removeView)→save/open identity")
+          PYEOF
+          kill $DEV_PID || true
+
+  electron-host-docs:
+    name: Electron host (build + regression smokes + documentation smoke)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/electron/package.json
+
+      - name: Set up Python (pinned toolchain)
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install the pinned OCCT engine (cadquery-ocp)
+        run: pip install cadquery-ocp==7.8.1.1.post1
+
+      - name: Install Electron runtime system libraries (xvfb + chromium deps)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends xvfb \
+            libnss3 libatk1.0-0 libatk-bridge2.0-0 libcups2 libxkbcommon0 \
+            libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 \
+            libpango-1.0-0 libcairo2
+          sudo apt-get install -y --no-install-recommends libasound2t64 || \
+            sudo apt-get install -y --no-install-recommends libasound2
+
+      - name: Install Electron host deps
+        working-directory: apps/electron
+        run: npm install
+
+      - name: Electron host typecheck (tsc --noEmit)
+        working-directory: apps/electron
+        run: npm run typecheck
+
+      - name: Electron host build (esbuild)
+        working-directory: apps/electron
+        run: npm run build
+
+      - name: Engine-free regression smoke (CAD-IMPLEMENT-001)
+        working-directory: apps/electron
+        run: npm run smoke
+
+      - name: Real-engine geometry regression smoke (CAD-IMPLEMENT-002)
+        working-directory: apps/electron
+        env:
+          OFFISOS_OCCT_WORKER: ${{ github.workspace }}/app/src/adapters/occt/worker/occt-worker.py
+        run: npm run smoke:geometry
+
+      - name: Model revisions + Graph bridge regression smoke (CAD-IMPLEMENT-003)
+        working-directory: apps/electron
+        run: npm run smoke:model
+
+      - name: 2D drafting regression smoke (COMPAT-CAD-001)
+        working-directory: apps/electron
+        run: npm run smoke:drafting
+
+      - name: BIM authoring regression smoke (COMPAT-CAD-002, real OCCT)
+        working-directory: apps/electron
+        env:
+          OFFISOS_OCCT_WORKER: ${{ github.workspace }}/app/src/adapters/occt/worker/occt-worker.py
+        run: npm run smoke:bim
+
+      - name: Documentation workflow smoke (COMPAT-CAD-003, real UI)
+        working-directory: apps/electron
+        run: npm run smoke:docs
+
+      - name: Upload Electron smoke evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: compat-cad-003-electron-smoke
+          path: apps/electron/dist
+          if-no-files-found: warn
