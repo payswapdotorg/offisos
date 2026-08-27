@@ -17,7 +17,8 @@
     "smoke:bim": "node test/smoke-bim.mjs",
     "smoke:docs": "node test/smoke-docs.mjs",
     "smoke:ifc": "node test/smoke-ifc.mjs",
-    "smoke:components": "node test/smoke-components.mjs"
+    "smoke:components": "node test/smoke-components.mjs",
+    "smoke:workspace": "node test/smoke-workspace.mjs"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",

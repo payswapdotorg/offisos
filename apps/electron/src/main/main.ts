@@ -90,6 +90,7 @@ const isBimSmoke = process.argv.includes("--smoke-bim");
 const isDocsSmoke = process.argv.includes("--smoke-docs");
 const isIfcSmoke = process.argv.includes("--smoke-ifc");
 const isComponentsSmoke = process.argv.includes("--smoke-components");
+const isWorkspaceSmoke = process.argv.includes("--smoke-workspace");
 
 function createWindow(): BrowserWindow {
   // app.getAppPath() is the directory containing this package's package.json
@@ -697,6 +698,201 @@ async function runImpactSmoke(win: BrowserWindow): Promise<void> {
   });
 }
 
+/**
+ * CAD-PARITY-002 / Issue #75: the professional workspace Electron smoke.
+ *
+ * Drives the REAL renderer UI — the professional command line, prompt
+ * engine and Model canvas (window.__offisosWorkspace driver uses the SAME
+ * handlers the real input/canvas events use) — through the representative
+ * line/circle/wall workflow and asserts SEMANTIC PARITY with the Web host:
+ * the final document save sha256 must equal the pinned fixture
+ * (app/test/fixtures/cad-parity-002-parity.json) that the Web dev-server
+ * smoke produces from the identical command script. Also verifies the
+ * shell surfaces (menu bar, command line, status bar, palette) and the
+ * deterministic cancel path.
+ */
+async function runWorkspaceSmoke(win: BrowserWindow): Promise<void> {
+  if (process.env.OFFISOS_SMOKE_VERBOSE) {
+    win.webContents.on("console-message", (_e, _level, message) => {
+      console.log("[renderer]", String(message).slice(0, 500));
+    });
+    win.webContents.on("render-process-gone", (_e, details) => {
+      console.log("[renderer gone]", JSON.stringify(details).slice(0, 300));
+    });
+  }
+  interface Step { step: string; ok: boolean; detail: unknown }
+  const steps: Step[] = [];
+  const push = (name: string, ok: boolean, detail: unknown = null): void => {
+    steps.push({ step: name, ok, detail });
+  };
+
+  await new Promise<void>((resolve) => {
+    win.webContents.once("did-finish-load", () => resolve());
+  });
+
+  const page = async <T>(js: string): Promise<T> => {
+    const wrapped = (await win.webContents.executeJavaScript(
+      `(${js}).then((r) => ({ __smokeOk: true, r }), (e) => ({ __smokeOk: false, msg: String(e), stack: String((e && e.stack) || "") }))`,
+    )) as { __smokeOk: true; r: T } | { __smokeOk: false; msg: string; stack: string };
+    if (wrapped.__smokeOk !== true) {
+      throw new Error(`renderer call rejected: ${wrapped.msg}\n${wrapped.stack.slice(0, 800)}\nfor script: ${js.slice(0, 200)}`);
+    }
+    return wrapped.r;
+  };
+  const send = (request: CommandQueryRequest): Promise<CommandQueryResponse> =>
+    page<CommandQueryResponse>(`window.cad.send(${JSON.stringify(request)})`);
+  const cmd = (name: string, payload: unknown) =>
+    send({ type: "command", name: name as never, payload });
+  const qq = (name: string, payload: unknown) =>
+    send({ type: "query", name: name as never, payload });
+  const driver = async <T>(method: string, ...args: unknown[]): Promise<T> =>
+    page<T>(
+      `(async () => await window.__offisosWorkspace.${method}(${args.map((a) => JSON.stringify(a)).join(",")}))()`,
+    );
+
+  const waitFor = async (predicateJs: string, timeoutMs: number, what: string): Promise<void> => {
+    const deadline = Date.now() + timeoutMs;
+    for (;;) {
+      const v = await page<boolean>(`(async () => (${predicateJs}))()`);
+      if (v === true) return;
+      if (Date.now() > deadline) throw new Error(`timeout waiting for ${what}`);
+      await new Promise((r) => setTimeout(r, 150));
+    }
+  };
+
+  // 0. The professional shell mounted: menu bar, command line, status bar,
+  //    Model canvas card and the driver are present in the REAL UI.
+  await waitFor(`!!window.__offisosWorkspace`, 20000, "professional workspace driver");
+  push(
+    "professional workspace mounted",
+    await page<boolean>(
+      `(async () => !!document.querySelector('.pro-menubar') && !!document.querySelector('[data-testid="pro-command-line"]') && !!document.querySelector('[data-testid="pro-status-bar"]') && !!document.querySelector('[data-testid="pro-model-card"]'))()`,
+    ),
+  );
+
+  // 1. Fresh document — the SAME entityId the Web smoke uses (parity).
+  const created = await cmd("document.create", {
+    entityId: "cad-parity-002-smoke",
+    format: "offisos-occt",
+    formatVersion: "1",
+    createdBy: "cad-parity-002-smoke",
+  });
+  push("document.create (parity entityId)", created.ok === true, created.ok ? "ok" : created);
+
+  // 2. The representative workflow through the REAL command line.
+  await driver<void>("typedInput", "STORY");
+  await driver<void>("typedInput", "");
+  await driver<void>("typedInput", "");
+  await driver<void>("typedInput", "");
+  await driver<void>("refresh");
+  let state = await qq("document.getState", {});
+  let elements = ((state as { value?: { elements: unknown[] } }).value ?? { elements: [] }).elements;
+  push("STORY via command line (defaults)", elements.length === 1, `elements=${elements.length}`);
+
+  await driver<void>("typedInput", "LINE");
+  await driver<void>("typedInput", "0,0");
+  await driver<void>("typedInput", "4000,0");
+  await driver<void>("typedInput", "");
+  await driver<void>("refresh");
+  state = await qq("document.getState", {});
+  elements = ((state as { value?: { elements: unknown[] } }).value ?? { elements: [] }).elements;
+  push("LINE via typed coordinates", elements.length === 2, `elements=${elements.length}`);
+
+  await driver<void>("typedInput", "CIRCLE");
+  await driver<void>("typedInput", "2000,1000");
+  await driver<void>("typedInput", "500");
+  await driver<void>("refresh");
+  state = await qq("document.getState", {});
+  elements = ((state as { value?: { elements: unknown[] } }).value ?? { elements: [] }).elements;
+  push("CIRCLE center + radius", elements.length === 3, `elements=${elements.length}`);
+
+  await driver<void>("typedInput", "WALL");
+  await driver<void>("typedInput", "0,0");
+  await driver<void>("typedInput", "6000,0");
+  await driver<void>("refresh");
+  state = await qq("document.getState", {});
+  elements = ((state as { value?: { elements: unknown[] } }).value ?? { elements: [] }).elements;
+  push("WALL on the active story", elements.length === 4, `elements=${elements.length}`);
+
+  // 3. Deterministic undo/redo.
+  const undone = await cmd("document.undo", {});
+  state = await qq("document.getState", {});
+  elements = ((state as { value?: { elements: unknown[] } }).value ?? { elements: [] }).elements;
+  push("undo removes the wall", undone.ok === true && elements.length === 3, `elements=${elements.length}`);
+  const redone = await cmd("document.redo", {});
+  state = await qq("document.getState", {});
+  elements = ((state as { value?: { elements: unknown[] } }).value ?? { elements: [] }).elements;
+  push("redo restores the wall", redone.ok === true && elements.length === 4, `elements=${elements.length}`);
+
+  // 4. Command cancellation is deterministic (no entity, *Cancel* echoed).
+  await driver<void>("typedInput", "LINE");
+  await driver<void>("typedInput", "0,0");
+  await driver<void>("pressEscape");
+  await driver<void>("refresh");
+  state = await qq("document.getState", {});
+  elements = ((state as { value?: { elements: unknown[] } }).value ?? { elements: [] }).elements;
+  const status = await driver<{ history: string[] }>("status");
+  push("cancel mid-LINE emits no entity", elements.length === 4, `elements=${elements.length}`);
+  push("cancel echoes *Cancel*", status.history.includes("*Cancel*"), status.history.slice(-3));
+
+  // 5. Command palette opens/closes in the real UI.
+  push("command palette surface", await page<boolean>(`(async () => {
+    const input = document.querySelector('[data-testid="pro-command-input"]');
+    if (!input) return false;
+    input.focus();
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', ctrlKey: true, bubbles: true }));
+    await new Promise((r) => setTimeout(r, 120));
+    const open = !!document.querySelector('.pro-palette.open');
+    const esc = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true });
+    document.querySelector('.pro-palette input')?.dispatchEvent(esc);
+    await new Promise((r) => setTimeout(r, 120));
+    const closed = !document.querySelector('.pro-palette.open');
+    return open && closed;
+  })()`));
+
+  // 6. Semantic parity: the save sha + command stream must match the Web
+  //    host fixture (the same prompt-engine script, the same document).
+  const s1 = await cmd("document.save", {});
+  const s2 = await cmd("document.save", {});
+  const saveOk = s1.ok === true && s2.ok === true;
+  const bytes = saveOk ? (((s1 as { value?: { bytes: number[] } }).value ?? { bytes: [] }).bytes) : [];
+  const { createHash } = await import("node:crypto");
+  const sha = createHash("sha256").update(Buffer.from(bytes)).digest("hex");
+  const driverLog = await driver<string[]>("commandLog");
+  const commandStream = ["document.create", ...driverLog, "document.undo", "document.redo", "document.save", "document.save"];
+
+  const fixturePath = join(__dirname, "..", "..", "..", "..", "app", "test", "fixtures", "cad-parity-002-parity.json");
+  const fixture = JSON.parse(readFileSync(fixturePath, "utf8")) as {
+    saveSha256: string;
+    saveSize: number;
+    elements: number;
+    commandStream: string[];
+  };
+  const shaMatch = sha === fixture.saveSha256;
+  const streamMatch = commandStream.join("|") === fixture.commandStream.join("|");
+  push("save determinism", saveOk && s1.ok === true && sha === createHash("sha256").update(Buffer.from(((s2 as { value?: { bytes: number[] } }).value ?? { bytes: [] }).bytes)).digest("hex"), sha.slice(0, 16));
+  push("PARITY: save sha256 equals the Web host fixture", shaMatch, `${sha.slice(0, 16)}… vs ${fixture.saveSha256.slice(0, 16)}…`);
+  push("PARITY: semantic command stream equals the fixture", streamMatch, commandStream.join(" → "));
+
+  const ok = steps.every((s) => s.ok);
+  writeSmokeOut({
+    ok,
+    electronVersion: process.versions.electron,
+    nodeVersion: process.versions.node,
+    chromeVersion: process.versions.chrome,
+    steps,
+    contentHash: sha,
+    sceneHash: null,
+  });
+  if (!ok) {
+    for (const s of steps.filter((x) => !x.ok)) {
+      console.error(`WORKSPACE SMOKE FAIL: ${s.step}: ${JSON.stringify(s.detail).slice(0, 300)}`);
+    }
+  } else {
+    console.log(`WORKSPACE SMOKE: PASS — ${steps.length} steps; save sha ${sha.slice(0, 16)}… matches the Web host parity fixture`);
+  }
+}
+
 app.whenReady().then(() => {
   registerIpc(isImpactSmoke ? createReferenceAdapterBundle() : undefined);
   const win = createWindow();
@@ -719,7 +915,9 @@ app.whenReady().then(() => {
                   ? runIfcSmoke(win)
                   : isComponentsSmoke
                     ? runComponentsSmoke(win)
-                    : null;
+                    : isWorkspaceSmoke
+                      ? runWorkspaceSmoke(win)
+                      : null;
   if (smokeRun !== null) {
     smokeRun
       .then(() => {
