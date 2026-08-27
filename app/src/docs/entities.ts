@@ -84,7 +84,7 @@ export function makeDocsDim(input: Record<string, unknown>): Omit<DocsDimProps, 
   if (!isFiniteNumber(offset)) {
     throw new Error("docs.dim offset must be a finite number (view-space offset of the dimension line)");
   }
-  for (const forbidden of ["measured", "dangling", "reason", "type"] as const) {
+  for (const forbidden of ["measured", "dangling", "reason"] as const) {
     if (input[forbidden] !== undefined) {
       throw new Error(`docs.dim: '${forbidden}' is a derived field — set it through docs.regenerate, not at creation`);
     }
@@ -107,7 +107,7 @@ export function makeDocsTag(input: Record<string, unknown>): Omit<DocsTagProps, 
   if (typeof input.targetId !== "string" || input.targetId.length === 0) {
     throw new Error("docs.tag requires a non-empty targetId (the tagged canonical element)");
   }
-  for (const forbidden of ["label", "dangling", "reason", "type"] as const) {
+  for (const forbidden of ["label", "dangling", "reason"] as const) {
     if (input[forbidden] !== undefined) {
       throw new Error(`docs.tag: '${forbidden}' is a derived field — set it through docs.regenerate, not at creation`);
     }

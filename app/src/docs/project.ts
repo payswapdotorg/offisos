@@ -150,15 +150,59 @@ function bboxOf(primitives: readonly ViewPrimitive[]): ViewProjection["bbox"] {
       consider(p.to[0], p.to[1]);
     } else if (p.type === "polyline") {
       for (const pt of p.points) consider(pt[0], pt[1]);
-    } else if (p.type === "circle" || p.type === "arc") {
+    } else if (p.type === "circle") {
       consider(p.center[0] - p.radius, p.center[1] - p.radius);
       consider(p.center[0] + p.radius, p.center[1] + p.radius);
+    } else if (p.type === "arc") {
+      // Exact arc extents: endpoints + axis crossings inside the MINOR sweep
+      // (the door vocabulary draws quarter arcs; bounds must not include the
+      // un-swept part of the circle).
+      for (const [u, v] of arcExtremePoints(p.center, p.radius, p.startAngle, p.endAngle)) {
+        consider(u, v);
+      }
     } else {
       consider(p.at[0], p.at[1]);
     }
   }
   if (primitives.length === 0) return null;
   return { uMin, uMax, vMin, vMax };
+}
+
+/** Extreme points of an arc over its MINOR sweep: the two endpoints plus
+ *  any axis-aligned extreme (angle k·π/2) strictly inside the sweep.
+ *  Deterministic: angles normalized to [0, 2π). */
+function arcExtremePoints(
+  center: Vec2,
+  radius: number,
+  a0: number,
+  a1: number,
+): Vec2[] {
+  const TAU = 2 * Math.PI;
+  const norm = (a: number): number => ((a % TAU) + TAU) % TAU;
+  const s = norm(a0);
+  const e = norm(a1);
+  let deltaCCW = e - s;
+  if (deltaCCW < 0) deltaCCW += TAU;
+  const ccw = deltaCCW <= TAU - deltaCCW; // minor sweep direction
+  const at = (t: number): Vec2 => {
+    const ang = norm(s + (ccw ? t : -t));
+    return [center[0] + radius * Math.cos(ang), center[1] + radius * Math.sin(ang)];
+  };
+  const total = ccw ? deltaCCW : TAU - deltaCCW;
+  const out: Vec2[] = [at(0), at(total)];
+  for (let k = 0; k < 4; k++) {
+    const axis = (k * Math.PI) / 2;
+    // crossing t (distance from s along the sweep direction) for angle axis
+    // and axis + 2π: solve norm(s ± t) = axis.
+    for (const target of [axis, axis + TAU]) {
+      const t = ccw ? target - s : s - target;
+      const tn = t < 0 ? t + TAU : t;
+      if (tn > 1e-12 && tn < total - 1e-12) {
+        out.push(at(tn));
+      }
+    }
+  }
+  return out;
 }
 
 // --- the projection dispatcher ----------------------------------------------
@@ -404,11 +448,13 @@ function emitPlanOpening(
     primitives.push({ type: "line", from: [p1[0], p1[1]], to: [p2[0], p2[1]], sourceId: fill.id });
     return;
   }
-  // Door symbol: leaf line + quarter arc. swing "left" hinges at p1 with the
-  // leaf on +n; swing "right" hinges at p2 with the leaf on +n (deterministic
-  // convention — documented; real-world handedness conventions vary).
+  // Door symbol: jambs on both sides + leaf line + quarter arc. swing "left"
+  // hinges at p1 with the leaf on +n; swing "right" hinges at p2 with the
+  // leaf on +n (deterministic convention — documented; real-world
+  // handedness conventions vary).
+  jamb(p1);
+  jamb(p2);
   const hinge = fill.swing === "left" ? p1 : p2;
-  const other = fill.swing === "left" ? p2 : p1;
   const leafEnd = add(hinge, mul(n, opening.width));
   primitives.push({ type: "line", from: [hinge[0], hinge[1]], to: [leafEnd[0], leafEnd[1]], sourceId: fill.id });
   const a0 = Math.atan2(n[1], n[0]);
@@ -421,8 +467,6 @@ function emitPlanOpening(
     endAngle: a1,
     sourceId: fill.id,
   });
-  const otherFar = add(other, mul(n, h));
-  primitives.push({ type: "line", from: [other[0], other[1]], to: [otherFar[0], otherFar[1]], sourceId: opening.id });
 }
 
 /** Polygon centroid (area-weighted; shoelace). Falls back to the vertex mean
@@ -485,16 +529,23 @@ function projectElevation(
   for (const x of entities) {
     if (x.type === "bim.door" || x.type === "bim.window") fillByOpening.set(x.openingId, x);
   }
+  // u mapping: the UNMIRRORED axis coordinate (front/back → X, left/right
+  // → Y); extents are computed in axis space (where the ±width/2 offsets
+  // keep their sign) and mirrored ONCE at the end — exact mirroring with
+  // fixed construction order.
+  const axisOf = (p: Vec2): number =>
+    direction === "front" || direction === "back" ? p[0] : p[1];
+  const mirror = (span: [number, number]): [number, number] => {
+    const [lo, hi] = span;
+    return direction === "front" || direction === "left" ? [lo, hi] : [-hi, -lo];
+  };
   for (const wall of walls) {
     const story = storyById.get(wall.storyId) as StoryEntity;
     const vBase = story.level + wall.baseOffset;
     const vTop = vBase + wall.height;
-    const horizontal = direction === "front" || direction === "back";
-    const axisCoord = (p: Vec2): number => (horizontal ? p[0] : p[1]);
-    const u1 = axisCoord(wall.start) - wall.width / 2;
-    const u2 = axisCoord(wall.end) + wall.width / 2;
-    const uMin = Math.min(u1, u2);
-    const uMax = Math.max(u1, u2);
+    const a1 = axisOf(wall.start) - wall.width / 2;
+    const a2 = axisOf(wall.end) + wall.width / 2;
+    const [uMin, uMax] = mirror([Math.min(a1, a2), Math.max(a1, a2)]);
     primitives.push(rectPolyline(uMin, vBase, uMax, vTop, wall.id));
   }
   for (const x of entities) {
@@ -510,23 +561,18 @@ function projectElevation(
       }
       const story = storyById.get(wall.storyId) as StoryEntity;
       const vBase = story.level + wall.baseOffset;
-      const horizontal = direction === "front" || direction === "back";
-      const axisCoord = (p: Vec2): number => (horizontal ? p[0] : p[1]);
-      const uA = axisCoord(wall.start) + x.distance;
-      const uB = uA + x.width;
-      const uMin = Math.min(uA, uB);
-      const uMax = Math.max(uA, uB);
+      const aA = axisOf(wall.start) + x.distance;
+      const [uMin, uMax] = mirror([aA, aA + x.width]);
       const vMin = vBase + x.sill;
       const vMax = vMin + x.height;
       primitives.push(rectPolyline(uMin, vMin, uMax, vMax, x.id));
       const fill = fillByOpening.get(x.id);
       if (fill !== undefined && fill.type === "bim.window") {
-        // Two glazing lines at 1/3 and 2/3 of the opening height.
-        const uMid = (uMin + uMax) / 2;
+        // Two horizontal glazing lines at 1/3 and 2/3 of the opening height.
         const v1 = vMin + x.height / 3;
         const v2 = vMin + (2 * x.height) / 3;
-        primitives.push({ type: "line", from: [uMid, v1], to: [uMid, v2], sourceId: fill.id });
-        primitives.push({ type: "line", from: [uMid, v1], to: [uMid, v2], sourceId: fill.id });
+        primitives.push({ type: "line", from: [uMin, v1], to: [uMax, v1], sourceId: fill.id });
+        primitives.push({ type: "line", from: [uMin, v2], to: [uMax, v2], sourceId: fill.id });
       } else if (fill !== undefined && fill.type === "bim.door") {
         // Closed-leaf indicator: the vertical centre line of the opening.
         const uMid = (uMin + uMax) / 2;
@@ -536,11 +582,10 @@ function projectElevation(
       const story = storyById.get(x.storyId) as StoryEntity;
       const vBase = story.level + x.baseOffset;
       const vTop = vBase + x.thickness;
-      const horizontal = direction === "front" || direction === "back";
-      const c1 = horizontal ? x.corner1[0] : x.corner1[1];
-      const c2 = horizontal ? x.corner2[0] : x.corner2[1];
-      const uMin = Math.min(c1, c2);
-      const uMax = Math.max(c1, c2);
+      const [uMin, uMax] = mirror([
+        Math.min(axisOf(x.corner1), axisOf(x.corner2)),
+        Math.max(axisOf(x.corner1), axisOf(x.corner2)),
+      ]);
       primitives.push(rectPolyline(uMin, vBase, uMax, vTop, x.id));
     } else if (x.type === "bim.space") {
       skips.push({ elementId: x.id, reason: "spaces are semantic objects — not drawn in elevations (documented)" });
@@ -571,6 +616,14 @@ function projectSection(
   const cutCoord = (p: Vec2): number => (axis === "x" ? p[0] : p[1]);
   const uCoord = (p: Vec2): number => (axis === "x" ? p[1] : p[0]);
 
+  const openingsByHost = new Map<string, OpeningEntity[]>();
+  for (const x of entities) {
+    if (x.type !== "bim.opening") continue;
+    const list = openingsByHost.get(x.hostId) ?? [];
+    list.push(x);
+    openingsByHost.set(x.hostId, list);
+  }
+  const processedOpenings = new Set<string>();
   for (const wall of walls) {
     const [c1, c2, c3, c4] = wallCorners(wall);
     const cutMin = Math.min(cutCoord(c1), cutCoord(c2), cutCoord(c3), cutCoord(c4));
@@ -582,12 +635,16 @@ function projectSection(
     const story = storyById.get(wall.storyId) as StoryEntity;
     const vBase = story.level + wall.baseOffset;
     const vTop = vBase + wall.height;
-    const u1 = uCoord(wall.start) - wall.width / 2;
-    const u2 = uCoord(wall.end) + wall.width / 2;
-    primitives.push(rectPolyline(Math.min(u1, u2), vBase, Math.max(u1, u2), vTop, wall.id));
+    // The cut profile's u-extent is the wall RECTANGLE's projection onto the
+    // u axis (min/max over the four corners — correct for parallel walls
+    // (full length), perpendicular walls (thickness band) and diagonals).
+    const [wc1, wc2, wc3, wc4] = wallCorners(wall);
+    const uMin = Math.min(uCoord(wc1), uCoord(wc2), uCoord(wc3), uCoord(wc4));
+    const uMax = Math.max(uCoord(wc1), uCoord(wc2), uCoord(wc3), uCoord(wc4));
+    primitives.push(rectPolyline(uMin, vBase, uMax, vTop, wall.id));
     // Openings of this wall whose band crosses the plane.
-    for (const x of entities) {
-      if (x.type !== "bim.opening" || x.hostId !== wall.id) continue;
+    for (const x of openingsByHost.get(wall.id) ?? []) {
+      processedOpenings.add(x.id);
       const [b1, b2, b3, b4] = openingBandCorners(wall, x);
       const bCutMin = Math.min(cutCoord(b1), cutCoord(b2), cutCoord(b3), cutCoord(b4));
       const bCutMax = Math.max(cutCoord(b1), cutCoord(b2), cutCoord(b3), cutCoord(b4));
@@ -602,10 +659,10 @@ function projectSection(
       primitives.push(rectPolyline(uA, vMin, uB, vMax, x.id));
       const fill = fillByOpening.get(x.id);
       if (fill !== undefined && fill.type === "bim.window") {
-        const uMid = (uA + uB) / 2;
         const v1 = vMin + x.height / 3;
         const v2 = vMin + (2 * x.height) / 3;
-        primitives.push({ type: "line", from: [uMid, v1], to: [uMid, v2], sourceId: fill.id });
+        primitives.push({ type: "line", from: [uA, v1], to: [uB, v1], sourceId: fill.id });
+        primitives.push({ type: "line", from: [uA, v2], to: [uB, v2], sourceId: fill.id });
       } else if (fill !== undefined && fill.type === "bim.door") {
         const uMid = (uA + uB) / 2;
         primitives.push({ type: "line", from: [uMid, vMin], to: [uMid, vMax], sourceId: fill.id });
@@ -613,6 +670,15 @@ function projectSection(
     }
   }
   for (const x of entities) {
+    if (x.type === "bim.opening" && !processedOpenings.has(x.id)) {
+      skips.push({
+        elementId: x.id,
+        reason: wallById.has(x.hostId)
+          ? `opening's host wall does not cross the cut plane ${axis}=${offset} — not in section`
+          : `opening's host wall is out of this section's story scope — not in section`,
+      });
+      continue;
+    }
     if (x.type === "bim.slab" && storyById.has(x.storyId)) {
       const cutAxisIdx = axis === "x" ? 0 : 1;
       const uAxisIdx = axis === "x" ? 1 : 0;
