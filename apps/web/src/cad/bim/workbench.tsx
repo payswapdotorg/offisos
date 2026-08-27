@@ -272,15 +272,21 @@ export function BimWorkbench(): React.JSX.Element {
 
   /** Viewport boxes: engine meshBBox when present, else the derived extents. */
   const boxes = React.useMemo<BimBox[]>(() => {
+    // Solid-bearing element types the viewport renders (COMPAT-BIM-003:
+    // component instances join; definitions/materials/grids/reference planes
+    // have no solid and are excluded by construction).
+    const viewportTypes = new Set([
+      "bim.wall", "bim.slab", "bim.space", "bim.opening", "bim.door", "bim.window", "bim.componentInstance",
+    ]);
     const out: BimBox[] = [];
     for (const entity of bimData.entities) {
-      if (entity.type === "bim.story") continue; // level container — no solid
+      if (!viewportTypes.has(entity.type)) continue; // no solid of its own
       const props = propsById.get(entity.id);
       if (props === undefined) continue;
       const mesh = isFiniteBox(props.meshBBox) ? props.meshBBox : null;
       const box = mesh !== null ? mesh : bimWorldBBox(entity, ctx);
       if (box === null) continue;
-      out.push({ id: entity.id, type: entity.type, bbox: box, built: mesh !== null });
+      out.push({ id: entity.id, type: entity.type as BimBox["type"], bbox: box, built: mesh !== null });
     }
     return out;
   }, [bimData, propsById, ctx]);

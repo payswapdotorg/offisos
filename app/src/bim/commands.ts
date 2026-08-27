@@ -20,6 +20,15 @@ import {
   type OpeningEntity,
   type WallEntity,
 } from "./elements.js";
+import {
+  makeComponentDef,
+  makeComponentInstance,
+  makeGrid,
+  makeMaterial,
+  makeReferencePlane,
+  validateInstanceAgainstDefinition,
+  type ComponentDefEntity,
+} from "./components.js";
 import { assertOpeningFits } from "./editops.js";
 
 export { moveBimElements, copyBimElements, deleteBimElements, setBimProperties } from "./editops.js";
@@ -72,6 +81,11 @@ export function buildBimCreate(
   for (const el of existing) {
     const entity = elementToBimEntityOrNull(el);
     if (entity !== null) knownEntities.set(el.id, entity);
+  }
+  /** Material names already taken (document-wide uniqueness — the exchange key). */
+  const takenMaterialNames = new Set<string>();
+  for (const entity of knownEntities.values()) {
+    if (entity.type === "bim.material") takenMaterialNames.add(entity.name);
   }
   const edits: DocumentEdit[] = [];
   const explicitIds: string[] = [];
@@ -142,6 +156,56 @@ export function buildBimCreate(
         entity = withId(makeWindow({ ...input, storyId: chain.wall.storyId, openingId: rawOpeningId }), input.id);
         break;
       }
+      // --- COMPAT-BIM-003 (additive): components / materials / coordination.
+      // Validation order per batch item: strict constructor first, then
+      // reference resolution (existing ∪ earlier-in-batch), then the
+      // definition↔instance cross-check. ---
+      case "bim.material": {
+        const material = withId(makeMaterial(input), input.id);
+        if (takenMaterialNames.has(material.name)) {
+          throw new Error(
+            `entities[${index}]: material name '${material.name}' is already taken (names are the document-unique exchange key)`,
+          );
+        }
+        takenMaterialNames.add(material.name);
+        entity = material;
+        break;
+      }
+      case "bim.componentDef": {
+        const def = withId(makeComponentDef(input), input.id);
+        if (def.materialId !== undefined) resolveMaterial(def.materialId, index);
+        entity = def;
+        break;
+      }
+      case "bim.componentInstance": {
+        const definition = resolveEntity(requireRawId(input.definitionId, index, "componentInstance.definitionId"));
+        if (definition.type !== "bim.componentDef") {
+          throw new Error(
+            `entities[${index}]: componentInstance.definitionId '${input.definitionId}' must reference a component definition (got '${definition.type}')`,
+          );
+        }
+        const instance = withId(
+          makeComponentInstance({ ...input, category: (definition as ComponentDefEntity).category }),
+          input.id,
+        );
+        validateInstanceAgainstDefinition(definition as ComponentDefEntity, instance);
+        resolveStory(instance.storyId, index);
+        if (instance.materialId !== undefined) resolveMaterial(instance.materialId, index);
+        entity = instance;
+        break;
+      }
+      case "bim.grid": {
+        const grid = withId(makeGrid(input), input.id);
+        resolveStory(grid.storyId, index);
+        entity = grid;
+        break;
+      }
+      case "bim.referencePlane": {
+        const plane = withId(makeReferencePlane(input), input.id);
+        resolveStory(plane.storyId, index);
+        entity = plane;
+        break;
+      }
       default:
         throw new Error(`entities[${index}]: unknown BIM element type ${JSON.stringify(type)}`);
     }
@@ -166,6 +230,13 @@ export function buildBimCreate(
     const story = resolveEntity(storyId);
     if (story.type !== "bim.story") {
       throw new Error(`entities[${index}]: storyId '${storyId}' must reference a story (got '${story.type}')`);
+    }
+  }
+
+  function resolveMaterial(materialId: string, index: number): void {
+    const material = resolveEntity(materialId);
+    if (material.type !== "bim.material") {
+      throw new Error(`entities[${index}]: materialId '${materialId}' must reference a material (got '${material.type}')`);
     }
   }
 

@@ -189,11 +189,17 @@ jobs:
           assert ok(r) and r["value"]["available"] is True and r["value"]["engineVersion"] == "0.8.5", r
 
           # deterministic export: exact counts + byte-identical second export
+          # (COMPAT-BIM-003 grew the counts surface additively: materials,
+          #  components, gridsNotExported and referencePlanesNotExported are
+          #  now always reported — 0 for a pure-building model.)
           r = cmd("ifc.export", {})
           assert ok(r), r
           e1 = r["value"]
           assert e1["schema"] == "IFC4"
-          assert e1["counts"] == {"stories": 1, "walls": 4, "slabs": 1, "openings": 2, "doors": 1, "windows": 1, "spaces": 1}, e1["counts"]
+          assert e1["counts"] == {
+              "stories": 1, "walls": 4, "slabs": 1, "openings": 2, "doors": 1, "windows": 1, "spaces": 1,
+              "materials": 0, "components": 0, "gridsNotExported": 0, "referencePlanesNotExported": 0,
+          }, e1["counts"]
           r = cmd("ifc.export", {})
           assert r["value"]["sha256"] == e1["sha256"], "export determinism"
           print("WEB HOST IFC SMOKE: export deterministic", e1["sha256"][:16], e1["size"], "bytes")

@@ -55,6 +55,19 @@ import {
   type SpaceEntity,
   type WallEntity,
 } from "./elements.js";
+import {
+  makeComponentDef,
+  makeComponentInstance,
+  makeGrid,
+  makeMaterial,
+  makeReferencePlane,
+  validateInstanceAgainstDefinition,
+  type ComponentDefEntity,
+  type ComponentInstanceEntity,
+  type GridEntity,
+  type MaterialEntity,
+  type ReferencePlaneEntity,
+} from "./components.js";
 import { wallFrame } from "./geometry.js";
 
 /** Result of an edit operation: an atomic batch, or an honest no-op. */
@@ -111,6 +124,31 @@ function openingFills(map: ReadonlyMap<string, BimEntity>, openingId: string): B
     }
   }
   list.sort((a, b) => (a.type !== b.type ? (a.type < b.type ? -1 : 1) : a.id < b.id ? -1 : 1));
+  return list;
+}
+
+/** Instances of a component definition, deterministic order (id). */
+function definitionInstances(map: ReadonlyMap<string, BimEntity>, definitionId: string): ComponentInstanceEntity[] {
+  const list: ComponentInstanceEntity[] = [];
+  for (const entity of map.values()) {
+    if (entity.type === "bim.componentInstance" && entity.definitionId === definitionId) list.push(entity);
+  }
+  list.sort((a, b) => (a.id < b.id ? -1 : 1));
+  return list;
+}
+
+/** Referencers of a material (definitions then instances), deterministic order. */
+function materialReferencers(map: ReadonlyMap<string, BimEntity>, materialId: string): BimEntity[] {
+  const list: BimEntity[] = [];
+  for (const entity of map.values()) {
+    if (
+      (entity.type === "bim.componentDef" || entity.type === "bim.componentInstance") &&
+      entity.materialId === materialId
+    ) {
+      list.push(entity);
+    }
+  }
+  list.sort((a, b) => (a.id < b.id ? -1 : 1));
   return list;
 }
 
@@ -231,6 +269,49 @@ export function moveBimElements(
           `move: '${entity.type}' elements derive their geometry from the referenced opening (outside the supported set for direct moves) — move opening '${entity.openingId}' instead`,
         );
       }
+      // --- COMPAT-BIM-003 (additive): components / materials / coordination ---
+      case "bim.componentInstance": {
+        const shifted = makeComponentInstance({
+          definitionId: entity.definitionId,
+          storyId: entity.storyId,
+          position: shift(entity.position, dx, dy),
+          rotation: entity.rotation,
+          baseOffset: entity.baseOffset + dz,
+          overrides: entity.overrides,
+          ...(entity.materialId !== undefined ? { materialId: entity.materialId } : {}),
+          ...(entity.name !== undefined ? { name: entity.name } : {}),
+        });
+        edits.push({ type: "updateElement", elementId: id, patch: entityPatch({ ...shifted, id }) });
+        moved.push(id);
+        break;
+      }
+      case "bim.grid": {
+        const shifted = makeGrid({
+          storyId: entity.storyId,
+          name: entity.name,
+          uLines: entity.uLines.map((x) => x + dx),
+          vLines: entity.vLines.map((y) => y + dy),
+        });
+        edits.push({ type: "updateElement", elementId: id, patch: entityPatch({ ...shifted, id }) });
+        moved.push(id);
+        break;
+      }
+      case "bim.referencePlane": {
+        const shifted = makeReferencePlane({
+          storyId: entity.storyId,
+          name: entity.name,
+          start: shift(entity.start, dx, dy),
+          end: shift(entity.end, dx, dy),
+        });
+        edits.push({ type: "updateElement", elementId: id, patch: entityPatch({ ...shifted, id }) });
+        moved.push(id);
+        break;
+      }
+      case "bim.componentDef":
+      case "bim.material":
+        throw new Error(
+          `move: '${entity.type}' elements carry no spatial placement (domain data — outside the supported set for moves)`,
+        );
     }
   }
 
@@ -347,6 +428,46 @@ export function copyBimElements(
       }
       case "bim.story":
         throw new Error("copy: stories are outside the supported set for copying in this slice (author a new story)");
+      case "bim.componentDef":
+        throw new Error(
+          `copy: component definition '${entity.id}' is domain data (outside the supported set for copying) — instances copy it by reference; author a new definition for a variant`,
+        );
+      case "bim.material":
+        throw new Error(`copy: material '${entity.id}' is domain data (outside the supported set for copying) — author a new material`);
+      case "bim.componentInstance": {
+        const copy = makeComponentInstance({
+          definitionId: entity.definitionId,
+          storyId: entity.storyId,
+          position: shift(entity.position, shiftDx, shiftDy),
+          rotation: entity.rotation,
+          baseOffset: entity.baseOffset + shiftDz,
+          overrides: entity.overrides,
+          ...(entity.materialId !== undefined ? { materialId: entity.materialId } : {}),
+          ...(entity.name !== undefined ? { name: entity.name } : {}),
+        });
+        edits.push({ type: "addElement", element: bimEntityToElement({ ...copy, id: newId }) });
+        break;
+      }
+      case "bim.grid": {
+        const copy = makeGrid({
+          storyId: entity.storyId,
+          name: entity.name,
+          uLines: entity.uLines.map((x) => x + shiftDx),
+          vLines: entity.vLines.map((y) => y + shiftDy),
+        });
+        edits.push({ type: "addElement", element: bimEntityToElement({ ...copy, id: newId }) });
+        break;
+      }
+      case "bim.referencePlane": {
+        const copy = makeReferencePlane({
+          storyId: entity.storyId,
+          name: entity.name,
+          start: shift(entity.start, shiftDx, shiftDy),
+          end: shift(entity.end, shiftDx, shiftDy),
+        });
+        edits.push({ type: "addElement", element: bimEntityToElement({ ...copy, id: newId }) });
+        break;
+      }
       case "bim.door":
       case "bim.window": {
         // Fills only ever copy as hosted cascades (no own position) — an
@@ -384,6 +505,11 @@ export function copyBimElements(
     }
     if (entity.type === "bim.story") {
       throw new Error("copy: stories are outside the supported set for copying in this slice (author a new story)");
+    }
+    if (entity.type === "bim.componentDef" || entity.type === "bim.material") {
+      throw new Error(
+        `copy: '${entity.type}' elements are domain data (outside the supported set for copying in this slice)`,
+      );
     }
     copyOne(entity, dx, dy, dz);
     if (entity.type === "bim.wall") {
@@ -438,7 +564,11 @@ export function deleteBimElements(elements: readonly Element[], ids: readonly st
           other.type !== "bim.story" &&
           other.type !== "bim.opening" &&
           (other.type === "bim.wall" || other.type === "bim.slab" || other.type === "bim.space" ||
-            other.type === "bim.door" || other.type === "bim.window") &&
+            other.type === "bim.door" || other.type === "bim.window" ||
+            // COMPAT-BIM-003: story-hosted component instances and
+            // coordination primitives keep the same no-cascade rule.
+            other.type === "bim.componentInstance" || other.type === "bim.grid" ||
+            other.type === "bim.referencePlane") &&
           other.storyId === id
         ) {
           hosted.push(other.id);
@@ -447,6 +577,24 @@ export function deleteBimElements(elements: readonly Element[], ids: readonly st
       if (hosted.length > 0) {
         throw new Error(
           `delete: story '${id}' is still referenced by ${hosted.length} hosted element(s): ${hosted.sort().join(", ")} — reassign or delete them first (no silent cascade)`,
+        );
+      }
+    }
+    if (entity.type === "bim.componentDef") {
+      // No cascade over the definition→instance relationship: deleting a
+      // definition would orphan every instance's provenance.
+      const instances = definitionInstances(map, id);
+      if (instances.length > 0) {
+        throw new Error(
+          `delete: component definition '${id}' is still referenced by ${instances.length} instance(s): ${instances.map((i) => i.id).join(", ")} — delete them first (no silent cascade)`,
+        );
+      }
+    }
+    if (entity.type === "bim.material") {
+      const referencers = materialReferencers(map, id);
+      if (referencers.length > 0) {
+        throw new Error(
+          `delete: material '${id}' is still referenced by ${referencers.length} element(s): ${referencers.map((r) => r.id).join(", ")} — reassign or delete them first (no silent cascade)`,
         );
       }
     }
@@ -479,6 +627,17 @@ const PROPERTY_KEYS: Record<BimEntity["type"], readonly string[]> = {
   "bim.door": ["name", "swing", "leafThickness"],
   "bim.window": ["name"],
   "bim.space": ["name", "footprint", "height", "baseOffset"],
+  // COMPAT-BIM-003 (additive): category is immutable on definitions (it
+  // fixes the parameter schema — a category flip would invalidate every
+  // instance override); definitionId/storyId are immutable on instances
+  // (re-hosting is a delete + re-create in this slice); materialId is
+  // settable to another material but cannot be cleared through this
+  // surface (declared limitation, never a silent approximation).
+  "bim.componentDef": ["name", "parameters", "materialId"],
+  "bim.componentInstance": ["position", "rotation", "baseOffset", "overrides", "materialId", "name"],
+  "bim.material": ["name", "description", "color", "properties"],
+  "bim.grid": ["name", "uLines", "vLines"],
+  "bim.referencePlane": ["name", "start", "end"],
 };
 
 export function setBimProperties(
@@ -527,6 +686,53 @@ export function setBimProperties(
       break;
     case "bim.space":
       makeSpace(merged); // recomputes area for footprint edits
+      break;
+    // --- COMPAT-BIM-003 (additive): full re-validation through the strict
+    // constructors + cross-element integrity (definition schemas, material
+    // existence, material name uniqueness across the document). ---
+    case "bim.componentDef": {
+      const rebuilt = makeComponentDef(merged);
+      if (rebuilt.materialId !== undefined) {
+        const material = requireBimEntity(map, rebuilt.materialId, "setProperties");
+        if (material.type !== "bim.material") {
+          throw new Error(`setProperties: componentDef.materialId '${rebuilt.materialId}' must reference a material (got '${material.type}')`);
+        }
+      }
+      break;
+    }
+    case "bim.componentInstance": {
+      const rebuilt = makeComponentInstance({ ...merged, category: undefined });
+      const definition = requireBimEntity(map, rebuilt.definitionId, "setProperties");
+      if (definition.type !== "bim.componentDef") {
+        throw new Error(`setProperties: componentInstance.definitionId '${rebuilt.definitionId}' must reference a component definition (got '${definition.type}')`);
+      }
+      validateInstanceAgainstDefinition(definition, { ...rebuilt, id: elementId });
+      if (rebuilt.materialId !== undefined) {
+        const material = requireBimEntity(map, rebuilt.materialId, "setProperties");
+        if (material.type !== "bim.material") {
+          throw new Error(`setProperties: componentInstance.materialId '${rebuilt.materialId}' must reference a material (got '${material.type}')`);
+        }
+      }
+      break;
+    }
+    case "bim.material": {
+      makeMaterial(merged);
+      // Name uniqueness across the document (the external exchange key):
+      const renamed = typeof patch.name === "string" ? patch.name : null;
+      if (renamed !== null) {
+        for (const other of map.values()) {
+          if (other.type === "bim.material" && other.id !== elementId && other.name === renamed) {
+            throw new Error(`setProperties: material name '${renamed}' is already taken by material '${other.id}' (names are the document-unique exchange key)`);
+          }
+        }
+      }
+      break;
+    }
+    case "bim.grid":
+      makeGrid(merged);
+      break;
+    case "bim.referencePlane":
+      makeReferencePlane(merged);
       break;
   }
   return {

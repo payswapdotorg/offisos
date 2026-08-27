@@ -356,6 +356,16 @@ export function deriveTagLabel(target: BimEntity, entitiesById: Map<string, BimE
       return target.name ?? target.id;
     case "bim.story":
       return `${target.name} (level ${target.level} mm)`;
+    // COMPAT-BIM-003 (additive): the component/material/coordination layer.
+    // Component instances tag by name/id (their parametric size lives on the
+    // definition side); domain data and coordination primitives tag by name.
+    case "bim.componentInstance":
+      return target.name ?? target.id;
+    case "bim.componentDef":
+    case "bim.material":
+    case "bim.grid":
+    case "bim.referencePlane":
+      return target.name;
   }
 }
 

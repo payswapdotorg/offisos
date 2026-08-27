@@ -302,7 +302,22 @@ export const COMMAND_PAYLOAD_SCHEMAS: Readonly<Record<CommandName, object>> = {
             id: { type: "string" },
             type: {
               type: "string",
-              enum: ["bim.story", "bim.wall", "bim.slab", "bim.opening", "bim.door", "bim.window", "bim.space"],
+              enum: [
+                "bim.story",
+                "bim.wall",
+                "bim.slab",
+                "bim.opening",
+                "bim.door",
+                "bim.window",
+                "bim.space",
+                // COMPAT-BIM-003 (additive): components / materials /
+                // coordination.
+                "bim.componentDef",
+                "bim.componentInstance",
+                "bim.material",
+                "bim.grid",
+                "bim.referencePlane",
+              ],
             },
             name: { type: "string" },
             level: { type: "number" },
@@ -327,6 +342,22 @@ export const COMMAND_PAYLOAD_SCHEMAS: Readonly<Record<CommandName, object>> = {
               maxItems: 64,
               items: { $ref: "#/$defs/vec2" },
             },
+            // COMPAT-BIM-003 (additive).
+            category: {
+              type: "string",
+              enum: ["wall", "door", "window", "furniture", "fixture"],
+            },
+            parameters: { type: "object" },
+            definitionId: { type: "string" },
+            position: { $ref: "#/$defs/vec2" },
+            rotation: { type: "number" },
+            overrides: { type: "object" },
+            materialId: { type: "string" },
+            description: { type: "string" },
+            color: { type: "array", items: { type: "integer", minimum: 0, maximum: 255 }, minItems: 3, maxItems: 3 },
+            properties: { type: "object" },
+            uLines: { type: "array", minItems: 1, maxItems: 64, items: { type: "number" } },
+            vLines: { type: "array", minItems: 1, maxItems: 64, items: { type: "number" } },
           },
           required: ["type"],
         },
@@ -616,6 +647,9 @@ export const QUERY_PAYLOAD_SCHEMAS: Readonly<Record<QueryName, object>> = {
   },
   // COMPAT-CAD-002 (additive): BIM structure, semantics and standard cameras.
   "bim.getBuilding": { type: "object", properties: {} },
+  // COMPAT-BIM-003 (additive): the component/material/coordination inventory
+  // with derived state (effective parameters, effective materials).
+  "bim.getComponents": { type: "object", properties: {} },
   "bim.getSemantics": {
     type: "object",
     properties: {

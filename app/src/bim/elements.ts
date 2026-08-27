@@ -45,6 +45,20 @@
 
 import type { Element } from "../contracts/caddocument.js";
 import type { Vec2 } from "../contracts/geometry.js";
+import {
+  makeComponentDef,
+  makeComponentInstance,
+  makeGrid,
+  makeMaterial,
+  makeReferencePlane,
+} from "./components.js";
+import type {
+  ComponentDefEntity,
+  ComponentInstanceEntity,
+  GridEntity,
+  MaterialEntity,
+  ReferencePlaneEntity,
+} from "./components.js";
 
 export const BIM_PROPS_MARK = "bim";
 
@@ -55,7 +69,14 @@ export type BimElementType =
   | "bim.opening"
   | "bim.door"
   | "bim.window"
-  | "bim.space";
+  | "bim.space"
+  // COMPAT-BIM-003 (additive): reusable parametric components, materials
+  // and model coordination.
+  | "bim.componentDef"
+  | "bim.componentInstance"
+  | "bim.material"
+  | "bim.grid"
+  | "bim.referencePlane";
 
 /** Hosted BIM element types (reference a host element). */
 export type DoorSwing = "left" | "right";
@@ -158,7 +179,13 @@ export type BimEntity =
   | OpeningEntity
   | DoorEntity
   | WindowEntity
-  | SpaceEntity;
+  | SpaceEntity
+  // COMPAT-BIM-003 (additive).
+  | ComponentDefEntity
+  | ComponentInstanceEntity
+  | MaterialEntity
+  | GridEntity
+  | ReferencePlaneEntity;
 
 type DistributiveOmit<T, K extends keyof T> = T extends unknown ? Omit<T, K> : never;
 
@@ -402,6 +429,41 @@ export function bimEntityToElement(entity: BimEntityInput): Element {
       props.baseOffset = entity.baseOffset;
       props.area = entity.area;
       break;
+    // --- COMPAT-BIM-003 (additive): components / materials / coordination ---
+    case "bim.componentDef":
+      props.name = entity.name;
+      props.category = entity.category;
+      props.parameters = entity.parameters;
+      if (entity.materialId !== undefined) props.materialId = entity.materialId;
+      break;
+    case "bim.componentInstance":
+      props.definitionId = entity.definitionId;
+      props.storyId = entity.storyId;
+      props.position = entity.position;
+      props.rotation = entity.rotation;
+      props.baseOffset = entity.baseOffset;
+      props.overrides = entity.overrides;
+      if (entity.materialId !== undefined) props.materialId = entity.materialId;
+      if (entity.name !== undefined) props.name = entity.name;
+      break;
+    case "bim.material":
+      props.name = entity.name;
+      if (entity.description !== undefined) props.description = entity.description;
+      if (entity.color !== undefined) props.color = entity.color;
+      props.properties = entity.properties;
+      break;
+    case "bim.grid":
+      props.storyId = entity.storyId;
+      props.name = entity.name;
+      props.uLines = entity.uLines;
+      props.vLines = entity.vLines;
+      break;
+    case "bim.referencePlane":
+      props.storyId = entity.storyId;
+      props.name = entity.name;
+      props.start = entity.start;
+      props.end = entity.end;
+      break;
   }
   return { id, kind: "bim", engineId: null, props };
 }
@@ -440,6 +502,19 @@ export function elementToBimEntity(el: Element): BimEntity {
       return { ...base, ...makeWindow(p) };
     case "bim.space":
       return { ...base, ...makeSpace(p) };
+    // --- COMPAT-BIM-003 (additive): strict re-validation through the same
+    // constructors (instance overrides validate structurally here; the
+    // definition-schema cross-check happens at the command/query layer). ---
+    case "bim.componentDef":
+      return { ...base, ...makeComponentDef(p) };
+    case "bim.componentInstance":
+      return { ...base, ...makeComponentInstance(p) };
+    case "bim.material":
+      return { ...base, ...makeMaterial(p) };
+    case "bim.grid":
+      return { ...base, ...makeGrid(p) };
+    case "bim.referencePlane":
+      return { ...base, ...makeReferencePlane(p) };
     default:
       throw new Error(`element '${el.id}': unknown BIM element type '${String(p.type)}'`);
   }

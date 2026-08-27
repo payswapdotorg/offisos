@@ -16,8 +16,10 @@
 
 import type {
   IfcBuildRequest,
+  IfcComponentInput,
   IfcFillInput,
   IfcIdentity,
+  IfcMaterialInput,
   IfcOpeningInput,
   IfcSlabInput,
   IfcSpaceInput,
@@ -25,6 +27,14 @@ import type {
   IfcWallInput,
 } from "../contracts/ifc.js";
 import type { BimEntity, DoorEntity, OpeningEntity, SlabEntity, SpaceEntity, StoryEntity, WallEntity, WindowEntity } from "../bim/elements.js";
+import type {
+  ComponentDefEntity,
+  ComponentInstanceEntity,
+  GridEntity,
+  MaterialEntity,
+  ReferencePlaneEntity,
+} from "../bim/components.js";
+import { effectiveBox, effectiveMaterialId, effectiveParameters } from "../bim/components.js";
 import { ifcGuidFor } from "./identity.js";
 
 const MM_TO_M = 0.001;
@@ -88,6 +98,13 @@ export interface IfcExportOutcome {
     readonly doors: number;
     readonly windows: number;
     readonly spaces: number;
+    // COMPAT-BIM-003 (additive).
+    readonly materials: number;
+    readonly components: number;
+    /** Coordination primitives are canonical-only in this slice: they are
+     *  NOT exported and the counts report that explicitly (LOCK-007). */
+    readonly gridsNotExported: number;
+    readonly referencePlanesNotExported: number;
   };
 }
 
@@ -110,6 +127,13 @@ export function buildIfcExportRequest(
   const doors = entities.filter((e): e is DoorEntity => e.type === "bim.door");
   const windows = entities.filter((e): e is WindowEntity => e.type === "bim.window");
   const spaces = entities.filter((e): e is SpaceEntity => e.type === "bim.space");
+  // COMPAT-BIM-003 (additive): materials, component definitions + instances,
+  // coordination primitives.
+  const materials = entities.filter((e): e is MaterialEntity => e.type === "bim.material");
+  const componentDefs = entities.filter((e): e is ComponentDefEntity => e.type === "bim.componentDef");
+  const componentInstances = entities.filter((e): e is ComponentInstanceEntity => e.type === "bim.componentInstance");
+  const grids = entities.filter((e): e is GridEntity => e.type === "bim.grid");
+  const referencePlanes = entities.filter((e): e is ReferencePlaneEntity => e.type === "bim.referencePlane");
 
   const storyGuid = new Map<string, string>(stories.map((s) => [s.id, ifcGuidFor(s.id)] as const));
   const wallGuid = new Map<string, string>(walls.map((w) => [w.id, ifcGuidFor(w.id)] as const));
@@ -247,6 +271,65 @@ export function buildIfcExportRequest(
     })
     .sort((a, b) => a.guid.localeCompare(b.guid));
 
+  // --- COMPAT-BIM-003 (additive): materials + component instances --------------
+  const materialGuid = new Map<string, string>(materials.map((m) => [m.id, ifcGuidFor(m.id)] as const));
+  const materialInputs: IfcMaterialInput[] = materials
+    .map((m): IfcMaterialInput => {
+      const properties: Record<string, string | number | boolean> = {};
+      if (m.color !== undefined) {
+        properties["Color R"] = m.color[0];
+        properties["Color G"] = m.color[1];
+        properties["Color B"] = m.color[2];
+      }
+      for (const [key, value] of Object.entries(m.properties)) {
+        properties[key] = value;
+      }
+      return {
+        guid: materialGuid.get(m.id)!,
+        name: m.name,
+        ...(m.description !== undefined ? { description: m.description } : {}),
+        identity: identityOf(m.id, "material"),
+        ...(Object.keys(properties).length > 0 ? { properties } : {}),
+      };
+    })
+    .sort((a, b) => a.guid.localeCompare(b.guid));
+
+  const defById = new Map<string, ComponentDefEntity>(componentDefs.map((d) => [d.id, d] as const));
+  const componentInputs: IfcComponentInput[] = componentInstances
+    .map((instance): IfcComponentInput => {
+      const definition = defById.get(instance.definitionId);
+      if (definition === undefined) {
+        throw new Error(`IFC export: component instance '${instance.id}' references missing definition '${instance.definitionId}'`);
+      }
+      const effective = effectiveParameters(definition, instance);
+      const [sizeX, sizeY, sizeZ] = effectiveBox(definition, instance);
+      const overrideKeys = Object.keys(instance.overrides).sort().join(",");
+      const componentPset: Record<string, string | number | boolean> = {
+        DefinitionId: definition.id,
+        DefinitionName: definition.name,
+        Category: definition.category,
+        OverrideKeys: overrideKeys,
+      };
+      for (const [key, value] of Object.entries(effective)) {
+        componentPset[`Param.${key}`] = value * MM_TO_M;
+      }
+      const materialId = effectiveMaterialId(definition, instance);
+      return {
+        guid: ifcGuidFor(instance.id),
+        name: instance.name ?? "",
+        storyGuid: storyGuid.get(instance.storyId)!,
+        category: definition.category,
+        position: [instance.position[0] * MM_TO_M, instance.position[1] * MM_TO_M],
+        rotation: instance.rotation,
+        baseZ: (levelOf(instance.storyId) + instance.baseOffset) * MM_TO_M,
+        size: [sizeX * MM_TO_M, sizeY * MM_TO_M, sizeZ * MM_TO_M],
+        identity: identityOf(instance.id, "component-instance"),
+        component: componentPset,
+        ...(materialId !== null ? { materialGuid: materialGuid.get(materialId)! } : {}),
+      };
+    })
+    .sort((a, b) => a.guid.localeCompare(b.guid));
+
   return {
     request: {
       projectName,
@@ -257,6 +340,8 @@ export function buildIfcExportRequest(
       doors: doorInputs,
       windows: windowInputs,
       spaces: spaceInputs,
+      materials: materialInputs,
+      components: componentInputs,
     },
     counts: {
       stories: stories.length,
@@ -266,6 +351,10 @@ export function buildIfcExportRequest(
       doors: doors.length,
       windows: windows.length,
       spaces: spaces.length,
+      materials: materials.length,
+      components: componentInstances.length,
+      gridsNotExported: grids.length,
+      referencePlanesNotExported: referencePlanes.length,
     },
   };
 }

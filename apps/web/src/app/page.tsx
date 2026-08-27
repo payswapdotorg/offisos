@@ -87,6 +87,7 @@ import { DraftingWorkbench } from "@/cad/drafting/workbench";
 import { BimWorkbench } from "@/cad/bim/workbench";
 import { DocsWorkbench } from "@/cad/docs/workbench";
 import { IfcWorkbench } from "@/cad/ifc/workbench";
+import { ComponentsWorkbench } from "@/cad/components/workbench";
 
 // --- Helpers --------------------------------------------------------------
 
@@ -135,7 +136,7 @@ function randomOffset(max: number): number {
 // --- Component -------------------------------------------------------------
 
 export default function Home() {
-  const [workbenchMode, setWorkbenchMode] = React.useState<"drafting" | "bim" | "docs" | "ifc">("drafting");
+  const [workbenchMode, setWorkbenchMode] = React.useState<"drafting" | "bim" | "docs" | "ifc" | "components">("drafting");
   const [snapshot, setSnapshot] = React.useState<CADDocumentSnapshot | null>(null);
   const [selection, setSel] = React.useState<string[]>([]);
   const [loading, setLoading] = React.useState(true);
@@ -1141,6 +1142,15 @@ export default function Home() {
             >
               IFC / openBIM
             </Button>
+            <Button
+              role="tab"
+              size="sm"
+              variant={workbenchMode === "components" ? "default" : "outline"}
+              aria-selected={workbenchMode === "components"}
+              onClick={() => setWorkbenchMode("components")}
+            >
+              Components / Materials
+            </Button>
           </div>
           {workbenchMode === "drafting" ? (
             <DraftingWorkbench />
@@ -1148,6 +1158,8 @@ export default function Home() {
             <BimWorkbench />
           ) : workbenchMode === "docs" ? (
             <DocsWorkbench />
+          ) : workbenchMode === "components" ? (
+            <ComponentsWorkbench />
           ) : (
             <IfcWorkbench />
           )}

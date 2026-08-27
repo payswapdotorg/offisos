@@ -25,7 +25,7 @@
  * carry the declared tolerance (report.ts).
  */
 
-import type { IfcParseResult, IfcParsedElement, IfcParsedStory } from "../contracts/ifc.js";
+import type { IfcParseResult, IfcParsedElement, IfcParsedStory, IfcParsedMaterial } from "../contracts/ifc.js";
 import {
   makeDoor,
   makeOpening,
@@ -36,6 +36,15 @@ import {
   makeWindow,
   polygonArea,
 } from "../bim/elements.js";
+import {
+  makeComponentDef,
+  makeComponentInstance,
+  makeGrid,
+  makeMaterial,
+  makeReferencePlane,
+} from "../bim/components.js";
+import type { BimComponentCategory } from "../bim/components.js";
+import { isBimComponentCategory } from "../bim/components.js";
 import type { Element } from "../contracts/caddocument.js";
 import {
   IFC_ROUNDTRIP_TOLERANCE_MM,
@@ -53,6 +62,19 @@ import {
 
 const IDENTITY_PSET = "Pset_OffisosIdentity";
 const PARAMS_PSET = "Pset_OffisosParams";
+const MATERIAL_PSET = "Pset_OffisosMaterial";
+const COMPONENT_PSET = "Pset_OffisosComponent";
+
+/** IFC classes that can carry a component instance (COMPAT-BIM-003). */
+const COMPONENT_CLASSES = new Set(["IfcWall", "IfcDoor", "IfcWindow", "IfcFurnishingElement"]);
+
+/** A parsed element is a component instance exactly when it carries the
+ *  component provenance pset (walls/doors/windows exported as components are
+ *  distinguished from bim.wall/bim.door/bim.window exports this way). */
+function isComponentElement(el: IfcParsedElement): boolean {
+  const pset = el.psets[COMPONENT_PSET];
+  return typeof pset === "object" && pset !== null;
+}
 
 /** Compare authored custom props (Pset_OffisosCustom) against the element's
  *  current extra props; returns field results + the props patch (when any
@@ -285,6 +307,116 @@ export function reconcileIfcImport(
     mapping.push({ canonicalId: null, globalId: el.globalId, ifcClass, action: "unsupported" });
   };
 
+  // --- materials (COMPAT-BIM-003) ------------------------------------------------
+  // IfcMaterial has no GlobalId: reconcile on the identity pset's canonical id
+  // when present, else on the material NAME (the external exchange key), else
+  // create with a minted id. Material entries join the report (globalId: null —
+  // honest: no engine guid exists) but NOT the persisted mapping (it is the
+  // per-IfcGuid provenance ledger).
+  const materialCanonicalByName = new Map<string, string>();
+  for (const material of parsed.materials) {
+    const pset = material.psets[IDENTITY_PSET];
+    const domainId =
+      typeof pset === "object" && pset !== null && typeof (pset as Record<string, unknown>).DomainId === "string"
+        ? ((pset as Record<string, unknown>).DomainId as string)
+        : null;
+    const materialProps = material.psets[MATERIAL_PSET] ?? {};
+    const rawProps = materialProps as Record<string, unknown>;
+    let color: readonly [number, number, number] | undefined;
+    if (
+      typeof rawProps["Color R"] === "number" && typeof rawProps["Color G"] === "number" && typeof rawProps["Color B"] === "number" &&
+      Number.isInteger(rawProps["Color R"]) && Number.isInteger(rawProps["Color G"]) && Number.isInteger(rawProps["Color B"])
+    ) {
+      color = [rawProps["Color R"] as number, rawProps["Color G"] as number, rawProps["Color B"] as number];
+    }
+    const properties: Record<string, string | number | boolean> = {};
+    for (const [key, value] of Object.entries(rawProps)) {
+      if (key === "Color R" || key === "Color G" || key === "Color B") continue;
+      if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+        properties[key] = value;
+      }
+    }
+    const description = material.description ?? undefined;
+
+    let res: { mode: "reconcile"; existing: ExistingElement } | { mode: "create"; explicitId: string | null };
+    if (domainId !== null) {
+      const existing = existingById.get(domainId);
+      res = existing !== undefined && existing.type === "bim.material"
+        ? { mode: "reconcile", existing }
+        : { mode: "create", explicitId: existingById.has(domainId) ? null : domainId };
+    } else {
+      // External material: reconcile-or-create on the NAME.
+      let byName: ExistingElement | undefined;
+      for (const [id, ex] of existingById) {
+        if (ex.type === "bim.material" && ex.props.name === material.name) {
+          byName = ex;
+          break;
+        }
+      }
+      res = byName !== undefined ? { mode: "reconcile", existing: byName } : { mode: "create", explicitId: null };
+    }
+
+    if (res.mode === "reconcile") {
+      const m = res.existing.props;
+      const fields: IfcFieldResult[] = [classifyValue("name", (m.name as string | undefined) ?? "", material.name)];
+      if (description !== undefined || m.description !== undefined) {
+        fields.push(classifyValue("description", (m.description as string | undefined) ?? "", description ?? ""));
+      }
+      const changed: Record<string, unknown> = {};
+      if (material.name !== ((m.name as string | undefined) ?? "")) changed.name = material.name;
+      if ((description ?? "") !== ((m.description as string | undefined) ?? "")) changed.description = description ?? "";
+      const color0 = (m.color as readonly [number, number, number] | undefined) ?? undefined;
+      if (color === undefined && color0 === undefined) {
+        fields.push(exactField("color"));
+      } else if (color !== undefined && color0 !== undefined) {
+        fields.push(classifyValue("color", `rgb(${color0.join(" ")})`, `rgb(${color.join(" ")})`));
+        if (color.some((c, i) => c !== color0[i])) changed.color = [...color];
+      } else {
+        fields.push({ field: "color", classification: "lossy", expected: color0, actual: color, note: "color association differs" });
+        if (color !== undefined) changed.color = [...color];
+        else changed.color = null;
+      }
+      const props0 = (m.properties as Record<string, unknown>) ?? {};
+      for (const key of new Set([...Object.keys(props0), ...Object.keys(properties)])) {
+        const expected = props0[key];
+        const actual = properties[key];
+        if (expected === actual) {
+          fields.push({ field: `properties.${key}`, classification: "exact" });
+        } else if (expected === undefined) {
+          fields.push({ field: `properties.${key}`, classification: "lossy", actual, note: "property added by the import" });
+          changed.properties = { ...props0, ...properties };
+        } else if (actual === undefined) {
+          fields.push({ field: `properties.${key}`, classification: "lossy", expected, note: "property absent in the source" });
+          const reduced = { ...props0 };
+          delete reduced[key];
+          changed.properties = reduced;
+        } else if (typeof expected === "number" && typeof actual === "number" && Math.abs(expected - actual) <= IFC_ROUNDTRIP_TOLERANCE_MM) {
+          fields.push(toleranceField(`properties.${key}`, expected, actual));
+        } else {
+          fields.push({ field: `properties.${key}`, classification: "lossy", expected, actual });
+          changed.properties = { ...props0, ...properties };
+        }
+      }
+      const action = Object.keys(changed).length > 0 ? "reconciled" : "unchanged";
+      if (Object.keys(changed).length > 0) patches.push({ elementId: res.existing.id, patch: fullPropsPatch(res.existing.props, changed) });
+      elements.push({ canonicalId: res.existing.id, globalId: null, ifcClass: "IfcMaterial", name: material.name, action, fields });
+      materialCanonicalByName.set(material.name, res.existing.id);
+    } else {
+      const entity: Record<string, unknown> = { type: "bim.material", name: material.name, properties };
+      if (description !== undefined) entity.description = description;
+      if (color !== undefined) entity.color = [...color];
+      const minted = res.explicitId ?? (options.mintId !== undefined ? options.mintId() : null);
+      if (minted !== null) entity.id = minted;
+      entities.push(entity);
+      entityGlobalIds.push(null);
+      elements.push({
+        canonicalId: minted, globalId: null, ifcClass: "IfcMaterial", name: material.name, action: "created",
+        fields: [exactField("name"), ...(color !== undefined ? [exactField("color")] : []), ...Object.keys(properties).map((k) => exactField(`properties.${k}`))],
+      });
+      if (minted !== null) materialCanonicalByName.set(material.name, minted);
+    }
+  }
+
   // --- stories ----------------------------------------------------------------
   const storyIdByGlobalId = new Map<string, string>(); // resolved canonical ids (or @story: placeholders)
   const storyLevelByCanonical = new Map<string, number>();
@@ -375,7 +507,7 @@ export function reconcileIfcImport(
     a.ifcClass === b.ifcClass ? a.globalId.localeCompare(b.globalId) : a.ifcClass.localeCompare(b.ifcClass),
   );
 
-  for (const el of sorted.filter((e) => e.ifcClass === "IfcWall")) {
+  for (const el of sorted.filter((e) => e.ifcClass === "IfcWall" && !isComponentElement(e))) {
     const identity = identityOf(el);
     const story = storyIdOf(el.storyGlobalId);
     if (story === null) {
@@ -546,7 +678,7 @@ export function reconcileIfcImport(
   }
 
   // --- doors / windows -----------------------------------------------------------
-  for (const el of sorted.filter((e) => e.ifcClass === "IfcDoor" || e.ifcClass === "IfcWindow")) {
+  for (const el of sorted.filter((e) => (e.ifcClass === "IfcDoor" || e.ifcClass === "IfcWindow") && !isComponentElement(e))) {
     const identity = identityOf(el);
     const isDoor = el.ifcClass === "IfcDoor";
     const expectedType = isDoor ? "bim.door" : "bim.window";
@@ -794,6 +926,366 @@ export function reconcileIfcImport(
     }
   }
 
+  // --- component instances (COMPAT-BIM-003) -----------------------------------------
+  // Elements carrying Pset_OffisosComponent reconcile as component instances
+  // on their canonical identity; external IfcFurnishingElements (no pset)
+  // create furniture components with minted definitions and DECLARED fallbacks
+  // recorded in the report. Definitions reconcile-or-create on their
+  // DefinitionId (first instance creates; later instances re-reference).
+  const componentDefCanonical = new Map<string, string>(); // DefinitionId → canonical id
+  // Existing definitions by id (category cross-checks + parameter comparison).
+  const existingDefById = new Map<string, { id: string; props: Record<string, unknown> }>();
+  for (const [, ex] of existingById) {
+    if (ex.type === "bim.componentDef") existingDefById.set(ex.id, { id: ex.id, props: ex.props });
+  }
+  /** Effective parametric box of a DOCUMENT instance (mm) — requires the
+   *  document's definition; NaN dims when the definition is not in the doc. */
+  const effectiveBoxOf = (defId: string, instProps: Record<string, unknown>): readonly [number, number, number] => {
+    const def = existingDefById.get(defId);
+    if (def === undefined) return [Number.NaN, Number.NaN, Number.NaN];
+    const cat = def.props.category as BimComponentCategory;
+    const params: Record<string, number> = {
+      ...((def.props.parameters as Record<string, number>) ?? {}),
+      ...((instProps.overrides as Record<string, number>) ?? {}),
+    };
+    switch (cat) {
+      case "wall": return [params.length ?? Number.NaN, params.width ?? Number.NaN, params.height ?? Number.NaN];
+      case "door": return [params.width ?? Number.NaN, params.leafThickness ?? Number.NaN, params.height ?? Number.NaN];
+      case "window": return [params.width ?? Number.NaN, params.frameDepth ?? Number.NaN, params.height ?? Number.NaN];
+      case "furniture":
+      case "fixture": return [params.width ?? Number.NaN, params.depth ?? Number.NaN, params.height ?? Number.NaN];
+    }
+  };
+
+  // PRE-PASS (COMPAT-BIM-003): derive each to-be-created definition's DEFAULT
+  // parameters from NON-OVERRIDING instances before any definition is created.
+  // A single-pass create would stamp the creating instance's EFFECTIVE
+  // parameters as the definition defaults — wrong whenever that instance
+  // carries overrides (its effective value for an overridden key is NOT the
+  // definition default). For every parameter key, any instance that does NOT
+  // override the key witnesses the default; a key overridden by EVERY
+  // instance is unknowable from the file and falls back to the first-seen
+  // effective value (recorded as a declared approximation, never silent).
+  interface DefDefaults {
+    category: BimComponentCategory;
+    name: string;
+    defaults: Map<string, number>; // first non-overriding witness per key (deterministic sorted order)
+    seen: Map<string, number>; // first-seen effective value per key (approximation fallback)
+  }
+  const defDefaultsById = new Map<string, DefDefaults>();
+  for (const el of sorted) {
+    if (!(COMPONENT_CLASSES.has(el.ifcClass) && isComponentElement(el))) continue;
+    const pset = el.psets[COMPONENT_PSET] as Record<string, unknown> | undefined;
+    if (pset === undefined || pset === null) continue;
+    const rawDefinitionId = pset.DefinitionId;
+    const rawCategory = pset.Category;
+    if (typeof rawDefinitionId !== "string" || rawDefinitionId.length === 0) continue;
+    if (!isBimComponentCategory(rawCategory)) continue;
+    const params: Record<string, number> = {};
+    for (const [key, value] of Object.entries(pset)) {
+      if (key.startsWith("Param.") && typeof value === "number" && Number.isFinite(value)) {
+        params[key.slice("Param.".length)] = value * scale;
+      }
+    }
+    if (Object.keys(params).length === 0) continue;
+    const overrideKeys = typeof pset.OverrideKeys === "string" && pset.OverrideKeys.length > 0
+      ? new Set(pset.OverrideKeys.split(",").filter((k) => k.length > 0))
+      : new Set<string>();
+    let entry = defDefaultsById.get(rawDefinitionId);
+    if (entry === undefined) {
+      entry = {
+        category: rawCategory,
+        name: typeof pset.DefinitionName === "string" && pset.DefinitionName.length > 0 ? pset.DefinitionName : `${rawCategory} component`,
+        defaults: new Map<string, number>(),
+        seen: new Map<string, number>(),
+      };
+      defDefaultsById.set(rawDefinitionId, entry);
+    }
+    for (const [key, value] of Object.entries(params)) {
+      if (!entry.seen.has(key)) entry.seen.set(key, value);
+      if (!overrideKeys.has(key) && !entry.defaults.has(key)) entry.defaults.set(key, value);
+    }
+  }
+
+  for (const el of sorted.filter((e) => (COMPONENT_CLASSES.has(e.ifcClass) && isComponentElement(e)) || e.ifcClass === "IfcFurnishingElement")) {
+    const componentPset = el.psets[COMPONENT_PSET] as Record<string, unknown> | undefined;
+    const isOffisosComponent = componentPset !== undefined && componentPset !== null;
+    const identity = identityOf(el);
+    const story = storyIdOf(el.storyGlobalId);
+
+    if (story === null) {
+      unsupported(el, el.ifcClass, "component is not contained in a mapped storey");
+      continue;
+    }
+    if (el.placement === null || el.profile === null || el.rotation === null) {
+      unsupported(el, el.ifcClass, "component lacks an extractable extruded-rect body profile or placement");
+      continue;
+    }
+    const axis = rotationToAxis(el.rotation);
+    if (axis === null) {
+      unsupported(el, el.ifcClass, "component placement is not a planar rotation");
+      continue;
+    }
+
+    // Reconstruct the centered placement (the worker shifts the corner-anchored
+    // profile origin by −R·(sx/2, sy/2); the import inverts exactly that).
+    const prof = el.profile;
+    const T = el.placement;
+    const R = el.rotation;
+    const cx = prof.x0 + prof.xdim / 2;
+    const cy = prof.y0 + prof.ydim / 2;
+    const position: readonly [number, number] = [
+      (T[0] + R[0][0] * cx + R[0][1] * cy) * scale,
+      (T[1] + R[1][0] * cx + R[1][1] * cy) * scale,
+    ];
+    const rotation = axis.angle;
+    const baseOffset = (T[2] - story.level / scale) * scale;
+    const boxX = prof.xdim * scale;
+    const boxY = prof.ydim * scale;
+    const boxZ = prof.depth * scale;
+
+    // Material association (name → canonical id).
+    let materialId: string | null = null;
+    if (el.materialName !== null) {
+      materialId = materialCanonicalByName.get(el.materialName) ?? null;
+    }
+
+    let definitionId: string;
+    let category: BimComponentCategory;
+    let defName: string;
+    let parameters: Record<string, number>;
+    let overrides: Record<string, number> = {};
+    const fields: IfcFieldResult[] = [];
+
+    if (isOffisosComponent) {
+      const pset = componentPset!;
+      const rawDefinitionId = pset.DefinitionId;
+      const rawCategory = pset.Category;
+      const rawDefinitionName = pset.DefinitionName;
+      const overrideKeysRaw = pset.OverrideKeys;
+      if (typeof rawDefinitionId !== "string" || rawDefinitionId.length === 0) {
+        unsupported(el, el.ifcClass, "component pset lacks a DefinitionId");
+        continue;
+      }
+      if (!isBimComponentCategory(rawCategory)) {
+        unsupported(el, el.ifcClass, `component pset carries an unknown category '${String(rawCategory)}'`);
+        continue;
+      }
+      category = rawCategory;
+      defName = typeof rawDefinitionName === "string" && rawDefinitionName.length > 0 ? rawDefinitionName : `${category} component`;
+      // Effective parameters (m → mm), sorted keys for determinism.
+      parameters = {};
+      for (const [key, value] of Object.entries(pset)) {
+        if (key.startsWith("Param.") && typeof value === "number" && Number.isFinite(value)) {
+          parameters[key.slice("Param.".length)] = value * scale;
+        }
+      }
+      if (Object.keys(parameters).length === 0) {
+        unsupported(el, el.ifcClass, "component pset carries no Param.* values");
+        continue;
+      }
+      const overrideKeys = typeof overrideKeysRaw === "string" && overrideKeysRaw.length > 0
+        ? overrideKeysRaw.split(",").filter((k) => k.length > 0).sort()
+        : [];
+      // Definition resolution: existing → category cross-check; else create
+      // (preserving the DefinitionId when it is not taken by another element).
+      const resolved = componentDefCanonical.get(rawDefinitionId);
+      if (resolved !== undefined) {
+        definitionId = resolved;
+      } else {
+        const existingDef = existingDefById.get(rawDefinitionId);
+        if (existingDef !== undefined) {
+          if ((existingDef.props.category as string) !== category) {
+            unsupported(
+              el, el.ifcClass,
+              `definition '${rawDefinitionId}' exists with category '${String(existingDef.props.category)}' but the file carries '${category}' (inconsistent provenance)`,
+            );
+            continue;
+          }
+          definitionId = existingDef.id;
+        } else {
+          // DEFAULT parameters from the pre-pass (non-overriding witnesses),
+          // NOT the creating instance's effective parameters: a definition
+          // created from an overridden instance would pollute its defaults and
+          // every later non-overriding instance would derive wrong effective
+          // state (found by the Electron round-trip smoke probe).
+          const pre = defDefaultsById.get(rawDefinitionId);
+          const defParams: Record<string, number> = {};
+          const approximated = new Set<string>();
+          if (pre !== undefined) {
+            for (const [key, value] of pre.defaults) defParams[key] = value;
+            for (const [key, value] of pre.seen) {
+              if (!pre.defaults.has(key)) { // overridden by EVERY instance — unknowable from the file
+                defParams[key] = value;
+                approximated.add(key);
+              }
+            }
+          } else {
+            Object.assign(defParams, parameters); // defensive (pre-pass mirrors this predicate)
+          }
+          const defEntity: Record<string, unknown> = {
+            type: "bim.componentDef",
+            name: pre !== undefined ? pre.name : defName,
+            category: pre !== undefined ? pre.category : category,
+            parameters: defParams,
+          };
+          let defId: string | null = null;
+          if (!existingById.has(rawDefinitionId)) {
+            defId = rawDefinitionId; // preserve the definition identity (round trip)
+          } else if (options.mintId !== undefined) {
+            defId = options.mintId();
+          }
+          if (defId !== null) defEntity.id = defId;
+          entities.push(defEntity);
+          entityGlobalIds.push(null);
+          definitionId = defId ?? `@def:${rawDefinitionId}`;
+          elements.push({
+            canonicalId: defId,
+            globalId: null, ifcClass: "IfcComponentDefinition",
+            name: pre !== undefined ? pre.name : defName, action: "created",
+            fields: Object.keys(defParams).sort().map((k) =>
+              approximated.has(k)
+                ? {
+                    field: `parameters.${k}`, classification: "lossy", actual: defParams[k],
+                    note: "definition default approximated from an overridden instance — every instance in the file overrides this key, so the authored default is not recoverable",
+                  } as IfcFieldResult
+                : exactField(`parameters.${k}`),
+            ),
+          });
+        }
+        componentDefCanonical.set(rawDefinitionId, definitionId);
+      }
+      // Parameter-surface validation against the existing definition, when present.
+      const existingDef = existingDefById.get(definitionId);
+      if (existingDef !== undefined) {
+        // Override keys must belong to the definition's parameter schema —
+        // keys outside it are DROPPED with an explicit lossy field (never stored).
+        const defSchema = new Set(Object.keys((existingDef.props.parameters as Record<string, number>) ?? {}));
+        for (const key of overrideKeys) {
+          if (!defSchema.has(key)) {
+            fields.push({ field: `overrides.${key}`, classification: "lossy", actual: parameters[key], note: "override key is outside the definition's parameter schema — dropped" });
+          } else {
+            overrides[key] = parameters[key] as number;
+          }
+        }
+      } else {
+        for (const key of overrideKeys) {
+          overrides[key] = parameters[key] as number;
+        }
+      }
+    } else {
+      // EXTERNAL furnishing element (no Offisos provenance): create a furniture
+      // component with a minted definition sized from the geometry facts — a
+      // DECLARED fallback, recorded in the report (never silent).
+      category = "furniture";
+      defName = el.name !== "" ? el.name : "Furnishing";
+      parameters = { width: boxX, depth: boxY, height: boxZ };
+      const minted = options.mintId !== undefined ? options.mintId() : null;
+      const defEntity: Record<string, unknown> = { type: "bim.componentDef", name: defName, category, parameters: { ...parameters } };
+      if (minted !== null) defEntity.id = minted;
+      entities.push(defEntity);
+      entityGlobalIds.push(null);
+      definitionId = typeof defEntity.id === "string" && (defEntity.id as string).length > 0 ? (defEntity.id as string) : `@def:${el.globalId}`;
+      declaredFallbacks.push(
+        `furnishing '${el.name}': authored externally (no Offisos provenance) — created furniture definition '${defName}' with parameters from the geometry facts (width ${boxX} mm, depth ${boxY} mm, height ${boxZ} mm)`,
+      );
+      elements.push({
+        canonicalId: typeof defEntity.id === "string" && (defEntity.id as string).length > 0 ? (defEntity.id as string) : null,
+        globalId: null, ifcClass: "IfcComponentDefinition", name: defName, action: "created",
+        fields: [
+          { field: "parameters", classification: "lossy", note: "definition created from geometry facts (external authoring fallback)" },
+        ],
+      });
+      componentDefCanonical.set(`@external:${el.globalId}`, definitionId);
+    }
+    // CANONICAL MATERIAL REPRESENTATION (derivation semantics): the
+    // association is stored on the instance ONLY when it differs from the
+    // resolved definition's default — an inherited default is never
+    // materialized, so round trips reconcile unchanged.
+    const defDefaultMaterial = (() => {
+      const def = existingDefById.get(definitionId);
+      return def !== undefined ? (def.props.materialId as string | undefined) : undefined;
+    })();
+    const explicitMaterialId = materialId !== null && materialId !== defDefaultMaterial ? materialId : null;
+
+    const res = resolveCanonicalId(isOffisosComponent ? identity : null, existingById, "bim.componentInstance");
+    if (res.mode === "reconcile") {
+      const inst = res.existing.props;
+      const position0 = inst.position as readonly [number, number];
+      const rotation0 = inst.rotation as number;
+      const baseOffset0 = inst.baseOffset as number;
+      const overrides0 = (inst.overrides as Record<string, number>) ?? {};
+      const name0 = (inst.name as string | undefined) ?? "";
+      const instanceFields: IfcFieldResult[] = [
+        classifyValue("name", name0, el.name),
+        classifyNumber("position.x", position0[0], position[0]),
+        classifyNumber("position.y", position0[1], position[1]),
+        classifyNumber("rotation", rotation0, rotation),
+        classifyNumber("baseOffset", baseOffset0, baseOffset),
+        classifyValue("definitionId", inst.definitionId as string, definitionId),
+        classifyValue("materialId", (inst.materialId as string | undefined) ?? "", explicitMaterialId ?? ""),
+        classifyNumber("effectiveBox.sizeX", effectiveBoxOf(inst.definitionId as string, inst)[0], boxX),
+        classifyNumber("effectiveBox.sizeY", effectiveBoxOf(inst.definitionId as string, inst)[1], boxY),
+        classifyNumber("effectiveBox.sizeZ", effectiveBoxOf(inst.definitionId as string, inst)[2], boxZ),
+      ];
+      for (const key of new Set([...Object.keys(overrides0), ...Object.keys(overrides)])) {
+        instanceFields.push(classifyNumber(`overrides.${key}`, overrides0[key] ?? Number.NaN, overrides[key] ?? Number.NaN));
+      }
+      // EFFECTIVE-parameter comparison (definition defaults ⊕ overrides vs
+      // the file's Param.* surface): the honest semantic comparison for the
+      // propagation model — instance state, not definition defaults.
+      const defParams0 = (existingDefById.get(definitionId)?.props.parameters as Record<string, number>) ?? {};
+      const effective0: Record<string, number> = { ...defParams0, ...overrides0 };
+      for (const key of new Set([...Object.keys(effective0), ...Object.keys(parameters)])) {
+        instanceFields.push(classifyNumber(`parameters.${key}`, effective0[key] ?? Number.NaN, parameters[key] ?? Number.NaN));
+      }
+      instanceFields.push(...fields);
+      const changed: Record<string, unknown> = {};
+      if (el.name !== name0) changed.name = el.name;
+      if (Math.abs(position0[0] - position[0]) > IFC_ROUNDTRIP_TOLERANCE_MM || Math.abs(position0[1] - position[1]) > IFC_ROUNDTRIP_TOLERANCE_MM) changed.position = [position[0], position[1]];
+      if (Math.abs(rotation0 - rotation) > 1e-9) changed.rotation = rotation;
+      if (Math.abs(baseOffset0 - baseOffset) > IFC_ROUNDTRIP_TOLERANCE_MM) changed.baseOffset = baseOffset;
+      if ((inst.definitionId as string) !== definitionId) changed.definitionId = definitionId;
+      if ((explicitMaterialId ?? "") !== ((inst.materialId as string | undefined) ?? "")) {
+        if (explicitMaterialId !== null) changed.materialId = explicitMaterialId;
+        else changed.materialId = null;
+      }
+      const overridesChanged =
+        Object.keys(overrides0).length !== Object.keys(overrides).length ||
+        Object.keys(overrides).some((k) => overrides0[k] !== overrides[k]);
+      if (overridesChanged) changed.overrides = { ...overrides };
+      const action = Object.keys(changed).length > 0 ? "reconciled" : "unchanged";
+      if (Object.keys(changed).length > 0) patches.push({ elementId: res.existing.id, patch: fullPropsPatch(res.existing.props, changed) });
+      elements.push({ canonicalId: res.existing.id, globalId: el.globalId, ifcClass: el.ifcClass, name: el.name, action, fields: instanceFields });
+      mapping.push({ canonicalId: res.existing.id, globalId: el.globalId, ifcClass: el.ifcClass, action });
+    } else {
+      const entity: Record<string, unknown> = {
+        type: "bim.componentInstance",
+        definitionId,
+        storyId: story.id,
+        position: [position[0], position[1]],
+        rotation,
+        baseOffset,
+        overrides: { ...overrides },
+      };
+      if (explicitMaterialId !== null) entity.materialId = explicitMaterialId;
+      if (el.name !== "") entity.name = el.name;
+      const minted = res.explicitId ?? (options.mintId !== undefined ? options.mintId() : null);
+      if (minted !== null) entity.id = minted;
+      entities.push(entity);
+      entityGlobalIds.push(el.globalId);
+      elements.push({
+        canonicalId: minted, globalId: el.globalId, ifcClass: el.ifcClass, name: el.name, action: "created",
+        fields: [
+          exactField("position"), exactField("rotation"), exactField("baseOffset"), exactField("definitionId"),
+          ...Object.keys(overrides).map((k) => exactField(`overrides.${k}`)),
+          ...fields,
+        ],
+      });
+      mapping.push({ canonicalId: minted, globalId: el.globalId, ifcClass: el.ifcClass, action: "created" });
+    }
+  }
+
   const report: IfcImportReport = {
     source: {
       sha256: sourceHash,
@@ -806,7 +1298,6 @@ export function reconcileIfcImport(
     summary: summarizeReports(elements),
     declaredFallbacks,
   };
-
   return {
     entities,
     globalIds: entityGlobalIds,
@@ -847,11 +1338,22 @@ export function importEntitiesToElements(
       case "bim.door": entity = { ...makeDoor(input) }; break;
       case "bim.window": entity = { ...makeWindow(input) }; break;
       case "bim.space": entity = { ...makeSpace(input) }; break;
+      // COMPAT-BIM-003 (additive): materials, definitions, instances and
+      // coordination primitives re-validate through the same strict
+      // constructors (instance overrides validate structurally here; the
+      // definition-schema cross-check happened in the reconcile pass).
+      case "bim.material": entity = { ...makeMaterial(input) }; break;
+      case "bim.componentDef": entity = { ...makeComponentDef(input) }; break;
+      case "bim.componentInstance": entity = { ...makeComponentInstance(input) }; break;
+      case "bim.grid": entity = { ...makeGrid(input) }; break;
+      case "bim.referencePlane": entity = { ...makeReferencePlane(input) }; break;
       default:
         throw new Error(`IFC import: unknown entity type '${String(input.type)}'`);
     }
     // authored name survives when present
     if (typeof input.name === "string" && input.name !== "") entity.name = input.name;
+    // authored description survives when present (materials)
+    if (typeof input.description === "string" && input.description !== "") entity.description = input.description;
     if (typeof input.id === "string" && input.id.length > 0) entity.id = input.id;
     const props: Record<string, unknown> = { bim: true, type: input.type, ...entity };
     delete props.id;

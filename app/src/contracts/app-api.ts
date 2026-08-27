@@ -104,6 +104,9 @@ export type QueryName =
   | "drafting.snap"
   // COMPAT-CAD-002 (additive): BIM structure, semantics and cameras.
   | "bim.getBuilding"
+  // COMPAT-BIM-003 (additive): component/material/coordination inventory
+  // with derived parametric state.
+  | "bim.getComponents"
   | "bim.getSemantics"
   | "bim.camera"
   // COMPAT-CAD-003 (additive): documentation views, geometry and exports.

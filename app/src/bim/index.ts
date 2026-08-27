@@ -8,6 +8,7 @@
  * semantics.ts; standard cameras in camera.ts.
  */
 export * from "./elements.js";
+export * from "./components.js";
 export * from "./geometry.js";
 export * from "./editops.js";
 export * from "./commands.js";
