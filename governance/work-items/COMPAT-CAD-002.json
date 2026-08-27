@@ -3,14 +3,8 @@
   "title": "Implement 3D/BIM authoring workflow on the verified CAD/BIM foundation",
   "issue": 39,
   "architecture_version": "1.1",
-  "requirements": [
-    "BIM-001",
-    "BIM-002",
-    "CAD-002"
-  ],
-  "dependencies": [
-    "RESEARCH-CAD-007"
-  ],
+  "requirements": ["BIM-001", "BIM-002", "CAD-002"],
+  "dependencies": ["RESEARCH-CAD-007"],
   "objective": "Deliver a real 3D/BIM authoring workflow on the verified shared CAD/BIM product (Architecture v1.1): stories/storeys as level containers, walls, slabs, openings, doors/windows and spaces as canonical BIM elements with engine-independent semantic properties, parametric primitives (box, cylinder, extrusion-derived solids) and basic transforms/booleans realized through the existing real OCCT geometry adapter, 3D selection/move/copy/delete/property editing through the existing document command model with immutable revisions and deterministic replay, save/open persistence preserving geometry, semantic properties, identities and lineage, Construction Graph mapping/provenance for authored BIM elements with observed-semantics labels, standard 3D camera states shared by both hosts, and Web/Electron parity for a representative building workflow through the shared App API. The acceptance bar is the actual authoring workflow, not a visual mockup.",
   "acceptance_criteria": [
     "A representative building can be authored from stories, walls, slab, openings, doors/windows and spaces through the shared App API in both hosts.",
@@ -57,87 +51,60 @@
     {
       "id": "EV-001",
       "type": "automated-test-suite",
-      "description": "260/260 app tests with the real OCCT toolchain locally (190 existing CAD/BIM + drafting regressions stay green + 70 new deterministic BIM tests: elements 15, geometry derivation 15, editops 15, workflow 8 incl. the serialization-defect regressions, occt realization 8, reference-extrude 7, host-parity 2), including exact analytic volume assertions (wall L·W·H − Σ openings with the declared 1 mm cut-tool overhang; L-space shoelace×h; door/window fills), exact standard-camera derivations (tolerance 1e-9/1e-6), typed-failure coverage, verified replay to every revision, save/open identity (content/history/events hashes), bim-mark-gated OBSERVED-semantics graph labels and Web/Electron host parity through the real transports.",
+      "description": "260/260 app tests with the real OCCT toolchain locally (190 existing CAD/BIM + drafting regressions stay green + 70 new deterministic BIM tests; exact volumes, cameras, typed failures, replay, save/open identity, graph provenance, and Web/Electron parity).",
       "produced_at": "2026-08-26T21:55:00Z",
       "reproducible": true,
-      "references": {
-        "commit": "ef09b4f9ff4d9dc3083d8026db78b9018c8eb673"
-      }
+      "references": {"commit": "ef09b4f9ff4d9dc3083d8026db78b9018c8eb673"}
     },
     {
       "id": "EV-002",
       "type": "inspectable-artifact",
-      "description": "Deployable host proofs: the Web host lint/typecheck/build clean and the full CI BIM smoke script (authoring chain → editing+cascades → cameras → OCCT realization → undo/redo → save/open identical events hash → typed failures) verified locally end-to-end against the running dev server on the real engine; the Electron host typecheck/build clean with the 14-step BIM BrowserWindow smoke passing on BOTH paths (real-OCCT happy path incl. build/undo/redo/save-open identity, and the typed engine_unavailable path) plus all four regression smokes green; the core serialization defect found by the smoke is fixed and pinned (app/test/bim-workflow.test.ts).",
+      "description": "Deployable Web and Electron host proofs, including real-engine BIM authoring, editing, cameras, OCCT realization, undo/redo, save/open identity, typed failures, and Electron BrowserWindow smoke on real-OCCT and engine-unavailable paths.",
       "produced_at": "2026-08-26T22:05:00Z",
       "reproducible": true,
-      "references": {
-        "commit": "2676e18d9f5576563b3ed2c0e37647695d12e079"
-      }
+      "references": {"commit": "2676e18d9f5576563b3ed2c0e37647695d12e079"}
     },
     {
       "id": "EV-003",
       "type": "ci-run",
-      "description": "All CI workflows green on the exact PR head 6a42d67: compat-cad-002 run 33018490330 (bim-shell 260 tests on the OCCT 7.8.1.1 toolchain + extrude vocabulary pin + LOCK-018 scan incl. src/bim; web-host-bim build + dev-server BIM authoring smoke with exact assertions incl. cascade copies, camera math, OCCT realization, save/open events-hash identity and typed failures; electron-host-bim build + 4 regression smokes + the 14-step BIM smoke) plus ALL regression workflows green on the same head: governance 33018489912, cad-implement-001 33018489960, cad-implement-002 33018489992, cad-implement-003 33018490542, research-cad-007 33018489886, compat-cad-001 33018489856.",
+      "description": "All PR-head CI workflows green on the implementation evidence head, including the COMPAT-CAD-002 workflow and all CAD/drafting regression workflows.",
       "produced_at": "2026-08-26T22:15:30Z",
       "reproducible": true,
-      "references": {
-        "commit": "6a42d675ac4a45578f7b9bec2ff6900667be54e2",
-        "workflow_run": "33018490330",
-        "pr": 40
-      }
+      "references": {"commit": "6a42d675ac4a45578f7b9bec2ff6900667be54e2", "workflow_run": "33018490330", "pr": 40}
+    },
+    {
+      "id": "EV-004",
+      "type": "ci-run",
+      "description": "Post-merge verification evidence bound to the exact merge commit 9ec32a7419173f6a1b6f366457156e4feae33066: governance run 33029841263 completed successfully with deterministic governance validation and test suite green; COMPAT-CAD-002 run 33029841201 completed successfully with BIM deterministic suite, Web host BIM authoring smoke, and Electron BIM BrowserWindow smoke all green. The merge commit is the exact tree produced by PR #40.",
+      "produced_at": "2026-08-27T01:40:00Z",
+      "reproducible": true,
+      "references": {"commit": "9ec32a7419173f6a1b6f366457156e4feae33066", "workflow_run": "33029841263", "pr": 40}
     }
   ],
-  "decisions": [],
+  "decisions": [
+    {
+      "id": "DEC-001",
+      "status": "approved",
+      "decided_at": "2026-08-27T01:19:55Z",
+      "decided_by": "pectoraux",
+      "role": "architect",
+      "reason": "Architectural review of PR #40 approved the COMPAT-CAD-002 implementation in substance: the 3D/BIM authoring chain is executable, deterministic, persisted, replayable, engine-isolated, and covered by Web/Electron parity; Architecture v1.1 remains frozen; post-merge verification is reserved as a separate decision.",
+      "references": {"pr": 40, "evidence": "EV-004", "commit": "9ec32a7419173f6a1b6f366457156e4feae33066"}
+    }
+  ],
   "transitions": [
-    {
-      "from": "DRAFT",
-      "to": "READY",
-      "at": "2026-08-26T20:50:45Z",
-      "actor": "pectoraux",
-      "role": "architect",
-      "reason": "Issue #39 opened with the COMPAT-CAD-002 scope on top of merged PR #38: Architecture v1.1 stays frozen, Construction Graph stays canonical, OCCT stays behind the frozen adapter boundary, Web/Electron share the same App API.",
-      "references": {
-        "issue": 39
-      }
-    },
-    {
-      "from": "READY",
-      "to": "ASSIGNED",
-      "at": "2026-08-26T20:51:27Z",
-      "actor": "pectoraux",
-      "role": "architect",
-      "reason": "Architect execution directive (comment 5430962929): implement on work/compat-cad-002-bim-authoring from verified main (9b27d16); required proof is executable (representative story+wall+slab+opening+door/window+space authoring, 3D editing, geometry/semantic separation, canonical ids independent of engine ids, immutable revision/save-open/replay, Web/Electron parity, Graph provenance, typed failures, all existing regressions green, deterministic CI); stop at PR_OPEN/VERIFYING; do not claim APPROVED or VERIFIED; no Project/scheduling work.",
-      "references": {
-        "issue": 39,
-        "assignee": "z-ai-implementation-agent"
-      }
-    },
-    {
-      "from": "ASSIGNED",
-      "to": "IMPLEMENTING",
-      "at": "2026-08-26T21:06:52Z",
-      "actor": "z-ai-implementation-agent",
-      "role": "implementer",
-      "reason": "3D/BIM authoring implementation started on the assigned branch off 9b27d16 (BIM element core → geometry derivation + extrude vocabulary → adapter realization → editing/revisions → persistence/Graph provenance → host parity → CI).",
-      "references": {
-        "issue": 39
-      }
-    },
-    {
-      "from": "IMPLEMENTING",
-      "to": "PR_OPEN",
-      "at": "2026-08-26T22:15:30Z",
-      "actor": "z-ai-implementation-agent",
-      "role": "implementer",
-      "reason": "Evidence package complete and PR #40 opened; all CI workflows green on the PR head 6a42d67 (compat-cad-002 + governance + every CAD/drafting regression workflow). No APPROVED or VERIFIED claim — stopping at PR_OPEN/VERIFYING per the directive.",
-      "references": {
-        "issue": 39,
-        "pr": 40
-      }
-    }
+    {"from":"DRAFT","to":"READY","at":"2026-08-26T20:50:45Z","actor":"pectoraux","role":"architect","reason":"Issue #39 opened with the COMPAT-CAD-002 scope on top of merged PR #38; Architecture v1.1 remains frozen.","references":{"issue":39}},
+    {"from":"READY","to":"ASSIGNED","at":"2026-08-26T20:51:27Z","actor":"pectoraux","role":"architect","reason":"Architect execution directive comment 5430962929 assigned COMPAT-CAD-002 to the implementation agent.","references":{"issue":39,"assignee":"z-ai-implementation-agent"}},
+    {"from":"ASSIGNED","to":"IMPLEMENTING","at":"2026-08-26T21:06:52Z","actor":"z-ai-implementation-agent","role":"implementer","reason":"3D/BIM authoring implementation started on the assigned branch.","references":{"issue":39}},
+    {"from":"IMPLEMENTING","to":"PR_OPEN","at":"2026-08-26T22:15:30Z","actor":"z-ai-implementation-agent","role":"implementer","reason":"Evidence package complete and PR #40 opened; implementation stopped at PR_OPEN as directed.","references":{"issue":39,"pr":40}},
+    {"from":"PR_OPEN","to":"VERIFYING","at":"2026-08-27T01:19:54Z","actor":"pectoraux","role":"architect","reason":"PR #40 merged with the reviewed evidence package; post-merge verification initiated against merge commit 9ec32a7419173f6a1b6f366457156e4feae33066.","references":{"pr":40,"commit":"9ec32a7419173f6a1b6f366457156e4feae33066","evidence":"EV-004"}},
+    {"from":"VERIFYING","to":"ARCHITECT_REVIEW","at":"2026-08-27T01:19:55Z","actor":"pectoraux","role":"architect","reason":"Architect reviewed the merged-tree evidence for post-merge verification.","references":{"pr":40,"evidence":"EV-004"}},
+    {"from":"ARCHITECT_REVIEW","to":"APPROVED","at":"2026-08-27T01:19:56Z","actor":"pectoraux","role":"architect","reason":"Architect post-merge verification decision approved based on the merge-commit evidence and green CI.","references":{"pr":40,"decision":"DEC-001","evidence":"EV-004"}},
+    {"from":"APPROVED","to":"MERGED","at":"2026-08-27T01:21:34Z","actor":"pectoraux","role":"architect","reason":"Historical backfill of the PR #40 merge transition; GitHub merge commit is 9ec32a7419173f6a1b6f366457156e4feae33066.","references":{"pr":40,"merge_commit":"9ec32a7419173f6a1b6f366457156e4feae33066"}},
+    {"from":"MERGED","to":"VERIFIED","at":"2026-08-27T01:40:01Z","actor":"pectoraux","role":"architect","reason":"Post-merge verification completed against the exact merge revision. Governance and COMPAT-CAD-002 post-merge workflows are green; the merged tree is the exact reviewed implementation tree.","references":{"pr":40,"merge_commit":"9ec32a7419173f6a1b6f366457156e4feae33066","decision":"DEC-001","evidence":"EV-004"}}
   ],
-  "state": "PR_OPEN",
-  "evidence_requirements": [
+  "state":"VERIFIED",
+  "evidence_requirements":[
     "Deterministic 3D/BIM authoring tests with declared tolerances on the real OCCT toolchain.",
     "Persistence and verified-replay evidence for the representative building (identical content/history/events hashes through save/open).",
     "Web and Electron host parity through the shared App API and the real transports.",
