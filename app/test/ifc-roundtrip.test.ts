@@ -22,12 +22,15 @@ import { createOcctAdapterBundle } from "../src/adapters/occt/index.js";
 import { createIfcInteropAdapter } from "../src/adapters/ifc/index.js";
 import { DummyAdapterBundle } from "../src/adapters/dummy/index.js";
 import { ifcGuidFor, ifcLengthScale } from "../src/ifc/index.js";
+import { ifcSkip } from "./ifc-availability.js";
 import type { CADDocumentSnapshot } from "../src/contracts/caddocument.js";
 import type { CommandQueryResponse, OkResult } from "../src/contracts/app-api.js";
 
 const TOL = 1e-3; // declared round-trip tolerance (mm)
 
 const FIXTURES = fileURLToPath(new URL("./fixtures/", import.meta.url));
+
+const skipIfc = await ifcSkip();
 
 function handler(): AppApiHandler {
   return AppApiHandler.create({
@@ -91,7 +94,7 @@ test("ifcLengthScale covers the declared unit vocabulary and rejects others", ()
 
 // --- export -------------------------------------------------------------------
 
-test("ifc.export produces a deterministic IFC4 file with the full semantic set", async () => {
+test("ifc.export produces a deterministic IFC4 file with the full semantic set", { skip: skipIfc }, async () => {
   const { h, sha256 } = await seeded();
   const again = val<{ ifc: string; sha256: string; size: number; schema: string; counts: Record<string, number> }>(
     await cmd(h, "ifc.export", {}),
@@ -102,7 +105,7 @@ test("ifc.export produces a deterministic IFC4 file with the full semantic set",
   assert.ok(again.size > 1000);
 });
 
-test("ifc.compare: the export reconciles against its own document with zero loss", async () => {
+test("ifc.compare: the export reconciles against its own document with zero loss", { skip: skipIfc }, async () => {
   const { h, ifc } = await seeded();
   const { report, reportHash } = val<{ report: { summary: Record<string, number>; elements: { action: string }[] }; reportHash: string }>(
     await qq(h, "ifc.compare", { ifc }),
@@ -117,7 +120,7 @@ test("ifc.compare: the export reconciles against its own document with zero loss
 
 // --- fresh import (the acceptance chain) ----------------------------------------
 
-test("ifc.import into a fresh document preserves canonical ids and retains GlobalIds as provenance", async () => {
+test("ifc.import into a fresh document preserves canonical ids and retains GlobalIds as provenance", { skip: skipIfc }, async () => {
   const { ifc } = await seeded();
   const h = handler();
   await cmd(h, "document.create", { entityId: "ifc-reimport" });
@@ -148,7 +151,7 @@ test("ifc.import into a fresh document preserves canonical ids and retains Globa
   assert.equal(listed.records[0]!.id, result.record.id);
 });
 
-test("ifc.import reconstructs geometry within the declared tolerance (incl. rotated walls + hosted openings)", async () => {
+test("ifc.import reconstructs geometry within the declared tolerance (incl. rotated walls + hosted openings)", { skip: skipIfc }, async () => {
   const { ifc } = await seeded();
   const h = handler();
   await cmd(h, "document.create", { entityId: "ifc-geometry" });
@@ -191,7 +194,7 @@ test("ifc.import reconstructs geometry within the declared tolerance (incl. rota
   assert.ok(Math.abs((space.area as number) - 27_000_000) <= 1, "space area recomputed (shoelace, mm²)");
 });
 
-test("export → import → export is byte-identical for exactly-representable geometry", async () => {
+test("export → import → export is byte-identical for exactly-representable geometry", { skip: skipIfc }, async () => {
   // Axis-aligned integer geometry reconstructs BIT-EXACTLY through the
   // mm→m→mm normalization, so the full cycle is byte-identical. (The rotated
   // wall below reconstructs within the declared tolerance but not
@@ -208,7 +211,7 @@ test("export → import → export is byte-identical for exactly-representable g
   assert.equal(reexported.sha256, first.sha256, "the re-exported file is byte-identical to the original");
 });
 
-test("the rotated-wall cycle is semantically stable (re-import reconciles unchanged)", async () => {
+test("the rotated-wall cycle is semantically stable (re-import reconciles unchanged)", { skip: skipIfc }, async () => {
   const { h, ifc } = await seeded();
   await cmd(h, "ifc.import", { ifc });
   const reexported = val<{ ifc: string }>(await cmd(h, "ifc.export", {}));
@@ -220,7 +223,7 @@ test("the rotated-wall cycle is semantically stable (re-import reconciles unchan
 
 // --- reconciliation ------------------------------------------------------------
 
-test("ifc.import into the SAME document reconciles to unchanged (identity-based)", async () => {
+test("ifc.import into the SAME document reconciles to unchanged (identity-based)", { skip: skipIfc }, async () => {
   const { h, ifc } = await seeded();
   const before = val<CADDocumentSnapshot>(await qq(h, "document.getState", {}));
   const result = val<{ report: { summary: Record<string, number> } }>(await cmd(h, "ifc.import", { ifc }));
@@ -231,7 +234,7 @@ test("ifc.import into the SAME document reconciles to unchanged (identity-based)
   assert.equal(after.elements.length, before.elements.length, "no duplicate elements");
 });
 
-test("controlled mutations survive the round trip and identify EXACTLY the changed canonical element", async () => {
+test("controlled mutations survive the round trip and identify EXACTLY the changed canonical element", { skip: skipIfc }, async () => {
   const { h, ifc } = await seeded();
   // v1 file imported into a document holding v0 state? No — the chain here:
   // doc holds v1; mutate the doc (v2); export v2; import v2 into the v1 doc →
@@ -269,7 +272,7 @@ test("controlled mutations survive the round trip and identify EXACTLY the chang
 
 // --- undo / persistence ---------------------------------------------------------
 
-test("ifc.import is ONE atomic versioned command — undo removes elements AND the record", async () => {
+test("ifc.import is ONE atomic versioned command — undo removes elements AND the record", { skip: skipIfc }, async () => {
   const { ifc } = await seeded();
   const h = handler();
   await cmd(h, "document.create", { entityId: "ifc-undo" });
@@ -290,7 +293,7 @@ test("ifc.import is ONE atomic versioned command — undo removes elements AND t
   assert.equal(listed2.records.length, 1);
 });
 
-test("import records persist through save/open with identical content", async () => {
+test("import records persist through save/open with identical content", { skip: skipIfc }, async () => {
   const { ifc } = await seeded();
   const h = handler();
   await cmd(h, "document.create", { entityId: "ifc-persist" });
@@ -310,7 +313,7 @@ test("import records persist through save/open with identical content", async ()
 
 // --- external files (no identity psets) ------------------------------------------
 
-test("external IFC without identity psets imports with minted ids + GlobalId provenance", async () => {
+test("external IFC without identity psets imports with minted ids + GlobalId provenance", { skip: skipIfc }, async () => {
   const externalBytes = readFileSync(`${FIXTURES}/external-no-identity.ifc`);
   const external = externalBytes.toString("base64");
   const h = handler();
@@ -366,7 +369,7 @@ test("ifc.* fails typed ifc_unavailable when the host binds no interop adapter",
   assert.equal((r2 as { code: string }).code, "ifc_unavailable");
 });
 
-test("ifc.import rejects garbage payloads typed (ifc_invalid)", async () => {
+test("ifc.import rejects garbage payloads typed (ifc_invalid)", { skip: skipIfc }, async () => {
   const h = handler();
   await cmd(h, "document.create", { entityId: "ifc-bad" });
   const r = await cmd(h, "ifc.import", { ifc: Buffer.from("this is not an ifc file").toString("base64") });
@@ -376,7 +379,7 @@ test("ifc.import rejects garbage payloads typed (ifc_invalid)", async () => {
   assert.equal((r2 as { code: string }).code, "bad_payload");
 });
 
-test("ifc.import fails typed ifc_unsupported for unsupported source units", async () => {
+test("ifc.import fails typed ifc_unsupported for unsupported source units", { skip: skipIfc }, async () => {
   const { ifc } = await seeded();
   // synthetic external file: swap the length unit to an unsupported one
   const text = Buffer.from(ifc, "base64").toString("utf8");
@@ -392,7 +395,7 @@ test("ifc.import fails typed ifc_unsupported for unsupported source units", asyn
 
 // --- probe ---------------------------------------------------------------------
 
-test("ifc.probe reports the real toolchain availability and version", async () => {
+test("ifc.probe reports the real toolchain availability and version", { skip: skipIfc }, async () => {
   const h = handler();
   const probe = val<{ available: boolean; engineVersion: string | null }>(await qq(h, "ifc.probe", {}));
   assert.equal(probe.available, true);

@@ -176,6 +176,13 @@ function runProcess(command: string, args: string[], request: WorkerRequest, opt
     child.stderr?.on("data", (chunk: Buffer) => {
       stderr += chunk.toString("utf8").slice(0, 8192);
     });
+    // The worker may die before reading the request (EPIPE on stdin) — the
+    // close handler resolves with its exit code and the response parser
+    // produces the typed failure; swallowing the async socket error here
+    // prevents an unhandled 'error' event from crashing the parent.
+    child.stdin?.on("error", () => {
+      /* typed failure path — see the comment above */
+    });
 
     child.on("close", (exitCode, signal) => {
       if (settled) return;

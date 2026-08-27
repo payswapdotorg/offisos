@@ -18,8 +18,11 @@ import { createOcctAdapterBundle } from "../src/adapters/occt/index.js";
 import { createIfcInteropAdapter } from "../src/adapters/ifc/index.js";
 import type { CADDocumentSnapshot } from "../src/contracts/caddocument.js";
 import type { CommandQueryResponse, OkResult } from "../src/contracts/app-api.js";
+import { ifcSkip } from "./ifc-availability.js";
 
 type Renderer = ReturnType<typeof createRenderer>;
+
+const skipIfc = await ifcSkip();
 
 function val<T>(r: CommandQueryResponse): T {
   assert.equal(r.ok, true, JSON.stringify(r).slice(0, 400));
@@ -80,7 +83,7 @@ async function runIfcSequence(r: Renderer): Promise<{
   };
 }
 
-test("IFC workflow: Web and Electron converge to identical semantic interop results", async () => {
+test("IFC workflow: Web and Electron converge to identical semantic interop results", { skip: skipIfc }, async () => {
   const makeHandler = (): AppApiHandler =>
     AppApiHandler.create({
       adapterBundle: createOcctAdapterBundle({ ifc: createIfcInteropAdapter() }),

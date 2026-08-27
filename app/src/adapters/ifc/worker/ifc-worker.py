@@ -818,22 +818,22 @@ def main() -> None:
     try:
         line = sys.stdin.readline()
         if not line.strip():
-            print(json.dumps(fail("ifc_invalid", "no request on stdin")))
+            print(json.dumps(fail("ifc_invalid", "no request on stdin"), separators=(",", ":")))
             return
         req = json.loads(line)
         op = req.get("op")
         handler = OPS.get(op)
         if handler is None:
-            print(json.dumps(fail("ifc_invalid", f"unknown op {op!r}")))
+            print(json.dumps(fail("ifc_invalid", f"unknown op {op!r}"), separators=(",", ":")))
             return
         result = handler(req)
-        print(json.dumps(result))
+        print(json.dumps(result, separators=(",", ":")))
     except OpError as e:
-        print(json.dumps(fail(e.code, e.message)))
+        print(json.dumps(fail(e.code, e.message), separators=(",", ":")))
     except Exception as e:  # never a traceback on stdout — typed failure only
         import traceback as _tb
         _tb.print_exc(file=sys.stderr)  # diagnostics for the parent (bounded there)
-        print(json.dumps(fail("engine_error", f"{type(e).__name__}: {e}")))
+        print(json.dumps(fail("engine_error", f"{type(e).__name__}: {e}"), separators=(",", ":")))
 
 
 if __name__ == "__main__":

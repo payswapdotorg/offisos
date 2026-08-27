@@ -18,9 +18,12 @@ import { AppApiHandler } from "../src/app-api/index.js";
 import { createOcctAdapterBundle } from "../src/adapters/occt/index.js";
 import { createIfcInteropAdapter } from "../src/adapters/ifc/index.js";
 import type { CommandQueryResponse, OkResult } from "../src/contracts/app-api.js";
+import { ifcSkip } from "./ifc-availability.js";
 
 const FIXTURES = fileURLToPath(new URL("./fixtures/", import.meta.url));
 const IDS_XML = readFileSync(`${FIXTURES}/ids-fire-rating.xml`, "utf8");
+
+const skipIfc = await ifcSkip();
 
 function handler(): AppApiHandler {
   return AppApiHandler.create({
@@ -73,7 +76,7 @@ interface IdsSpec {
 
 // --- IDS -------------------------------------------------------------------------
 
-test("ifc.idsValidate discriminates per entity and binds results to canonical provenance", async () => {
+test("ifc.idsValidate discriminates per entity and binds results to canonical provenance", { skip: skipIfc }, async () => {
   const h = await seeded();
   // no wall carries FireRating yet → the required-property spec fails for ALL
   const result = val<{ specs: IdsSpec[]; schema: string }>(await qq(h, "ifc.idsValidate", { ids: IDS_XML }));
@@ -89,7 +92,7 @@ test("ifc.idsValidate discriminates per entity and binds results to canonical pr
   );
 });
 
-test("ifc.idsValidate tracks the controlled mutation (FAILED → PASSED flip)", async () => {
+test("ifc.idsValidate tracks the controlled mutation (FAILED → PASSED flip)", { skip: skipIfc }, async () => {
   const h = await seeded();
   // author the FireRating on ONE wall through the low-level custom-prop path
   await cmd(h, "document.applyEdit", { edit: { type: "updateElement", elementId: "wall-south", patch: { FireRating: "REI60" } } });
@@ -101,7 +104,7 @@ test("ifc.idsValidate tracks the controlled mutation (FAILED → PASSED flip)", 
   assert.equal(spec.entities.filter((e) => e.passed).length, 1, "exactly one passes — per-entity discrimination");
 });
 
-test("ifc.idsValidate fails typed on malformed IDS XML", async () => {
+test("ifc.idsValidate fails typed on malformed IDS XML", { skip: skipIfc }, async () => {
   const h = await seeded();
   const r = await qq(h, "ifc.idsValidate", { ids: "not xml at all" });
   assert.equal(r.ok, false);
@@ -110,7 +113,7 @@ test("ifc.idsValidate fails typed on malformed IDS XML", async () => {
 
 // --- BCF ---------------------------------------------------------------------------
 
-test("ifc.bcfCreate → ifc.bcfParse round trip resolves references back to canonical ids", async () => {
+test("ifc.bcfCreate → ifc.bcfParse round trip resolves references back to canonical ids", { skip: skipIfc }, async () => {
   const h = await seeded();
   const created = val<{ bcf: string; size: number }>(await cmd(h, "ifc.bcfCreate", {
     topics: [{
@@ -145,7 +148,7 @@ test("ifc.bcfCreate → ifc.bcfParse round trip resolves references back to cano
   );
 });
 
-test("ifc.bcfCreate rejects unknown element ids typed", async () => {
+test("ifc.bcfCreate rejects unknown element ids typed", { skip: skipIfc }, async () => {
   const h = await seeded();
   const r = await cmd(h, "ifc.bcfCreate", {
     topics: [{ title: "T", description: "d", elementIds: ["wall-does-not-exist"] }],
@@ -155,7 +158,7 @@ test("ifc.bcfCreate rejects unknown element ids typed", async () => {
   assert.match((r as { message: string }).message, /does not exist in the document/);
 });
 
-test("ifc.bcfParse resolves external guids to null honestly (no guessing)", async () => {
+test("ifc.bcfParse resolves external guids to null honestly (no guessing)", { skip: skipIfc }, async () => {
   const h = await seeded();
   // a topic referencing an element NOT in the document resolves to null —
   // BCF references never fabricate canonical identity
