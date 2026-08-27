@@ -46,7 +46,40 @@
     "Import fidelity is explicit: fields the source IFC cannot supply are classified LOSSY/UNSUPPORTED in the import report, never silently approximated; the only caller-declared fallback is an explicit import option (e.g. default story height for external files lacking storey height), recorded in the report as a declared approximation.",
     "Geometry fidelity scope: the export uses the research-proven representation recipes (wall/slab/footprint/extrusion profiles); the import reconstructs canonical parameters from placements + profile dimensions + standard attributes. Arbitrary external IFC geometry beyond these shapes is classified UNSUPPORTED per element - honest limits, no silent guessing."
   ],
-  "evidence": [],
+  "evidence": [
+    {
+      "id": "EV-001",
+      "type": "automated-test-suite",
+      "description": "312/312 app tests on the real toolchains locally (OCCT 7.8.1.1 + ifcopenshell 0.8.5 + IfcTester 0.8.5) at the implementation head: 284 existing CAD/drafting/BIM/documentation regressions + 28 new deterministic IFC tests (identity known-vectors matching ifcopenshell.guid.compress; deterministic IFC4 export with the full semantic set; fresh-import canonical-id preservation + engineId GlobalId provenance; geometry reconstruction incl. rotated walls + hosted openings within the declared 1e-3 mm tolerance; byte-identical export-import-export cycles for exactly-representable geometry + semantic stability for rotated; identity-based reconciliation; controlled-mutation identification of exactly the mutated elements incl. custom properties; atomic undo of imports; save/open persistence of import records; external-file import with minted ids + declared fallbacks; typed ifc_invalid/ifc_unsupported/ifc_unavailable failures; IDS per-entity discrimination + FAILED-to-PASSED mutation flip + canonical binding; BCF round trips resolving to canonical ids; Web/Electron host parity through the real transports with identical export bytes and report hashes). LOCK-018 forbidden-import scan extended to src/ifc. Toolchain-absent environments skip the IFC tests with recorded reasons (verified: 2 pass + 14 skip + 0 fail with a broken python).",
+      "produced_at": "2026-08-27T07:20:00Z",
+      "reproducible": true,
+      "references": {
+        "commit": "1a92b3db2096ccafad79567f0200f9f055235b3c"
+      }
+    },
+    {
+      "id": "EV-002",
+      "type": "inspectable-artifact",
+      "description": "Deployable host proofs on the implementation head: Web lint/typecheck/build clean + the exact CI IFC workflow smoke verified locally end-to-end against the running dev server on the real toolchain (deterministic export sha256 933fcbd8f6b88b79\u2026/14267 bytes, identity reconciliation unchanged 11/lossy 0, controlled-mutation import identifying exactly [wall-east], IDS validation with exactly one entity passing after the authored rating, BCF round trip resolving to [wall-south], 2 persisted import records) + agent-browser verification of the IFC/openBIM workbench tab with zero console errors. Electron typecheck/build clean + smoke:ifc 12/12 PASS (probe/export/determinism/compare/import/mutation-identification/atomic-undo/IDS-flip/BCF/records/save-open identity) + all seven regression smokes green (smoke, geometry on the real OCCT engine, model, impact, drafting, bim, docs).",
+      "produced_at": "2026-08-27T08:55:00Z",
+      "reproducible": true,
+      "references": {
+        "commit": "1a92b3db2096ccafad79567f0200f9f055235b3c"
+      }
+    },
+    {
+      "id": "EV-003",
+      "type": "ci-run",
+      "description": "All PR-head CI workflows green on the exact implementation head 1a92b3d: compat-ifc-001 run 1 (IFC deterministic suite on both pinned toolchains + LOCK-018 incl. src/ifc + worker pin probe; Web host lint/typecheck/build + the IFC workflow dev-server smoke; Electron host build + 7 smokes incl. the 12-step IFC BrowserWindow smoke), governance run (tests, records, protected paths), and every regression workflow green with the IFC tests skipping gracefully without the toolchain (compat-cad-001, compat-cad-002, compat-cad-003, cad-implement-001/002/003, research-cad-007).",
+      "produced_at": "2026-08-27T09:25:00Z",
+      "reproducible": true,
+      "references": {
+        "commit": "1a92b3db2096ccafad79567f0200f9f055235b3c",
+        "workflow_run": "33056930612",
+        "pr": 49
+      }
+    }
+  ],
   "decisions": [],
   "transitions": [
     {
@@ -82,9 +115,21 @@
       "references": {
         "issue": 47
       }
+    },
+    {
+      "from": "IMPLEMENTING",
+      "to": "PR_OPEN",
+      "at": "2026-08-27T09:25:00Z",
+      "actor": "z-ai-implementation-agent",
+      "role": "implementer",
+      "reason": "Evidence package complete and PR #49 opened; all 9 CI workflows green on the implementation head 1a92b3d (incl. compat-ifc-001 with both pinned toolchains); implementation stopped at PR_OPEN as directed (no APPROVED/VERIFIED claim, LOCK-004).",
+      "references": {
+        "issue": 47,
+        "pr": 49
+      }
     }
   ],
-  "state": "IMPLEMENTING",
+  "state": "PR_OPEN",
   "evidence_requirements": [
     "Deterministic IFC export/import tests on the real ifcopenshell 0.8.5 toolchain: export byte-determinism, semantic IR content hashes, identity pset preservation, units/placement normalization within declared tolerances.",
     "Round-trip semantic comparison evidence: export -> import reports exact/declared-tolerance preservation for supported fields and explicit LOSSY/UNSUPPORTED classification for unsupported fields.",
