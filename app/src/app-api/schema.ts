@@ -396,6 +396,142 @@ export const COMMAND_PAYLOAD_SCHEMAS: Readonly<Record<CommandName, object>> = {
       ids: { type: "array", minItems: 1, items: { type: "string" } },
     },
   },
+  // COMPAT-CAD-003 (additive): construction documentation commands.
+  "docs.createViews": {
+    type: "object",
+    properties: {
+      views: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            id: { type: "string" },
+            kind: { type: "string", enum: ["plan", "elevation", "section", "detail"] },
+            title: { type: "string" },
+            storyId: { type: "string" },
+            direction: { type: "string", enum: ["front", "back", "left", "right"] },
+            sectionAxis: { type: "string", enum: ["x", "y"] },
+            sectionOffset: { type: "number" },
+            sourceViewId: { type: "string" },
+            region: {
+              type: "object",
+              properties: {
+                x: { type: "number" },
+                y: { type: "number" },
+                w: { type: "number", exclusiveMinimum: 0 },
+                h: { type: "number", exclusiveMinimum: 0 },
+              },
+              required: ["x", "y", "w", "h"],
+            },
+            detailScale: { type: "number", exclusiveMinimum: 0 },
+            scale: { type: "number", exclusiveMinimum: 0 },
+          },
+          required: ["kind", "title"],
+        },
+      },
+    },
+    required: ["views"],
+  },
+  "docs.updateView": {
+    type: "object",
+    properties: {
+      viewId: { type: "string" },
+      patch: { type: "object" },
+    },
+    required: ["viewId", "patch"],
+  },
+  "docs.removeView": {
+    type: "object",
+    properties: { viewId: { type: "string" } },
+    required: ["viewId"],
+  },
+  "docs.createSheets": {
+    type: "object",
+    properties: {
+      sheets: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            id: { type: "string" },
+            title: { type: "string" },
+            titleBlock: {
+              type: "object",
+              properties: {
+                projectName: { type: "string" },
+                sheetTitle: { type: "string" },
+                sheetNumber: { type: "string" },
+                author: { type: "string" },
+                date: { type: "string" },
+              },
+              required: ["projectName", "sheetTitle", "sheetNumber"],
+            },
+            viewPlacements: {
+              type: "array",
+              items: {
+                type: "object",
+                properties: {
+                  viewId: { type: "string" },
+                  x: { type: "number" },
+                  y: { type: "number" },
+                  w: { type: "number", exclusiveMinimum: 0 },
+                  h: { type: "number", exclusiveMinimum: 0 },
+                },
+                required: ["viewId", "x", "y", "w", "h"],
+              },
+            },
+          },
+          required: ["title", "titleBlock", "viewPlacements"],
+        },
+      },
+    },
+    required: ["sheets"],
+  },
+  "docs.updateSheet": {
+    type: "object",
+    properties: {
+      sheetId: { type: "string" },
+      patch: { type: "object" },
+    },
+    required: ["sheetId", "patch"],
+  },
+  "docs.removeSheet": {
+    type: "object",
+    properties: { sheetId: { type: "string" } },
+    required: ["sheetId"],
+  },
+  "docs.addAnnotations": {
+    type: "object",
+    properties: {
+      annotations: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            id: { type: "string" },
+            type: { type: "string", enum: ["docs.dim", "docs.tag", "docs.note"] },
+            viewId: { type: "string" },
+            refIds: { type: "array", items: { type: "string" }, minItems: 2, maxItems: 2 },
+            axis: { type: "string", enum: ["x", "y"] },
+            mode: { type: "string", enum: ["overall", "clear"] },
+            offset: { type: "number" },
+            targetId: { type: "string" },
+            x: { type: "number" },
+            y: { type: "number" },
+            text: { type: "string" },
+          },
+          required: ["type", "viewId"],
+        },
+      },
+    },
+    required: ["annotations"],
+  },
+  "docs.removeAnnotations": {
+    type: "object",
+    properties: { ids: { type: "array", items: { type: "string" } } },
+    required: ["ids"],
+  },
+  "docs.regenerate": { type: "object", properties: {} },
 };
 
 export const QUERY_PAYLOAD_SCHEMAS: Readonly<Record<QueryName, object>> = {
@@ -457,6 +593,22 @@ export const QUERY_PAYLOAD_SCHEMAS: Readonly<Record<QueryName, object>> = {
       preset: { type: "string", enum: ["iso", "top", "front", "right"] },
     },
     required: ["preset"],
+  },
+  // COMPAT-CAD-003 (additive): documentation queries.
+  "docs.listViews": { type: "object", properties: {} },
+  "docs.getViewGeometry": {
+    type: "object",
+    properties: { viewId: { type: "string" } },
+    required: ["viewId"],
+  },
+  "docs.listSheets": { type: "object", properties: {} },
+  "docs.exportSheet": {
+    type: "object",
+    properties: {
+      sheetId: { type: "string" },
+      format: { type: "string", enum: ["sheet-ir", "pdf", "dwg"] },
+    },
+    required: ["sheetId", "format"],
   },
 };
 

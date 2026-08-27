@@ -95,6 +95,97 @@ export interface BimSettings {
   readonly camera: { readonly preset: BimCameraPreset };
 }
 
+// --- COMPAT-CAD-003 (additive, api-contract.md §8): documentation ---------
+
+/** Drawing view kinds derived from the BIM model (COMPAT-CAD-003).
+ *  - plan      — orthographic top view of ONE story (story-local XY).
+ *  - elevation — orthographic vertical projection of one story or the whole
+ *                building along a canonical direction (no hidden-line
+ *                removal — wireframe outlines; documented limitation).
+ *  - section   — vertical cut plane (x=offset or y=offset); the projected
+ *                outlines of elements whose extent crosses the plane.
+ *  - detail    — a magnified crop of another MODEL view (plan/elevation/
+ *                section; detail-of-detail is rejected).
+ *  View DEFINITIONS are versioned document content (DocumentEdit); the
+ *  projected primitives are DERIVED state — pure deterministic functions of
+ *  (view definition, current BIM elements), recomputed on demand and never
+ *  stored (determinism proven by re-computation + canonical hashing). */
+export type DocsViewKind = "plan" | "elevation" | "section" | "detail";
+
+/** Canonical elevation directions (mirror src/bim/camera.ts semantics:
+ *  front = viewer at −Y looking +Y, so front projects world X; left =
+ *  viewer at −X, projecting world Y; back/right mirror). */
+export type DocsElevationDirection = "front" | "back" | "left" | "right";
+
+/** A documentation view definition (COMPAT-CAD-003). Canonical identity
+ *  `vw-NNNNNN` is minted by the document (monotonic, never reused). Fields
+ *  are validated per kind: plan requires storyId; elevation requires
+ *  direction; section requires sectionAxis + sectionOffset; detail requires
+ *  sourceViewId + region + detailScale. `scale` is the drawing scale
+ *  denominator (e.g. 50 for 1:50; presentation hint, default 50). */
+export interface DocsViewRecord {
+  readonly id: string;
+  readonly kind: DocsViewKind;
+  readonly title: string;
+  /** Plan: the story shown (required). Elevation/section: optional story
+ *   *  scope (absent = the whole building). Detail: unused. */
+  readonly storyId?: string;
+  /** Elevation (required): canonical direction. */
+  readonly direction?: DocsElevationDirection;
+  /** Section (required): cut-plane normal axis. */
+  readonly sectionAxis?: "x" | "y";
+  /** Section (required): cut-plane offset (story-local/world XY, mm). */
+  readonly sectionOffset?: number;
+  /** Detail (required): the cropped source MODEL view. */
+  readonly sourceViewId?: string;
+  /** Detail (required): crop region in the source view's coordinates. */
+  readonly region?: { readonly x: number; readonly y: number; readonly w: number; readonly h: number };
+  /** Detail (required): magnification factor (> 1 enlarges). */
+  readonly detailScale?: number;
+  /** Drawing scale denominator (1:N); default 50. */
+  readonly scale?: number;
+}
+
+/** Canonical sheet frame for this slice: A1 landscape (841×594 mm) with a
+ *  fixed 200 mm title-block strip on the right edge — the drawable region
+ *  is [0, 641]×[0, 594] (mm). All sheets share the frame (single canonical
+ *  size — honest scope for this slice). */
+export const DOCS_SHEET_FRAME = {
+  width: 841,
+  height: 594,
+  titleBlockWidth: 200,
+} as const;
+
+/** Title block fields (COMPAT-CAD-003). Drawn inside the fixed right strip. */
+export interface DocsTitleBlock {
+  readonly projectName: string;
+  readonly sheetTitle: string;
+  readonly sheetNumber: string;
+  readonly author?: string;
+  readonly date?: string;
+}
+
+/** A view placement on a sheet: the view's projected content is mapped
+ *  into the frame (x, y, w, h) in sheet millimetres. */
+export interface DocsViewPlacement {
+  readonly viewId: string;
+  readonly x: number;
+  readonly y: number;
+  readonly w: number;
+  readonly h: number;
+}
+
+/** A documentation sheet/layout (COMPAT-CAD-003). Canonical identity
+ *  `sh-NNNNNN` is minted by the document (monotonic, never reused).
+ *  Placements are validated: inside the drawable region, pairwise
+ *  non-overlapping (open-interval semantics — touching edges allowed). */
+export interface DocsSheetRecord {
+  readonly id: string;
+  readonly title: string;
+  readonly titleBlock: DocsTitleBlock;
+  readonly viewPlacements: readonly DocsViewPlacement[];
+}
+
 /** A document-local element. The `engineId` field is a provenance/source
  *  identifier only; Construction Graph element identity is mapped through
  *  explicit versioned contracts (§5.4, LOCK-019). */
@@ -141,6 +232,13 @@ export interface CADDocumentSnapshot {
   /** COMPAT-CAD-002: BIM workspace camera state (absent on legacy snapshots;
  *   *   a legacy snapshot opens with the canonical default preset). */
   readonly bimSettings?: BimSettings;
+  /** COMPAT-CAD-003: documentation view definitions (absent on legacy
+ *   *  snapshots; versioned through the addView/updateView/removeLayer-style
+ *   *  command model — view lineage lives in the recorded applied edits). */
+  readonly docsViews?: readonly DocsViewRecord[];
+  /** COMPAT-CAD-003: documentation sheets/layouts (absent on legacy
+ *   *  snapshots; same versioned-command-model contract as docsViews). */
+  readonly docsSheets?: readonly DocsSheetRecord[];
 }
 
 /** A reversible document edit (undo/redo semantics, §5.4). The inverse is
@@ -208,4 +306,67 @@ export type DocumentEdit =
       readonly element?: undefined;
       readonly patch?: undefined;
       readonly layerId: string;
+    }
+  // --- COMPAT-CAD-003 (additive) ---
+  | {
+      readonly type: "addView";
+      readonly elementId?: undefined;
+      readonly element?: undefined;
+      readonly patch?: undefined;
+      readonly view: DocsViewRecord;
+    }
+  | {
+      readonly type: "updateView";
+      readonly elementId?: undefined;
+      readonly element?: undefined;
+      readonly patch: Readonly<Record<string, unknown>>;
+      readonly viewId: string;
+    }
+  | {
+      readonly type: "removeView";
+      readonly elementId?: undefined;
+      readonly element?: undefined;
+      readonly patch?: undefined;
+      readonly viewId: string;
+    }
+  | {
+      readonly type: "addSheet";
+      readonly elementId?: undefined;
+      readonly element?: undefined;
+      readonly patch?: undefined;
+      readonly sheet: DocsSheetRecord;
+    }
+  | {
+      readonly type: "updateSheet";
+      readonly elementId?: undefined;
+      readonly element?: undefined;
+      readonly patch: Readonly<Record<string, unknown>>;
+      readonly sheetId: string;
+    }
+  | {
+      readonly type: "removeSheet";
+      readonly elementId?: undefined;
+      readonly element?: undefined;
+      readonly patch?: undefined;
+      readonly sheetId: string;
+    }
+  | {
+      /** Full-record view restore (exact inverse semantics — mirrors setProps:
+       *  used as the updateView inverse when a patch added a key, so absence
+       *  of keys is representable on undo/replay; COMPAT-CAD-003). */
+      readonly type: "setViewRecord";
+      readonly elementId?: undefined;
+      readonly element?: undefined;
+      readonly patch?: undefined;
+      readonly viewId: string;
+      readonly view: DocsViewRecord;
+    }
+  | {
+      /** Full-record sheet restore (setViewRecord semantics for sheets). */
+      readonly type: "setSheetRecord";
+      readonly elementId?: undefined;
+      readonly element?: undefined;
+      readonly patch?: undefined;
+      readonly sheetId: string;
+      readonly sheet: DocsSheetRecord;
     };

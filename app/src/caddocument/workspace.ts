@@ -15,7 +15,20 @@
  * host imports (LOCK-018).
  */
 
-import type { BimCameraPreset, BimSettings, DraftingSettings, LayerRecord, SnapKind } from "../contracts/caddocument.js";
+import type {
+  BimCameraPreset,
+  BimSettings,
+  DocsElevationDirection,
+  DocsSheetRecord,
+  DocsTitleBlock,
+  DocsViewKind,
+  DocsViewPlacement,
+  DocsViewRecord,
+  DraftingSettings,
+  LayerRecord,
+  SnapKind,
+} from "../contracts/caddocument.js";
+import { DOCS_SHEET_FRAME as SHEET_FRAME } from "../contracts/caddocument.js";
 
 /** Canonical BIM camera presets (COMPAT-CAD-002). */
 export const BIM_CAMERA_PRESETS: readonly BimCameraPreset[] = ["iso", "top", "front", "right"];
@@ -212,4 +225,239 @@ export function validateBimSettings(value: unknown): BimSettings {
     );
   }
   return { units: "mm", camera: { preset: cam.preset as BimCameraPreset } };
+}
+
+// --- COMPAT-CAD-003 (additive): documentation views + sheets ---------------
+
+const DOCS_VIEW_KINDS: readonly DocsViewKind[] = ["plan", "elevation", "section", "detail"];
+const DOCS_ELEVATION_DIRECTIONS: readonly DocsElevationDirection[] = ["front", "back", "left", "right"];
+
+/** Drawable-region width (frame minus the title-block strip), sheet mm. */
+export const DOCS_DRAWABLE_WIDTH = SHEET_FRAME.width - SHEET_FRAME.titleBlockWidth;
+
+/** Structural + per-kind validation of a documentation view record
+ *  (LOCK-007: malformed input REJECTED, never guessed). Cross-reference
+ *  checks (storyId/sourceViewId exist) live in the document/commands layer
+ *  where state is available; this validates record shape per kind. */
+export function validateDocsViewRecord(view: unknown): DocsViewRecord {
+  if (typeof view !== "object" || view === null || Array.isArray(view)) {
+    throw new Error("view record must be an object");
+  }
+  const v = view as Record<string, unknown>;
+  if (typeof v.id !== "string" || v.id.length === 0) {
+    throw new Error("view.id must be a non-empty string");
+  }
+  if (!(DOCS_VIEW_KINDS as readonly unknown[]).includes(v.kind)) {
+    throw new Error(`view '${v.id}': kind must be one of ${DOCS_VIEW_KINDS.join(" | ")}`);
+  }
+  if (typeof v.title !== "string" || v.title.length === 0) {
+    throw new Error(`view '${v.id}': title must be a non-empty string`);
+  }
+  if (v.scale !== undefined && (!isFiniteNumber(v.scale) || (v.scale as number) <= 0)) {
+    throw new Error(`view '${v.id}': scale must be a positive finite number (1:N denominator)`);
+  }
+  const kind = v.kind as DocsViewKind;
+  if (kind === "plan") {
+    if (typeof v.storyId !== "string" || v.storyId.length === 0) {
+      throw new Error(`view '${v.id}': plan views require storyId`);
+    }
+    rejectViewFields(v, "plan", ["direction", "sectionAxis", "sectionOffset", "sourceViewId", "region", "detailScale"]);
+  } else if (kind === "elevation") {
+    if (!(DOCS_ELEVATION_DIRECTIONS as readonly unknown[]).includes(v.direction)) {
+      throw new Error(`view '${v.id}': elevation views require direction (${DOCS_ELEVATION_DIRECTIONS.join(" | ")})`);
+    }
+    if (v.storyId !== undefined && (typeof v.storyId !== "string" || v.storyId.length === 0)) {
+      throw new Error(`view '${v.id}': elevation storyId must be a non-empty string when present`);
+    }
+    rejectViewFields(v, "elevation", ["sectionAxis", "sectionOffset", "sourceViewId", "region", "detailScale"]);
+  } else if (kind === "section") {
+    if (v.sectionAxis !== "x" && v.sectionAxis !== "y") {
+      throw new Error(`view '${v.id}': section views require sectionAxis 'x' | 'y'`);
+    }
+    if (!isFiniteNumber(v.sectionOffset)) {
+      throw new Error(`view '${v.id}': section views require a finite sectionOffset`);
+    }
+    if (v.storyId !== undefined && (typeof v.storyId !== "string" || v.storyId.length === 0)) {
+      throw new Error(`view '${v.id}': section storyId must be a non-empty string when present`);
+    }
+    rejectViewFields(v, "section", ["direction", "sourceViewId", "region", "detailScale"]);
+  } else {
+    // detail
+    if (typeof v.sourceViewId !== "string" || v.sourceViewId.length === 0) {
+      throw new Error(`view '${v.id}': detail views require sourceViewId`);
+    }
+    if (!isFiniteNumber(v.detailScale) || (v.detailScale as number) <= 0) {
+      throw new Error(`view '${v.id}': detail views require a positive finite detailScale`);
+    }
+    const region = v.region;
+    if (typeof region !== "object" || region === null) {
+      throw new Error(`view '${v.id}': detail views require region {x,y,w,h}`);
+    }
+    const r = region as Record<string, unknown>;
+    if (
+      !isFiniteNumber(r.x) || !isFiniteNumber(r.y) ||
+      !isFiniteNumber(r.w) || (r.w as number) <= 0 ||
+      !isFiniteNumber(r.h) || (r.h as number) <= 0
+    ) {
+      throw new Error(`view '${v.id}': detail region must carry finite x/y and positive w/h`);
+    }
+    rejectViewFields(v, "detail", ["storyId", "direction", "sectionAxis", "sectionOffset"]);
+  }
+  return view as DocsViewRecord;
+}
+
+function rejectViewFields(
+  v: Readonly<Record<string, unknown>>,
+  kind: DocsViewKind,
+  forbidden: readonly string[],
+): void {
+  for (const f of forbidden) {
+    if (v[f] !== undefined) {
+      throw new Error(`view '${v.id}': ${kind} views must not carry '${f}'`);
+    }
+  }
+}
+
+/** Keys a view patch may carry (updateView whitelists). */
+const VIEW_PATCH_KEYS = ["title", "scale", "storyId", "direction", "sectionAxis", "sectionOffset", "sourceViewId", "region", "detailScale"] as const;
+
+/** Validate + merge an updateView patch against the current record (kind is
+ *  immutable — patching it is rejected). Returns the MERGED record. */
+export function applyViewPatch(current: DocsViewRecord, patch: Readonly<Record<string, unknown>>): DocsViewRecord {
+  for (const key of Object.keys(patch)) {
+    if (key === "kind") {
+      throw new Error("updateView: kind is immutable — remove and re-create the view");
+    }
+    if (!(VIEW_PATCH_KEYS as readonly string[]).includes(key)) {
+      throw new Error(`updateView: unknown view field '${key}' (allowed: ${VIEW_PATCH_KEYS.join(", ")})`);
+    }
+  }
+  const merged = { ...current, ...patch } as DocsViewRecord;
+  // A patch that clears a required field (e.g. sets title to "") is rejected
+  // by validateDocsViewRecord; a patch setting an optional field to undefined
+  // removes it — representable, validated below.
+  const cleaned: Record<string, unknown> = { ...merged };
+  for (const key of Object.keys(cleaned)) {
+    if (cleaned[key] === undefined) delete cleaned[key];
+  }
+  return validateDocsViewRecord(cleaned);
+}
+
+/** Derive the view mint-sequence counter from existing ids (`vw-NNNNNN`). */
+export function deriveViewSequence(views: readonly DocsViewRecord[]): number {
+  let max = 0;
+  for (const view of views) {
+    const m = /^vw-(\d{6,})$/.exec(view.id);
+    if (m !== null && m[1] !== undefined) max = Math.max(max, Number.parseInt(m[1], 10));
+  }
+  return max + 1;
+}
+
+/** Structural validation of a title block (LOCK-007). */
+export function validateDocsTitleBlock(value: unknown): DocsTitleBlock {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new Error("titleBlock must be an object");
+  }
+  const t = value as Record<string, unknown>;
+  for (const key of ["projectName", "sheetTitle", "sheetNumber"] as const) {
+    if (typeof t[key] !== "string" || (t[key] as string).length === 0) {
+      throw new Error(`titleBlock.${key} must be a non-empty string`);
+    }
+  }
+  if (t.author !== undefined && typeof t.author !== "string") {
+    throw new Error("titleBlock.author must be a string when present");
+  }
+  if (t.date !== undefined && typeof t.date !== "string") {
+    throw new Error("titleBlock.date must be a string when present");
+  }
+  return value as DocsTitleBlock;
+}
+
+/** Structural + placement validation of a documentation sheet record.
+ *  Placements must reference views (existence checked with document state),
+ *  lie inside the drawable region [0, drawableWidth]×[0, height] and be
+ *  pairwise NON-OVERLAPPING (open intervals — touching edges allowed). */
+export function validateDocsSheetRecord(sheet: unknown): DocsSheetRecord {
+  if (typeof sheet !== "object" || sheet === null || Array.isArray(sheet)) {
+    throw new Error("sheet record must be an object");
+  }
+  const s = sheet as Record<string, unknown>;
+  if (typeof s.id !== "string" || s.id.length === 0) {
+    throw new Error("sheet.id must be a non-empty string");
+  }
+  if (typeof s.title !== "string" || s.title.length === 0) {
+    throw new Error(`sheet '${s.id}': title must be a non-empty string`);
+  }
+  validateDocsTitleBlock(s.titleBlock);
+  if (!Array.isArray(s.viewPlacements)) {
+    throw new Error(`sheet '${s.id}': viewPlacements must be an array`);
+  }
+  const seen = new Set<string>();
+  const placements: DocsViewPlacement[] = [];
+  for (const raw of s.viewPlacements) {
+    if (typeof raw !== "object" || raw === null) {
+      throw new Error(`sheet '${s.id}': each placement must be an object`);
+    }
+    const p = raw as Record<string, unknown>;
+    if (typeof p.viewId !== "string" || p.viewId.length === 0) {
+      throw new Error(`sheet '${s.id}': placement.viewId must be a non-empty string`);
+    }
+    if (seen.has(p.viewId)) {
+      throw new Error(`sheet '${s.id}': view '${p.viewId}' is placed twice — one placement per view`);
+    }
+    seen.add(p.viewId);
+    if (
+      !isFiniteNumber(p.x) || !isFiniteNumber(p.y) ||
+      !isFiniteNumber(p.w) || (p.w as number) <= 0 ||
+      !isFiniteNumber(p.h) || (p.h as number) <= 0
+    ) {
+      throw new Error(`sheet '${s.id}': placement for '${p.viewId}' needs finite x/y and positive w/h`);
+    }
+    const x = p.x as number, y = p.y as number, w = p.w as number, h = p.h as number;
+    if (x < 0 || y < 0 || x + w > DOCS_DRAWABLE_WIDTH || y + h > SHEET_FRAME.height) {
+      throw new Error(
+        `sheet '${s.id}': placement for '${p.viewId}' leaves the drawable region [0,${DOCS_DRAWABLE_WIDTH}]×[0,${SHEET_FRAME.height}]`,
+      );
+    }
+    placements.push({ viewId: p.viewId, x, y, w, h });
+  }
+  for (let i = 0; i < placements.length; i++) {
+    for (let j = i + 1; j < placements.length; j++) {
+      const a = placements[i]!, b = placements[j]!;
+      const overlaps = a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+      if (overlaps) {
+        throw new Error(
+          `sheet '${s.id}': placements for '${a.viewId}' and '${b.viewId}' overlap (open-interval check; touching edges are allowed)`,
+        );
+      }
+    }
+  }
+  return sheet as DocsSheetRecord;
+}
+
+/** Keys a sheet patch may carry (updateSheet whitelists). */
+const SHEET_PATCH_KEYS = ["title", "titleBlock", "viewPlacements"] as const;
+
+/** Validate + merge an updateSheet patch against the current record. */
+export function applySheetPatch(current: DocsSheetRecord, patch: Readonly<Record<string, unknown>>): DocsSheetRecord {
+  for (const key of Object.keys(patch)) {
+    if (!(SHEET_PATCH_KEYS as readonly string[]).includes(key)) {
+      throw new Error(`updateSheet: unknown sheet field '${key}' (allowed: ${SHEET_PATCH_KEYS.join(", ")})`);
+    }
+  }
+  const cleaned: Record<string, unknown> = { ...current, ...patch };
+  for (const key of Object.keys(cleaned)) {
+    if (cleaned[key] === undefined) delete cleaned[key];
+  }
+  return validateDocsSheetRecord(cleaned);
+}
+
+/** Derive the sheet mint-sequence counter from existing ids (`sh-NNNNNN`). */
+export function deriveSheetSequence(sheets: readonly DocsSheetRecord[]): number {
+  let max = 0;
+  for (const sheet of sheets) {
+    const m = /^sh-(\d{6,})$/.exec(sheet.id);
+    if (m !== null && m[1] !== undefined) max = Math.max(max, Number.parseInt(m[1], 10));
+  }
+  return max + 1;
 }

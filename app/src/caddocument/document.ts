@@ -29,6 +29,8 @@ import { createHash } from "node:crypto";
 import type {
   BimSettings,
   CADDocumentSnapshot,
+  DocsSheetRecord,
+  DocsViewRecord,
   DocumentEdit,
   DraftingSettings,
   Element,
@@ -42,11 +44,17 @@ import { canonicalStringify } from "./serialization.js";
 import {
   DEFAULT_LAYER,
   applyLayerPatch,
+  applySheetPatch,
+  applyViewPatch,
   defaultBimSettings,
   defaultDraftingSettings,
   deriveLayerSequence,
+  deriveSheetSequence,
+  deriveViewSequence,
   elementLayerReference,
   validateBimSettings,
+  validateDocsSheetRecord,
+  validateDocsViewRecord,
   validateDraftingSettings,
   validateLayerRecord,
 } from "./workspace.js";
@@ -96,6 +104,16 @@ export class CADDocument {
   /** COMPAT-CAD-002: non-versioned BIM workspace settings (camera preset;
    *  persisted with the snapshot, mutated without a version bump). */
   private bimSettingsState: BimSettings = defaultBimSettings();
+  /** COMPAT-CAD-003: the documentation view table (insertion-ordered;
+   *  edited ONLY through the DocumentEdit command model — view lineage lives
+   *  in the recorded applied edits, like the layer table). */
+  private readonly docsViews: Map<string, DocsViewRecord> = new Map();
+  /** COMPAT-CAD-003: monotonic mint counter for `vw-NNNNNN` identities. */
+  private nextViewSequence: number;
+  /** COMPAT-CAD-003: the documentation sheet table (insertion-ordered). */
+  private readonly docsSheets: Map<string, DocsSheetRecord> = new Map();
+  /** COMPAT-CAD-003: monotonic mint counter for `sh-NNNNNN` identities. */
+  private nextSheetSequence: number;
   /** Ephemeral editor selection (§5.4 editor state). Orthogonal to the
    *  versioned document content: it is NOT in the version-id derivation and
    *  NOT in the parity content hash (§5.5). Since COMPAT-CAD-001 it IS
@@ -117,6 +135,10 @@ export class CADDocument {
     nextLayerSequence: number,
     draftingSettings: DraftingSettings,
     bimSettings: BimSettings,
+    docsViews: Iterable<DocsViewRecord>,
+    nextViewSequence: number,
+    docsSheets: Iterable<DocsSheetRecord>,
+    nextSheetSequence: number,
   ) {
     this.version = version;
     for (const e of elements) this.elements.set(e.id, e);
@@ -131,6 +153,10 @@ export class CADDocument {
     this.nextLayerSequence = nextLayerSequence;
     this.draftingSettingsState = draftingSettings;
     this.bimSettingsState = bimSettings;
+    for (const v of docsViews) this.docsViews.set(v.id, v);
+    this.nextViewSequence = nextViewSequence;
+    for (const s of docsSheets) this.docsSheets.set(s.id, s);
+    this.nextSheetSequence = nextSheetSequence;
   }
 
   /** Open a snapshot: load state, set version, clear undo/redo, adopt the
@@ -170,6 +196,13 @@ export class CADDocument {
     const bimSettings = snapshot.bimSettings !== undefined
       ? validateBimSettings(snapshot.bimSettings)
       : defaultBimSettings();
+    // COMPAT-CAD-003: adopt the documentation view/sheet tables when present
+    // (validated structurally, LOCK-007); a legacy snapshot opens with empty
+    // tables — the additive-feature default, not a repair.
+    const docsViews = [...(snapshot.docsViews ?? [])];
+    for (const view of docsViews) validateDocsViewRecord(view);
+    const docsSheets = [...(snapshot.docsSheets ?? [])];
+    for (const sheet of docsSheets) validateDocsSheetRecord(sheet);
     return new CADDocument(
       snapshot.version,
       snapshot.elements,
@@ -184,6 +217,10 @@ export class CADDocument {
       Math.max(deriveLayerSequence(layers), history.next_layer_sequence ?? 1),
       draftingSettings,
       bimSettings,
+      docsViews,
+      Math.max(deriveViewSequence(docsViews), history.next_view_sequence ?? 1),
+      docsSheets,
+      Math.max(deriveSheetSequence(docsSheets), history.next_sheet_sequence ?? 1),
     );
   }
 
@@ -207,6 +244,10 @@ export class CADDocument {
       1,
       defaultDraftingSettings(),
       defaultBimSettings(),
+      [],
+      1,
+      [],
+      1,
     );
   }
 
@@ -293,6 +334,8 @@ export class CADDocument {
       afterElements: [...this.elements.values()],
       nextElementSequence: this.nextElementSequence,
       nextLayerSequence: this.nextLayerSequence,
+      nextViewSequence: this.nextViewSequence,
+      nextSheetSequence: this.nextSheetSequence,
     });
     return inverse;
   }
@@ -337,6 +380,8 @@ export class CADDocument {
       afterElements: [...this.elements.values()],
       nextElementSequence: this.nextElementSequence,
       nextLayerSequence: this.nextLayerSequence,
+      nextViewSequence: this.nextViewSequence,
+      nextSheetSequence: this.nextSheetSequence,
     });
     return entry.forward;
   }
@@ -365,6 +410,8 @@ export class CADDocument {
       afterElements: [...this.elements.values()],
       nextElementSequence: this.nextElementSequence,
       nextLayerSequence: this.nextLayerSequence,
+      nextViewSequence: this.nextViewSequence,
+      nextSheetSequence: this.nextSheetSequence,
     });
     return entry.forward;
   }
@@ -391,6 +438,10 @@ export class CADDocument {
       selection: [...this.#selection],
       draftingSettings: this.draftingSettingsState,
       bimSettings: this.bimSettingsState,
+      // COMPAT-CAD-003: documentation tables — omitted on docs-free documents
+      // so legacy snapshots stay byte-identical (additive-optional contract).
+      ...(this.docsViews.size > 0 ? { docsViews: [...this.docsViews.values()] } : {}),
+      ...(this.docsSheets.size > 0 ? { docsSheets: [...this.docsSheets.values()] } : {}),
     };
   }
 
@@ -419,6 +470,39 @@ export class CADDocument {
         );
       }
       return edit;
+    }
+    // COMPAT-CAD-003: addView mints a `vw-NNNNNN` identity when missing (the
+    // addElement pattern); an explicit id is validated + duplicate-checked.
+    if (edit.type === "addView") {
+      const raw = edit.view as { id?: unknown };
+      if (typeof raw.id === "string" && raw.id.length > 0) {
+        const view = validateDocsViewRecord(edit.view);
+        if (this.docsViews.has(view.id)) {
+          throw new Error(
+            `addView: view id '${view.id}' already exists — canonical view identity must not be reused while the view exists`,
+          );
+        }
+        return edit;
+      }
+      const minted = this.mintViewId();
+      const view = validateDocsViewRecord({ ...edit.view, id: minted });
+      return { ...edit, view } as DocumentEdit;
+    }
+    // COMPAT-CAD-003: addSheet mints a `sh-NNNNNN` identity when missing.
+    if (edit.type === "addSheet") {
+      const raw = edit.sheet as { id?: unknown };
+      if (typeof raw.id === "string" && raw.id.length > 0) {
+        const sheet = validateDocsSheetRecord(edit.sheet);
+        if (this.docsSheets.has(sheet.id)) {
+          throw new Error(
+            `addSheet: sheet id '${sheet.id}' already exists — canonical sheet identity must not be reused while the sheet exists`,
+          );
+        }
+        return edit;
+      }
+      const minted = this.mintSheetId();
+      const sheet = validateDocsSheetRecord({ ...edit.sheet, id: minted });
+      return { ...edit, sheet } as DocumentEdit;
     }
     if (edit.type !== "addElement") return edit;
     const element = edit.element;
@@ -457,6 +541,53 @@ export class CADDocument {
     const minted = `el-${String(this.nextElementSequence).padStart(6, "0")}`;
     this.nextElementSequence += 1;
     return minted;
+  }
+
+  /** COMPAT-CAD-003: mint a canonical documentation view identity
+   *  (`vw-NNNNNN`, monotonic, never reused) — document authority, mirrors
+   *  mintLayerId/mintElementId. */
+  mintViewId(): string {
+    const minted = `vw-${String(this.nextViewSequence).padStart(6, "0")}`;
+    this.nextViewSequence += 1;
+    return minted;
+  }
+
+  /** COMPAT-CAD-003: mint a canonical documentation sheet identity
+   *  (`sh-NNNNNN`, monotonic, never reused). */
+  mintSheetId(): string {
+    const minted = `sh-${String(this.nextSheetSequence).padStart(6, "0")}`;
+    this.nextSheetSequence += 1;
+    return minted;
+  }
+
+  /** COMPAT-CAD-003: the documentation view table (insertion order). */
+  get viewTable(): readonly DocsViewRecord[] {
+    return [...this.docsViews.values()];
+  }
+
+  /** COMPAT-CAD-003: the documentation sheet table (insertion order). */
+  get sheetTable(): readonly DocsSheetRecord[] {
+    return [...this.docsSheets.values()];
+  }
+
+  /** Look up a documentation view by canonical id. */
+  viewById(id: string): DocsViewRecord | undefined {
+    return this.docsViews.get(id);
+  }
+
+  /** Look up a documentation sheet by canonical id. */
+  sheetById(id: string): DocsSheetRecord | undefined {
+    return this.docsSheets.get(id);
+  }
+
+  /** Current mint counter for view identities (persisted via the history). */
+  get viewSequence(): number {
+    return this.nextViewSequence;
+  }
+
+  /** Current mint counter for sheet identities (persisted via the history). */
+  get sheetSequence(): number {
+    return this.nextSheetSequence;
   }
 
   private applyEdit(edit: DocumentEdit): void {
@@ -526,9 +657,141 @@ export class CADDocument {
         this.layers.delete(edit.layerId);
         break;
       }
+      // --- COMPAT-CAD-003 (additive): documentation view/sheet edits ---
+      case "addView": {
+        if (edit.view === undefined) throw new Error("addView requires view");
+        const view = validateDocsViewRecord(edit.view);
+        if (this.docsViews.has(view.id)) throw new Error(`addView: view id '${view.id}' already exists`);
+        this.validateViewReferences(view);
+        this.docsViews.set(view.id, view);
+        break;
+      }
+      case "updateView": {
+        if (edit.viewId === undefined || edit.patch === undefined) {
+          throw new Error("updateView requires viewId + patch");
+        }
+        const current = this.docsViews.get(edit.viewId);
+        if (current === undefined) throw new Error(`updateView: no view '${edit.viewId}'`);
+        const merged = applyViewPatch(current, edit.patch);
+        this.validateViewReferences(merged);
+        this.docsViews.set(edit.viewId, merged);
+        break;
+      }
+      case "removeView": {
+        if (edit.viewId === undefined) throw new Error("removeView requires viewId");
+        if (!this.docsViews.has(edit.viewId)) throw new Error(`removeView: no view '${edit.viewId}'`);
+        const sheetRefs = [...this.docsSheets.values()].filter((sh) =>
+          sh.viewPlacements.some((p) => p.viewId === edit.viewId),
+        );
+        if (sheetRefs.length > 0) {
+          throw new Error(
+            `removeView: view '${edit.viewId}' is still placed on ${sheetRefs.length} sheet(s) (${sheetRefs.map((sh) => sh.id).join(", ")}) — remove those placements first (no silent cascade)`,
+          );
+        }
+        let annotationRefs = 0;
+        for (const el of this.elements.values()) {
+          if (el.props.viewId === edit.viewId) annotationRefs += 1;
+        }
+        if (annotationRefs > 0) {
+          throw new Error(
+            `removeView: view '${edit.viewId}' is still referenced by ${annotationRefs} annotation element(s) — delete them first (no silent cascade)`,
+          );
+        }
+        // Detail views referencing this view as their source also block removal.
+        const detailRefs = [...this.docsViews.values()].filter((v) => v.sourceViewId === edit.viewId);
+        if (detailRefs.length > 0) {
+          throw new Error(
+            `removeView: view '${edit.viewId}' is the detail source of ${detailRefs.length} detail view(s) (${detailRefs.map((v) => v.id).join(", ")}) — remove them first (no silent cascade)`,
+          );
+        }
+        this.docsViews.delete(edit.viewId);
+        break;
+      }
+      case "addSheet": {
+        if (edit.sheet === undefined) throw new Error("addSheet requires sheet");
+        const sheet = validateDocsSheetRecord(edit.sheet);
+        if (this.docsSheets.has(sheet.id)) throw new Error(`addSheet: sheet id '${sheet.id}' already exists`);
+        for (const placement of sheet.viewPlacements) {
+          if (!this.docsViews.has(placement.viewId)) {
+            throw new Error(`addSheet: placement references unknown view '${placement.viewId}'`);
+          }
+        }
+        this.docsSheets.set(sheet.id, sheet);
+        break;
+      }
+      case "updateSheet": {
+        if (edit.sheetId === undefined || edit.patch === undefined) {
+          throw new Error("updateSheet requires sheetId + patch");
+        }
+        const current = this.docsSheets.get(edit.sheetId);
+        if (current === undefined) throw new Error(`updateSheet: no sheet '${edit.sheetId}'`);
+        const merged = applySheetPatch(current, edit.patch);
+        for (const placement of merged.viewPlacements) {
+          if (!this.docsViews.has(placement.viewId)) {
+            throw new Error(`updateSheet: placement references unknown view '${placement.viewId}'`);
+          }
+        }
+        this.docsSheets.set(edit.sheetId, merged);
+        break;
+      }
+      case "removeSheet": {
+        if (edit.sheetId === undefined) throw new Error("removeSheet requires sheetId");
+        if (!this.docsSheets.has(edit.sheetId)) throw new Error(`removeSheet: no sheet '${edit.sheetId}'`);
+        this.docsSheets.delete(edit.sheetId);
+        break;
+      }
+      case "setViewRecord": {
+        if (edit.viewId === undefined || edit.view === undefined) {
+          throw new Error("setViewRecord requires viewId + view");
+        }
+        const view = validateDocsViewRecord(edit.view);
+        if (view.id !== edit.viewId) throw new Error("setViewRecord: view.id must equal viewId");
+        if (!this.docsViews.has(view.id)) throw new Error(`setViewRecord: no view '${view.id}'`);
+        this.validateViewReferences(view);
+        this.docsViews.set(view.id, view);
+        break;
+      }
+      case "setSheetRecord": {
+        if (edit.sheetId === undefined || edit.sheet === undefined) {
+          throw new Error("setSheetRecord requires sheetId + sheet");
+        }
+        const sheet = validateDocsSheetRecord(edit.sheet);
+        if (sheet.id !== edit.sheetId) throw new Error("setSheetRecord: sheet.id must equal sheetId");
+        if (!this.docsSheets.has(sheet.id)) throw new Error(`setSheetRecord: no sheet '${sheet.id}'`);
+        for (const placement of sheet.viewPlacements) {
+          if (!this.docsViews.has(placement.viewId)) {
+            throw new Error(`setSheetRecord: placement references unknown view '${placement.viewId}'`);
+          }
+        }
+        this.docsSheets.set(sheet.id, sheet);
+        break;
+      }
       default: {
         const _exhaustive = edit satisfies never;
         throw new Error(`unreachable edit type: ${JSON.stringify(_exhaustive)}`);
+      }
+    }
+  }
+
+  /** COMPAT-CAD-003: state-dependent cross-reference validation for a view
+   *  record (called from applyEdit where document state is available):
+   *  plan/elevation/section storyId must reference an existing BIM story
+   *  element; a detail's sourceViewId must reference an existing MODEL view
+   *  (detail-of-detail is rejected — a detail is not a projection source). */
+  private validateViewReferences(view: DocsViewRecord): void {
+    if (view.storyId !== undefined) {
+      const story = this.elements.get(view.storyId);
+      if (story === undefined || story.props.type !== "bim.story") {
+        throw new Error(`view '${view.id}': storyId '${view.storyId}' does not reference a BIM story element`);
+      }
+    }
+    if (view.kind === "detail") {
+      const source = this.docsViews.get(view.sourceViewId as string);
+      if (source === undefined) {
+        throw new Error(`view '${view.id}': sourceViewId '${view.sourceViewId}' does not reference an existing view`);
+      }
+      if (source.kind === "detail") {
+        throw new Error(`view '${view.id}': detail-of-detail is not supported — source must be a plan/elevation/section view`);
       }
     }
   }
@@ -605,6 +868,62 @@ export class CADDocument {
         const existing = this.layers.get(edit.layerId);
         if (existing === undefined) throw new Error(`removeLayer: no layer '${edit.layerId}'`);
         return { type: "addLayer", layer: existing };
+      }
+      // --- COMPAT-CAD-003 (additive): documentation view/sheet inverses ---
+      case "addView": {
+        if (edit.view === undefined) throw new Error("addView requires view");
+        return { type: "removeView", viewId: edit.view.id };
+      }
+      case "updateView": {
+        if (edit.viewId === undefined || edit.patch === undefined) {
+          throw new Error("updateView requires viewId + patch");
+        }
+        const current = this.docsViews.get(edit.viewId);
+        if (current === undefined) throw new Error(`updateView: no view '${edit.viewId}'`);
+        // Exact-inverse rule (COMPAT-CAD-002 updateElement lesson): a full
+        // record restore is always correct, including patches that ADDED a
+        // key (a partial inverse carrying undefined is not representable).
+        return { type: "setViewRecord", viewId: edit.viewId, view: current };
+      }
+      case "setViewRecord": {
+        if (edit.viewId === undefined || edit.view === undefined) {
+          throw new Error("setViewRecord requires viewId + view");
+        }
+        const current = this.docsViews.get(edit.viewId);
+        if (current === undefined) throw new Error(`setViewRecord: no view '${edit.viewId}'`);
+        return { type: "setViewRecord", viewId: edit.viewId, view: current };
+      }
+      case "removeView": {
+        if (edit.viewId === undefined) throw new Error("removeView requires viewId");
+        const existing = this.docsViews.get(edit.viewId);
+        if (existing === undefined) throw new Error(`removeView: no view '${edit.viewId}'`);
+        return { type: "addView", view: existing };
+      }
+      case "addSheet": {
+        if (edit.sheet === undefined) throw new Error("addSheet requires sheet");
+        return { type: "removeSheet", sheetId: edit.sheet.id };
+      }
+      case "updateSheet": {
+        if (edit.sheetId === undefined || edit.patch === undefined) {
+          throw new Error("updateSheet requires sheetId + patch");
+        }
+        const current = this.docsSheets.get(edit.sheetId);
+        if (current === undefined) throw new Error(`updateSheet: no sheet '${edit.sheetId}'`);
+        return { type: "setSheetRecord", sheetId: edit.sheetId, sheet: current };
+      }
+      case "setSheetRecord": {
+        if (edit.sheetId === undefined || edit.sheet === undefined) {
+          throw new Error("setSheetRecord requires sheetId + sheet");
+        }
+        const current = this.docsSheets.get(edit.sheetId);
+        if (current === undefined) throw new Error(`setSheetRecord: no sheet '${edit.sheetId}'`);
+        return { type: "setSheetRecord", sheetId: edit.sheetId, sheet: current };
+      }
+      case "removeSheet": {
+        if (edit.sheetId === undefined) throw new Error("removeSheet requires sheetId");
+        const existing = this.docsSheets.get(edit.sheetId);
+        if (existing === undefined) throw new Error(`removeSheet: no sheet '${edit.sheetId}'`);
+        return { type: "addSheet", sheet: existing };
       }
       default: {
         const _exhaustive = edit satisfies never;

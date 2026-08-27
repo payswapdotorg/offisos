@@ -95,6 +95,14 @@ export interface ModelHistory {
    *  document-minted canonical layer ids (`ly-000001`, …). Never reused —
    *  mirrors `next_element_sequence`. Absent on legacy histories. */
   readonly next_layer_sequence?: number;
+  /** COMPAT-CAD-003 (additive + optional): monotonic counter for
+   *  document-minted documentation view ids (`vw-000001`, …). Never reused.
+   *  Absent on legacy histories. */
+  readonly next_view_sequence?: number;
+  /** COMPAT-CAD-003 (additive + optional): monotonic counter for
+   *  document-minted documentation sheet ids (`sh-000001`, …). Never reused.
+   *  Absent on legacy histories. */
+  readonly next_sheet_sequence?: number;
   /** Append-only revision log (revisions[i].revision_number === i + 1). */
   readonly revisions: readonly ModelRevision[];
 }
