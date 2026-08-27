@@ -1,0 +1,130 @@
+{
+  "id": "CAD-PARITY-002",
+  "title": "Professional CAD workspace, command system, navigation and interaction foundation",
+  "issue": 75,
+  "architecture_version": "1.1",
+  "requirements": [
+    "CAD-001",
+    "BIM-001"
+  ],
+  "dependencies": [],
+  "objective": "Replace the simplified CAD UI with a professional workspace foundation supporting AutoCAD-class command-first drafting and Archicad-class project navigation under the frozen CAD/BIM Product Architecture v1.0: a shared engine-free command/selection/input core (canonical command registry with aliases/shortcuts driving every entry point; deterministic command-line prompt state machine with typed coordinate syntax, picks, Enter/Escape semantics, LINE chaining with Undo and POLYLINE Close; deterministic selection with window/crossing modes, stacked-hit cycling, pick modifiers; grips with validated drag edits; ortho/polar/tracking cursor feedback and the keyboard map) consumed by BOTH hosts so Web and Electron produce equivalent semantic command streams; the Web professional shell (application menu, contextual ribbon, tool palettes, command search palette, command line with history, status bar with drafting-aid toggles, properties/layers/navigator dock, document/view tabs, workspace presets, responsive behavior, accessibility surfaces) with the existing CAD/BIM workbenches remaining accessible as workspace views; the equivalent Electron desktop shell; and CI plus browser workflow evidence including Web/Electron semantic parity against a pinned fixture.",
+  "acceptance_criteria": [
+    "Existing CAD/BIM workflows remain accessible through the new shell (3D BIM, Documentation, IFC interoperability and Components workbenches are workspace views; the 2D drafting surface is superseded by the command-driven Model canvas using the same drafting core and App API; model revisions/graph events/replay/impact surfaces remain reachable; save/open/new flows preserved).",
+    "A representative line/circle/wall workflow can be completed using mouse, keyboard and command-line paths (verified: typed coordinates through the command line, ribbon button + canvas clicks, F-key/Ctrl-key shortcuts, command palette).",
+    "Selection, property editing, snap feedback, undo/redo and command cancellation are deterministic (shared pure selection/grips/feedback modules; validated property edits; versioned undo/redo through the App API; *Cancel* semantics with zero side effects).",
+    "Web and Electron produce equivalent semantic commands/results (both hosts run the identical prompt-engine script; the Web dev-server smoke and the Electron real-UI BrowserWindow smoke must match the pinned parity fixture: save sha256 a48a29a8e1d4be65…, 9 semantic commands, 4 elements, undo/redo and cancel verified on both).",
+    "No engine APIs are introduced into renderer/CADDocument/App API (src/workspace is engine-free and host-free; the LOCK-018 forbidden-import scan covers it).",
+    "UI has no known blocking console/runtime errors on the primary workflow (browser-verified: zero page errors, zero console errors beyond dev-server HMR logs, across command-line/mouse/keyboard paths, selection, properties, undo/redo, cancel, palette, view tabs and a 820 px responsive pass).",
+    "CI plus Vercel Preview browser evidence is green (CI: all 31 check runs green on the implementation head incl. the new cad-parity-002 workflow; browser workflow evidence produced against the identical dev-server build surface — the Vercel preview redeployment is blocked on credentials/App installation, see risk assumptions)."
+  ],
+  "non_goals": [
+    "Full geometry feature implementation (covered by subsequent parity work items CAD-PARITY-003+).",
+    "Full AutoCAD/Archicad command count parity in this issue (the registry carries the representative professional set: draw primitives incl. dimensions, BIM authoring, existing modify operations, document/view/palette commands, drafting-aid toggles).",
+    "Architecture changes (Architecture v1.1 and the CAD/BIM Product Architecture v1.0 stay frozen; no protected path touched).",
+    "Canvas pick support for component instances, doors and windows (selectable through the Navigator/Components palettes until CAD-PARITY-004/012).",
+    "Multi-point object-snap tracking acquisitions (single-base tracking; full OTRACK parity lands with CAD-2D-003).",
+    "Automatic Vercel PR previews (blocked on the Vercel GitHub App installation for pectoraux/offisos — browser-OAuth architect-side step documented in PR #71).",
+    "Approval or verification claim by implementation."
+  ],
+  "risk_assumptions": [
+    "Issue #75 (scope) and the Architect's immediate work order ('Z.ai is authorized to execute: CAD-PARITY-002 / Issue #75') are authoritative for this execution release.",
+    "CAD-PARITY-001 (product architecture + UI freeze) landed on main via architect-side PR #76 WITHOUT a work-item record; the dependency is objectively satisfied on main (governance/cad-bim-freeze.json FROZEN, spec/cad-bim/* present at the branch point 7234b26) and is therefore recorded here as an assumption rather than a registry dependency, which must resolve to a non-demo record.",
+    "architecture_version '1.1' is the parent ConstructionOS platform version (the validator's registry); the CAD/BIM product architecture v1.0 is frozen separately in governance/cad-bim-freeze.json and feature work within the freeze does not change the platform version.",
+    "Requirements are carried as CAD-001 (professional-grade 2D drafting workflows incl. the professional workspace surface) and BIM-001 (parametric building elements — the wall workflow) from spec/requirements.md; the product-level requirements CAD-P-002/003/004 and CAD-UX-002/003/004/005 live in the product registry spec/cad-bim/requirements.md.",
+    "The parity fixture pins the document identity (entityId/createdBy/format/formatVersion) so the Web and Electron save bytes are comparable; the pinned sha a48a29a8e1d4be65… is regenerated deterministically by 'node --import tsx apps/web/test/workspace-smoke.mjs --write-fixture' whenever the script changes.",
+    "Vercel Preview: the automatic PR preview remains blocked on the Vercel GitHub App installation for pectoraux/offisos; the CLI preview deployment of THIS PR head could not be produced because the Vercel API token from the PR #71 setup was used ephemerally and is not available in this continued session. Browser workflow evidence was produced against the identical dev-server build surface (the same lint/typecheck/build + dev-server smoke CI validates). Remediation is a single architect-side step: install the Vercel GitHub App (github.com/apps/vercel/installations/new → pectoraux/offisos) for automatic PR previews, or re-provide the Vercel token for a CLI preview deploy.",
+    "The Electron professional shell is additive: the legacy drafting/BIM/docs/IFC/components surfaces and their smokes are untouched and remain the regression baseline (all nine legacy smokes plus the new workspace smoke are green).",
+    "The 2D drafting workbench (apps/web/src/cad/drafting/workbench.tsx) is superseded by the command-driven Model canvas; its file remains in the tree for reference but is no longer imported (git history preserves it); the drafting functionality (tools, snapping, trim/extend, layers, save/open, undo/redo) is fully carried by the new canvas plus the shared core."
+  ],
+  "evidence": [
+    {
+      "id": "EV-001",
+      "type": "automated-test-suite",
+      "description": "409/409 app tests at the implementation head: the 338 pre-existing CAD/drafting/BIM/documentation/IFC/component regressions stay green and 71 new deterministic workspace tests run — command registry resolution (names, aliases, uniqueness, builder/instant completeness, representative set) and command search ranking; typed-input syntax (absolute/relative cartesian, polar, direct distance, explicit failures); prompt-engine flows (LINE typed vs picked parity, chaining with per-segment Undo via document.undo, POLYLINE vertices + Close + minimum-vertex rejection, CIRCLE radius via typed/pick, ARC, RECTANGLE, STORY defaults + overrides + activateCreated, WALL story gating + zero-length rejection, DOOR/WINDOW host validation + span projection + explicit-id atomic batches, MOVE/COPY displacement partitioning across drafting/BIM, ERASE with P (previous selection), Enter-repeat, command switching with *Cancel*, instant commands, determinism double-run); selection ranking/window-vs-crossing/cycling/modifiers; grips computation + validated stretch/radius/move edits (rejections included); drafting-aid constraints (ortho/polar/otrack boundaries); keymap zones/chords/temporary override. LOCK-018 forbidden-import scan covers src/workspace.",
+      "produced_at": "2026-08-27T19:20:00Z",
+      "reproducible": true,
+      "reproduction": "cd app && node --import tsx --test test/*.test.ts",
+      "references": {
+        "commit": "945e555d77583cdf9b2260835f75dd8b436fe8d6"
+      }
+    },
+    {
+      "id": "EV-002",
+      "type": "inspectable-artifact",
+      "description": "Deployable host proofs on the implementation head: Web lint/typecheck/build clean; dev-server workspace workflow smoke green — page render + STORY/LINE/CIRCLE/WALL through the REAL command-line path (typed coordinates), deterministic undo/redo, deterministic command cancellation, save determinism, and the pinned parity fixture match (app/test/fixtures/cad-parity-002-parity.json: save sha256 a48a29a8e1d4be65…, 9 semantic commands, 4 elements). Electron typecheck/build clean + ALL TEN smokes green: the nine regressions (engine-free, real-engine geometry, model revisions, impact, drafting, BIM, documentation, IFC 12/12, components 5/5) plus the new workspace BrowserWindow smoke driving the REAL professional UI (14 steps: shell mounted, parity entityId, STORY/LINE/CIRCLE/WALL via the command line, undo/redo, cancel with *Cancel* echo, command palette open/close, save determinism, save-sha + command-stream parity against the SAME fixture — Web/Electron semantic parity proven, LOCK-004). Browser workflow evidence on the dev server (the identical build surface CI validates): the representative line/circle/wall workflow completed via mouse (ribbon + canvas clicks), keyboard (F8 ortho toggle with aria-pressed, Ctrl+K palette search, Ctrl+Z/Ctrl+Y deterministic v6↔v7 width 240↔300) and command-line paths; Navigator selection with Sel-count + contextual mini-toolbar; properties edit (wall width 240→300 through validated bim.setProperties); cancel determinism (mid-LINE Esc → *Cancel*, zero entities); live coordinate readout; 3D BIM view tab accessible; responsive pass at 820 px (canvas visible, no horizontal scroll); ZERO page errors and ZERO console errors beyond dev-server HMR logs. Screenshots: /tmp/cp2-01-shell.png … /tmp/cp2-05-responsive.png.",
+      "produced_at": "2026-08-27T20:05:00Z",
+      "reproducible": true,
+      "reproduction": "cd apps/web && npm run dev -- --webpack -p 3100 & ; from the repo root: node --import tsx apps/web/test/workspace-smoke.mjs ; cd apps/electron && npm run smoke:workspace",
+      "references": {
+        "commit": "945e555d77583cdf9b2260835f75dd8b436fe8d6",
+        "path": "app/test/fixtures/cad-parity-002-parity.json"
+      }
+    },
+    {
+      "id": "EV-003",
+      "type": "ci-run",
+      "description": "All 31 PR-head check runs green on the exact implementation head 945e555: cad-parity-002 run #2 (id 33110015645 — workspace-shell: full 409-test app suite on BOTH pinned toolchains + LOCK-018 incl. src/workspace + IFC worker pin probe; web-host-workspace: lint/typecheck/build + the shared-prompt-engine dev-server workflow smoke against the pinned parity fixture; electron-host-workspace: build + TEN smokes incl. the real-UI workspace parity smoke with the result JSON uploaded as evidence), governance validation run #133 (id 33110015675 — tests, records, protected paths), and every regression workflow green (compat-ifc-001 #15 incl. both pinned toolchains, compat-cad-001 #24, compat-cad-002 #21, compat-cad-003 #18, compat-bim-003 #11, cad-implement-001 #45, cad-implement-002 #37, cad-implement-003 #31, research-cad-007 #22).",
+      "produced_at": "2026-08-27T20:12:00Z",
+      "reproducible": true,
+      "references": {
+        "commit": "945e555d77583cdf9b2260835f75dd8b436fe8d6",
+        "workflow_run": "33110015645",
+        "pr": 77
+      }
+    }
+  ],
+  "decisions": [],
+  "transitions": [
+    {
+      "from": "DRAFT",
+      "to": "READY",
+      "at": "2026-08-27T18:00:10Z",
+      "actor": "pectoraux",
+      "role": "architect",
+      "reason": "Issue #75 opened with the CAD-PARITY-002 scope (professional workspace, command system, navigation and interaction foundation) on top of the CAD/BIM parity program freeze landed via PR #76.",
+      "references": {
+        "issue": 75
+      }
+    },
+    {
+      "from": "READY",
+      "to": "ASSIGNED",
+      "at": "2026-08-27T19:04:00Z",
+      "actor": "pectoraux",
+      "role": "architect",
+      "reason": "Architect immediate work order: 'Z.ai is authorized to execute: CAD-PARITY-002 / Issue #75. The next artifact I expect is its implementation PR, accompanied by CI and Vercel Preview evidence.'",
+      "references": {
+        "issue": 75,
+        "assignee": "z-ai-implementation-agent"
+      }
+    },
+    {
+      "from": "ASSIGNED",
+      "to": "IMPLEMENTING",
+      "at": "2026-08-27T19:08:00Z",
+      "actor": "z-ai-implementation-agent",
+      "role": "implementer",
+      "reason": "Implementation started on branch work/cad-parity-002-workspace-foundation cut from the mainline 7234b26 (the parity-freeze merge); the shared command/selection/input core is built first so both hosts consume one semantic path."
+    },
+    {
+      "from": "IMPLEMENTING",
+      "to": "PR_OPEN",
+      "at": "2026-08-27T20:15:00Z",
+      "actor": "z-ai-implementation-agent",
+      "role": "implementer",
+      "reason": "Evidence package complete and PR #77 opened (7 commits: shared workspace core + tests; Web professional shell; Electron professional shell + parity proof; CI workflow + fixture; zoomExtents wiring; governance record). All 31 PR-head check runs green on head 945e555 incl. cad-parity-002 run #2 (id 33110015645); local gauntlet green (409/409 app tests, web lint/typecheck/build + parity smoke, electron build + 10/10 smokes); browser workflow evidence captured. The Vercel preview redeployment of the PR head is blocked on credentials (see risk assumptions) — browser evidence was produced against the identical dev-server build surface.",
+      "references": {
+        "pr": 77
+      }
+    }
+  ],
+  "state": "PR_OPEN",
+  "evidence_requirements": [
+    "Deterministic automated suites for the command registry, prompt engine, selection, grips, drafting-aid feedback and keymap, running in CI on the pinned toolchains with the full regression baseline.",
+    "Green cad-parity-002 CI workflow on the implementation head: app suite (LOCK-018 incl. src/workspace), Web host lint/typecheck/build + the shared-prompt-engine workflow smoke, Electron build + all regression smokes + the real-UI workspace parity smoke.",
+    "Web/Electron semantic parity evidence: identical document save sha256 and semantic command stream from the identical prompt-engine script on both hosts, pinned in a committed fixture.",
+    "Browser workflow evidence for the representative line/circle/wall workflow across mouse, keyboard and command-line paths with zero blocking console/runtime errors, including selection, property editing, snap feedback, undo/redo and command cancellation.",
+    "Vercel Preview deployment of the Web host with browser workflow evidence (blocked on the Vercel GitHub App installation / token availability — the single architect-side remediation step; see risk assumptions)."
+  ]
+}
