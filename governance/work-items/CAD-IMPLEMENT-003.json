@@ -85,6 +85,19 @@
         "pr": 29
       },
       "reproduction": "open https://github.com/pectoraux/offisos/pull/29 checks (runs 32966606020 cad-implement-003, 32966605975 governance, 32966605938 cad-implement-001, 32966605945 cad-implement-002 — all success on head e506356); re-run locally: cd app && node --import tsx --test test/*.test.ts (109 with the engine); cd apps/electron && npm run smoke:model (12/12)"
+    },
+    {
+      "id": "EV-005",
+      "type": "ci-run",
+      "description": "Post-merge verification runs against the merge commit dcdc18141aed2034221bfae3efcaafd74682b4a6 (the revision the merge commit message itself binds post-merge verification to). (1) CI ON THE MERGE COMMIT (push event to main, all started 2026-08-26T12:33:18Z, all success): cad-implement-003 run 32969182116 (completed 12:34:54Z — all three jobs: the full 109-test suite with the real engine + LOCK-018 forbidden-import check incl. src/graph + engine pin probe; web lint + typecheck + next build --webpack + the live dev-server revision/Graph smoke; electron typecheck + build + all three smokes incl. smoke:model 12/12 through a real BrowserWindow); governance run 32969182043 (completed 12:33:38Z); cad-implement-001 run 32969182169 (completed 12:33:58Z, regression); cad-implement-002 run 32969182181 (completed 12:35:02Z, regression). (2) TREE IDENTITY: the merge tree is byte-identical to the verified PR head d49f358 (both tree hashes 4e0758073fe9a3d673a7e0cc52f3c7af19bdf007; the merge was clean against an unmoved main e19327e) — the exact tree EV-001..EV-004 validated is bit-for-bit the merged tree. (3) LOCAL POST-MERGE REPRODUCTION on the merged tree (dcdc181 checkout): root typecheck PASS; governance validate 126/126 PASS; governance tests 58/58 PASS; app suite 109/109 PASS with the real engine (0 skipped — all engine-gated tests ran). VERIFIED remains a separate post-merge Architect decision (reserved by this record; not claimed).",
+      "produced_at": "2026-08-26T12:50:00Z",
+      "reproducible": true,
+      "references": {
+        "commit": "dcdc18141aed2034221bfae3efcaafd74682b4a6",
+        "workflow_run": "32969182116",
+        "pr": 29
+      },
+      "reproduction": "open the dcdc181 checks on main (runs 32969182116, 32969182043, 32969182169, 32969182181 — all success); locally: git checkout dcdc1814 && npm run typecheck && npm run governance -- validate && npm test && cd app && node --import tsx --test test/*.test.ts"
     }
   ],
   "evidence_requirements": [
@@ -98,7 +111,7 @@
     "CI workflow reproducing the local evidence on a different execution environment (ubuntu-latest, pinned toolchain).",
     "No claim of VERIFIED; the implementer produces evidence and submits for Architect review (LOCK-004: implementation status is not evidence)."
   ],
-  "state": "PR_OPEN",
+  "state": "MERGED",
   "transitions": [
     {
       "from": "DRAFT",
@@ -149,6 +162,79 @@
         ],
         "commit": "e50635610984aa3d801e3853ef5a7c42c09f4600"
       }
+    },
+    {
+      "from": "PR_OPEN",
+      "to": "VERIFYING",
+      "at": "2026-08-26T12:15:00Z",
+      "actor": "z-ai-implementation-agent",
+      "role": "implementer",
+      "reason": "Evidence package submitted for verification: EV-001 (109/109 deterministic suite incl. 35 new revision/Graph tests), EV-002 (inspectable source map, adapter.ts byte-unchanged), EV-003 (Electron smoke:model 12/12 + Web wire 20/20 + browser golden path) and EV-004 (CI green on the final PR head d49f358: cad-implement-003 32966967372 three jobs + governance 32966967362 + both regression workflows) are complete, revision-bound and locally re-validated (governance 126/126, check-protected 1/1). PR #29 stood green and reviewable."
+    },
+    {
+      "from": "VERIFYING",
+      "to": "ARCHITECT_REVIEW",
+      "at": "2026-08-26T12:20:00Z",
+      "actor": "pectoraux",
+      "role": "architect",
+      "reason": "Verification evidence accepted as complete; the work item enters independent Architect review of PR #29 against the Issue #28 directive and the acceptance criteria (immutability, persistence, replay information-state correctness, LOCK-019 canonical identity, LOCK-017 host parity, additive App API, frozen Architecture v1.1).",
+      "references": {
+        "evidence": [
+          "EV-001",
+          "EV-002",
+          "EV-003",
+          "EV-004"
+        ]
+      }
+    },
+    {
+      "from": "ARCHITECT_REVIEW",
+      "to": "APPROVED",
+      "at": "2026-08-26T12:33:00Z",
+      "actor": "pectoraux",
+      "role": "architect",
+      "reason": "Architect approves CAD-IMPLEMENT-003 (DEC-001): Architecture v1.1 remains frozen; the revision history is immutable and append-only; save/open preserves revision lineage; replay is information-state correct with no future leakage; Construction Graph identity is independent of engine IDs; graph events carry provenance and epistemic uncertainty; Web/Electron parity tested through the shared App API; the frozen adapter contract is unchanged; LOCK-018 covers src/graph; CI evidence and the 109-test real-engine suite are green. Merge authorized.",
+      "references": {
+        "decision": "DEC-001",
+        "evidence": [
+          "EV-001",
+          "EV-002",
+          "EV-003",
+          "EV-004"
+        ]
+      }
+    },
+    {
+      "from": "APPROVED",
+      "to": "MERGED",
+      "at": "2026-08-26T12:33:15Z",
+      "actor": "pectoraux",
+      "role": "product-owner",
+      "reason": "PR #29 merged to main as dcdc18141aed2034221bfae3efcaafd74682b4a6 (clean merge against main e19327e; the merged tree is byte-identical to the verified PR head d49f358 — tree 4e0758073fe9a3d673a7e0cc52f3c7af19bdf007). Post-merge verification runs against the merge commit are green (EV-005: all four workflows success on the push to main 12:33:18Z-12:35:02Z, plus the local reproduction — typecheck, governance 126/126, governance tests 58/58, app suite 109/109 with the real engine). The merge commit message binds post-merge verification to the merge revision; VERIFIED remains a separate Architect decision (LOCK-004) and is NOT claimed here. Transcribed by the implementer from the Product Owner merge announcement per the RESEARCH-CAD-004 provenance convention, subject to the Architect review of the PR carrying this record.",
+      "references": {
+        "merge_commit": "dcdc18141aed2034221bfae3efcaafd74682b4a6",
+        "pr": 29,
+        "issue": 28,
+        "evidence": [
+          "EV-005"
+        ]
+      }
+    }
+  ],
+  "decisions": [
+    {
+      "id": "DEC-001",
+      "status": "approved",
+      "decided_at": "2026-08-26T12:32:00Z",
+      "decided_by": "pectoraux",
+      "role": "architect",
+      "rationale": "Architect review and approval of CAD-IMPLEMENT-003 (PR #29) under frozen Architecture v1.1. The Architectural review confirms: Architecture v1.1 remains frozen; the persistent model revision history is immutable and append-only; save/open preserves revision lineage; replay is information-state correct with no future leakage; Construction Graph identity is independent of engine IDs; graph events carry provenance and epistemic uncertainty; Web and Electron share the same App API semantics and parity was tested; the frozen adapter contract remained unchanged; LOCK-018 now covers src/graph; CI evidence and the 109-test real-engine suite are green. Basis: evidence package EV-001..EV-004 (109/109 real-engine suite, source map, host evidence, CI green on PR head e506356/d49f358). Approval announced by the Product Owner together with the merge (merge commit dcdc18141aed2034221bfae3efcaafd74682b4a6, 2026-08-26T12:33:15Z); recorded by the implementer per the RESEARCH-CAD-004 DEC-003 provenance convention, subject to the Architect review of the PR carrying this record.",
+      "evidence_refs": [
+        "EV-001",
+        "EV-002",
+        "EV-003",
+        "EV-004"
+      ]
     }
   ]
 }
