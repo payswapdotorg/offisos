@@ -54,7 +54,17 @@ export type CommandName =
   | "bim.delete"
   | "bim.setProperties"
   | "bim.setSettings"
-  | "bim.buildGeometry";
+  | "bim.buildGeometry"
+  // --- COMPAT-CAD-003 (additive, api-contract.md §8): documentation ---
+  | "docs.createViews"
+  | "docs.updateView"
+  | "docs.removeView"
+  | "docs.createSheets"
+  | "docs.updateSheet"
+  | "docs.removeSheet"
+  | "docs.addAnnotations"
+  | "docs.removeAnnotations"
+  | "docs.regenerate";
 
 // --- Query names (non-mutating) ---
 // `document.getSelection` returns the ephemeral editor selection (orthogonal
@@ -90,7 +100,12 @@ export type QueryName =
   // COMPAT-CAD-002 (additive): BIM structure, semantics and cameras.
   | "bim.getBuilding"
   | "bim.getSemantics"
-  | "bim.camera";
+  | "bim.camera"
+  // COMPAT-CAD-003 (additive): documentation views, geometry and exports.
+  | "docs.listViews"
+  | "docs.getViewGeometry"
+  | "docs.listSheets"
+  | "docs.exportSheet";
 
 export interface Command {
   readonly type: "command";

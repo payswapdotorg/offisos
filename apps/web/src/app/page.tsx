@@ -85,6 +85,7 @@ import {
 import type { ImpactCascadeResult } from "@/cad/client/http-transport";
 import { DraftingWorkbench } from "@/cad/drafting/workbench";
 import { BimWorkbench } from "@/cad/bim/workbench";
+import { DocsWorkbench } from "@/cad/docs/workbench";
 
 // --- Helpers --------------------------------------------------------------
 
@@ -133,7 +134,7 @@ function randomOffset(max: number): number {
 // --- Component -------------------------------------------------------------
 
 export default function Home() {
-  const [workbenchMode, setWorkbenchMode] = React.useState<"drafting" | "bim">("drafting");
+  const [workbenchMode, setWorkbenchMode] = React.useState<"drafting" | "bim" | "docs">("drafting");
   const [snapshot, setSnapshot] = React.useState<CADDocumentSnapshot | null>(null);
   const [selection, setSel] = React.useState<string[]>([]);
   const [loading, setLoading] = React.useState(true);
@@ -541,7 +542,7 @@ export default function Home() {
           </div>
           <div className="flex items-center gap-2">
             <Badge variant="secondary" className="font-mono">
-              CAD-IMPLEMENT-003 · COMPAT-CAD-001/002 / v1.1
+              CAD-IMPLEMENT-003 · COMPAT-CAD-001/002/003 / v1.1
             </Badge>
             {engine && (
               <Badge variant="outline" className="font-mono">
@@ -1093,7 +1094,7 @@ export default function Home() {
           </nav>
         </div>
 
-        {/* COMPAT-CAD-001/002: the mode-switchable CAD workbench (full width,
+        {/* COMPAT-CAD-001/002/003: the mode-switchable CAD workbench (full width,
             below the 3D/impact workspace). Every mutation goes through the
             shared App API — the same contract the Electron host drives. */}
         <section aria-label="CAD workbench" className="mt-6">
@@ -1121,19 +1122,31 @@ export default function Home() {
             >
               3D BIM Authoring
             </Button>
+            <Button
+              role="tab"
+              size="sm"
+              variant={workbenchMode === "docs" ? "default" : "outline"}
+              aria-selected={workbenchMode === "docs"}
+              onClick={() => setWorkbenchMode("docs")}
+            >
+              Documentation
+            </Button>
           </div>
-          {workbenchMode === "drafting" ? <DraftingWorkbench /> : <BimWorkbench />}
+          {workbenchMode === "drafting" ? <DraftingWorkbench /> : workbenchMode === "bim" ? <BimWorkbench /> : <DocsWorkbench />}
         </section>
       </main>
 
       <footer className="mt-auto border-t">
         <div className="px-4 sm:px-6 lg:px-8 py-4 text-xs text-muted-foreground">
-          Offisos CAD-IMPLEMENT-003 + COMPAT-CAD-001/002 — milestone: persistent
+          Offisos CAD-IMPLEMENT-003 + COMPAT-CAD-001/002/003 — milestone: persistent
           model revisions + Construction Graph bridge (immutable revision
           history, save/open persistence, stable canonical element identity,
-          deterministic graph events, Web/Electron parity) and the 2D drafting
-          + 3D/BIM authoring workbenches (stories/walls/slabs/openings/doors/
-          windows/spaces, deterministic cameras, real OCCT geometry builds).
+          deterministic graph events, Web/Electron parity); the 2D drafting +
+          3D/BIM authoring workbenches (stories/walls/slabs/openings/doors/
+          windows/spaces, deterministic cameras, real OCCT geometry builds); and
+          the construction-documentation workbench (plan/elevation/section/detail
+          views, annotations on canonical ids, deterministic regeneration, A1
+          sheets + the canonical Sheet IR export contract).
           Architecture v1.1 FROZEN.
         </div>
       </footer>

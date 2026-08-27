@@ -61,6 +61,21 @@ import {
   setBimProperties,
   standardCamera,
 } from "../bim/index.js";
+// COMPAT-CAD-003: the pure construction-documentation core (LOCK-018 scanned).
+import {
+  annotationElement,
+  buildSheetIR,
+  isDocsExportFormat,
+  isDocsAnnotationType,
+  makeDocsDim,
+  makeDocsNote,
+  makeDocsTag,
+  projectAllViews,
+  regenerateDocumentation,
+  viewContentHash,
+} from "../docs/index.js";
+import type { DocsSheetRecord, DocsViewRecord } from "../contracts/caddocument.js";
+import { validateDocsSheetRecord, validateDocsViewRecord } from "../caddocument/workspace.js";
 
 export interface AppApiHandlerOptions {
   readonly adapterBundle: EngineAdapterBundle;
@@ -167,6 +182,25 @@ export class AppApiHandler {
         return this.cmdBimSetSettings(command.payload);
       case "bim.buildGeometry":
         return await this.cmdBimBuildGeometry(command.payload);
+      // --- COMPAT-CAD-003 (additive): documentation commands ---
+      case "docs.createViews":
+        return this.cmdDocsCreateViews(command.payload);
+      case "docs.updateView":
+        return this.cmdDocsUpdateView(command.payload);
+      case "docs.removeView":
+        return this.cmdDocsRemoveView(command.payload);
+      case "docs.createSheets":
+        return this.cmdDocsCreateSheets(command.payload);
+      case "docs.updateSheet":
+        return this.cmdDocsUpdateSheet(command.payload);
+      case "docs.removeSheet":
+        return this.cmdDocsRemoveSheet(command.payload);
+      case "docs.addAnnotations":
+        return this.cmdDocsAddAnnotations(command.payload);
+      case "docs.removeAnnotations":
+        return this.cmdDocsRemoveAnnotations(command.payload);
+      case "docs.regenerate":
+        return this.cmdDocsRegenerate();
       default: {
         const _exhaustive: never = command.name;
         return err("unknown_command", `unknown command: ${JSON.stringify(_exhaustive)}`);
@@ -442,6 +476,15 @@ export class AppApiHandler {
         return this.qBimGetSemantics(query.payload);
       case "bim.camera":
         return this.qBimCamera(query.payload);
+      // --- COMPAT-CAD-003 (additive): documentation queries ---
+      case "docs.listViews":
+        return this.qDocsListViews();
+      case "docs.getViewGeometry":
+        return this.qDocsGetViewGeometry(query.payload);
+      case "docs.listSheets":
+        return this.qDocsListSheets();
+      case "docs.exportSheet":
+        return this.qDocsExportSheet(query.payload);
       default: {
         const _exhaustive: never = query.name;
         return err("unknown_query", `unknown query: ${JSON.stringify(_exhaustive)}`);
@@ -983,4 +1026,323 @@ export class AppApiHandler {
       return err("bim_invalid", (e as Error).message, false);
     }
   }
+
+  // --- COMPAT-CAD-003 (additive): documentation commands --------------------
+  // Typed-error convention: docs_invalid = validation/consistency failure of
+  // documentation content; docs_unsupported = an operation outside this
+  // slice's declared vocabulary (e.g. PDF/DWG writers); both explicit, no
+  // silent approximation (LOCK-007).
+
+  /** docs.createViews — create view definitions as ONE atomic versioned
+   *  batch (one revision, one undo). Ids are minted by the document
+   *  (`vw-NNNNNN`) when missing; explicit ids must be unused. */
+  private cmdDocsCreateViews(payload: unknown): CommandQueryResponse {
+    const p = payload as { views?: unknown } | null;
+    if (p === null || typeof p !== "object" || !Array.isArray(p.views) || p.views.length === 0) {
+      return err("bad_payload", "docs.createViews requires a non-empty views array", true);
+    }
+    try {
+      const edits: DocumentEdit[] = [];
+      const ids: string[] = [];
+      for (const raw of p.views) {
+        if (typeof raw !== "object" || raw === null) {
+          throw new Error("each view must be an object");
+        }
+        const input = raw as Record<string, unknown>;
+        const id = typeof input.id === "string" && input.id.length > 0 ? input.id : this.doc.mintViewId();
+        const view = validateDocsViewRecord({ ...input, id });
+        edits.push({ type: "addView", view });
+        ids.push(view.id);
+      }
+      this.doc.execute({ type: "applyEdits", edits });
+      return ok({ created: ids, snapshot: this.doc.snapshot() });
+    } catch (e) {
+      return err("docs_invalid", (e as Error).message, false);
+    }
+  }
+
+  /** docs.updateView — whitelisted patch on one view definition. */
+  private cmdDocsUpdateView(payload: unknown): CommandQueryResponse {
+    const p = payload as { viewId?: unknown; patch?: unknown } | null;
+    if (
+      p === null || typeof p !== "object" || typeof p.viewId !== "string" ||
+      typeof p.patch !== "object" || p.patch === null
+    ) {
+      return err("bad_payload", "docs.updateView requires viewId + patch", true);
+    }
+    try {
+      this.doc.execute({ type: "updateView", viewId: p.viewId, patch: p.patch as Record<string, unknown> });
+      return ok({ view: this.doc.viewById(p.viewId), snapshot: this.doc.snapshot() });
+    } catch (e) {
+      return err("docs_invalid", (e as Error).message, false);
+    }
+  }
+
+  /** docs.removeView — remove one view (rejected while sheets/annotations/
+   *  detail sources still reference it — no silent cascade). */
+  private cmdDocsRemoveView(payload: unknown): CommandQueryResponse {
+    const p = payload as { viewId?: unknown } | null;
+    if (p === null || typeof p !== "object" || typeof p.viewId !== "string") {
+      return err("bad_payload", "docs.removeView requires viewId", true);
+    }
+    try {
+      this.doc.execute({ type: "removeView", viewId: p.viewId });
+      return ok({ removed: p.viewId, snapshot: this.doc.snapshot() });
+    } catch (e) {
+      return err("docs_invalid", (e as Error).message, false);
+    }
+  }
+
+  /** docs.createSheets — create sheets/layouts with title blocks as ONE
+   *  atomic versioned batch (`sh-NNNNNN` minting; placements validated
+   *  inside the drawable region, non-overlapping, referencing views). */
+  private cmdDocsCreateSheets(payload: unknown): CommandQueryResponse {
+    const p = payload as { sheets?: unknown } | null;
+    if (p === null || typeof p !== "object" || !Array.isArray(p.sheets) || p.sheets.length === 0) {
+      return err("bad_payload", "docs.createSheets requires a non-empty sheets array", true);
+    }
+    try {
+      const edits: DocumentEdit[] = [];
+      const ids: string[] = [];
+      for (const raw of p.sheets) {
+        if (typeof raw !== "object" || raw === null) {
+          throw new Error("each sheet must be an object");
+        }
+        const input = raw as Record<string, unknown>;
+        const id = typeof input.id === "string" && input.id.length > 0 ? input.id : this.doc.mintSheetId();
+        const sheet = validateDocsSheetRecord({ ...input, id });
+        edits.push({ type: "addSheet", sheet });
+        ids.push(sheet.id);
+      }
+      this.doc.execute({ type: "applyEdits", edits });
+      return ok({ created: ids, snapshot: this.doc.snapshot() });
+    } catch (e) {
+      return err("docs_invalid", (e as Error).message, false);
+    }
+  }
+
+  /** docs.updateSheet — whitelisted patch on one sheet. */
+  private cmdDocsUpdateSheet(payload: unknown): CommandQueryResponse {
+    const p = payload as { sheetId?: unknown; patch?: unknown } | null;
+    if (
+      p === null || typeof p !== "object" || typeof p.sheetId !== "string" ||
+      typeof p.patch !== "object" || p.patch === null
+    ) {
+      return err("bad_payload", "docs.updateSheet requires sheetId + patch", true);
+    }
+    try {
+      this.doc.execute({ type: "updateSheet", sheetId: p.sheetId, patch: p.patch as Record<string, unknown> });
+      return ok({ sheet: this.doc.sheetById(p.sheetId), snapshot: this.doc.snapshot() });
+    } catch (e) {
+      return err("docs_invalid", (e as Error).message, false);
+    }
+  }
+
+  /** docs.removeSheet — remove one sheet (top-level object; views and
+   *  annotations are NOT cascaded). */
+  private cmdDocsRemoveSheet(payload: unknown): CommandQueryResponse {
+    const p = payload as { sheetId?: unknown } | null;
+    if (p === null || typeof p !== "object" || typeof p.sheetId !== "string") {
+      return err("bad_payload", "docs.removeSheet requires sheetId", true);
+    }
+    try {
+      this.doc.execute({ type: "removeSheet", sheetId: p.sheetId });
+      return ok({ removed: p.sheetId, snapshot: this.doc.snapshot() });
+    } catch (e) {
+      return err("docs_invalid", (e as Error).message, false);
+    }
+  }
+
+  /** docs.addAnnotations — create documentation annotations (docs.dim /
+   *  docs.tag / docs.note elements, kind "annotation") as ONE atomic batch.
+   *  Views must exist; dim/tag references must be existing BIM elements —
+   *  annotations stay associated with CANONICAL element identities. */
+  private cmdDocsAddAnnotations(payload: unknown): CommandQueryResponse {
+    const p = payload as { annotations?: unknown } | null;
+    if (p === null || typeof p !== "object" || !Array.isArray(p.annotations) || p.annotations.length === 0) {
+      return err("bad_payload", "docs.addAnnotations requires a non-empty annotations array", true);
+    }
+    try {
+      const elements = this.doc.allElements();
+      const bimIds = new Set(
+        elements
+          .map((el) => elementToBimEntityOrNull(el))
+          .filter((x) => x !== null)
+          .map((x) => (x as { id: string }).id),
+      );
+      const edits: DocumentEdit[] = [];
+      const ids: string[] = [];
+      for (const raw of p.annotations) {
+        if (typeof raw !== "object" || raw === null) throw new Error("each annotation must be an object");
+        const input = raw as Record<string, unknown>;
+        if (!isDocsAnnotationType(input.type)) {
+          throw new Error(`annotation type must be one of docs.dim | docs.tag | docs.note, got ${JSON.stringify(input.type)}`);
+        }
+        const view = this.doc.viewById(input.viewId as string);
+        if (view === undefined) {
+          throw new Error(`annotation references unknown view '${String(input.viewId)}'`);
+        }
+        if (input.type === "docs.dim") {
+          for (const ref of input.refIds as string[]) {
+            if (!bimIds.has(ref)) {
+              throw new Error(`docs.dim refIds must reference existing BIM elements — '${ref}' does not`);
+            }
+          }
+        }
+        if (input.type === "docs.tag" && !bimIds.has(input.targetId as string)) {
+          throw new Error(`docs.tag targetId must reference an existing BIM element — '${String(input.targetId)}' does not`);
+        }
+        const props =
+          input.type === "docs.dim" ? makeDocsDim(input) :
+          input.type === "docs.tag" ? makeDocsTag(input) :
+          makeDocsNote(input);
+        const id = typeof input.id === "string" && input.id.length > 0 ? input.id : this.doc.mintElementId();
+        const element = annotationElement(id, props as unknown as Parameters<typeof annotationElement>[1]);
+        edits.push({ type: "addElement", element });
+        ids.push(id);
+      }
+      this.doc.execute({ type: "applyEdits", edits });
+      return ok({ created: ids, snapshot: this.doc.snapshot() });
+    } catch (e) {
+      return err("docs_invalid", (e as Error).message, false);
+    }
+  }
+
+  /** docs.removeAnnotations — remove annotation elements atomically. */
+  private cmdDocsRemoveAnnotations(payload: unknown): CommandQueryResponse {
+    const p = payload as { ids?: unknown } | null;
+    if (p === null || typeof p !== "object" || !Array.isArray(p.ids) || !p.ids.every((x) => typeof x === "string")) {
+      return err("bad_payload", "docs.removeAnnotations requires an ids string array", true);
+    }
+    try {
+      const elements = this.doc.allElements();
+      const known = new Set(elements.filter((el) => {
+        const a = el.props.type;
+        return el.kind === "annotation" && isDocsAnnotationType(a);
+      }).map((el) => el.id));
+      for (const id of p.ids as string[]) {
+        if (!known.has(id)) {
+          throw new Error(`'${id}' is not a documentation annotation element`);
+        }
+      }
+      const edits = (p.ids as string[]).map((id) => ({ type: "removeElement", elementId: id }) as DocumentEdit);
+      this.doc.execute({ type: "applyEdits", edits });
+      return ok({ removed: p.ids, snapshot: this.doc.snapshot() });
+    } catch (e) {
+      return err("docs_invalid", (e as Error).message, false);
+    }
+  }
+
+  /** docs.regenerate — recompute every view's projection (with canonical
+   *  content hashes — the determinism proof) and refresh every annotation's
+   *  derived values through ONE atomic versioned batch. No-op regenerations
+   *  (nothing changed) record NO revision — identical inputs producing
+   *  identical output is the invariant, reported not versioned. */
+  private cmdDocsRegenerate(): CommandQueryResponse {
+    try {
+      const report = regenerateDocumentation(
+        this.doc.viewTable,
+        this.doc.sheetTable,
+        this.doc.allElements(),
+        this.doc.history.revisions.length.toString(),
+      );
+      if (report.updates.length > 0) {
+        const edits = report.updates.map((u) => ({ type: "setProps", elementId: u.elementId, patch: u.props }) as DocumentEdit);
+        this.doc.execute({ type: "applyEdits", edits });
+      }
+      return ok({ report, applied: report.updates.length, snapshot: this.doc.snapshot() });
+    } catch (e) {
+      return err("docs_invalid", (e as Error).message, false);
+    }
+  }
+
+  // --- COMPAT-CAD-003 (additive): documentation queries ----------------------
+
+  /** docs.listViews — every view with its CURRENT content hash, primitive
+   *  count and honest error (dangling story etc.). */
+  private qDocsListViews(): CommandQueryResponse {
+    const views = this.doc.viewTable;
+    const projections = projectAllViews(views, this.doc.allElements());
+    const result = views.map((view) => {
+      const r = projections.get(view.id);
+      if (r === undefined || r.projection === null) {
+        return { view, contentHash: null, primitiveCount: 0, skipCount: 0, error: r?.error ?? "not projected" };
+      }
+      return {
+        view,
+        contentHash: viewContentHash(r.projection),
+        primitiveCount: r.projection.primitives.length,
+        skipCount: r.projection.skips.length,
+        error: null,
+      };
+    });
+    return ok({ views: result });
+  }
+
+  /** docs.getViewGeometry — one view's FRESH projection (derived on demand,
+   *  never stored) + content hash + resolved annotations. */
+  private qDocsGetViewGeometry(payload: unknown): CommandQueryResponse {
+    const p = payload as { viewId?: unknown } | null;
+    if (p === null || typeof p !== "object" || typeof p.viewId !== "string") {
+      return err("bad_payload", "docs.getViewGeometry requires viewId", true);
+    }
+    const view = this.doc.viewById(p.viewId);
+    if (view === undefined) {
+      return err("docs_invalid", `no view '${p.viewId}'`, false);
+    }
+    const projections = projectAllViews(this.doc.viewTable, this.doc.allElements());
+    const r = projections.get(view.id);
+    if (r === undefined || r.projection === null) {
+      return err("docs_invalid", `view '${view.id}' does not project: ${r?.error ?? "unknown"}`, false);
+    }
+    const annotations = this.doc
+      .allElements()
+      .filter((el) => el.kind === "annotation" && isDocsAnnotationType(el.props.type) && el.props.viewId === view.id)
+      .map((el) => ({ id: el.id, ...el.props }));
+    return ok({
+      view,
+      primitives: r.projection.primitives,
+      skips: r.projection.skips,
+      bbox: r.projection.bbox,
+      contentHash: viewContentHash(r.projection),
+      primitiveCount: r.projection.primitives.length,
+      annotations,
+    });
+  }
+
+  /** docs.listSheets — every sheet record. */
+  private qDocsListSheets(): CommandQueryResponse {
+    return ok({ sheets: this.doc.sheetTable });
+  }
+
+  /** docs.exportSheet — the canonical Sheet IR (the PDF/DWG adapter
+   *  contract). pdf/dwg are CONTRACTS ONLY in this slice: the writers are
+   *  not implemented and the request fails typed docs_unsupported. */
+  private qDocsExportSheet(payload: unknown): CommandQueryResponse {
+    const p = payload as { sheetId?: unknown; format?: unknown } | null;
+    if (
+      p === null || typeof p !== "object" || typeof p.sheetId !== "string" ||
+      !isDocsExportFormat(p.format)
+    ) {
+      return err("bad_payload", "docs.exportSheet requires sheetId + format ('sheet-ir' | 'pdf' | 'dwg')", true);
+    }
+    if (p.format !== "sheet-ir") {
+      return err(
+        "docs_unsupported",
+        `'${p.format}' writer is not implemented in this slice — the export CONTRACT is the canonical Sheet IR ('sheet-ir'); future adapters consume it (explicit, no partial writer)`,
+        false,
+      );
+    }
+    const sheet = this.doc.sheetById(p.sheetId);
+    if (sheet === undefined) {
+      return err("docs_invalid", `no sheet '${p.sheetId}'`, false);
+    }
+    try {
+      const built = buildSheetIR(sheet as DocsSheetRecord, this.doc.viewTable, this.doc.allElements());
+      return ok({ format: "sheet-ir", sheetId: sheet.id, ir: built.ir, canonical: built.canonical, hash: built.hash });
+    } catch (e) {
+      return err("docs_invalid", (e as Error).message, false);
+    }
+  }
+
 }

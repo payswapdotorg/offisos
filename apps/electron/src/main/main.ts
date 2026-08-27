@@ -84,6 +84,7 @@ const isModelSmoke = process.argv.includes("--smoke-model");
 const isImpactSmoke = process.argv.includes("--smoke-impact");
 const isDraftingSmoke = process.argv.includes("--smoke-drafting");
 const isBimSmoke = process.argv.includes("--smoke-bim");
+const isDocsSmoke = process.argv.includes("--smoke-docs");
 
 function createWindow(): BrowserWindow {
   // app.getAppPath() is the directory containing this package's package.json
@@ -707,7 +708,9 @@ app.whenReady().then(() => {
             ? runDraftingSmoke(win)
             : isBimSmoke
               ? runBimSmoke(win)
-              : null;
+              : isDocsSmoke
+                ? runDocsSmoke(win)
+                : null;
   if (smokeRun !== null) {
     smokeRun
       .then(() => {
@@ -1363,6 +1366,388 @@ async function runBimSmoke(win: BrowserWindow): Promise<void> {
     first13AllPass
       ? `steps 1-13: ${first13.filter((s) => s.pass).length}/13 PASS · result JSON → $OFFISOS_SMOKE_OUT · engine=${engineAvailable ? "occt (happy path)" : "unavailable (typed path)"}`
       : `steps 1-13: ${first13.filter((s) => s.pass).length}/13 PASS — failing: ${first13.filter((s) => !s.pass).map((s) => s.step).join(",")}`,
+  );
+
+  const allOk = steps.every((s) => s.ok);
+  writeSmokeOut({
+    ok: allOk,
+    electronVersion: process.versions.electron,
+    nodeVersion: process.versions.node,
+    chromeVersion: process.versions.chrome,
+    steps,
+    contentHash: null,
+    sceneHash: null,
+  });
+}
+
+/**
+ * COMPAT-CAD-003 / Issue #41: the construction-documentation smoke — the
+ * representative drawing-production workflow through the FULL Electron chain,
+ * DRIVING THE REAL RENDERER UI (BrowserWindow DOM: header mode toggle → the
+ * Documentation panel's buttons/inputs with data-testid selectors → readouts),
+ * exactly like a user would:
+ *
+ *   BrowserWindow → renderer DOM (docs mode panel) → window.cad.send (preload)
+ *     → ipcMain → ElectronHost/IpcTransport → App API → docs.* commands/queries
+ *     → CADDocument → deterministic pure-TS projection (NO engine anywhere —
+ *     the default bundle binding stays lazily unused, exactly like
+ *     --smoke-drafting) → undo/redo → Sheet IR export → save/open identity.
+ *
+ * Non-UI assertions (state/semantics queries) go through window.cad.send
+ * directly, mirroring how smoke-drafting/smoke-bim handle non-UI assertions.
+ * Engine-free by construction: documentation projection is pure deterministic
+ * TypeScript inside the core.
+ *
+ * Reproduce: cd apps/electron && npm run smoke:docs
+ */
+async function runDocsSmoke(win: BrowserWindow): Promise<void> {
+  // Steps record {step, name, pass, detail} (ok mirrors pass for the shared
+  // SmokeResult envelope the runner reads).
+  interface DocsStep { step: string; name: string; pass: boolean; ok: boolean; detail: unknown }
+  const steps: DocsStep[] = [];
+  const push = (num: string, name: string, pass: boolean, detail: unknown): void => {
+    steps.push({ step: num, name, pass, ok: pass, detail });
+  };
+
+  await new Promise<void>((resolve) => {
+    win.webContents.once("did-finish-load", () => resolve());
+  });
+
+  // Rejection-capturing page evaluation (see runGeometrySmoke).
+  const page = async <T>(js: string): Promise<T> => {
+    const wrapped = (await win.webContents.executeJavaScript(
+      `(${js}).then((r) => ({ __smokeOk: true, r }), (e) => ({ __smokeOk: false, msg: String(e), stack: String((e && e.stack) || "") }))`,
+    )) as { __smokeOk: true; r: T } | { __smokeOk: false; msg: string; stack: string };
+    if (wrapped.__smokeOk !== true) {
+      throw new Error(`renderer call rejected: ${wrapped.msg}\n${wrapped.stack.slice(0, 800)}\nfor script: ${js.slice(0, 200)}`);
+    }
+    return wrapped.r;
+  };
+  const send = (request: CommandQueryRequest): Promise<CommandQueryResponse> =>
+    page<CommandQueryResponse>(`window.cad.send(${JSON.stringify(request)})`);
+  const cmd = (name: string, payload: unknown) =>
+    send({ type: "command", name: name as never, payload });
+  const qq = (name: string, payload: unknown) =>
+    send({ type: "query", name: name as never, payload });
+
+  /** Poll a page predicate until true (throws on timeout). */
+  const waitFor = async (predicateJs: string, timeoutMs: number, what: string): Promise<void> => {
+    const deadline = Date.now() + timeoutMs;
+    for (;;) {
+      const v = await page<boolean>(`(async () => (${predicateJs}))()`);
+      if (v === true) return;
+      if (Date.now() > deadline) throw new Error(`timeout waiting for ${what}`);
+      await new Promise((r) => setTimeout(r, 150));
+    }
+  };
+  /** Click a data-testid button in the page. */
+  const click = (testid: string): Promise<boolean> =>
+    page<boolean>(
+      `(async () => { const b = document.querySelector('[data-testid="${testid}"]'); if (!b) return false; b.click(); return true; })()`,
+    );
+  const readAttr = (testid: string, attr: string): Promise<string | null> =>
+    page<string | null>(
+      `(async () => { const e = document.querySelector('[data-testid="${testid}"]'); return e ? e.getAttribute("${attr}") : null; })()`,
+    );
+  const readText = (testid: string): Promise<string> =>
+    page<string>(
+      `(async () => { const e = document.querySelector('[data-testid="${testid}"]'); return e ? (e.textContent || "") : ""; })()`,
+    );
+  /** The docs status protocol's monotonic run counter (set synchronously at
+   *  click time — disambiguates repeated op labels such as a second undo). */
+  const currentRun = async (): Promise<number> => {
+    const v = await readAttr("docs-status", "data-run");
+    const n = v === null ? NaN : Number(v);
+    return Number.isFinite(n) ? n : 0;
+  };
+  /** Wait for the docs status protocol to settle: state done|error for `op`
+   *  at run counter `run` AND the UI idle again (mode toggle re-enabled).
+   *  Returns the status snapshot. */
+  const waitDocsOp = async (op: string, run: number, timeoutMs: number): Promise<{ state: string; op: string; run: string; text: string }> => {
+    await waitFor(
+      `(() => { const s = document.querySelector('[data-testid="docs-status"]'); const m = document.querySelector('[data-testid="mode-docs"]');` +
+        ` return !!s && (s.getAttribute("data-state") === "done" || s.getAttribute("data-state") === "error")` +
+        ` && s.getAttribute("data-op") === "${op}" && s.getAttribute("data-run") === "${run}" && !!m && !m.disabled; })()`,
+      timeoutMs,
+      `docs op '${op}' #${run} to settle`,
+    );
+    return page<{ state: string; op: string; run: string; text: string }>(
+      `(async () => { const s = document.querySelector('[data-testid="docs-status"]');` +
+        ` return { state: s ? s.getAttribute("data-state") : "none", op: s ? s.getAttribute("data-op") : "", run: s ? s.getAttribute("data-run") : "", text: s ? s.textContent : "" }; })()`,
+    );
+  };
+  const viewRowCount = (): Promise<number> =>
+    page<number>(`(async () => document.querySelectorAll('[data-testid^="docs-view-row-"]').length)()`);
+  const sheetRowCount = (): Promise<number> =>
+    page<number>(`(async () => document.querySelectorAll('[data-testid^="docs-sheet-row-"]').length)()`);
+
+  type ViewRow = { view: { id: string; kind: string; direction?: string }; contentHash: string | null; primitiveCount: number };
+  const listViews = async (): Promise<ViewRow[] | null> => {
+    const r = await qq("docs.listViews", {});
+    return r && r.ok ? ((r.value as { views: ViewRow[] }).views ?? null) : null;
+  };
+  type PlanGeom = {
+    primitiveCount: number;
+    contentHash: string;
+    bbox: { uMin: number; uMax: number; vMin: number; vMax: number } | null;
+    annotations: { type: string; measured?: number; label?: string }[];
+  };
+  const planGeometry = async (): Promise<PlanGeom | null> => {
+    const r = await qq("docs.getViewGeometry", { viewId: "vw-000001" });
+    return r && r.ok ? (r.value as PlanGeom) : null;
+  };
+
+  // 1. Documentation mode is reachable and visible: header toggle + the panel.
+  const beforeToggle = await page<boolean>(
+    `(async () => !!document.querySelector('[data-testid="mode-docs"]') && !!document.querySelector('[data-testid="mode-bim"]') && !!document.querySelector('[data-testid="mode-drafting"]'))()`,
+  );
+  const clickedMode = beforeToggle ? await click("mode-docs") : false;
+  await waitFor(
+    `(() => { const c = document.querySelector('[data-testid="docs-card"]'); const b = document.querySelector('[data-testid="mode-docs"]');` +
+      ` return !!c && c.style.display !== "none" && !!b && b.getAttribute("aria-pressed") === "true"; })()`,
+    10000,
+    "Documentation mode panel visible",
+  );
+  const docsControls = [
+    "docs-status", "docs-seed", "docs-seed-result", "docs-view-kind", "docs-view-story", "docs-view-direction",
+    "docs-view-axis", "docs-view-offset", "docs-create-view", "docs-list-views", "docs-view-list", "docs-get-geometry",
+    "docs-geometry-readout", "docs-regenerate", "docs-regen-readout", "docs-create-sheet", "docs-list-sheets",
+    "docs-sheet-list", "docs-export", "docs-export-readout", "docs-export-pdf", "docs-undo", "docs-redo",
+    "docs-save-open", "docs-persist-result",
+  ];
+  const controlsPresent = await page<boolean>(
+    `(async () => ${JSON.stringify(docsControls)}.every((t) => !!document.querySelector('[data-testid="' + t + '"]')))()`,
+  );
+  push(
+    "1",
+    "Documentation mode visible (header toggle switches the panel in; all data-testid controls present)",
+    beforeToggle && clickedMode && controlsPresent,
+    controlsPresent ? `mode-docs clicked; docs-card displayed; ${docsControls.length}/${docsControls.length} docs controls present` : "docs controls missing",
+  );
+
+  // 2. Seed the representative documentation set through the UI (one click:
+  //    document.create + building + 4 views + annotations + regenerate + sheet).
+  const run2 = await currentRun();
+  const clickedSeed = await click("docs-seed");
+  const seedStatus = await waitDocsOp("seed", run2 + 1, 30000);
+  const seedCount = Number(await readAttr("docs-seed-result", "data-count"));
+  const seedRegen = await readAttr("docs-seed-result", "data-regen-applied");
+  const seedSheet = await readAttr("docs-seed-result", "data-sheet");
+  const seedText = await readText("docs-seed-result");
+  push(
+    "2",
+    "seed the representative building + plan/elevation/section/detail views + annotations + regeneration + A-101 sheet via the UI",
+    clickedSeed && seedStatus.state === "done" && seedCount === 4 && seedRegen === "2" && seedSheet === "sh-000001",
+    `${seedText}`,
+  );
+
+  // 3. docs.listViews via the UI → 4 rows; plan view carries 17 primitives.
+  const run3 = await currentRun();
+  const clickedList = await click("docs-list-views");
+  const listStatus = await waitDocsOp("list-views", run3 + 1, 30000);
+  const rowCount3 = await viewRowCount();
+  const rowPlanText = await readText("docs-view-row-vw-000001");
+  const views3 = await listViews();
+  const plan3 = views3?.find((v) => v.view.id === "vw-000001");
+  push(
+    "3",
+    "listViews via UI → 4 rows (kind + primitive count + 8-char hash prefix); plan = 17 primitives",
+    clickedList && listStatus.state === "done" && rowCount3 === 4 && views3 !== null && views3.length === 4 &&
+      plan3?.primitiveCount === 17 && /plan/.test(rowPlanText) && /17 primitives/.test(rowPlanText) &&
+      plan3?.contentHash !== null && rowPlanText.includes(plan3!.contentHash!.slice(0, 8)),
+    `rows=${rowCount3} · row vw-000001: ${rowPlanText} · direct plan primitives=${plan3?.primitiveCount ?? "n/a"}`,
+  );
+
+  // 4. View geometry via the UI: row click selects the plan + fetches geometry,
+  //    then the View geometry button re-queries the selection → 17 primitives
+  //    + content hash + the exact hand-derived plan bbox.
+  const run4a = await currentRun();
+  const clickedRow = await click("docs-view-row-vw-000001");
+  const geomStatusRow = await waitDocsOp("get-geometry", run4a + 1, 30000);
+  const run4b = await currentRun();
+  const clickedGeomBtn = await click("docs-get-geometry");
+  const geomStatusBtn = await waitDocsOp("get-geometry", run4b + 1, 30000);
+  const geoText = await readText("docs-geometry-readout");
+  const geoHash = await readAttr("docs-geometry-readout", "data-hash");
+  const geoPrimitives = await readAttr("docs-geometry-readout", "data-primitives");
+  const geoBbox = await readAttr("docs-geometry-readout", "data-bbox");
+  const geom4 = await planGeometry();
+  const bboxOk =
+    geom4 !== null && geom4.bbox !== null &&
+    JSON.stringify(geom4.bbox) === JSON.stringify({ uMin: -300, uMax: 6300, vMin: -300, vMax: 6000 });
+  const planHashOriginal = geom4?.contentHash ?? "";
+  push(
+    "4",
+    "view geometry via UI (row select + get-geometry button) → 17 primitives + hash prefix + exact bbox [-300,6300]×[-300,6000]",
+    clickedRow && geomStatusRow.state === "done" && clickedGeomBtn && geomStatusBtn.state === "done" &&
+      geom4?.primitiveCount === 17 && /^[0-9a-f]{64}$/.test(geom4?.contentHash ?? "") &&
+      geoPrimitives === "17" && geoHash === geom4?.contentHash && geoBbox !== null &&
+      JSON.stringify(JSON.parse(geoBbox)) === JSON.stringify(geom4?.bbox ?? null) && bboxOk &&
+      geoText.includes("vw-000001") && geoText.includes("plan"),
+    `${geoText} · direct: primitives=${geom4?.primitiveCount ?? "n/a"} bbox=${JSON.stringify(geom4?.bbox ?? null)}`,
+  );
+
+  // 5. Create one additional view through the UI (elevation back) → 5 rows.
+  const setKind = await page<boolean>(
+    `(async () => { const i = document.querySelector('[data-testid="docs-view-kind"]'); if (!i) return false;` +
+      ` i.value = "elevation"; i.dispatchEvent(new Event("change", { bubbles: true })); return true; })()`,
+  );
+  const setDir = await page<boolean>(
+    `(async () => { const i = document.querySelector('[data-testid="docs-view-direction"]'); if (!i) return false;` +
+      ` i.value = "back"; i.dispatchEvent(new Event("change", { bubbles: true })); return true; })()`,
+  );
+  const run5 = await currentRun();
+  const clickedCreateView = await click("docs-create-view");
+  const createViewStatus = await waitDocsOp("create-view", run5 + 1, 30000);
+  const views5 = await listViews();
+  const backView = views5?.find((v) => v.view.id === "vw-000005");
+  const run5b = await currentRun();
+  const clickedList5 = await click("docs-list-views");
+  const listStatus5 = await waitDocsOp("list-views", run5b + 1, 30000);
+  const rowCount5 = await viewRowCount();
+  push(
+    "5",
+    "create an additional elevation (back) view via the UI form → 5 views / 5 rows",
+    setKind && setDir && clickedCreateView && createViewStatus.state === "done" &&
+      views5?.length === 5 && rowCount5 === 5 && clickedList5 && listStatus5.state === "done" &&
+      backView?.view.kind === "elevation" && backView?.view.direction === "back" && (backView?.primitiveCount ?? 0) > 0,
+    `views=${views5?.length ?? "n/a"} rows=${rowCount5} · vw-000005: ${backView?.view.kind ?? "missing"} ${backView?.view.direction ?? ""} · ${backView?.primitiveCount ?? "n/a"} primitives`,
+  );
+
+  // 6. Regenerate via the UI. ENGINE TRUTH (adapted from the task text): the
+  //    seed's docs.regenerate already derived the annotation values (its
+  //    applied=2 is asserted in step 2), so THIS regeneration is the engine's
+  //    documented no-op — applied=0, no revision (identical inputs → identical
+  //    outputs, the determinism proof). The derived values are asserted via
+  //    direct docs.getViewGeometry: dim 5300 + tag label "Office 1 (27.00 m²)".
+  const run6 = await currentRun();
+  const clickedRegen = await click("docs-regenerate");
+  const regenStatus = await waitDocsOp("regenerate", run6 + 1, 30000);
+  const applied6 = await readAttr("docs-regen-readout", "data-applied");
+  const firstHash6 = await readAttr("docs-regen-readout", "data-first-hash");
+  const regenText = await readText("docs-regen-readout");
+  const geom6 = await planGeometry();
+  const dim6 = geom6?.annotations.find((a) => a.type === "docs.dim");
+  const tag6 = geom6?.annotations.find((a) => a.type === "docs.tag");
+  push(
+    "6",
+    "regenerate via UI → derived annotation values current: dim 5300 + tag 'Office 1 (27.00 m²)' (no-op proof: applied 0, no revision)",
+    clickedRegen && regenStatus.state === "done" && applied6 === "0" &&
+      dim6?.measured === 5300 && tag6?.label === "Office 1 (27.00 m²)" &&
+      firstHash6 === planHashOriginal,
+    `applied=${applied6} (the seed's regeneration applied the task's 'applied 2' — step 2; a no-op records no revision) · dim measured=${dim6?.measured ?? "n/a"} · tag label=${JSON.stringify(tag6?.label ?? null)} · first view hash ${firstHash6?.slice(0, 8) ?? "—"} = plan hash`,
+  );
+
+  // 7. Parametric dimension: move wall-north +500 in y (direct bim.move — a
+  //    model edit, not a docs-card control) then regenerate via the UI → the
+  //    overall dimension re-derives 5300 → 5800 (applied 1).
+  const moveRes = await cmd("bim.move", { ids: ["wall-north"], dx: 0, dy: 500, dz: 0 });
+  const run7 = await currentRun();
+  const clickedRegen7 = await click("docs-regenerate");
+  const regenStatus7 = await waitDocsOp("regenerate", run7 + 1, 30000);
+  const applied7 = await readAttr("docs-regen-readout", "data-applied");
+  const geom7 = await planGeometry();
+  const dim7 = geom7?.annotations.find((a) => a.type === "docs.dim");
+  push(
+    "7",
+    "parametric dimension: bim.move wall-north +500 (direct) + regenerate via UI → measured 5800",
+    !!moveRes && moveRes.ok && clickedRegen7 && regenStatus7.state === "done" && applied7 === "1" &&
+      dim7?.measured === 5800,
+    `move=${moveRes && moveRes.ok ? "ok" : JSON.stringify(moveRes).slice(0, 120)} · applied=${applied7} · dim measured=${dim7?.measured ?? "n/a"}`,
+  );
+
+  // 8. Undo twice: the regeneration revision (immutable — restores 5300), then
+  //    the move itself (restores the pre-move plan projection EXACTLY).
+  const run8a = await currentRun();
+  const clickedUndo1 = await click("docs-undo");
+  const undoStatus1 = await waitDocsOp("undo", run8a + 1, 30000);
+  const geom8a = await planGeometry();
+  const measured8a = geom8a?.annotations.find((a) => a.type === "docs.dim")?.measured;
+  const run8b = await currentRun();
+  const clickedUndo2 = await click("docs-undo");
+  const undoStatus2 = await waitDocsOp("undo", run8b + 1, 30000);
+  const geom8b = await planGeometry();
+  const dim8 = geom8b?.annotations.find((a) => a.type === "docs.dim");
+  const views8 = await listViews();
+  const planHash8 = views8?.find((v) => v.view.id === "vw-000001")?.contentHash ?? null;
+  push(
+    "8",
+    "undo twice → regeneration revision + move undone; measured back to 5300 (regeneration is an immutable revision)",
+    clickedUndo1 && undoStatus1.state === "done" && clickedUndo2 && undoStatus2.state === "done" &&
+      measured8a === 5300 && dim8?.measured === 5300 && planHash8 !== null && planHash8 === planHashOriginal,
+    `after undo#1 measured=${measured8a ?? "n/a"} · after undo#2 measured=${dim8?.measured ?? "n/a"} · plan contentHash restored to the pre-move hash=${planHash8 === planHashOriginal}`,
+  );
+
+  // 9. Create a sheet via the UI (A-102 placing section + detail) → 2 sheets.
+  const run9 = await currentRun();
+  const clickedCreateSheet = await click("docs-create-sheet");
+  const createSheetStatus = await waitDocsOp("create-sheet", run9 + 1, 30000);
+  const run9b = await currentRun();
+  const clickedListSheets = await click("docs-list-sheets");
+  const listSheetsStatus = await waitDocsOp("list-sheets", run9b + 1, 30000);
+  const sheetRows9 = await sheetRowCount();
+  const sheetsDirect = await qq("docs.listSheets", {});
+  const sheets9 = sheetsDirect && sheetsDirect.ok ? (sheetsDirect.value as { sheets: { id: string; titleBlock: { sheetNumber: string } }[] }).sheets : [];
+  push(
+    "9",
+    "create sheet via UI (A-102, section + detail placements) → sheets list shows 2",
+    clickedCreateSheet && createSheetStatus.state === "done" && clickedListSheets && listSheetsStatus.state === "done" &&
+      sheetRows9 === 2 && sheets9.length === 2 && sheets9[1]?.titleBlock?.sheetNumber === "A-102",
+    `sheet rows=${sheetRows9} · ${sheets9.map((s) => `${s.id}/${s.titleBlock.sheetNumber}`).join(", ")}`,
+  );
+
+  // 10. Export the canonical Sheet IR via the UI → 64-hex sha256 in the
+  //     readout, matching the direct export of sh-000001 byte-for-byte.
+  const run10 = await currentRun();
+  const clickedExport = await click("docs-export");
+  const exportStatus = await waitDocsOp("export", run10 + 1, 30000);
+  const exportHash10 = await readAttr("docs-export-readout", "data-hash");
+  const exportText = await readText("docs-export-readout");
+  const directExport = await qq("docs.exportSheet", { sheetId: "sh-000001", format: "sheet-ir" });
+  const directHash10 = directExport && directExport.ok ? (directExport.value as { hash: string }).hash : "";
+  push(
+    "10",
+    "export sheet-ir via UI → canonical 64-hex hash prefix in the readout (matches the direct export)",
+    clickedExport && exportStatus.state === "done" &&
+      /^[0-9a-f]{64}$/.test(exportHash10 ?? "") && exportHash10 === directHash10 &&
+      exportText.includes(directHash10.slice(0, 16)),
+    `${exportText} · direct hash identical=${exportHash10 === directHash10}`,
+  );
+
+  // 11. Export pdf via the UI → the typed docs_unsupported failure surfaces in
+  //     the shared cad-error alert (+ direct assert of the typed code).
+  const run11 = await currentRun();
+  const clickedPdf = await click("docs-export-pdf");
+  const pdfStatus = await waitDocsOp("export-pdf", run11 + 1, 30000);
+  const errorText11 = await readText("cad-error");
+  const directPdf = await qq("docs.exportSheet", { sheetId: "sh-000001", format: "pdf" });
+  const directPdfCode = directPdf && !directPdf.ok ? (directPdf as { code?: string }).code : "";
+  push(
+    "11",
+    "export pdf via UI → typed docs_unsupported surfaced in the shared alert + direct assert",
+    clickedPdf && pdfStatus.state === "error" && /docs_unsupported/.test(errorText11) &&
+      directPdf.ok === false && directPdfCode === "docs_unsupported",
+    `ui=[${pdfStatus.state}] ${errorText11.slice(0, 160)} | direct code=${directPdfCode || "n/a"}`,
+  );
+
+  // 12. Save → open round trip via the UI → identical graph events hash, with
+  //     the documentation set intact (5 views persisted across the round trip).
+  const eventsBefore = await qq("model.getGraphEvents", {});
+  const hashBefore12 = eventsBefore && eventsBefore.ok ? (eventsBefore.value as { events_hash: string }).events_hash : "";
+  const run12 = await currentRun();
+  const clickedSaveOpen = await click("docs-save-open");
+  const saveOpenStatus = await waitDocsOp("save-open", run12 + 1, 60000);
+  const identicalAttr = await readAttr("docs-persist-result", "data-identical");
+  const persistText = await readText("docs-persist-result");
+  const eventsAfter = await qq("model.getGraphEvents", {});
+  const hashAfter12 = eventsAfter && eventsAfter.ok ? (eventsAfter.value as { events_hash: string }).events_hash : "";
+  const viewsAfterOpen = await listViews();
+  push(
+    "12",
+    "save → open round trip via UI → identical graph events hash (+ documentation set intact)",
+    clickedSaveOpen && saveOpenStatus.state === "done" && identicalAttr === "true" &&
+      hashBefore12 !== "" && hashAfter12 === hashBefore12 && viewsAfterOpen?.length === 5,
+    `${persistText} · views after open=${viewsAfterOpen?.length ?? "n/a"} · direct hash identical=${hashAfter12 === hashBefore12}`,
   );
 
   const allOk = steps.every((s) => s.ok);

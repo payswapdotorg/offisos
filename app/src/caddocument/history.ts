@@ -114,6 +114,12 @@ export interface RecordRevisionInput {
   /** COMPAT-CAD-001: current layer mint-sequence counter (persisted on the
    *  history; never-reused `ly-NNNNNN` identities). */
   readonly nextLayerSequence: number;
+  /** COMPAT-CAD-003: current documentation view mint-sequence counter
+   *  (persisted on the history; never-reused `vw-NNNNNN` identities). */
+  readonly nextViewSequence: number;
+  /** COMPAT-CAD-003: current documentation sheet mint-sequence counter
+   *  (persisted on the history; never-reused `sh-NNNNNN` identities). */
+  readonly nextSheetSequence: number;
 }
 
 /** Append one immutable revision to a history (returns a NEW frozen
@@ -141,6 +147,8 @@ export function appendRevision(input: RecordRevisionInput): ModelHistory {
     base: history.base,
     next_element_sequence: Math.max(history.next_element_sequence, input.nextElementSequence),
     next_layer_sequence: Math.max(history.next_layer_sequence ?? 1, input.nextLayerSequence),
+    next_view_sequence: Math.max(history.next_view_sequence ?? 1, input.nextViewSequence),
+    next_sheet_sequence: Math.max(history.next_sheet_sequence ?? 1, input.nextSheetSequence),
     revisions: deepFreeze([...history.revisions, revision]),
   });
 }
@@ -159,6 +167,8 @@ export function createdHistory(entityId: string, format: string, formatVersion: 
     }),
     next_element_sequence: 1,
     next_layer_sequence: 1,
+    next_view_sequence: 1,
+    next_sheet_sequence: 1,
     revisions: [],
   });
 }
@@ -185,6 +195,8 @@ export function openedHistory(
     }),
     next_element_sequence: deriveElementSequence(elements),
     next_layer_sequence: 1,
+    next_view_sequence: 1,
+    next_sheet_sequence: 1,
     revisions: [],
   });
 }
@@ -261,6 +273,38 @@ export function applyEditToElements(map: Map<string, Element>, edit: DocumentEdi
       if (edit.layerId === undefined) throw new Error("replay: removeLayer requires layerId");
       break; // layer-table edit: element-set no-op
     }
+    case "addView": {
+      if (edit.view === undefined) throw new Error("replay: addView requires view");
+      break; // view-table edit: element-set no-op (annotations are elements and replay above)
+    }
+    case "updateView": {
+      if (edit.viewId === undefined) throw new Error("replay: updateView requires viewId");
+      break; // view-table edit: element-set no-op
+    }
+    case "removeView": {
+      if (edit.viewId === undefined) throw new Error("replay: removeView requires viewId");
+      break; // view-table edit: element-set no-op
+    }
+    case "addSheet": {
+      if (edit.sheet === undefined) throw new Error("replay: addSheet requires sheet");
+      break; // sheet-table edit: element-set no-op
+    }
+    case "updateSheet": {
+      if (edit.sheetId === undefined) throw new Error("replay: updateSheet requires sheetId");
+      break; // sheet-table edit: element-set no-op
+    }
+    case "removeSheet": {
+      if (edit.sheetId === undefined) throw new Error("replay: removeSheet requires sheetId");
+      break; // sheet-table edit: element-set no-op
+    }
+    case "setViewRecord": {
+      if (edit.viewId === undefined || edit.view === undefined) throw new Error("replay: setViewRecord requires viewId + view");
+      break; // view-table edit: element-set no-op
+    }
+    case "setSheetRecord": {
+      if (edit.sheetId === undefined || edit.sheet === undefined) throw new Error("replay: setSheetRecord requires sheetId + sheet");
+      break; // sheet-table edit: element-set no-op
+    }
     default: {
       const _exhaustive = edit satisfies never;
       throw new Error(`replay: unreachable edit type: ${JSON.stringify(_exhaustive)}`);
@@ -334,11 +378,14 @@ function isValidDelta(v: unknown): boolean {
 
 function isValidDocumentEdit(v: unknown): boolean {
   if (!isPlainObject(v)) return false;
-  // COMPAT-CAD-001 additive edit types share the structural contract.
+  // COMPAT-CAD-001/003 additive edit types share the structural contract.
   if (
     v.type !== "addElement" && v.type !== "removeElement" && v.type !== "updateElement" &&
     v.type !== "setProps" && v.type !== "applyEdits" &&
-    v.type !== "addLayer" && v.type !== "updateLayer" && v.type !== "removeLayer"
+    v.type !== "addLayer" && v.type !== "updateLayer" && v.type !== "removeLayer" &&
+    v.type !== "addView" && v.type !== "updateView" && v.type !== "removeView" &&
+    v.type !== "addSheet" && v.type !== "updateSheet" && v.type !== "removeSheet" &&
+    v.type !== "setViewRecord" && v.type !== "setSheetRecord"
   ) {
     return false;
   }
@@ -358,6 +405,34 @@ function isValidDocumentEdit(v: unknown): boolean {
   }
   if (v.type === "updateLayer" || v.type === "removeLayer") {
     return typeof v.layerId === "string" && v.layerId.length > 0;
+  }
+  if (v.type === "addView") {
+    if (!isPlainObject(v.view)) return false;
+    const w = v.view as Record<string, unknown>;
+    return typeof w.id === "string" && w.id.length > 0 && typeof w.kind === "string" && typeof w.title === "string";
+  }
+  if (v.type === "updateView" || v.type === "removeView") {
+    return typeof v.viewId === "string" && v.viewId.length > 0;
+  }
+  if (v.type === "addSheet") {
+    if (!isPlainObject(v.sheet)) return false;
+    const sh = v.sheet as Record<string, unknown>;
+    return typeof sh.id === "string" && sh.id.length > 0 && typeof sh.title === "string" && Array.isArray(sh.viewPlacements);
+  }
+  if (v.type === "updateSheet" || v.type === "removeSheet") {
+    return typeof v.sheetId === "string" && v.sheetId.length > 0;
+  }
+  if (v.type === "setViewRecord") {
+    if (!isPlainObject(v.view)) return false;
+    const w = v.view as Record<string, unknown>;
+    return typeof v.viewId === "string" && v.viewId.length > 0 &&
+      typeof w.id === "string" && w.id.length > 0 && typeof w.kind === "string" && typeof w.title === "string";
+  }
+  if (v.type === "setSheetRecord") {
+    if (!isPlainObject(v.sheet)) return false;
+    const sh = v.sheet as Record<string, unknown>;
+    return typeof v.sheetId === "string" && v.sheetId.length > 0 &&
+      typeof sh.id === "string" && sh.id.length > 0 && typeof sh.title === "string" && Array.isArray(sh.viewPlacements);
   }
   return true;
 }
@@ -407,6 +482,22 @@ export function validateModelHistory(history: unknown): asserts history is Model
       history.next_layer_sequence < 1)
   ) {
     throw new Error("modelHistory.next_layer_sequence must be a positive integer when present");
+  }
+  if (
+    history.next_view_sequence !== undefined &&
+    (typeof history.next_view_sequence !== "number" ||
+      !Number.isInteger(history.next_view_sequence) ||
+      history.next_view_sequence < 1)
+  ) {
+    throw new Error("modelHistory.next_view_sequence must be a positive integer when present");
+  }
+  if (
+    history.next_sheet_sequence !== undefined &&
+    (typeof history.next_sheet_sequence !== "number" ||
+      !Number.isInteger(history.next_sheet_sequence) ||
+      history.next_sheet_sequence < 1)
+  ) {
+    throw new Error("modelHistory.next_sheet_sequence must be a positive integer when present");
   }
   if (!Array.isArray(history.revisions)) throw new Error("modelHistory.revisions must be an array");
   for (const [i, rev] of history.revisions.entries()) {

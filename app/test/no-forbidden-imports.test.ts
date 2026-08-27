@@ -4,7 +4,8 @@
  * Asserts that no source file under the platform-independent core
  * (src/contracts, src/renderer, src/app-api, src/caddocument, src/graph,
  * src/impact, — since COMPAT-CAD-001 — src/drafting, the 2D drafting core,
- * and — since COMPAT-CAD-002 — src/bim, the BIM authoring core) imports
+ * — since COMPAT-CAD-002 — src/bim, the BIM authoring core, and — since
+ * COMPAT-CAD-003 — src/docs, the construction-documentation core) imports
  * Electron, browser UI, or CAD/BIM engine packages. The renderer/editor
  * core, the Construction Graph bridge, the drafting core and the BIM core
  * must not directly depend on these (LOCK-018/LOCK-019); host and engine
@@ -37,7 +38,7 @@ const FORBIDDEN_SPECIFIERS = [
   "IfcOpenShell",
 ];
 
-const PROTECTED_DIRS = ["src/contracts", "src/renderer", "src/app-api", "src/caddocument", "src/graph", "src/impact", "src/drafting", "src/bim"];
+const PROTECTED_DIRS = ["src/contracts", "src/renderer", "src/app-api", "src/caddocument", "src/graph", "src/impact", "src/drafting", "src/bim", "src/docs"];
 
 function* walk(dir: string): Generator<string> {
   for (const entry of readdirSync(dir)) {
