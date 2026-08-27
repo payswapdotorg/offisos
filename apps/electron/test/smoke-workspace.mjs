@@ -137,7 +137,7 @@ child.on("exit", (code, signal) => {
   if (result) {
     try {
       mkdirSync(join(APP, "dist"), { recursive: true });
-      writeFileSync(join(APP, "dist", "smoke-result.json"), JSON.stringify(result, null, 2) + "\n");
+      writeFileSync(join(APP, "dist", "smoke-workspace-result.json"), JSON.stringify(result, null, 2) + "\n");
     } catch {
       // ignore — not fatal
     }
