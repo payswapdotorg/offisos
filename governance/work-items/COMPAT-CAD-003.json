@@ -36,13 +36,46 @@
     "Approval or verification claim by implementation."
   ],
   "risk_assumptions": [
-    "Issue #41 (scope) + Issue #45 (execution directive) are the authoritative scope. DIVERGENCE FLAG: the spec/work-items.md roadmap has no construction-documentation entry in the CAD track (COMPAT-CAD-001 -> COMPAT-BIM-001 -> COMPAT-IFC-001); the nearest name COMPAT-DOC-001 is the OFFICE track (DOCX, OFFICE-002/004) — a different workstream. Following the established precedent (issue is authoritative, divergence flagged — never silently reconciled), the record id is COMPAT-CAD-003.",
-    "DIVERGENCE FLAG (requirements registry): spec/requirements.md has no explicit construction-documentation requirement ID. The record maps the slice onto CAD-001 (professional-grade 2D drafting primitives — the documentation drawing output), CAD-002 (3D geometry workflows — the projected source) and BIM-002 (BIM semantics independent of editor implementation — annotations associated with canonical identities). Mapping documented, not silent.",
-    "Dependencies RESEARCH-CAD-007 and COMPAT-CAD-002 are both VERIFIED on main (ebddf227) at execution start — the governance dependency gate is clear (Issue #45 directive). COMPAT-CAD-001's record remains PR_OPEN on main (PR #38 merged at 9b27d16) — pre-existing architect-side close-out debt, flagged here; it is not a declared dependency of this slice.",
-    "Design decision (documentation revision model): view definitions, sheets and documentation annotations are VERSIONED document content through additive DocumentEdit types and annotation-kind elements — their lineage flows through the existing immutable model history. Projected primitives are DERIVED state, never stored: every view projection is a pure deterministic function of (view definition, current BIM elements) recomputed on demand; regeneration refreshes stored annotation values through one atomic versioned batch. Determinism is proven by re-computation (same inputs -> identical canonical view content hashes), not by trusting cached output.",
-    "Design decision (elevation/section fidelity): elevations draw projected outlines of all walls/slabs/openings without hidden-line removal; sections draw the projected outlines of elements intersecting the cut plane (cut profiles are projected outlines; filled cut hatching is a rendering concern). Both are documented limitations of this slice, honestly represented — no occlusion is inferred or approximated."
+    "Issue #41 (scope) + Issue #45 (execution directive) are the authoritative scope. DIVERGENCE FLAG: the spec/work-items.md roadmap has no construction-documentation entry in the CAD track (COMPAT-CAD-001 -> COMPAT-BIM-001 -> COMPAT-IFC-001); the nearest name COMPAT-DOC-001 is the OFFICE track (DOCX, OFFICE-002/004) \u2014 a different workstream. Following the established precedent (issue is authoritative, divergence flagged \u2014 never silently reconciled), the record id is COMPAT-CAD-003.",
+    "DIVERGENCE FLAG (requirements registry): spec/requirements.md has no explicit construction-documentation requirement ID. The record maps the slice onto CAD-001 (professional-grade 2D drafting primitives \u2014 the documentation drawing output), CAD-002 (3D geometry workflows \u2014 the projected source) and BIM-002 (BIM semantics independent of editor implementation \u2014 annotations associated with canonical identities). Mapping documented, not silent.",
+    "Dependencies RESEARCH-CAD-007 and COMPAT-CAD-002 are both VERIFIED on main (ebddf227) at execution start \u2014 the governance dependency gate is clear (Issue #45 directive). COMPAT-CAD-001's record remains PR_OPEN on main (PR #38 merged at 9b27d16) \u2014 pre-existing architect-side close-out debt, flagged here; it is not a declared dependency of this slice.",
+    "Design decision (documentation revision model): view definitions, sheets and documentation annotations are VERSIONED document content through additive DocumentEdit types and annotation-kind elements \u2014 their lineage flows through the existing immutable model history. Projected primitives are DERIVED state, never stored: every view projection is a pure deterministic function of (view definition, current BIM elements) recomputed on demand; regeneration refreshes stored annotation values through one atomic versioned batch. Determinism is proven by re-computation (same inputs -> identical canonical view content hashes), not by trusting cached output.",
+    "Design decision (elevation/section fidelity): elevations draw projected outlines of all walls/slabs/openings without hidden-line removal; sections draw the projected outlines of elements intersecting the cut plane (cut profiles are projected outlines; filled cut hatching is a rendering concern). Both are documented limitations of this slice, honestly represented \u2014 no occlusion is inferred or approximated."
   ],
-  "evidence": [],
+  "evidence": [
+    {
+      "id": "EV-001",
+      "type": "automated-test-suite",
+      "description": "284/284 app tests with the real OCCT toolchain locally on the implementation head (260 existing CAD/drafting/BIM regressions + 24 deterministic documentation tests): projection exactness with hand-derived coordinates (plan 17-primitive inventory, door jambs/leaf/arc angles, window band, space centroid, elevation mirror spans, section thickness bands, detail crop+scale with Liang-Barsky), end-to-end workflow (minted vw-/sh- identities, measured overall=5300/clear=4700 + parametric 5800 after wall move + undo restore, regeneration determinism hash-change->undo->hash-restored, no-op regen records no revision, dangling refs marked+reported, sheet placement validation, save/open identity), entity validation matrices, and Web/Electron host parity through the real transports. LOCK-018 forbidden-import scan extended to src/docs.",
+      "produced_at": "2026-08-27T02:55:00Z",
+      "reproducible": true,
+      "references": {
+        "commit": "0f7ac9e67bb8846e8d26c8f6333b0f3806662dcb"
+      }
+    },
+    {
+      "id": "EV-002",
+      "type": "inspectable-artifact",
+      "description": "Deployable host proofs on the implementation head: Web lint/typecheck/build clean + the full CI documentation smoke verified locally end-to-end against the running dev server on the real engine (exact primitive counts/bbox/content hashes, parametric dims 5300/4700 -> 5800 after move -> 5300 after undo, byte-identical sheet-IR hash on repeated export, frame 841x594 with 200mm title-block strip, typed pdf/dwg/overlap/removeView rejections, save/open identity + no-op regeneration after open, zero console errors in the browser check); Electron typecheck/build clean + smoke:docs 12/12 PASS run twice with byte-identical hashes across processes (plan 3e1deec9..., sheet-IR a619f4e66d185541..., events 8e21993b8bed43e6...) + all five regression smokes green (smoke, geometry on the real OCCT engine, model, drafting, bim).",
+      "produced_at": "2026-08-27T03:25:00Z",
+      "reproducible": true,
+      "references": {
+        "commit": "0f7ac9e67bb8846e8d26c8f6333b0f3806662dcb"
+      }
+    },
+    {
+      "id": "EV-003",
+      "type": "ci-run",
+      "description": "All PR-head CI workflows green on the exact implementation head 0f7ac9e: compat-cad-003 run 1 (Documentation deterministic suite on OCCT 7.8.1.1 + Electron host build/regression smokes/documentation smoke + Web host documentation workflow smoke), governance run 91 (tests, records, protected paths), and every regression workflow (compat-cad-001 run 7, compat-cad-002 run 4, cad-implement-001 run 28, cad-implement-002 run 20, cad-implement-003 run 14, research-cad-007 run 8) all success.",
+      "produced_at": "2026-08-27T04:01:00Z",
+      "reproducible": true,
+      "references": {
+        "commit": "0f7ac9e67bb8846e8d26c8f6333b0f3806662dcb",
+        "workflow_run": "33037906554",
+        "pr": 46
+      }
+    }
+  ],
   "decisions": [],
   "transitions": [
     {
@@ -78,9 +111,21 @@
       "references": {
         "issue": 41
       }
+    },
+    {
+      "from": "IMPLEMENTING",
+      "to": "PR_OPEN",
+      "at": "2026-08-27T04:01:00Z",
+      "actor": "z-ai-implementation-agent",
+      "role": "implementer",
+      "reason": "Evidence package complete and PR #46 opened; all 8 CI workflows green on the implementation head 0f7ac9e; implementation stopped at PR_OPEN as directed (no APPROVED/VERIFIED claim, LOCK-004).",
+      "references": {
+        "issue": 41,
+        "pr": 46
+      }
     }
   ],
-  "state": "IMPLEMENTING",
+  "state": "PR_OPEN",
   "evidence_requirements": [
     "Deterministic construction-documentation tests with exact projected coordinates and view content hashes (no declared tolerances needed for the analytic projection vocabulary; any numeric comparisons carry explicit tolerances).",
     "Regeneration determinism evidence: model change -> view hash change -> undo -> identical hash restored; annotation values refreshed through immutable versioned revisions.",
