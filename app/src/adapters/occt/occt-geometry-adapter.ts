@@ -53,6 +53,11 @@ import type { WorkerRecipeStep } from "./worker-protocol.js";
 const MAX_DESCRIPTOR_DEPTH = 32;
 const MAX_RECIPE_STEPS = 256;
 const MESH_CACHE_CAPACITY = 64;
+/** COMPAT-CAD-002: profile point-count bound (mirrors the BIM core bound). */
+const MAX_PROFILE_POINTS = 64;
+/** COMPAT-CAD-002: planar degeneracy tolerances (mirror src/bim/elements.ts). */
+const PROFILE_AREA_EPS = 1e-9;
+const PROFILE_COINCIDENCE_EPS = 1e-9;
 
 export interface OcctGeometryAdapterOptions extends OcctProcessOptions {
   /** Default tessellation quality for prepare calls (worker defaults:
@@ -94,6 +99,51 @@ function requireMatrix(value: unknown, path: string): Matrix4 {
     throw new AdapterFailure("engine_malformed_input", `${path} must be affine (bottom row [0,0,0,1])`, false);
   }
   return matrix;
+}
+
+/** COMPAT-CAD-002: validate a planar extrusion profile (≥ 3 finite points,
+ *  no consecutive coincident points, no repeated closing point, bound on
+ *  count, non-degenerate shoelace area — mirrors src/bim/elements.ts). */
+function requireProfile(value: unknown, path: string): readonly (readonly [number, number])[] {
+  if (!Array.isArray(value) || value.length < 3) {
+    throw new AdapterFailure("engine_malformed_input", `${path} must be an array of at least 3 [x, y] points`, false);
+  }
+  if (value.length > MAX_PROFILE_POINTS) {
+    throw new AdapterFailure("engine_malformed_input", `${path} exceeds the ${MAX_PROFILE_POINTS}-point bound`, false);
+  }
+  const points: [number, number][] = value.map((p, i) => {
+    if (!Array.isArray(p) || p.length !== 2 || !p.every(isFiniteNumber)) {
+      throw new AdapterFailure("engine_malformed_input", `${path}[${i}] must be [x, y] finite numbers`, false);
+    }
+    return [p[0] as number, p[1] as number];
+  });
+  for (let i = 0; i < points.length; i++) {
+    const a = points[i]!;
+    const b = points[(i + 1) % points.length]!;
+    const dx = a[0] - b[0];
+    const dy = a[1] - b[1];
+    if (Math.sqrt(dx * dx + dy * dy) <= PROFILE_COINCIDENCE_EPS) {
+      throw new AdapterFailure(
+        "engine_malformed_input",
+        `${path}: point ${i % points.length} coincides with its successor (implicit closure — do not repeat the first point at the end)`,
+        false,
+      );
+    }
+  }
+  let sum = 0;
+  for (let i = 0; i < points.length; i++) {
+    const a = points[i]!;
+    const b = points[(i + 1) % points.length]!;
+    sum += a[0] * b[1] - b[0] * a[1];
+  }
+  if (Math.abs(sum) / 2 <= PROFILE_AREA_EPS) {
+    throw new AdapterFailure(
+      "engine_malformed_input",
+      `${path} must span a non-degenerate area (shoelace magnitude > ${PROFILE_AREA_EPS})`,
+      false,
+    );
+  }
+  return points;
 }
 
 /**
@@ -150,6 +200,15 @@ export function compileDescriptor(
         : { id, make: "cylinder", radius, height, origin: origin ?? [0, 0, 0], direction: direction ?? [0, 0, 1] });
       return { steps, resultId: id };
     }
+    case "extrude": {
+      // COMPAT-CAD-002: polygon profile extruded along +Z.
+      const height = requirePositive(d.height, "geometry.height");
+      const profile = requireProfile(d.profile, "geometry.profile");
+      const base = optionalVec3(d.base, "geometry.base");
+      const id = `s${steps.length}`;
+      steps.push(base === undefined ? { id, make: "extrude", profile, height } : { id, make: "extrude", profile, height, base });
+      return { steps, resultId: id };
+    }
     case "transform": {
       const matrix = requireMatrix(d.matrix, "geometry.matrix");
       const target = compileDescriptor(d.target, steps, depth + 1);
@@ -168,7 +227,7 @@ export function compileDescriptor(
     default:
       throw new AdapterFailure(
         "engine_malformed_input",
-        `geometry.shape must be one of box/cylinder/transform/fuse/cut, got ${JSON.stringify(d.shape)}`,
+        `geometry.shape must be one of box/cylinder/extrude/transform/fuse/cut, got ${JSON.stringify(d.shape)}`,
         false,
       );
   }

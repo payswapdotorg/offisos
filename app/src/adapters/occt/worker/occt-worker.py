@@ -118,6 +118,44 @@ def _optional_vec3(value: Any, what: str, default: List[float] | None = None) ->
     return [float(v) for v in value]
 
 
+MAX_PROFILE_POINTS = 64
+PROFILE_AREA_EPS = 1e-9
+PROFILE_COINCIDENCE_EPS = 1e-9
+
+
+def _require_profile(value: Any, what: str) -> List[List[float]]:
+    """COMPAT-CAD-002: validate a planar extrusion profile (mirrors the
+    TypeScript adapter's requireProfile — the same rules on both sides of the
+    process boundary; CAD-005 §5 structural validation on every input)."""
+    if not isinstance(value, list) or len(value) < 3:
+        raise MalformedInput(f"{what} must be an array of at least 3 [x, y] points")
+    if len(value) > MAX_PROFILE_POINTS:
+        raise MalformedInput(f"{what} exceeds the {MAX_PROFILE_POINTS}-point bound")
+    points: List[List[float]] = []
+    for i, p in enumerate(value):
+        if not isinstance(p, list) or len(p) != 2 or not all(_is_finite_number(v) for v in p):
+            raise MalformedInput(f"{what}[{i}] must be [x, y] finite numbers")
+        points.append([float(p[0]), float(p[1])])
+    n = len(points)
+    for i in range(n):
+        ax, ay = points[i]
+        bx, by = points[(i + 1) % n]
+        if math.sqrt((ax - bx) ** 2 + (ay - by) ** 2) <= PROFILE_COINCIDENCE_EPS:
+            raise MalformedInput(
+                f"{what}: point {i} coincides with its successor "
+                "(implicit closure - do not repeat the first point at the end)")
+    shoelace = 0.0
+    for i in range(n):
+        ax, ay = points[i]
+        bx, by = points[(i + 1) % n]
+        shoelace += ax * by - bx * ay
+    if abs(shoelace) / 2.0 <= PROFILE_AREA_EPS:
+        raise MalformedInput(
+            f"{what} must span a non-degenerate area "
+            f"(shoelace magnitude > {PROFILE_AREA_EPS})")
+    return points
+
+
 def _validate_recipe(request: Dict[str, Any]) -> Tuple[List[Dict[str, Any]], str, float, float]:
     """Full structural validation of the prepare request (CAD-005 §5:
     structural validation on every input — never trust blindly)."""
@@ -152,8 +190,13 @@ def _validate_recipe(request: Dict[str, Any]) -> Tuple[List[Dict[str, Any]], str
                                            default=[0.0, 0.0, 1.0])
                 if math.sqrt(sum(d * d for d in direction)) <= 1e-12:
                     raise MalformedInput(f"recipe[{index}].direction must be a non-null vector")
+            elif make == "extrude":
+                _require_profile(step.get("profile"), f"recipe[{index}].profile")
+                _require_positive(step.get("height"), f"recipe[{index}].height")
+                _optional_vec3(step.get("base"), f"recipe[{index}].base")
             else:
-                raise MalformedInput(f"recipe[{index}].make must be 'box' or 'cylinder', got {make!r}")
+                raise MalformedInput(
+                    f"recipe[{index}].make must be 'box', 'cylinder' or 'extrude', got {make!r}")
         elif "bool" in step:
             if step["bool"] not in ("fuse", "cut"):
                 raise MalformedInput(f"recipe[{index}].bool must be 'fuse' or 'cut'")
@@ -200,10 +243,10 @@ def _build_shapes(recipe: List[Dict[str, Any]]):
     """Evaluate the flat recipe DAG in order. Construction errors are typed as
     engine_malformed_input (OCCT Standard_ConstructionError); anything else
     raised by the engine is engine_error (handled by the caller)."""
-    from OCP.BRepPrimAPI import BRepPrimAPI_MakeBox, BRepPrimAPI_MakeCylinder
+    from OCP.BRepPrimAPI import BRepPrimAPI_MakeBox, BRepPrimAPI_MakeCylinder, BRepPrimAPI_MakePrism
     from OCP.BRepAlgoAPI import BRepAlgoAPI_Fuse, BRepAlgoAPI_Cut
-    from OCP.BRepBuilderAPI import BRepBuilderAPI_Transform
-    from OCP.gp import gp_Trsf, gp_Ax2, gp_Dir, gp_Pnt
+    from OCP.BRepBuilderAPI import BRepBuilderAPI_Transform, BRepBuilderAPI_MakePolygon, BRepBuilderAPI_MakeFace
+    from OCP.gp import gp_Trsf, gp_Ax2, gp_Dir, gp_Pnt, gp_Vec
     from OCP.Standard import Standard_ConstructionError
 
     shapes: Dict[str, Any] = {}
@@ -223,6 +266,21 @@ def _build_shapes(recipe: List[Dict[str, Any]]):
                 shapes[sid] = BRepPrimAPI_MakeCylinder(
                     axis, float(step["radius"]), float(step["height"])
                 ).Shape()
+            elif step.get("make") == "extrude":
+                # COMPAT-CAD-002: closed polygon wire -> planar face -> prism
+                # along +Z by height, translated to `base` when present.
+                base = _optional_vec3(step.get("base"), "base")
+                polygon = BRepBuilderAPI_MakePolygon()
+                for point in _require_profile(step.get("profile"), "profile"):
+                    polygon.Add(gp_Pnt(point[0], point[1], 0.0))
+                polygon.Close()
+                face = BRepBuilderAPI_MakeFace(polygon.Wire()).Face()
+                prism = BRepPrimAPI_MakePrism(face, gp_Vec(0.0, 0.0, float(step["height"]))).Shape()
+                if base != [0.0, 0.0, 0.0]:
+                    trsf = gp_Trsf()
+                    trsf.SetTranslation(gp_Vec(base[0], base[1], base[2]))
+                    prism = BRepBuilderAPI_Transform(prism, trsf, True).Shape()
+                shapes[sid] = prism
             elif step.get("bool") == "fuse":
                 shapes[sid] = BRepAlgoAPI_Fuse(shapes[step["a"]], shapes[step["b"]]).Shape()
             elif step.get("bool") == "cut":

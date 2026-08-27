@@ -83,6 +83,7 @@ const isGeometrySmoke = process.argv.includes("--smoke-geometry");
 const isModelSmoke = process.argv.includes("--smoke-model");
 const isImpactSmoke = process.argv.includes("--smoke-impact");
 const isDraftingSmoke = process.argv.includes("--smoke-drafting");
+const isBimSmoke = process.argv.includes("--smoke-bim");
 
 function createWindow(): BrowserWindow {
   // app.getAppPath() is the directory containing this package's package.json
@@ -704,7 +705,9 @@ app.whenReady().then(() => {
           ? runImpactSmoke(win)
           : isDraftingSmoke
             ? runDraftingSmoke(win)
-            : null;
+            : isBimSmoke
+              ? runBimSmoke(win)
+              : null;
   if (smokeRun !== null) {
     smokeRun
       .then(() => {
@@ -960,6 +963,407 @@ async function runDraftingSmoke(win: BrowserWindow): Promise<void> {
     ok: persistenceOk,
     detail: persistDetail,
   });
+
+  const allOk = steps.every((s) => s.ok);
+  writeSmokeOut({
+    ok: allOk,
+    electronVersion: process.versions.electron,
+    nodeVersion: process.versions.node,
+    chromeVersion: process.versions.chrome,
+    steps,
+    contentHash: null,
+    sceneHash: null,
+  });
+}
+
+/**
+ * COMPAT-CAD-002 / Issue #39: the 3D/BIM authoring smoke — the representative
+ * mini-building workflow through the FULL Electron chain, DRIVING THE REAL
+ * RENDERER UI (BrowserWindow DOM: mode toggle → buttons/inputs with
+ * data-testid selectors → readouts), exactly like a user would:
+ *
+ *   BrowserWindow → renderer DOM (BIM mode panel) → window.cad.send (preload)
+ *     → ipcMain → ElectronHost/IpcTransport → App API → bim.* commands
+ *     → CADDocument → OCCT worker (bim.buildGeometry — the default OCCT
+ *       bundle, lazily per-call) → undo/redo → save/open identity.
+ *
+ * Non-UI assertions (state/semantics/camera/events queries) go through
+ * window.cad.send directly, mirroring how smoke-drafting handles non-UI
+ * assertions. The engine path is adaptive: with the OCCT toolchain present
+ * the happy path asserts occt: meshTokens; engine-free environments assert
+ * the typed engine_unavailable failure path instead (steps 8-11 branch).
+ *
+ * Reproduce: cd apps/electron && OFFISOS_OCCT_WORKER=<repo>/app/src/adapters/
+ * occt/worker/occt-worker.py npm run smoke:bim
+ */
+async function runBimSmoke(win: BrowserWindow): Promise<void> {
+  // Steps record {step, name, pass, detail} (ok mirrors pass for the shared
+  // SmokeResult envelope the runner reads).
+  interface BimStep { step: string; name: string; pass: boolean; ok: boolean; detail: unknown }
+  const steps: BimStep[] = [];
+  const push = (num: string, name: string, pass: boolean, detail: unknown): void => {
+    steps.push({ step: num, name, pass, ok: pass, detail });
+  };
+
+  await new Promise<void>((resolve) => {
+    win.webContents.once("did-finish-load", () => resolve());
+  });
+
+  // Rejection-capturing page evaluation (see runGeometrySmoke).
+  const page = async <T>(js: string): Promise<T> => {
+    const wrapped = (await win.webContents.executeJavaScript(
+      `(${js}).then((r) => ({ __smokeOk: true, r }), (e) => ({ __smokeOk: false, msg: String(e), stack: String((e && e.stack) || "") }))`,
+    )) as { __smokeOk: true; r: T } | { __smokeOk: false; msg: string; stack: string };
+    if (wrapped.__smokeOk !== true) {
+      throw new Error(`renderer call rejected: ${wrapped.msg}\n${wrapped.stack.slice(0, 800)}\nfor script: ${js.slice(0, 200)}`);
+    }
+    return wrapped.r;
+  };
+  const send = (request: CommandQueryRequest): Promise<CommandQueryResponse> =>
+    page<CommandQueryResponse>(`window.cad.send(${JSON.stringify(request)})`);
+  const cmd = (name: string, payload: unknown) =>
+    send({ type: "command", name: name as never, payload });
+  const qq = (name: string, payload: unknown) =>
+    send({ type: "query", name: name as never, payload });
+
+  /** Poll a page predicate until true (throws on timeout). */
+  const waitFor = async (predicateJs: string, timeoutMs: number, what: string): Promise<void> => {
+    const deadline = Date.now() + timeoutMs;
+    for (;;) {
+      const v = await page<boolean>(`(async () => (${predicateJs}))()`);
+      if (v === true) return;
+      if (Date.now() > deadline) throw new Error(`timeout waiting for ${what}`);
+      await new Promise((r) => setTimeout(r, 150));
+    }
+  };
+  /** Click a data-testid button in the page. */
+  const click = (testid: string): Promise<boolean> =>
+    page<boolean>(
+      `(async () => { const b = document.querySelector('[data-testid="${testid}"]'); if (!b) return false; b.click(); return true; })()`,
+    );
+  /** Wait for the BIM status protocol to settle: state done|error for `op`
+   *  AND the UI idle again (mode toggle re-enabled). Returns the status. */
+  const waitOp = async (op: string, timeoutMs: number): Promise<{ state: string; op: string; text: string }> => {
+    await waitFor(
+      `(() => { const s = document.querySelector('[data-testid="bim-status"]'); const m = document.querySelector('[data-testid="mode-bim"]');` +
+        ` return !!s && (s.getAttribute("data-state") === "done" || s.getAttribute("data-state") === "error")` +
+        ` && s.getAttribute("data-op") === "${op}" && !!m && !m.disabled; })()`,
+      timeoutMs,
+      `BIM op '${op}' to settle`,
+    );
+    return page<{ state: string; op: string; text: string }>(
+      `(async () => { const s = document.querySelector('[data-testid="bim-status"]');` +
+        ` return { state: s ? s.getAttribute("data-state") : "none", op: s ? s.getAttribute("data-op") : "", text: s ? s.textContent : "" }; })()`,
+    );
+  };
+  const readAttr = (testid: string, attr: string): Promise<string | null> =>
+    page<string | null>(
+      `(async () => { const e = document.querySelector('[data-testid="${testid}"]'); return e ? e.getAttribute("${attr}") : null; })()`,
+    );
+  const readText = (testid: string): Promise<string> =>
+    page<string>(
+      `(async () => { const e = document.querySelector('[data-testid="${testid}"]'); return e ? (e.textContent || "") : ""; })()`,
+    );
+
+  type Snap = {
+    elements: { id: string; kind: string; props: Record<string, unknown> }[];
+    bimSettings?: { camera?: { preset?: string } };
+  };
+  const state = async (): Promise<Snap | null> => {
+    const r = await qq("document.getState", {});
+    return r && r.ok ? (r.value as Snap) : null;
+  };
+  const openingDistance = async (): Promise<number | null> => {
+    const r = await qq("bim.getSemantics", { elementId: "op-door" });
+    if (!r || !r.ok) return null;
+    const sem = (r.value as { semantics?: { distance?: unknown } }).semantics;
+    return typeof sem?.distance === "number" ? sem.distance : null;
+  };
+  const wallToken = async (): Promise<string | null> => {
+    const snap = await state();
+    const wall = snap?.elements.find((e) => e.id === "wall-south");
+    const token = wall?.props.meshToken;
+    return typeof token === "string" ? token : null;
+  };
+
+  // 1. BIM mode is reachable and visible: header toggle + the BIM panel.
+  const beforeToggle = await page<boolean>(
+    `(async () => !!document.querySelector('[data-testid="mode-bim"]') && !!document.querySelector('[data-testid="mode-drafting"]'))()`,
+  );
+  const clickedMode = beforeToggle ? await click("mode-bim") : false;
+  await waitFor(
+    `(() => { const c = document.querySelector('[data-testid="bim-card"]'); const b = document.querySelector('[data-testid="mode-bim"]');` +
+      ` return !!c && c.style.display !== "none" && !!b && b.getAttribute("aria-pressed") === "true"; })()`,
+    10000,
+    "BIM mode panel visible",
+  );
+  const bimControlsPresent = await page<boolean>(
+    `(async () => ["bim-create-building","bim-move-opening","bim-camera-top","bim-build","bim-undo","bim-redo","bim-save-open","bim-tree"]` +
+      `.every((t) => !!document.querySelector('[data-testid="' + t + '"]')))()`,
+  );
+  push(
+    "1",
+    "BIM mode visible (header toggle switches the BIM panel in; all data-testid controls present)",
+    beforeToggle && clickedMode && bimControlsPresent,
+    bimControlsPresent ? "mode-bim clicked; bim-card displayed; 8/8 BIM controls present" : "BIM controls missing",
+  );
+
+  // 2. Create the representative mini building through the UI. The status op
+  //    label repeats (document.create + the batch), so the wait keys on the
+  //    deterministic created-count readout instead (or the error state).
+  const clickedCreate = await click("bim-create-building");
+  await waitFor(
+    `(() => { const c = document.querySelector('[data-testid="bim-created"]'); const s = document.querySelector('[data-testid="bim-status"]'); const m = document.querySelector('[data-testid="mode-bim"]');` +
+      ` return (!!c && c.getAttribute("data-count") === "6" && !!m && !m.disabled) || (!!s && s.getAttribute("data-state") === "error"); })()`,
+    30000,
+    "mini building created (6 elements)",
+  );
+  const createStatus = await page<{ state: string; text: string }>(
+    `(async () => { const s = document.querySelector('[data-testid="bim-status"]'); return { state: s ? s.getAttribute("data-state") : "none", text: s ? s.textContent : "" }; })()`,
+  );
+  const createdCount = Number(await readAttr("bim-created", "data-count"));
+  const createdText = await readText("bim-created");
+  push(
+    "2",
+    "create the mini building via the UI (bim.createElements, one atomic batch)",
+    clickedCreate && createStatus.state !== "error" && createdCount === 6,
+    `${createdText} (document.create + one 6-entity batch)`,
+  );
+
+  // 3. Element count/state via the state query.
+  const snap3 = await state();
+  const ids3 = snap3 ? snap3.elements.map((e) => e.id).sort() : [];
+  const allBim = snap3 ? snap3.elements.every((e) => e.kind === "bim") : false;
+  const expectedIds = ["door-main", "op-door", "slab-g", "space-office", "story-gf", "wall-south"];
+  push(
+    "3",
+    "document.getState: 6 BIM elements with the exact authored ids",
+    ids3.length === 6 && JSON.stringify(ids3) === JSON.stringify(expectedIds) && allBim,
+    `elements=${ids3.length} ids=${ids3.join(",")} allKindBim=${allBim}`,
+  );
+
+  // 4. Move the door opening +600 along the wall (UI dx default 600).
+  const clickedMove = await click("bim-move-opening");
+  const moveStatus = await waitOp("move-opening", 30000);
+  const distanceAfter = await openingDistance();
+  push(
+    "4",
+    "move door opening +600 along the wall (distance 500 → 1100 exactly)",
+    clickedMove && moveStatus.state === "done" && distanceAfter === 1100,
+    `distance=${distanceAfter} (bim.getSemantics op-door)`,
+  );
+
+  // 5. Cross-axis move attempt (dy=50) → the typed error surfaces in the UI.
+  //    The op label repeats step 4's, so the wait keys on the ERROR state.
+  const setDy = await page<boolean>(
+    `(async () => { const i = document.querySelector('[data-testid="bim-move-dy"]'); if (!i) return false;` +
+      ` i.value = "50"; i.dispatchEvent(new Event("input", { bubbles: true })); return true; })()`,
+  );
+  const clickedCross = setDy ? await click("bim-move-opening") : false;
+  await waitFor(
+    `(() => { const s = document.querySelector('[data-testid="bim-status"]'); const m = document.querySelector('[data-testid="mode-bim"]');` +
+      ` return !!s && s.getAttribute("data-state") === "error" && s.getAttribute("data-op") === "move-opening" && !!m && !m.disabled; })()`,
+    30000,
+    "cross-axis move error state",
+  );
+  const crossStatus = await page<{ state: string; op: string; text: string }>(
+    `(async () => { const s = document.querySelector('[data-testid="bim-status"]');` +
+      ` return { state: s ? s.getAttribute("data-state") : "none", op: s ? s.getAttribute("data-op") : "", text: s ? s.textContent : "" }; })()`,
+  );
+  const errorText = await readText("cad-error");
+  // Frozen-backend note: the cross-axis reject message carries "(unsupported
+  // set; no silent approximation)", which the frozen cmdBimTransform mapping
+  // classifies as bim_unsupported (verified by app/test/bim-workflow.test.ts).
+  const uiErrorOk = /cross-axis/.test(errorText) && /bim_unsupported/.test(errorText) && crossStatus.state === "error";
+  const crossDirect = await cmd("bim.move", { ids: ["op-door"], dx: 0, dy: 50, dz: 0 });
+  const directOk = crossDirect.ok === false && crossDirect.code === "bim_unsupported" && /cross-axis/.test(crossDirect.message);
+  push(
+    "5",
+    "cross-axis opening move shows the typed error (UI alert + direct assert)",
+    setDy && clickedCross && uiErrorOk && directOk,
+    `ui=[${crossStatus.state}] ${errorText.slice(0, 160)} | direct=${directOk ? crossDirect.code : crossDirect}`,
+  );
+
+  // 6. Camera preset "top" via the UI → preset + eye displayed. The readout
+  //    is written AFTER the op settles, so wait for its content explicitly.
+  const clickedTop = await click("bim-camera-top");
+  const topStatus = await waitOp("camera-top", 30000);
+  const topQuery = await qq("bim.camera", { preset: "top" });
+  const topCamera = topQuery && topQuery.ok ? (topQuery.value as { camera: { eye: number[] } }).camera : null;
+  const topEyeStr = topCamera ? `eye=[${topCamera.eye.map((n) => Math.round(n)).join(", ")}]` : "";
+  if (topEyeStr !== "") {
+    await waitFor(
+      `(() => { const e = document.querySelector('[data-testid="bim-camera-readout"]'); const t = e ? (e.textContent || "") : "";` +
+        ` return t.includes("preset=top") && t.includes(${JSON.stringify(topEyeStr)}); })()`,
+      10000,
+      "camera top readout",
+    );
+  }
+  const topReadout = await readText("bim-camera-readout");
+  const snap6 = await state();
+  push(
+    "6",
+    "camera preset top via UI → preset + eye shown, bimSettings persisted",
+    clickedTop && topStatus.state === "done" &&
+      topReadout.includes("preset=top") && topEyeStr !== "" && topReadout.includes(topEyeStr) &&
+      snap6?.bimSettings?.camera?.preset === "top",
+    `${topReadout} · snapshot.preset=${snap6?.bimSettings?.camera?.preset}`,
+  );
+
+  // 7. Camera preset "iso" via the UI.
+  const clickedIso = await click("bim-camera-iso");
+  const isoStatus = await waitOp("camera-iso", 30000);
+  const isoQuery = await qq("bim.camera", { preset: "iso" });
+  const isoCamera = isoQuery && isoQuery.ok ? (isoQuery.value as { camera: { eye: number[] } }).camera : null;
+  const isoEyeStr = isoCamera ? `eye=[${isoCamera.eye.map((n) => Math.round(n)).join(", ")}]` : "";
+  if (isoEyeStr !== "") {
+    await waitFor(
+      `(() => { const e = document.querySelector('[data-testid="bim-camera-readout"]'); const t = e ? (e.textContent || "") : "";` +
+        ` return t.includes("preset=iso") && t.includes(${JSON.stringify(isoEyeStr)}); })()`,
+      10000,
+      "camera iso readout",
+    );
+  }
+  const isoReadout = await readText("bim-camera-readout");
+  const isoPressed = await readAttr("bim-camera-iso", "aria-pressed");
+  push(
+    "7",
+    "camera preset iso via UI → preset + eye shown, button pressed",
+    clickedIso && isoStatus.state === "done" &&
+      isoReadout.includes("preset=iso") && isoEyeStr !== "" && isoReadout.includes(isoEyeStr) &&
+      isoPressed === "true",
+    `${isoReadout} · aria-pressed=${isoPressed}`,
+  );
+
+  // 8. Build geometry through the UI — busy state first (synchronous check
+  //    right after the click), then the OCCT worker realizes the solids.
+  const busyProbe = await page<{ clicked: boolean; state: string; op: string }>(
+    `(async () => { const b = document.querySelector('[data-testid="bim-build"]'); if (!b) return { clicked: false, state: "none", op: "" };` +
+      ` b.click(); const s = document.querySelector('[data-testid="bim-status"]'); const busy = document.querySelector('[data-testid="bim-build-busy"]');` +
+      ` return { clicked: true, state: s ? s.getAttribute("data-state") : "none", op: s ? s.getAttribute("data-op") : "" , busyVisible: !!busy && !busy.hidden }; })()`,
+  );
+  const buildStatus = await waitOp("build", 180000);
+  const builtAttr = await readAttr("bim-build-result", "data-built");
+  const skippedAttr = await readAttr("bim-build-result", "data-skipped");
+  const skipId = await readAttr("bim-build-result", "data-skip-id");
+  const skipReason = await readAttr("bim-build-result", "data-skip-reason");
+  const builtNum = builtAttr === null ? -1 : Number(builtAttr);
+  const skippedNum = skippedAttr === null ? -1 : Number(skippedAttr);
+  const engineAvailable = buildStatus.state === "done";
+  const sawEngineUnavailable = /engine_unavailable/.test(buildStatus.text);
+  const buildHappy = engineAvailable && busyProbe.state === "busy" && busyProbe.op === "build" &&
+    builtNum >= 5 && skippedNum === 1 && skipId === "story-gf" && /level container/.test(skipReason ?? "");
+  const buildEngineFree = !engineAvailable && sawEngineUnavailable;
+  push(
+    "8",
+    "build geometry → built ≥ 5, skipped exactly 1 (story-gf, level-container reason)",
+    buildHappy || buildEngineFree,
+    buildHappy
+      ? `built=${builtNum} skipped=${skippedNum} (${skipId}: ${skipReason}) · busy state observed during the engine call`
+      : buildEngineFree
+        ? `engine-free path: typed engine_unavailable asserted (${buildStatus.text.slice(0, 140)})`
+        : `unexpected: busy=${busyProbe.state}/${busyProbe.op} status=${buildStatus.state} built=${builtNum} skipped=${skippedNum} skipId=${skipId}`,
+  );
+
+  // 9. meshToken starts with "occt:" when the engine is available.
+  const token9 = await wallToken();
+  const tokenOk = engineAvailable ? token9 !== null && token9.startsWith("occt:") : sawEngineUnavailable;
+  push(
+    "9",
+    "meshToken starts with occt: when the engine is available",
+    tokenOk,
+    engineAvailable ? `wall-south meshToken=${token9 === null ? "null" : token9.slice(0, 18) + "…"}` : "engine unavailable — typed path asserted in step 8 (N/A by design)",
+  );
+
+  // (The pre-undo snapshot workaround that used to live here was removed:
+  // the app-core defect it worked around — undo of a key-adding patch
+  // serializing undefined values into invalid JSON — is FIXED in this slice
+  // (updateElement inverses of key-adding patches are now full setProps
+  // inverses, and canonicalStringify rejects undefined outright); the
+  // regression is pinned by app/test/bim-workflow.test.ts.)
+
+  // 10. Undo → the build revision is undone (meshToken gone from wall props).
+  const clickedUndo = await click("bim-undo");
+  const undoStatus = await waitOp("undo", 30000);
+  let undoOk = false;
+  let undoDetail = "";
+  if (engineAvailable) {
+    const tokenAfterUndo = await wallToken();
+    const distAfterUndo = await openingDistance();
+    undoOk = clickedUndo && undoStatus.state === "done" && tokenAfterUndo === null && distAfterUndo === 1100;
+    undoDetail = `wall-south meshToken=${tokenAfterUndo === null ? "gone" : tokenAfterUndo.slice(0, 14) + "…"} · op-door distance still ${distAfterUndo}`;
+  } else {
+    // Engine-free: undo reverts the move revision instead (build never applied).
+    const distAfterUndo = await openingDistance();
+    undoOk = clickedUndo && undoStatus.state === "done" && distAfterUndo === 500;
+    undoDetail = `engine-free path: move revision undone → op-door distance=${distAfterUndo}`;
+  }
+  push("10", "undo → build revision undone (meshToken gone from wall props)", undoOk, undoDetail);
+
+  // 11. Redo → the build revision (and its meshToken) is restored.
+  const clickedRedo = await click("bim-redo");
+  const redoStatus = await waitOp("redo", 30000);
+  let redoOk = false;
+  let redoDetail = "";
+  if (engineAvailable) {
+    const tokenAfterRedo = await wallToken();
+    redoOk = clickedRedo && redoStatus.state === "done" && tokenAfterRedo !== null && tokenAfterRedo === token9;
+    redoDetail = `wall-south meshToken restored=${tokenAfterRedo !== null && tokenAfterRedo === token9}`;
+  } else {
+    const distAfterRedo = await openingDistance();
+    redoOk = clickedRedo && redoStatus.state === "done" && distAfterRedo === 1100;
+    redoDetail = `engine-free path: move revision re-applied → op-door distance=${distAfterRedo}`;
+  }
+  push("11", "redo → meshToken back (identical token)", redoOk, redoDetail);
+
+  // 12. Save → open round trip → identical graph events hash, exercising the
+  //     REAL post-redo document (save-after-undo of the key-adding build
+  //     revision is covered by the fixed core + the app regression test).
+  const eventsBefore12 = await qq("model.getGraphEvents", {});
+  const hashBefore12 = eventsBefore12 && eventsBefore12.ok ? (eventsBefore12.value as { events_hash: string }).events_hash : "";
+  const clickedSaveOpen = await click("bim-save-open");
+  const saveOpenStatus = await waitOp("save-open", 60000);
+  const identicalAttr = await readAttr("bim-persist-result", "data-identical");
+  const persistText = await readText("bim-persist-result");
+  const eventsAfter12 = await qq("model.getGraphEvents", {});
+  const hashAfter12 = eventsAfter12 && eventsAfter12.ok ? (eventsAfter12.value as { events_hash: string }).events_hash : "";
+  push(
+    "12",
+    "save → open round trip → identical graph events hash",
+    clickedSaveOpen && saveOpenStatus.state === "done" && identicalAttr === "true" && hashBefore12 !== "" && hashAfter12 === hashBefore12,
+    `${persistText} · uiState=${saveOpenStatus.state} · direct hash identical=${hashAfter12 === hashBefore12}`,
+  );
+
+  // 13. Selection set via the UI (building tree row click).
+  const clickedRow = await click("bim-element-row-wall-south");
+  await waitFor(
+    `(() => { const r = document.querySelector('[data-testid="bim-element-row-wall-south"]'); const m = document.querySelector('[data-testid="mode-bim"]');` +
+      ` return !!r && r.getAttribute("aria-pressed") === "true" && !!m && !m.disabled; })()`,
+    30000,
+    "wall-south row selected",
+  );
+  const sel13 = await qq("document.getSelection", {});
+  const sel13Value = sel13 && sel13.ok ? (sel13.value as unknown) : null;
+  const selOk = JSON.stringify(sel13Value) === JSON.stringify(["wall-south"]);
+  push(
+    "13",
+    "selection set via UI (tree row) → document.getSelection = [wall-south]",
+    clickedRow && selOk,
+    `selection=${JSON.stringify(sel13Value)} · row aria-pressed=true`,
+  );
+
+  // 14. Result file written with ALL steps PASS (the runner reads it and the
+  //     exit code mirrors ok — the smoke-drafting convention).
+  const first13 = steps.slice(0, 13);
+  const first13AllPass = first13.every((s) => s.pass);
+  push(
+    "14",
+    "result file written with all steps PASS",
+    first13AllPass,
+    first13AllPass
+      ? `steps 1-13: ${first13.filter((s) => s.pass).length}/13 PASS · result JSON → $OFFISOS_SMOKE_OUT · engine=${engineAvailable ? "occt (happy path)" : "unavailable (typed path)"}`
+      : `steps 1-13: ${first13.filter((s) => s.pass).length}/13 PASS — failing: ${first13.filter((s) => !s.pass).map((s) => s.step).join(",")}`,
+  );
 
   const allOk = steps.every((s) => s.ok);
   writeSmokeOut({

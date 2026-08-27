@@ -51,7 +51,7 @@ test("malformed descriptors throw the SAME typed failures as the OCCT adapter", 
     [{ shape: "box", width: "x", depth: 1, height: 1 }, "engine_malformed_input", /geometry\.width/],
     [{ shape: "cylinder", radius: 0, height: 1 }, "engine_malformed_input", /geometry\.radius/],
     [{ shape: "cylinder", radius: 1, height: 1, direction: [0, 0, 0] }, "engine_malformed_input", /non-null vector/],
-    [{ shape: "nope" }, "engine_malformed_input", /box\/cylinder\/transform\/fuse\/cut/],
+    [{ shape: "nope" }, "engine_malformed_input", /box\/cylinder\/extrude\/transform\/fuse\/cut/],
     [null, "engine_malformed_input", /must be an object/],
     [
       { shape: "transform", matrix: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 1, 1], target: { shape: "box", width: 1, depth: 1, height: 1 } },

@@ -46,7 +46,15 @@ export type CommandName =
   | "drafting.setSettings"
   | "drafting.addLayer"
   | "drafting.updateLayer"
-  | "drafting.removeLayer";
+  | "drafting.removeLayer"
+  // --- COMPAT-CAD-002 (additive, api-contract.md §8): 3D/BIM authoring ---
+  | "bim.createElements"
+  | "bim.move"
+  | "bim.copy"
+  | "bim.delete"
+  | "bim.setProperties"
+  | "bim.setSettings"
+  | "bim.buildGeometry";
 
 // --- Query names (non-mutating) ---
 // `document.getSelection` returns the ephemeral editor selection (orthogonal
@@ -78,7 +86,11 @@ export type QueryName =
   | "model.replay"
   | "impact.cascade"
   // COMPAT-CAD-001 (additive): deterministic snap resolution.
-  | "drafting.snap";
+  | "drafting.snap"
+  // COMPAT-CAD-002 (additive): BIM structure, semantics and cameras.
+  | "bim.getBuilding"
+  | "bim.getSemantics"
+  | "bim.camera";
 
 export interface Command {
   readonly type: "command";

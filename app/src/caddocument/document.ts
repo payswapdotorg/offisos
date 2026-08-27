@@ -27,6 +27,7 @@
 
 import { createHash } from "node:crypto";
 import type {
+  BimSettings,
   CADDocumentSnapshot,
   DocumentEdit,
   DraftingSettings,
@@ -41,9 +42,11 @@ import { canonicalStringify } from "./serialization.js";
 import {
   DEFAULT_LAYER,
   applyLayerPatch,
+  defaultBimSettings,
   defaultDraftingSettings,
   deriveLayerSequence,
   elementLayerReference,
+  validateBimSettings,
   validateDraftingSettings,
   validateLayerRecord,
 } from "./workspace.js";
@@ -90,6 +93,9 @@ export class CADDocument {
   /** COMPAT-CAD-001: non-versioned drafting workspace settings (grid/snap/
    *  view; persisted with the snapshot, mutated without a version bump). */
   private draftingSettingsState: DraftingSettings = defaultDraftingSettings();
+  /** COMPAT-CAD-002: non-versioned BIM workspace settings (camera preset;
+   *  persisted with the snapshot, mutated without a version bump). */
+  private bimSettingsState: BimSettings = defaultBimSettings();
   /** Ephemeral editor selection (§5.4 editor state). Orthogonal to the
    *  versioned document content: it is NOT in the version-id derivation and
    *  NOT in the parity content hash (§5.5). Since COMPAT-CAD-001 it IS
@@ -110,6 +116,7 @@ export class CADDocument {
     layers: Iterable<LayerRecord>,
     nextLayerSequence: number,
     draftingSettings: DraftingSettings,
+    bimSettings: BimSettings,
   ) {
     this.version = version;
     for (const e of elements) this.elements.set(e.id, e);
@@ -123,6 +130,7 @@ export class CADDocument {
     for (const l of layers) this.layers.set(l.id, l);
     this.nextLayerSequence = nextLayerSequence;
     this.draftingSettingsState = draftingSettings;
+    this.bimSettingsState = bimSettings;
   }
 
   /** Open a snapshot: load state, set version, clear undo/redo, adopt the
@@ -159,6 +167,9 @@ export class CADDocument {
     const draftingSettings = snapshot.draftingSettings !== undefined
       ? validateDraftingSettings(snapshot.draftingSettings)
       : defaultDraftingSettings();
+    const bimSettings = snapshot.bimSettings !== undefined
+      ? validateBimSettings(snapshot.bimSettings)
+      : defaultBimSettings();
     return new CADDocument(
       snapshot.version,
       snapshot.elements,
@@ -172,6 +183,7 @@ export class CADDocument {
       layers,
       Math.max(deriveLayerSequence(layers), history.next_layer_sequence ?? 1),
       draftingSettings,
+      bimSettings,
     );
   }
 
@@ -194,6 +206,7 @@ export class CADDocument {
       [DEFAULT_LAYER],
       1,
       defaultDraftingSettings(),
+      defaultBimSettings(),
     );
   }
 
@@ -218,6 +231,10 @@ export class CADDocument {
   get draftingSettings(): DraftingSettings {
     return this.draftingSettingsState;
   }
+  /** COMPAT-CAD-002: the non-versioned BIM workspace settings. */
+  get bimSettings(): BimSettings {
+    return this.bimSettingsState;
+  }
   /** The immutable model revision history (frozen; LOCK-005). */
   get history(): ModelHistory {
     return this.historyState;
@@ -237,6 +254,13 @@ export class CADDocument {
    *  presentation/configuration state, like the selection, but persisted. */
   setDraftingSettings(settings: DraftingSettings): void {
     this.draftingSettingsState = validateDraftingSettings(settings);
+  }
+
+  /** COMPAT-CAD-002: replace the BIM workspace settings (validated +
+   *  canonicalized). Same non-versioned-but-persisted contract as the
+   *  drafting settings. */
+  setBimSettings(settings: BimSettings): void {
+    this.bimSettingsState = validateBimSettings(settings);
   }
 
   /** Apply an edit, bump version, push inverse onto undo stack, clear redo,
@@ -366,6 +390,7 @@ export class CADDocument {
       layers: [...this.layers.values()],
       selection: [...this.#selection],
       draftingSettings: this.draftingSettingsState,
+      bimSettings: this.bimSettingsState,
     };
   }
 
@@ -419,6 +444,18 @@ export class CADDocument {
   mintLayerId(): string {
     const minted = `ly-${String(this.nextLayerSequence).padStart(6, "0")}`;
     this.nextLayerSequence += 1;
+    return minted;
+  }
+
+  /** COMPAT-CAD-002: mint a canonical element identity (`el-NNNNNN`, monotonic,
+   *  never reused) WITHOUT adding an element — for composite builders that
+   *  must wire references between batch-created copies (hosted BIM cascades)
+   *  inside ONE atomic batch while identity minting stays a document
+   *  authority (§5.4; mirrors mintLayerId). A minted-but-unused identity is
+   *  burned, never reused. */
+  mintElementId(): string {
+    const minted = `el-${String(this.nextElementSequence).padStart(6, "0")}`;
+    this.nextElementSequence += 1;
     return minted;
   }
 
@@ -514,11 +551,24 @@ export class CADDocument {
         }
         const el = this.elements.get(edit.elementId);
         if (el === undefined) throw new Error(`updateElement: no element '${edit.elementId}'`);
+        const prevProps = el.props as Record<string, unknown>;
         const prevValues: Record<string, unknown> = {};
+        let addedKey = false;
         for (const k of Object.keys(edit.patch)) {
-          prevValues[k] = (el.props as Record<string, unknown>)[k];
+          prevValues[k] = prevProps[k];
+          if (prevProps[k] === undefined) addedKey = true;
         }
-        return { type: "updateElement", elementId: edit.elementId, patch: prevValues };
+        // COMPAT-CAD-002 correctness fix: when the patch ADDED a key that did
+        // not exist before, an updateElement inverse cannot express the key's
+        // removal (an undefined value is not representable in canonical JSON
+        // and would not restore absence on replay). The exact inverse is then
+        // a FULL setProps of the previous props (which drops the added key).
+        // When every patched key existed before, the classic per-key
+        // updateElement inverse is retained — byte-identical to every
+        // recorded history (hash compatibility).
+        return addedKey
+          ? { type: "setProps", elementId: edit.elementId, patch: { ...prevProps } }
+          : { type: "updateElement", elementId: edit.elementId, patch: prevValues };
       }
       case "setProps": {
         if (edit.elementId === undefined || edit.patch === undefined) {

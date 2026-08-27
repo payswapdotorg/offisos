@@ -96,12 +96,29 @@ function revisionRef(history: ModelHistory, k: number): RevisionRef {
   };
 }
 
-/** Per-element epistemic state (§2.7, LOCK-007). */
+/** Per-element epistemic state (§2.7, LOCK-007).
+ *
+ *  COMPAT-CAD-002: elements carrying the canonical BIM mark (props.bim ===
+ *  true) have their semantics extracted from authored state by the pure
+ *  engine-free extractor (src/bim/semantics.ts) — semantics are OBSERVED for
+ *  them; their geometry provenance is OBSERVED exactly when a realized build
+ *  revision attached a meshToken (engine realization), UNKNOWN while the
+ *  element is purely authored. The gate is the bim mark ONLY, so every
+ *  pre-existing corpus element (including kind:'bim' elements without the
+ *  mark) keeps byte-identical labels and events hashes. */
 function elementUncertainty(element: Element): ElementUncertainty {
+  const props = element.props as Record<string, unknown>;
+  const bimMarked = props !== null && typeof props === "object" && props.bim === true;
   return {
     identity: "OBSERVED", // the element id is authoritative document state
-    geometry_provenance: element.engineId !== null ? "OBSERVED" : "UNKNOWN",
-    semantics: "UNKNOWN", // BIM semantics are not extracted in this slice
+    geometry_provenance: bimMarked
+      ? typeof props.meshToken === "string"
+        ? "OBSERVED"
+        : "UNKNOWN"
+      : element.engineId !== null
+        ? "OBSERVED"
+        : "UNKNOWN",
+    semantics: bimMarked ? "OBSERVED" : "UNKNOWN",
   };
 }
 
@@ -122,15 +139,28 @@ function projectElement(
   };
 }
 
-/** Revision-level epistemic summary over the affected elements. */
+/** Revision-level epistemic summary over the affected elements.
+ *  COMPAT-CAD-002: semantics/geometry-provenance flags aggregate per element
+ *  (OBSERVED when all, UNKNOWN when none, MIXED otherwise) with the same
+ *  bim-mark gating as elementUncertainty — non-BIM corpora keep their exact
+ *  pre-existing summaries (engineId-based geometry provenance, UNKNOWN
+ *  semantics). */
 function revisionUncertainty(elements: readonly Element[]): RevisionUncertainty {
   if (elements.length === 0) {
     return { geometry_provenance: "OBSERVED", semantics: "UNKNOWN" }; // no provenance asserted
   }
-  const withProvenance = elements.filter((el) => el.engineId !== null).length;
+  let geometryObserved = 0;
+  let semanticsObserved = 0;
+  for (const el of elements) {
+    const flags = elementUncertainty(el);
+    if (flags.geometry_provenance === "OBSERVED") geometryObserved += 1;
+    if (flags.semantics === "OBSERVED") semanticsObserved += 1;
+  }
   const geometry_provenance =
-    withProvenance === elements.length ? "OBSERVED" : withProvenance === 0 ? "UNKNOWN" : "MIXED";
-  return { geometry_provenance, semantics: "UNKNOWN" };
+    geometryObserved === elements.length ? "OBSERVED" : geometryObserved === 0 ? "UNKNOWN" : "MIXED";
+  const semantics =
+    semanticsObserved === elements.length ? "OBSERVED" : semanticsObserved === 0 ? "UNKNOWN" : "MIXED";
+  return { geometry_provenance, semantics };
 }
 
 /** Element projections for a delta, using before/after element states. */

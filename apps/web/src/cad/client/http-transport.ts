@@ -396,6 +396,149 @@ export function unwrapDraftingOp(res: CommandQueryResponse): DraftingOpResult | 
   return v as DraftingOpResult;
 }
 
+// --- COMPAT-CAD-002: 3D/BIM authoring through the shared App API -----------
+
+/** One extracted semantic record (mirror of the wire, `bim.getSemantics` /
+ *  the nested records of `bim.getBuilding`). */
+export interface BimSemanticRecord {
+  elementId: string;
+  type: string;
+  semantics: Record<string, unknown>;
+}
+
+/** Response value of `bim.getBuilding` (mirror of the wire). */
+export interface BimBuildingResult {
+  stories: {
+    story: BimSemanticRecord;
+    walls: (BimSemanticRecord & { openings: (BimSemanticRecord & { fills: BimSemanticRecord[] })[] })[];
+    slabs: BimSemanticRecord[];
+    spaces: BimSemanticRecord[];
+  }[];
+  bimSettings: { units: "mm"; camera: { preset: string } };
+}
+
+/** Response value of `bim.camera` (mirror of the wire; mm world units). */
+export interface BimCameraResult {
+  camera: { preset: string; eye: number[]; target: number[]; up: number[] };
+  bbox: number[];
+}
+
+/** Response value of `bim.buildGeometry` (mirror of the wire). */
+export interface BimBuildResult {
+  built: number;
+  results: {
+    elementId: string;
+    meshToken: string;
+    bbox: number[];
+    engine: { engineId: string; engineVersion: string };
+  }[];
+  skipped: { elementId: string; reason: string }[];
+}
+
+/** Generic BIM op outcome (bim.move/copy/delete/setProperties). */
+export interface BimOpResult {
+  applied: boolean;
+  reason?: string;
+  summary?: string;
+  created?: string[];
+}
+
+export async function bimCreate(entities: unknown[]): Promise<CommandQueryResponse> {
+  return command("bim.createElements", { entities });
+}
+
+export async function bimOp(
+  name: "bim.move" | "bim.copy" | "bim.delete",
+  payload: Record<string, unknown>,
+): Promise<CommandQueryResponse> {
+  return command(name, payload);
+}
+
+export async function bimSetProperties(
+  elementId: string,
+  patch: Record<string, unknown>,
+): Promise<CommandQueryResponse> {
+  return command("bim.setProperties", { elementId, patch });
+}
+
+export async function bimSetSettings(settings: Record<string, unknown>): Promise<CommandQueryResponse> {
+  return command("bim.setSettings", { settings });
+}
+
+/** Realize every solid-bearing BIM element through the REAL geometry engine
+ *  behind the adapter boundary (takes seconds per element — a Python OCCT
+ *  worker is spawned per element). Typed skips are itemized, never silent. */
+export async function bimBuildGeometry(ids?: string[]): Promise<CommandQueryResponse> {
+  return command("bim.buildGeometry", ids === undefined ? {} : { ids });
+}
+
+export async function bimGetBuilding(): Promise<CommandQueryResponse> {
+  return query("bim.getBuilding", {});
+}
+
+export async function bimGetSemantics(elementId?: string): Promise<CommandQueryResponse> {
+  return query("bim.getSemantics", elementId === undefined ? {} : { elementId });
+}
+
+export async function bimCamera(preset: string): Promise<CommandQueryResponse> {
+  return query("bim.camera", { preset });
+}
+
+/** Extract a BimOpResult from an ok response (defensive). */
+export function unwrapBimOp(res: CommandQueryResponse): BimOpResult | null {
+  if (!res.ok) return null;
+  const v = res.value as Partial<BimOpResult> | null;
+  if (typeof v !== "object" || v === null || typeof v.applied !== "boolean") return null;
+  return v as BimOpResult;
+}
+
+/** Extract a BimBuildingResult from an ok response (defensive). */
+export function unwrapBimBuilding(res: CommandQueryResponse): BimBuildingResult | null {
+  if (!res.ok) return null;
+  const v = res.value as Partial<BimBuildingResult> | null;
+  if (typeof v !== "object" || v === null || !Array.isArray(v.stories) || typeof v.bimSettings !== "object") {
+    return null;
+  }
+  return v as BimBuildingResult;
+}
+
+/** Extract a BimCameraResult from an ok response (defensive). */
+export function unwrapBimCamera(res: CommandQueryResponse): BimCameraResult | null {
+  if (!res.ok) return null;
+  const v = res.value as Partial<BimCameraResult> | null;
+  if (
+    typeof v !== "object" || v === null ||
+    typeof v.camera !== "object" || v.camera === null ||
+    !Array.isArray(v.camera.eye) || !Array.isArray(v.camera.target) || !Array.isArray(v.camera.up) ||
+    !Array.isArray(v.bbox)
+  ) {
+    return null;
+  }
+  return v as BimCameraResult;
+}
+
+/** Extract a BimBuildResult from an ok response (defensive). */
+export function unwrapBimBuild(res: CommandQueryResponse): BimBuildResult | null {
+  if (!res.ok) return null;
+  const v = res.value as Partial<BimBuildResult> | null;
+  if (
+    typeof v !== "object" || v === null ||
+    typeof v.built !== "number" ||
+    !Array.isArray(v.results) || !Array.isArray(v.skipped)
+  ) {
+    return null;
+  }
+  return v as BimBuildResult;
+}
+
+/** Extract the created-id list of a bim.createElements ok response. */
+export function unwrapBimCreated(res: CommandQueryResponse): string[] | null {
+  if (!res.ok) return null;
+  const v = res.value as { created?: unknown } | null;
+  if (typeof v !== "object" || v === null || !Array.isArray(v.created)) return null;
+  return v.created as string[];
+}
+
 export type {
   CADDocumentSnapshot,
   DocumentEdit,

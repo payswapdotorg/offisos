@@ -123,21 +123,27 @@ export type EpistemicLabel = "OBSERVED" | "CALCULATED" | "INFERRED" | "EXTRAPOLA
 
 /** Per-element uncertainty state. Element identity is OBSERVED (the id is
  *  authoritative document state); engine provenance is UNKNOWN when the
- *  element carries no engineId; BIM semantics are not extracted in this
- *  slice and are labelled UNKNOWN rather than guessed. */
+ *  element carries no engineId. COMPAT-CAD-002: elements carrying the BIM mark
+ *  have their authored semantics extracted (src/bim/semantics.ts) and are
+ *  labelled OBSERVED; elements whose realized geometry attached a meshToken
+ *  carry OBSERVED geometry provenance. Everything else stays UNKNOWN rather
+ *  than guessed (LOCK-007). */
 export interface ElementUncertainty {
   readonly identity: "OBSERVED";
   readonly geometry_provenance: "OBSERVED" | "UNKNOWN";
-  readonly semantics: "UNKNOWN";
+  readonly semantics: "OBSERVED" | "UNKNOWN";
 }
 
 /** Revision-level epistemic summary. geometry_provenance summarizes the
  *  affected elements' engine provenance: OBSERVED = every affected element
  *  carries engine provenance; UNKNOWN = none does; MIXED = some do. With no
- *  affected elements no provenance is asserted (labelled OBSERVED). */
+ *  affected elements no provenance is asserted (labelled OBSERVED).
+ *  COMPAT-CAD-002: semantics summarizes the affected elements' extracted BIM
+ *  semantics with the same OBSERVED/UNKNOWN/MIXED aggregation (bim-mark
+ *  gated — see the bridge). */
 export interface RevisionUncertainty {
   readonly geometry_provenance: "OBSERVED" | "UNKNOWN" | "MIXED";
-  readonly semantics: "UNKNOWN";
+  readonly semantics: "OBSERVED" | "UNKNOWN" | "MIXED";
 }
 
 /** Canonical graph identity + provenance projection for one affected
