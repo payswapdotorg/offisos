@@ -11,7 +11,7 @@ import assert from "node:assert/strict";
 import { CADDocument } from "../src/caddocument/index.js";
 import { createEntities, modifyEntities, EntityOpError } from "../src/workspace/entity-ops.js";
 import { runCommandScript, optionValue } from "../src/workspace/prompt-engine.js";
-import { defaultCommandContext, type CommandContext } from "../src/workspace/types.js";
+import { defaultCommandContext, type CommandContext, type CommandPlan } from "../src/workspace/types.js";
 import {
   displayOverridesOf,
   resolveDisplay,
@@ -281,7 +281,7 @@ test("CHPROP: P (previous selection) → Color → hex applies through entity.se
   const doc = newDoc();
   const id = seedLine(doc);
   const context = () => ctx(doc, { currentSelection: [{ id, kind: "geometry", props: doc.elementById(id)!.props as Record<string, unknown> }] });
-  const plans = [];
+  const plans: CommandPlan[] = [];
   const result = runCommandScript(
     [
       { event: { type: "typed", text: "CHPROP" } },
@@ -308,7 +308,7 @@ test("CHPROP: multiple properties collected then applied as ONE patch", () => {
   const doc = newDoc();
   const id = seedLine(doc);
   const selection = [{ id, kind: "geometry", props: doc.elementById(id)!.props as Record<string, unknown> }];
-  const plans = [];
+  const plans: CommandPlan[] = [];
   runCommandScript(
     [
       { event: { type: "typed", text: "CHPROP" } },
@@ -336,7 +336,7 @@ test("CHPROP: invalid values echo honest skips (nothing half-applied)", () => {
   const doc = newDoc();
   const id = seedLine(doc);
   const selection = [{ id, kind: "geometry", props: doc.elementById(id)!.props as Record<string, unknown> }];
-  const plans = [];
+  const plans: CommandPlan[] = [];
   const result = runCommandScript(
     [
       { event: { type: "typed", text: "CHPROP" } },
@@ -367,7 +367,7 @@ test("MATCHPROP: source display + layer copied onto targets as ONE patch", () =>
   doc.execute(target.edit!);
   const targetId = doc.allElements().find((el) => el.id !== sourceId)!.id;
 
-  const plans = [];
+  const plans: CommandPlan[] = [];
   runCommandScript(
     [
       { event: { type: "typed", text: "MATCHPROP" } },
@@ -394,7 +394,7 @@ test("MATCHPROP: source display + layer copied onto targets as ONE patch", () =>
 
 test("-LAYER: Make creates + sets active; Set resolves by name", () => {
   const doc = newDoc();
-  const plans = [];
+  const plans: CommandPlan[] = [];
   const context = () => ctx(doc);
   runCommandScript(
     [
@@ -414,7 +414,7 @@ test("-LAYER: Make creates + sets active; Set resolves by name", () => {
   assert.equal(doc.draftingSettings.activeLayer, "ly-000001");
 
   // Set by name through the next run.
-  const plans2 = [];
+  const plans2: CommandPlan[] = [];
   runCommandScript(
     [
       { event: { type: "typed", text: "-LAYER" } },
@@ -432,7 +432,7 @@ test("-LAYER: ON/OFF/Freeze/Thaw/Lock/Unlock with names and '*'; OFF '*' decline
   const doc = newDoc();
   doc.execute({ type: "addLayer", layer: { id: "ly-000001", name: "L1", color: "#111827", visible: false } });
   doc.execute({ type: "addLayer", layer: { id: "ly-000002", name: "L2", color: "#111827", visible: true } });
-  const plans = [];
+  const plans: CommandPlan[] = [];
   const result = runCommandScript(
     [
       { event: { type: "typed", text: "-LA" } },
@@ -472,7 +472,7 @@ test("LAYISO builds the isolate payload from the picked layers; LAYUNISO restore
   ]);
   doc.execute(outcome.edit!);
   const pick = doc.allElements()[0]!;
-  const plans = [];
+  const plans: CommandPlan[] = [];
   runCommandScript(
     [
       { event: { type: "typed", text: "LAYISO" } },
@@ -508,7 +508,7 @@ test("LAYON: one applyEdit batch turning every layer on", () => {
 });
 
 test("LTSCALE: the standards patch flows through drafting.setSettings", () => {
-  const plans = [];
+  const plans: CommandPlan[] = [];
   runCommandScript(
     [
       { event: { type: "typed", text: "LTSCALE" } },
@@ -546,7 +546,7 @@ test("determinism: CHPROP flows produce byte-identical plans on double-run", () 
   const id = seedLine(doc);
   const selection = [{ id, kind: "geometry", props: doc.elementById(id)!.props as Record<string, unknown> }];
   const run = (): string => {
-    const plans = [];
+    const plans: CommandPlan[] = [];
     runCommandScript(
       [
         { event: { type: "typed", text: "CHPROP" } },

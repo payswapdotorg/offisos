@@ -127,7 +127,7 @@ test("validateDimStyleRecord: strict shape; positive sizes; integer precision 0â
 });
 
 test("style patches: name immutable, fields merge + validate", () => {
-  const ts = { name: "Notes", font: "sans", height: 0, widthFactor: 1, obliqueAngle: 0 };
+  const ts = { name: "Notes", font: "sans" as const, height: 0, widthFactor: 1, obliqueAngle: 0 };
   assert.throws(() => applyTextStylePatch(ts, { name: "Other" }));
   assert.equal(applyTextStylePatch(ts, { height: 3 }).height, 3);
   assert.throws(() => applyTextStylePatch(ts, { widthFactor: -1 }));
