@@ -118,6 +118,31 @@
       "references": {
         "commit": "e5d6f271c06bd2dca926c4685ca28dbdd9c12f9e"
       }
+    },
+    {
+      "id": "EV-003",
+      "type": "ci-run",
+      "description": "CI-green on the PR head cab820f: the cad-parity-004 workflow run #3 (id 33211466096) succeeds \u2014 the workspace-shell job runs the FULL 655-test app suite with both real engines (596 pre-existing + 59 CAD-PARITY-004) and the LOCK-018 forbidden-import scan covering the extended src/workspace core (incl. standards/ + commands-props), the web-host job lints + typechecks + builds and runs BOTH workspace smokes against BOTH pinned parity fixtures (CAD-PARITY-002 a48a29a8\u2026 INTACT and CAD-PARITY-004 f92be229\u2026), and the electron-host job builds and runs all ELEVEN smokes incl. the 20-check layers real-UI smoke. All 37 check runs on the head succeed across the 12 triggered workflows (every regression workflow green). Honest note: the first two cad-parity-004 runs (e5d6f27, 8d3eb49) failed at the app typecheck \u2014 implicit any[] typings in the new test files, caught by the CI exactly as designed; the fix (cab820f) touches ONLY the two test files' collection-variable typings (explicit CommandPlan[] / as-const font literals), no source/host file changed, and the full local gauntlet re-ran green before the push.",
+      "produced_at": "2026-08-28T22:35:00Z",
+      "reproducible": true,
+      "reproduction": "gh run view 33211466096 --repo pectoraux/offisos (cad-parity-004 run #3 on cab820f)",
+      "references": {
+        "commit": "cab820fb898346bc0ed14e63fbdedcf442790c64",
+        "workflow_run": "33211466096",
+        "pr": 81
+      }
+    },
+    {
+      "id": "EV-004",
+      "type": "inspectable-artifact",
+      "description": "Deployed-Preview verification of the EXACT PR head (the post-CAD-PARITY-002 program rule): deployment dpl_As2fksRFTZ49ncxEnYu5tUiASt7p READY at https://offisos-4kwze4xq1-ekonplacidegmailcoms-projects.vercel.app with meta gitsha=cab820fb898346bc0ed14e63fbdedcf442790c64, pr=81, workitem=CAD-PARITY-004 (identity asserted through the Vercel REST API). Deployed-surface probes: GET / 200 (workspace shell), GET /api/cad canonical CAD state, cache-busted probe ok. The FULL layers-styles smoke (55-command semantic stream incl. lock/freeze enforcement, CHPROP/MATCHPROP/-LAYER/CLAYER/LAYISO/LAYUNISO/LAYON through the prompt engine, layer states, standards, save/open persistence) runs against the DEPLOYED build through the serializing relay: PASS with the exact pinned CAD-PARITY-004 fixture save sha f92be229eec4eb02\u2026; the CAD-PARITY-002 parity smoke against the same deployment: PASS (a48a29a8e1d4be65\u2026, 9-command stream \u2014 legacy byte-identity holds in production). The deployed browser protocol drives the REAL deployed UI through the relay: 17/17 PASS (shell render with the full CAD-PARITY-004 surface incl. the LWT toggle and the Props/Layers/Styles/Nav dock, layer creation through the Layers manager panel, CLAYER by name + LINE on the active layer, Navigator selection + CHPROP P\u2192Color\u2192hex through the command line, lock through the manager \u2192 entity.modify REJECTED with the typed failure and geometry unchanged, the Properties inspector ByLayer chain with the color-override readout, LAYISO preselection \u2192 isolation + *ISOLATE* state saved \u2192 LAYUNISO exact restore, LAYON, dim style + current style + LTSCALE + layer.applyStandard through the deployed API, undo/redo of a display batch, deterministic save) with ZERO page errors. Artifacts: /home/z/cp4-verify/{protocol.py, protocol-results.json (17/17), relay.py, deploy.log, deployment-url.txt, protocol-NN-*.png}. Methodology disclosure: every request was serialized through the local relay (serverless instance-split mitigation \u2014 the exact CAD-PARITY-002/003 deployed-verification path); the token was used only as an env var, never written to any repo file. Deployment: dpl_As2fksRFTZ49ncxEnYu5tUiASt7p @ https://offisos-4kwze4xq1-ekonplacidegmailcoms-projects.vercel.app.",
+      "produced_at": "2026-08-28T23:00:00Z",
+      "reproducible": true,
+      "reproduction": "VERCEL_TOKEN=<token> vercel deploy --project offisos (gitsha=cab820f) then OFFISOS_WEB_URL=<relay> node --import tsx apps/web/test/layers-styles-smoke.mjs; python3 /home/z/cp4-verify/protocol.py",
+      "references": {
+        "commit": "cab820fb898346bc0ed14e63fbdedcf442790c64",
+        "pr": 81
+      }
     }
   ],
   "decisions": []
