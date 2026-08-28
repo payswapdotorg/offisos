@@ -552,7 +552,25 @@ function opSetDisplay(
     if (next.lineweight !== null) patch.lineweight = next.lineweight;
     if (next.transparency !== null) patch.transparency = next.transparency;
     if (op.patch.layer !== undefined) patch.layer = op.patch.layer;
-    edits.push({ type: "updateElement", elementId: id, patch });
+    // A ByLayer RESET must REMOVE the override field — updateElement merges
+    // patches, so a key can only disappear through a FULL setProps (the
+    // COMPAT-CAD-002 exact-inverse precedent). Mixed batches pick the edit
+    // kind PER ENTITY (only entities carrying a field to drop need setProps).
+    const resetting =
+      (op.patch.color === "ByLayer" && current.color !== null) ||
+      (op.patch.linetype === "ByLayer" && current.linetype !== null) ||
+      (op.patch.lineweight === "ByLayer" && current.lineweight !== null) ||
+      (op.patch.transparency === "ByLayer" && current.transparency !== null);
+    if (resetting) {
+      const full: Record<string, unknown> = { ...props, ...patch };
+      if (next.color === null) delete full.color;
+      if (next.linetype === null) delete full.linetype;
+      if (next.lineweight === null) delete full.lineweight;
+      if (next.transparency === null) delete full.transparency;
+      edits.push({ type: "setProps", elementId: id, patch: full });
+    } else {
+      edits.push({ type: "updateElement", elementId: id, patch });
+    }
   }
   if (op.patch.color !== undefined) parts.push(`color ${op.patch.color}`);
   if (op.patch.linetype !== undefined) parts.push(`linetype ${op.patch.linetype}`);

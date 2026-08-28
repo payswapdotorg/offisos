@@ -446,7 +446,12 @@ function isValidDocumentEdit(v: unknown): boolean {
     v.type !== "addView" && v.type !== "updateView" && v.type !== "removeView" &&
     v.type !== "addSheet" && v.type !== "updateSheet" && v.type !== "removeSheet" &&
     v.type !== "setViewRecord" && v.type !== "setSheetRecord" &&
-    v.type !== "addIfcImport" && v.type !== "removeIfcImport"
+    v.type !== "addIfcImport" && v.type !== "removeIfcImport" &&
+    // CAD-PARITY-004 additive edit types (name-keyed tables + layer states).
+    v.type !== "addLtype" && v.type !== "updateLtype" && v.type !== "removeLtype" &&
+    v.type !== "addTextStyle" && v.type !== "updateTextStyle" && v.type !== "removeTextStyle" &&
+    v.type !== "addDimStyle" && v.type !== "updateDimStyle" && v.type !== "removeDimStyle" &&
+    v.type !== "addLayerState" && v.type !== "removeLayerState"
   ) {
     return false;
   }
@@ -466,6 +471,23 @@ function isValidDocumentEdit(v: unknown): boolean {
   }
   if (v.type === "updateLayer" || v.type === "removeLayer") {
     return typeof v.layerId === "string" && v.layerId.length > 0;
+  }
+  // CAD-PARITY-004: the name-keyed standards/style/state edits.
+  if (v.type === "addLtype" || v.type === "addTextStyle" || v.type === "addDimStyle" || v.type === "addLayerState") {
+    const record = (v.ltype ?? v.style ?? v.state) as unknown;
+    return isPlainObject(record) && typeof (record as Record<string, unknown>).name === "string";
+  }
+  if (
+    v.type === "updateLtype" || v.type === "removeLtype" ||
+    v.type === "updateTextStyle" || v.type === "removeTextStyle" ||
+    v.type === "updateDimStyle" || v.type === "removeDimStyle" ||
+    v.type === "removeLayerState"
+  ) {
+    return (
+      (v.ltypeName === undefined || typeof v.ltypeName === "string") &&
+      (v.styleName === undefined || typeof v.styleName === "string") &&
+      (v.stateName === undefined || typeof v.stateName === "string")
+    );
   }
   if (v.type === "addView") {
     if (!isPlainObject(v.view)) return false;

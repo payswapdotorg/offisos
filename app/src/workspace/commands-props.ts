@@ -214,6 +214,7 @@ export const COMMANDS_PROPS: readonly WorkspaceCommand[] = [
         id: "targets",
         kind: "entity",
         prompt: "Select destination object(s):",
+        optional: true,
         multiple: true,
         minInputs: 1,
         validate: validate2dPick,
