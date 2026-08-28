@@ -1,0 +1,292 @@
+{
+  "id": "CAD-PARITY-003",
+  "title": "Professional 2D primitives + modify system: the genuinely usable AutoCAD-class drafting vocabulary",
+  "issue": 78,
+  "architecture_version": "1.1",
+  "requirements": [
+    "CAD-001"
+  ],
+  "dependencies": [],
+  "objective": "Deliver the professional 2D drawing/editing system on the frozen CAD/BIM Product Architecture v1.0 (Issue #78; product requirements CAD-2D-001/002/003 of spec/cad-bim/requirements.md carried under platform requirement CAD-001): the CAD-2D-001 primitive vocabulary (ELLIPSE, SPLINE, POINT, RAY/XLINE, REGION on top of the existing LINE/POLYLINE/CIRCLE/ARC) and the CAD-2D-002 modify vocabulary (ROTATE, SCALE, MIRROR, OFFSET, and the generalized TRIM/EXTEND with implied-all-edges Enter semantics, STRETCH, FILLET, CHAMFER, BREAK, JOIN, EXPLODE on top of the existing MOVE/COPY/ERASE), all operating on CANONICAL geometry through a shared engine-free 2D kernel (app/src/workspace/geometry: math, entities, spline, intersections, parameterization, transforms, fillet/chamfer, offset, edit-ops) behind a storage-convention bridge that unifies the COMPAT-CAD-001 drafting vocabulary and the canonical flat records into ONE geometry view; the CAD-2D-003 precision aids (nine object-snap modes with deterministic priority, ortho/polar constraints, grid snap, object-snap tracking, deterministic picking and window/crossing selection incl. sampled spline crossing) as the SAME shared module the App API precision queries expose; the additive entity.create/entity.modify App API commands with single atomic applyEdits revisions per operation; the additive prompt-engine extensions (entityPoint step kind where the pick location is semantic, option sub-prompts for OFFSET Through / FILLET Radius / CHAMFER distances, pick-derived angles, RAY/XLINE chainKeep, implied-all-edges Enter); the Web host workspace extension (canonical rendering, merged picking, previews, ribbon tools, properties, grips) and the equivalent Electron renderer extension; deterministic tests and CI proving semantic correctness, interaction parity, selection fidelity, associativity, determinism, Web/Electron parity and regression.",
+  "acceptance_criteria": [
+    "Semantic correctness: every advertised primitive and modify operation computes exact canonical geometry with explicit typed failure behavior per command (deterministic kernel, LOCK-007 \u2014 malformed/degenerate inputs are rejected with stable codes, never silently repaired).",
+    "Interaction parity: every CAD-PARITY-003 command is reachable from the command line (names + aliases), the ribbon/tool palette and the keyboard map on BOTH hosts through the ONE shared command registry and prompt engine \u2014 no host-specific command implementations.",
+    "Selection fidelity: window/crossing, cycling, preselection and pick modifiers keep working (CAD-PARITY-002 regression) and cover the new entity vocabulary through the shared merged pick; grips cover the canonical flat-convention entities.",
+    "Associative behavior: modify operations operate on canonical geometry rather than UI approximations \u2014 the bridge loads BOTH storage conventions into ONE canonical view, every operation computes through the kernel and writes back one atomic revision (setProps full replacement so stale legacy fields never persist); REGION derived properties (area/perimeter/centroid) are recomputed server-side and forged values are rejected.",
+    "Determinism: identical command sequences produce identical entity ids, revisions, snap/pick results and persisted output on every host and every run (determinism double-runs are part of the test suite; the CAD-PARITY-002 parity fixture save sha stays intact).",
+    "Web/Electron parity: the same command script produces the same canonical result on both hosts \u2014 the Electron workspace smoke drives the REAL professional UI (19 steps: the 14-step CAD-PARITY-002 parity workflow unchanged + ELLIPSE exact, TRIM implied-all-edges with an entityPoint canvas pick, ROTATE 45\u00b0 typed exact, ribbon drives all 18 new commands, canonical pick + properties) and asserts the SAME pinned parity fixture.",
+    "UI quality: professional CAD editor feel \u2014 command previews (ghost transforms, offset preview, hover emphasis), typed coordinate grammar, contextual prompts with option keywords, snap markers, live properties \u2014 browser-verified on the dev server (the same build surface CI validates).",
+    "Regression: all existing workflows stay green \u2014 409 pre-existing app tests, the CAD-PARITY-002 web workspace smoke with the pinned parity fixture, and all ten Electron regression smokes."
+  ],
+  "non_goals": [
+    "Layers/properties/style palettes beyond the existing surface (CAD-PARITY-004 scope).",
+    "Exact spline intersections (the typed kernel limitation is explicit: TRIM/EXTEND/BREAK targets and OFFSET sources exclude splines/ellipses/regions with typed declines; window-crossing selection approximates spline crossing deterministically through the fixed 32-sample polyline).",
+    "FILLET/CHAMFER circle-arc pairs (line-pair corners are exact; circle/arc pairs report the typed limitation) and the interactive polyline mode (available through entity.modify).",
+    "ROTATE/SCALE reference modes, COPY multiple-placement repeat and FILLET radius persistence across commands (typed coordinate input covers the geometry exactly; documented as future refinement).",
+    "Multi-point object-snap tracking acquisitions beyond the existing single-base tracking.",
+    "CIRCLE/ARC alternate input modes (2P/3P/diameter) \u2014 the primary center-based flows are unchanged and regression-pinned.",
+    "Architecture changes (Architecture v1.1 and the CAD/BIM Product Architecture v1.0 stay frozen; no protected path touched).",
+    "Approval or verification claim by implementation (the process stops at PR_OPEN for Architect review of the actual UI and workflow behavior)."
+  ],
+  "risk_assumptions": [
+    "Issue #78 (scope) and the Architect work order it carries are authoritative for this execution release; the Architect's follow-up directive (implementation not present on GitHub \u2014 push the branch, open the PR, attach the governance/evidence record, let CI run) defines the required submission state.",
+    "CAD-PARITY-002 is objectively satisfied on main (merge commit d87559c 'Merge CAD-PARITY-002 after Architect approval', with the EV-004 deployed-Preview remediation recorded) but its work-item record is still at PR_OPEN (the post-merge VERIFIED transition is architect-side). Following the CAD-PARITY-001 precedent recorded in CAD-PARITY-002, the dependency is carried here as an objectively-satisfied assumption rather than a registry dependency, which must resolve to a non-demo record \u2014 Issue #78 itself states 'CAD-PARITY-002 \u2705 merged \u2192 CAD-PARITY-003 EXECUTE NOW'.",
+    "Requirements are carried as CAD-001 (professional-grade 2D drafting primitives and workflows) from spec/requirements.md because the governance validator resolves requirement IDs against that registry; the product-level requirements CAD-2D-001/002/003 live in spec/cad-bim/requirements.md and define this work item's scope (documented in the objective).",
+    "architecture_version '1.1' is the parent ConstructionOS platform version (the validator's registry); the CAD/BIM product architecture v1.0 is frozen separately in governance/cad-bim-freeze.json and feature work within the freeze does not change the platform version.",
+    "The drafting.trim/drafting.extend App API commands remain available for COMPAT-CAD-001 compatibility while the workspace TRIM/EXTEND commands now dispatch entity.modify over the full vocabulary \u2014 the generalized semantics supersede the line-only interactive flow (App API regression surface untouched).",
+    "Legacy-convention entities modified by CAD-PARITY-003 operations are written back in the canonical flat form (setProps full replacement): the element id and layer are preserved, the geometry storage convention may change (a rectangle materializes as the closed polyline it mathematically is \u2014 echoed in the command output, never silent); both conventions decode identically through the bridge.",
+    "CI evidence (EV-003) is produced by the new cad-parity-003 workflow on the PR head after the branch is pushed; the local gauntlet (full app suite, both host typechecks/builds/lints, the web parity smoke and the 19-step Electron workspace smoke) has run green on the exact implementation head before submission."
+  ],
+  "evidence_requirements": [
+    "Deterministic automated suites for the 2D geometry kernel, the storage-convention bridge, the precision engine, the entity operations, the command registry flows and the App API end-to-end surface, running in CI on the pinned toolchains with the full regression baseline.",
+    "Green cad-parity-003 CI workflow on the implementation head: app suite with LOCK-018 covering the extended src/workspace core, Web host lint/typecheck/build + the workspace workflow smoke against the pinned parity fixture, Electron build + all ten smokes incl. the 19-step real-UI workspace smoke.",
+    "Browser-verified golden paths on the dev server (the same build surface CI validates): ELLIPSE via the command line with exact axes, TRIM implied-all-edges with an entityPoint pick and exact trimmed geometry, ROTATE 45\u00b0 typed with the exact endpoint, OFFSET exact \u2014 with zero console errors."
+  ],
+  "state": "PR_OPEN",
+  "transitions": [
+    {
+      "from": "DRAFT",
+      "to": "READY",
+      "at": "2026-08-28T12:00:00Z",
+      "actor": "pectoraux",
+      "role": "architect",
+      "reason": "Issue #78 opened with the CAD-PARITY-003 scope (CAD-2D-001/002/003 of the frozen product architecture) and the raised acceptance bar; ready on the merged CAD-PARITY-002 foundation (d87559c).",
+      "references": {
+        "issue": 78
+      }
+    },
+    {
+      "from": "READY",
+      "to": "ASSIGNED",
+      "at": "2026-08-28T12:10:00Z",
+      "actor": "pectoraux",
+      "role": "architect",
+      "reason": "Architect execution directive: CAD-PARITY-003 EXECUTE NOW (Issue #78 dependency graph), assigned to the implementation agent.",
+      "references": {
+        "issue": 78,
+        "assignee": "z-ai-implementation-agent"
+      }
+    },
+    {
+      "from": "ASSIGNED",
+      "to": "IMPLEMENTING",
+      "at": "2026-08-28T12:30:00Z",
+      "actor": "z-ai-implementation-agent",
+      "role": "implementer",
+      "reason": "Implementation started on the assigned branch work/cad-parity-003-2d-editing (dependency satisfied on main per Issue #78: CAD-PARITY-002 merged at d87559c).",
+      "references": {
+        "issue": 78
+      }
+    },
+    {
+      "from": "IMPLEMENTING",
+      "to": "PR_OPEN",
+      "at": "2026-08-28T15:59:09Z",
+      "actor": "z-ai-implementation-agent",
+      "role": "implementer",
+      "reason": "Evidence package complete and PR #79 opened; the shared core, both host extensions, the 175-test deterministic suite, the cad-parity-003 CI workflow and this record are on the branch; the local gauntlet (584-test app suite, both host typechecks/builds/lints, the web parity smoke with the pinned fixture and the 19-step Electron workspace smoke) is green; implementation stopped at PR_OPEN as directed \u2014 CI evidence (EV-003) lands on the PR head.",
+      "references": {
+        "issue": 78,
+        "pr": 79
+      }
+    },
+    {
+      "from": "PR_OPEN",
+      "to": "VERIFYING",
+      "at": "2026-08-28T16:10:00Z",
+      "actor": "z-ai-implementation-agent",
+      "role": "implementer",
+      "reason": "EV-003 recorded: all 34 PR-head check runs green on 20a8b41/bebce4b (cad-parity-003 runs #3/#4, governance #142, every regression workflow); PR #79 ready for Architect review of the actual UI and workflow behavior.",
+      "references": {
+        "pr": 79,
+        "evidence": [
+          "EV-003"
+        ]
+      }
+    },
+    {
+      "from": "VERIFYING",
+      "to": "ARCHITECT_REVIEW",
+      "at": "2026-08-28T16:21:00Z",
+      "actor": "pectoraux",
+      "role": "architect",
+      "reason": "Architect review started on PR #79 against the Issue #78 acceptance bar (the formal GitHub REQUEST_CHANGES could not be submitted because the connected account is the PR author; PR comment 5454974593 is the authoritative review record).",
+      "references": {
+        "pr": 79,
+        "evidence": [
+          "EV-001",
+          "EV-002",
+          "EV-003"
+        ]
+      }
+    },
+    {
+      "from": "ARCHITECT_REVIEW",
+      "to": "IMPLEMENTING",
+      "at": "2026-08-28T16:25:00Z",
+      "actor": "pectoraux",
+      "role": "architect",
+      "reason": "Architect review complete \u2014 CHANGES REQUESTED (DEC-001, PR comment 5454974593): the architecture and CI posture are strong, but two canonical geometry defects must be fixed before approval.",
+      "references": {
+        "decision": "DEC-001"
+      },
+      "failure_reason": "(1) joinLines merges any collinear lines by min/max projection without requiring touching/overlap \u2014 disconnected lines with a gap are fabricated into one continuous line, violating the requirement that modify operations operate on canonical geometry without inventing geometry. (2) extendGeom's ARC start-side path searches CCW from the current start and reconstructs the arc from that hit \u2014 the start can move in the wrong direction and shorten or misorient the arc; directed regression tests for both picked ends and correct interval handling are required. Additionally the documented omissions (ROTATE/SCALE reference mode, advanced repeat/persistence behaviors) must be represented explicitly as supported/unsupported command behavior with typed failures rather than presented as complete parity."
+    },
+    {
+      "from": "IMPLEMENTING",
+      "to": "PR_OPEN",
+      "at": "2026-08-28T17:00:00Z",
+      "actor": "z-ai-implementation-agent",
+      "role": "implementer",
+      "reason": "Architect-review remediation complete (DEC-001) and PR #79 returned for re-review at head e1d2d4650875: JOIN rejects disconnected geometry in all join families (lines: contiguous-span requirement with the typed no_join gap failure; arcs: the same contiguity rule on the shared circle; polyline joins already required end-to-end connection), the App API surfaces join_failed typed declines, ARC EXTEND uses directed interval semantics (the end extends CCW, the start extends backwards/CW; valid targets restricted to the complementary arc so inside-sweep crossings can never shorten or misorient the arc; wrap-around exact on both ends), and the supported/unsupported surface is explicit (ROTATE R / SCALE R / COPY M typed declines while the command keeps running; FILLET radius and CHAMFER distances echo the per-run persistence limitation). Verification: 187 deterministic 2D tests incl. the new directed regressions, full app suite 596 tests with the 409-test regression baseline intact, web lint/typecheck/build + parity-fixture smoke (save sha a48a29a8\u2026 unchanged), electron typecheck/build + the 19-step real-UI workspace smoke + the seven engine-free/OCCT smokes; the ifc/components smokes run in CI on the pinned ifcopenshell toolchain. EV-004 records the remediation evidence; CI re-runs on this head.",
+      "references": {
+        "pr": 79,
+        "commit": "e1d2d4650875c190a8f6c0fb9f4b69698283c4ca",
+        "evidence": [
+          "EV-004"
+        ],
+        "decision": "DEC-001"
+      }
+    },
+    {
+      "from": "PR_OPEN",
+      "to": "VERIFYING",
+      "at": "2026-08-28T17:05:00Z",
+      "actor": "z-ai-implementation-agent",
+      "role": "implementer",
+      "reason": "DEC-001 remediation resubmitted for Architect re-review at head dc3a512 (re-review request comment 5455228722 on PR #79): all 12 workflows green (34/34 check runs), governance validated 225/225, protected-path check PASS.",
+      "references": {
+        "pr": 79,
+        "commit": "dc3a51254fb0ad2475cb3ac95fcfeacd3776a755"
+      }
+    },
+    {
+      "from": "VERIFYING",
+      "to": "ARCHITECT_REVIEW",
+      "at": "2026-08-28T17:30:00Z",
+      "actor": "pectoraux",
+      "role": "architect",
+      "reason": "Architect re-review of the DEC-001 remediation evidence package (comment 5455562484).",
+      "references": {
+        "evidence": [
+          "EV-004"
+        ]
+      }
+    },
+    {
+      "from": "ARCHITECT_REVIEW",
+      "to": "IMPLEMENTING",
+      "at": "2026-08-28T17:30:00Z",
+      "actor": "pectoraux",
+      "role": "architect",
+      "reason": "Architect re-review complete \u2014 CHANGES REQUESTED (DEC-002, comment 5455562484): the deployed-Vercel acceptance rule is not satisfied; the exact PR head must be deployed and browser-verified.",
+      "references": {
+        "decision": "DEC-002"
+      },
+      "failure_reason": "The program-level CAD parity rule (established after CAD-PARITY-002) requires browser verification against the exact deployed Vercel revision; PR #79 carried only local dev-server/production-build evidence and explicitly stated no Vercel Preview was deployed."
+    },
+    {
+      "from": "IMPLEMENTING",
+      "to": "PR_OPEN",
+      "at": "2026-08-28T19:18:39Z",
+      "actor": "z-ai-implementation-agent",
+      "role": "implementer",
+      "reason": "DEC-002 remediation complete: the exact PR head dc3a51254fb0ad2475cb3ac95fcfeacd3776a755 was deployed to Vercel Preview (https://offisos-7nlalje01-ekonplacidegmailcoms-projects.vercel.app) and the professional 2D workspace was browser-verified against the deployed revision \u2014 the full 2D protocol over the architect-required core parity surface (21/21 checks green: drawing, modify operations incl. the JOIN gap decline and ARC EXTEND/ROTATE/MIRROR/OFFSET/FILLET exactness, selection, precision aids, undo/redo, command-line interaction incl. the typed ROTATE-R/COPY-M declines) plus the HTTP workspace smoke reproducing the pinned CAD-PARITY-002 parity fixture against the same deployment; zero console/page errors. EV-005 recorded; PR #79 returned for final Architect review.",
+      "references": {
+        "pr": 79,
+        "commit": "dc3a51254fb0ad2475cb3ac95fcfeacd3776a755"
+      }
+    }
+  ],
+  "evidence": [
+    {
+      "id": "EV-001",
+      "type": "automated-test-suite",
+      "description": "584/584 app tests at the implementation head: the 409 pre-existing CAD/drafting/BIM/documentation/IFC/component/workspace regressions stay green and 175 new deterministic CAD-PARITY-003 tests run in six files \u2014 workspace-2d-geometry (kernel exactness: rotate/scale/mirror with exact values, line\u00d7circle/arc intersections incl. tangent cases, FILLET/CHAMFER bisector tangent points and polyline modes, OFFSET \u00b1/mitered, TRIM/EXTEND/BREAK/JOIN/EXPLODE/STRETCH/REGION exact values, spline clamping, typed GeomOpError failures), workspace-2d-bridge (both storage conventions decode to one canonical view, rectangle\u2192closed polyline, LOCK-007 nulls), workspace-2d-precision (all 9 osnap modes, deterministic priority and tie-breaks, aperture boundaries, pickAt, window vs crossing incl. sampled spline crossing, ortho/polar/grid, grips, double-run determinism), workspace-2d-entityops (every modify op over both conventions with exact applyEdits batches and summaries, atomicity, rectangle materialization echo, typed failures incl. forged region properties, determinism double-runs), workspace-2d-commands (18 commands resolve by name+alias without collisions, exact appApi payloads for full prompt-engine flows: ELLIPSE rx/ry perpendicular computation, ROTATE pick\u2192angle and typed, OFFSET Through option capture, FILLET R with Enter default, RAY/XLINE chainKeep, TRIM/EXTEND entityPoint collection with preselection and implied-all-edges, MIRROR Y/N, STRETCH window normalization, validate2dPick rejections, MOVE canonical/legacy partition) and workspace-2d-api (AppApiHandler end-to-end: entity.create all 6 new types with one revision per batch, every modify happy path with exact geometry, exact undo restoration, precision queries with hidden-layer filtering and double-run determinism, bad payloads). Three core bugs were found BY the suite and fixed: the prompt-engine generic optional-multiple Enter branch shadowed the entityPoint branch (TRIM/EXTEND could never complete), filletPolyline dropped the closed-polyline wrap-around piece, and entity-ops count reporting \u2014 all pinned with exact-value assertions after the fixes.",
+      "produced_at": "2026-08-28T15:30:00Z",
+      "reproducible": true,
+      "reproduction": "cd app && node --import tsx --test test/workspace-2d-*.test.ts",
+      "references": {
+        "commit": "0cdec966b7c2277497ad56b3e06db0918048969e"
+      }
+    },
+    {
+      "id": "EV-002",
+      "type": "inspectable-artifact",
+      "description": "Deployable host proofs on the implementation head: Web lint/typecheck/build clean; dev-server workspace smoke green with the pinned CAD-PARITY-002 parity fixture intact (save sha a48a29a8e1d4be65\u2026, 9-command stream \u2014 the professional shell behavior is unchanged by the new vocabulary). Electron typecheck/build clean + the workspace real-UI smoke passes 19 steps: the 14-step CAD-PARITY-002 parity workflow unchanged (STORY/LINE/CIRCLE/WALL via the command line, undo/redo, cancel, palette, save determinism, save-sha + command-stream parity against the SAME fixture) plus 5 new CAD-PARITY-003 steps driving the REAL UI \u2014 ELLIPSE via the command line (typed 0,0 / 100,0 / 0,50 \u2192 exact axes 100\u00d750 rotation 0, rendered ellipse element), TRIM implied-all-edges with an entityPoint canvas pick (line trimmed to (-200,80)-(50,80) exactly, canonical setProps write-back), ROTATE 45\u00b0 typed with preselection (endpoint 70.71067811865476 exact), the ribbon tool palette exposing and driving all 18 new commands (33 tools; ELLIPSE tool click starts the command), and the canonical-only canvas pick with the properties readout. Browser workflow evidence on the Web dev server (agent-browser, zero console errors): ELLIPSE via the command line with exact axes 100\u00d750; LINE+CIRCLE then TRIM with implied-all-edges Enter and an entityPoint pick on the piece to remove \u2192 line trimmed to exactly (30,0)-(100,0) at the circle intersection with a clean canonical write-back (verified against the document state; a merge-writeback bug was found this way and fixed \u2014 setProps full replacement); ROTATE 45\u00b0 about a picked base with exact endpoints; OFFSET of a circle outward by 15 (r 20\u219235 exact); the ribbon shows all new tools; the command line shows contextual prompts and option keywords.",
+      "produced_at": "2026-08-28T16:10:00Z",
+      "reproducible": true,
+      "reproduction": "cd apps/web && npm run dev -- --webpack -p 3100 & ; from the repo root: node --import tsx apps/web/test/workspace-smoke.mjs ; cd apps/electron && npm run smoke:workspace",
+      "references": {
+        "commit": "0cdec966b7c2277497ad56b3e06db0918048969e",
+        "path": "apps/electron/test/smoke-workspace.mjs"
+      }
+    },
+    {
+      "id": "EV-003",
+      "type": "ci-run",
+      "description": "All 34 PR-head check runs green on the PR head 20a8b41: cad-parity-003 run #3 (id 33188008440 \u2014 workspace-shell: the full 584-test app suite on BOTH pinned toolchains (OCCT 7.8.1.1.1 + ifcopenshell 0.8.5) + LOCK-018 forbidden-import scan covering the extended src/workspace core + the IFC worker pin probe; web-host-workspace: lint/typecheck/build + the shared-prompt-engine dev-server workflow smoke against the pinned CAD-PARITY-002 parity fixture; electron-host-workspace: build + TEN smokes incl. the 19-step real-UI workspace parity smoke with the result JSON uploaded as evidence), governance validation run #142 (id 33188008381 \u2014 tests, records, protected paths), and every regression workflow green on the same head (compat-ifc-001 #24, compat-cad-001 #33, compat-cad-002 #30, compat-cad-003 #27, compat-bim-003 #20, cad-implement-001 #54, cad-implement-002 #46, cad-implement-003 #40, research-cad-007 #30, cad-parity-002 #11). The one commit between the implementation head and this CI head is the cad-parity-003 workflow YAML syntax fix itself (quoting a step name containing a colon \u2014 the first push failed workflow-file validation with 0 jobs and no test ever ran on that broken file; no source, test or host file changed).",
+      "produced_at": "2026-08-28T16:07:00Z",
+      "reproducible": true,
+      "references": {
+        "commit": "20a8b414cf755206f5e5d0df13113f1fc7b8d4b1",
+        "workflow_run": "33188008440",
+        "pr": 79
+      }
+    },
+    {
+      "id": "EV-004",
+      "type": "automated-test-suite",
+      "description": "Architect-review remediation (DEC-001) verified at head e1d2d4650875c190a8f6c0fb9f4b69698283c4ca: (1) JOIN never fabricates geometry \u2014 joinLines requires the projected intervals to form ONE contiguous span (touch or overlap within tolerance) and rejects a gap with the typed no_join failure 'collinear lines have a gap \u2014 JOIN cannot fabricate the missing span'; joinArcs applies the same contiguity rule on the shared circle (cut at the first arc's start, unwrap, walk \u2014 disconnected same-circle arcs are typed no_join instead of silently merging across the gap); opJoin surfaces geometry-level declines as the typed join_failed code at the App API. (2) ARC EXTEND now uses directed interval semantics \u2014 the END extends CCW and the START extends BACKWARDS (CW) from the picked end; valid targets are restricted to the complementary arc (delta bounded by TAU \u2212 sweep), so a boundary crossing INSIDE the current sweep can never capture an end (the pre-fix defect that shortened/misoriented arcs); wrap-around angles stay exact on both ends. (3) The supported/unsupported surface is explicit: ROTATE R (Reference), SCALE R (Reference) and COPY M (Multiple placement) are typed declines at their input steps while the command keeps running (PromptStepOption.unsupported mechanism), and FILLET radius / CHAMFER distances echo the per-run persistence limitation in the command output. Directed regression coverage added: touching/overlap/reversed-direction JOIN with exact spans, gap JOIN rejections (two-piece, three-piece-missing-middle, reverse order, same-circle arcs), ARC EXTEND end-side and start-side directed tests with inside-sweep boundary crossings for both picked ends, wrap-around extension exactness, and the typed-decline command flows (ROTATE R then 45\u00b0, SCALE R then 2, COPY M then displacement, FILLET/CHAMFER persistence notes). Suite: 187 deterministic 2D tests (was 175) and the full app suite 596 tests with the 409-test regression baseline intact; web host lint/typecheck/build + the parity-fixture dev-server smoke green (save sha a48a29a8\u2026 unchanged); electron host typecheck/build + the 19-step real-UI workspace smoke green (the 14-step CAD-PARITY-002 parity workflow unchanged) + the engine-free/geometry/model/impact/drafting/BIM/docs smokes green locally (ifc/components smokes run in CI on the pinned ifcopenshell toolchain \u2014 the module is not installed in this sandbox, unchanged from the original submission).",
+      "produced_at": "2026-08-28T16:55:00Z",
+      "reproducible": true,
+      "reproduction": "cd app && node --import tsx --test test/workspace-2d-*.test.ts   # 187 tests; full suite: test/*.test.ts \u2192 596",
+      "references": {
+        "commit": "e1d2d4650875c190a8f6c0fb9f4b69698283c4ca",
+        "pr": 79
+      }
+    },
+    {
+      "id": "EV-005",
+      "type": "inspectable-artifact",
+      "description": "Vercel Preview deployment of the exact PR #79 head dc3a51254fb0ad2475cb3ac95fcfeacd3776a755 and browser verification of the professional 2D workspace against the deployed revision (DEC-002 remediation). Deployed URL: https://offisos-7nlalje01-ekonplacidegmailcoms-projects.vercel.app (Vercel deployment dpl_Bc9Wfk7sBkMerGRTAoEqzPaawJRp; deployment meta gitsha=dc3a51254fb0ad2475cb3ac95fcfeacd3776a755, pr=79, workitem=CAD-PARITY-003 \u2014 binding verified via the Vercel REST API; Next.js 16 build on the Vercel builder: '/' static + '/api/cad' serverless function). Verified end-to-end: (1) deployed-surface probes return HTTP 200 for '/' (workspace shell) and '/api/cad' (canonical CAD state), cache-busted; (2) the CAD-PARITY-003 2D browser protocol executes 21/21 checks green against the deployed URL \u2014 shell render with all surfaces and the 18 new tools; typed drawing of LINE/CIRCLE/ELLIPSE/RECTANGLE/ARC/closed POLYLINE with exact geometry; TRIM with implied-all-edges + entityPoint canvas pick ((100,0)-(300,0) line trimmed to exactly (150,0)-(300,0) at the circle intersection); EXTEND to a boundary line ((800,0)-(850,0) -> (800,0)-(900,0)); FILLET r=20 with exact tangent geometry; OFFSET circle +15 (r 50->65); ROTATE 90 deg typed via P preselection (rotation=pi/2 exact); MIRROR across a vertical axis (exact mirrored arc 135-180 deg, source kept); JOIN of two gapped collinear lines declined with the typed join_failed 'gap' failure and NO geometry fabricated; JOIN of touching lines merged to the single exact span; window selection fully-contained-only; crossing selection contained+border-crossing (exact 5-entity set); click pick + Properties readout; endpoint + center osnap producing the exact snapped line (100,0)->(200,0) from offset cursors; ORTHO axis-constrained second point; deterministic undo/redo version walk; Esc cancellation; unknown-command message; typed declines for ROTATE R (Reference) and COPY M (Multiple); zero console/page errors across the whole session; (3) the HTTP workspace smoke reproduces the pinned CAD-PARITY-002 parity fixture (sha256 a48a29a8e1d4be65...) against the same deployment. Methodology: the browser session was driven through a transparent local relay that forwards every request to the deployed URL and serializes /api/cad requests (the App API keeps the open CADDocument in serverless instance memory \u2014 the CAD-PARITY-002 hosting finding); no app code executed locally; full transcript preserved (relay.log, protocol-results.json, screenshots protocol-NN-*.png in the verification workspace).",
+      "produced_at": "2026-08-28T19:18:39Z",
+      "reproducible": true,
+      "reproduction": "From a clean checkout of PR #79 head dc3a51254fb0ad2475cb3ac95fcfeacd3776a755: cd apps/web && npm install && npm run build; deploy with the Vercel CLI (vercel deploy --project offisos); then drive /home/z/cp3-verify/protocol.py <deployed-url> and OFFISOS_WEB_URL=<deployed-url> node --import tsx apps/web/test/workspace-smoke.mjs.",
+      "references": {
+        "pr": 79,
+        "commit": "dc3a51254fb0ad2475cb3ac95fcfeacd3776a755",
+        "artifact_path": "/home/z/cp3-verify/deployed-protocol.log",
+        "path": "/home/z/cp3-verify/deployed-smoke.log"
+      }
+    }
+  ],
+  "decisions": [
+    {
+      "id": "DEC-001",
+      "status": "changes_requested",
+      "decided_at": "2026-08-28T16:25:00Z",
+      "decided_by": "pectoraux",
+      "role": "architect",
+      "rationale": "Architect review of CAD-PARITY-003 / PR #79 (comment 5454974593): the frozen architecture remains sound and the CI/test evidence is strong, but two real semantic defects in the canonical geometry kernel must be fixed before approval. (1) joinLines accepts any collinear lines and takes the min/max projected endpoints \u2014 two lines with a gap become one longer line, fabricating geometry and violating the requirement that modify operations operate on canonical geometry without inventing geometry. (2) extendGeom's ARC start-side path searches CCW from the current start and reconstructs the arc from that hit, which can move the start in the wrong direction and shorten or misorient the arc. Additionally, the currently documented omissions (e.g. ROTATE/SCALE reference mode and advanced repeat/persistence behaviors) must be represented explicitly as supported/unsupported command behavior with typed failures rather than presented as complete parity. The formal GitHub REQUEST_CHANGES operation was rejected because the connected account is the PR author, so the review is recorded as the authoritative PR comment instead. No architecture change is required.",
+      "evidence_refs": [
+        "EV-001",
+        "EV-002",
+        "EV-003"
+      ],
+      "remediation_required": "Fix the geometry semantics (JOIN must reject disconnected geometry; ARC EXTEND must use directed interval handling for both picked ends), add directed regression tests, rerun the complete 2D + regression + Web/Electron parity suite, update the governance evidence, and return PR #79 for review."
+    },
+    {
+      "id": "DEC-002",
+      "status": "changes_requested",
+      "decided_at": "2026-08-28T17:30:00Z",
+      "decided_by": "pectoraux",
+      "role": "architect",
+      "rationale": "Architect re-review of CAD-PARITY-003 / PR #79 (comment 5455562484): the JOIN/ARC-EXTEND geometry remediation is accepted in principle and the 596-test/34-check green posture is strong, but the program-level CAD parity rule established after CAD-PARITY-002 requires every Web-facing parity sprint to be browser-verified against the exact deployed Vercel revision, not only a local dev server, and PR #79 explicitly stated no Vercel Preview was deployed. No further geometry changes were requested unless the deployed test exposed another defect.",
+      "evidence_refs": [
+        "EV-004"
+      ],
+      "remediation_required": "Deploy the exact PR head to Vercel Preview, browser-verify the deployed 2D workspace over the core parity surface (drawing, modify operations, selection, precision aids, undo/redo, command-line interaction), record the deployed URL + deployed SHA + results as governance evidence, and return PR #79 for final Architect review."
+    }
+  ]
+}
