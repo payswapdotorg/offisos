@@ -26,6 +26,7 @@
  */
 
 import type { Vec2 } from "../drafting/precision.js";
+import type { LayerRecord } from "../contracts/caddocument.js";
 
 // ---------------------------------------------------------------------------
 // Command categories (mirrors the ribbon/menu information architecture of
@@ -78,8 +79,10 @@ export type PromptInputKind =
 export interface PromptStepOption {
   readonly keyword: string;
   readonly label: string;
-  /** When set, the keyword opens a sub-prompt for this input kind. */
-  readonly input?: "number" | "distance" | "point";
+  /** When set, the keyword opens a sub-prompt for this input kind.
+   *  CAD-PARITY-004: "text" sub-prompts collect a typed string value
+   *  (-LAYER's name prompts, CHPROP's value prompts). */
+  readonly input?: "number" | "distance" | "point" | "text";
   /** Sub-prompt text shown while the option value is collected. */
   readonly optionPrompt?: string;
   /** Default accepted on Enter for number sub-prompts. */
@@ -218,6 +221,10 @@ export interface CommandContext {
   /** Current editor selection (ids with kinds) — used by MOVE/COPY/ERASE
    *  when the object step is skipped with Enter ("previous"). */
   readonly currentSelection: readonly EntityPick[];
+  /** CAD-PARITY-004: the document layer table (name resolution for the
+   *  -LAYER / CHPROP / LAYERSTATE builders; empty on contexts that predate
+   *  the field — every builder treats it as "no resolvable names"). */
+  readonly layers: readonly LayerRecord[];
 }
 
 export function defaultCommandContext(overrides?: Partial<CommandContext>): CommandContext {
@@ -228,6 +235,7 @@ export function defaultCommandContext(overrides?: Partial<CommandContext>): Comm
     storyCount: 0,
     defaults: DEFAULT_COMMAND_DEFAULTS,
     currentSelection: [],
+    layers: [],
     ...overrides,
   };
 }

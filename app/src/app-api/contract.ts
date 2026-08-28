@@ -57,7 +57,17 @@ import {
   type PrecisionSettings,
 } from "../workspace/precision-2d.js";
 import { canonicalSnapKinds, validateDraftingSettings, validateBimSettings } from "../caddocument/workspace.js";
-import type { LayerRecord } from "../contracts/caddocument.js";
+import {
+  ISOLATE_LAYER_STATE_NAME,
+  layerStateRestoreEdits,
+} from "../caddocument/workspace.js";
+import {
+  layerStandardById,
+  LAYER_STANDARDS,
+  BUILT_IN_LTYPE_NAMES,
+  STANDARD_DEFAULT_LINEWEIGHT,
+} from "../workspace/standards/index.js";
+import type { DimStyleRecord, LayerRecord, LtypeRecord, TextStyleRecord } from "../contracts/caddocument.js";
 // COMPAT-CAD-002: the pure BIM authoring core (LOCK-018 scanned).
 import {
   buildBimCreate,
@@ -205,6 +215,41 @@ export class AppApiHandler {
         return this.cmdDraftingLayer(command.payload, "update");
       case "drafting.removeLayer":
         return this.cmdDraftingLayer(command.payload, "remove");
+      // --- CAD-PARITY-004 (additive): layers, properties, styles, states ---
+      case "entity.setDisplay":
+        return this.cmdEntitySetDisplay(command.payload);
+      case "layer.setActive":
+        return this.cmdLayerSetActive(command.payload);
+      case "layer.applyStandard":
+        return this.cmdLayerApplyStandard(command.payload);
+      case "layer.isolate":
+        return this.cmdLayerIsolate(command.payload);
+      case "layer.unisolate":
+        return this.cmdLayerUnisolate(command.payload);
+      case "layerState.save":
+        return this.cmdLayerStateSave(command.payload);
+      case "layerState.restore":
+        return this.cmdLayerStateRestore(command.payload);
+      case "layerState.remove":
+        return this.cmdLayerStateRemove(command.payload);
+      case "ltype.create":
+        return this.cmdLtypeCreate(command.payload);
+      case "ltype.update":
+        return this.cmdLtypeUpdate(command.payload);
+      case "ltype.remove":
+        return this.cmdLtypeRemove(command.payload);
+      case "textStyle.create":
+        return this.cmdTextStyleCreate(command.payload);
+      case "textStyle.update":
+        return this.cmdTextStyleUpdate(command.payload);
+      case "textStyle.remove":
+        return this.cmdTextStyleRemove(command.payload);
+      case "dimStyle.create":
+        return this.cmdDimStyleCreate(command.payload);
+      case "dimStyle.update":
+        return this.cmdDimStyleUpdate(command.payload);
+      case "dimStyle.remove":
+        return this.cmdDimStyleRemove(command.payload);
       // --- COMPAT-CAD-002 (additive): 3D/BIM authoring commands ---
       case "bim.createElements":
         return this.cmdBimCreate(command.payload);
@@ -711,8 +756,31 @@ export class AppApiHandler {
         grid: { ...cur.grid, ...((incoming.grid as object) ?? {}) },
         snap: { ...cur.snap, ...((incoming.snap as object) ?? {}) },
         view: { ...cur.view, ...((incoming.view as object) ?? {}) },
+        // CAD-PARITY-004: the standards object merges one level deep so
+        // LTSCALE patches keep the defaultLineweight (and vice versa).
+        standards: { ...(cur.standards ?? {}), ...((incoming.standards as object) ?? {}) },
       };
+      if (incoming.standards === undefined && cur.standards === undefined) delete (merged as Record<string, unknown>).standards;
       const settings = validateDraftingSettings(merged);
+      // CAD-PARITY-004 cross-reference validation (document state lives here):
+      // - activeLayer must reference an existing, non-frozen layer;
+      // - textStyle/dimStyle must reference an existing style (built-ins
+      //   "Standard" included).
+      if (settings.activeLayer !== undefined) {
+        const layer = this.doc.layerById(settings.activeLayer);
+        if (layer === undefined) {
+          return err("drafting_invalid", `drafting.setSettings: activeLayer '${settings.activeLayer}' does not exist`, false);
+        }
+        if (layer.frozen === true) {
+          return err("drafting_invalid", `drafting.setSettings: layer '${layer.name}' is frozen — a frozen layer cannot be active`, false);
+        }
+      }
+      if (settings.textStyle !== undefined && settings.textStyle !== "Standard" && this.doc.textStyleByName(settings.textStyle) === undefined) {
+        return err("drafting_invalid", `drafting.setSettings: textStyle '${settings.textStyle}' does not exist`, false);
+      }
+      if (settings.dimStyle !== undefined && settings.dimStyle !== "Standard" && this.doc.dimStyleByName(settings.dimStyle) === undefined) {
+        return err("drafting_invalid", `drafting.setSettings: dimStyle '${settings.dimStyle}' does not exist`, false);
+      }
       this.doc.setDraftingSettings(settings);
       return ok({ settings: this.doc.draftingSettings, snapshot: this.doc.snapshot() });
     } catch (e) {
@@ -737,15 +805,48 @@ export class AppApiHandler {
           name: p.name,
           color: typeof p.color === "string" ? p.color : "#111827",
           visible: typeof p.visible === "boolean" ? p.visible : true,
+          // CAD-PARITY-004 extended fields (validated by the document's
+          // validateLayerRecord through execute; linetype names + lineweight
+          // standard-set membership checked here where the tables live).
+          ...(typeof p.frozen === "boolean" ? { frozen: p.frozen } : {}),
+          ...(typeof p.locked === "boolean" ? { locked: p.locked } : {}),
+          ...(typeof p.linetype === "string" ? { linetype: p.linetype } : {}),
+          ...(typeof p.lineweight === "number" ? { lineweight: p.lineweight } : {}),
+          ...(typeof p.transparency === "number" ? { transparency: p.transparency } : {}),
+          ...(typeof p.plot === "boolean" ? { plot: p.plot } : {}),
+          ...(typeof p.description === "string" ? { description: p.description } : {}),
         };
+        if (layer.linetype !== undefined && !this.ltypeResolves(layer.linetype)) {
+          return err("drafting_invalid", `drafting.addLayer: unknown linetype '${layer.linetype}'`, false);
+        }
         this.doc.execute({ type: "addLayer", layer });
-        return ok({ layerId: layer.id, snapshot: this.doc.snapshot() });
+        // CAD-PARITY-004: -LAYER Make — create AND switch the active layer in
+        // one command (a frozen layer cannot be created frozen-active; the
+        // fresh layer is never frozen).
+        if (p.makeActive === true) {
+          this.doc.setDraftingSettings({ ...this.doc.draftingSettings, activeLayer: layer.id });
+        }
+        return ok({ layerId: layer.id, active: p.makeActive === true, snapshot: this.doc.snapshot() });
       }
       if (op === "update") {
         if (typeof p.layerId !== "string" || typeof p.patch !== "object" || p.patch === null) {
           return err("bad_payload", "drafting.updateLayer requires layerId + patch", true);
         }
-        this.doc.execute({ type: "updateLayer", layerId: p.layerId, patch: p.patch as Record<string, unknown> });
+        const patch = p.patch as Record<string, unknown>;
+        // CAD-PARITY-004 operational rules that need document state:
+        // - a patch that sets linetype must reference a resolvable linetype;
+        // - the ACTIVE layer cannot be frozen (you cannot draw on a frozen
+        //   layer — the layer must be switched or thawed first).
+        if (typeof patch.linetype === "string" && !this.ltypeResolves(patch.linetype)) {
+          return err("drafting_invalid", `drafting.updateLayer: unknown linetype '${patch.linetype}'`, false);
+        }
+        if (patch.frozen === true) {
+          const active = this.doc.draftingSettings.activeLayer ?? "0";
+          if (p.layerId === active) {
+            return err("drafting_invalid", "the active layer cannot be frozen — switch the active layer or thaw it first", false);
+          }
+        }
+        this.doc.execute({ type: "updateLayer", layerId: p.layerId, patch });
         return ok({ snapshot: this.doc.snapshot() });
       }
       if (typeof p.layerId !== "string") {
@@ -753,6 +854,376 @@ export class AppApiHandler {
       }
       this.doc.execute({ type: "removeLayer", layerId: p.layerId });
       return ok({ snapshot: this.doc.snapshot() });
+    } catch (e) {
+      return err("drafting_invalid", (e as Error).message, false);
+    }
+  }
+
+  // --- CAD-PARITY-004 (additive): layers, properties, styles, states ------
+
+  /** Does a linetype name resolve (built-in catalog or user table)? The
+   *  single resolution predicate shared by every layer/entity write path. */
+  private ltypeResolves(name: string): boolean {
+    if (name === "Continuous") return true;
+    if (BUILT_IN_LTYPE_NAMES.includes(name)) return true;
+    return this.doc.ltypeByName(name) !== undefined;
+  }
+
+  /** entity.setDisplay — ONE atomic display/layer patch over a batch of
+   *  entities (CHPROP / MATCHPROP / the Properties palette write path).
+   *  Validation + edit construction live in the shared entity-ops core; the
+   *  document's execute() gate enforces locked-layer rejection. */
+  private cmdEntitySetDisplay(payload: unknown): CommandQueryResponse {
+    const p = payload as { ids?: unknown; patch?: unknown } | null;
+    if (p === null || typeof p !== "object" || !Array.isArray(p.ids) || !p.ids.every((x) => typeof x === "string")) {
+      return err("bad_payload", "entity.setDisplay requires an ids string array + patch", true);
+    }
+    if (typeof p.patch !== "object" || p.patch === null) {
+      return err("bad_payload", "entity.setDisplay requires a patch object", true);
+    }
+    try {
+      const outcome = modifyEntities(this.doc.allElements(), {
+        op: "setDisplay",
+        ids: p.ids as string[],
+        patch: p.patch as Record<string, unknown>,
+        layerExists: (id) => this.doc.layerById(id) !== undefined,
+        ltypeResolves: (name) => this.ltypeResolves(name),
+      });
+      if (outcome.edit === null) {
+        return ok({ applied: false, reason: outcome.summary, snapshot: this.doc.snapshot() });
+      }
+      this.doc.execute(outcome.edit);
+      return ok({ applied: true, summary: outcome.summary, modified: outcome.modifiedCount, snapshot: this.doc.snapshot() });
+    } catch (e) {
+      if (e instanceof EntityOpError) return err(e.code, e.message, false);
+      return err("entity_invalid", (e as Error).message, false);
+    }
+  }
+
+  /** layer.setActive — switch the active layer (persisted editor state; a
+   *  frozen layer cannot be active). */
+  private cmdLayerSetActive(payload: unknown): CommandQueryResponse {
+    const p = payload as { layerId?: unknown } | null;
+    if (p === null || typeof p !== "object" || typeof p.layerId !== "string") {
+      return err("bad_payload", "layer.setActive requires a layerId string", true);
+    }
+    const layer = this.doc.layerById(p.layerId);
+    if (layer === undefined) {
+      return err("bad_layer", `layer.setActive: no layer '${p.layerId}'`, false);
+    }
+    if (layer.frozen === true) {
+      return err("bad_layer", `layer.setActive: layer '${layer.name}' is frozen — thaw it before drawing on it`, false);
+    }
+    try {
+      this.doc.setDraftingSettings({ ...this.doc.draftingSettings, activeLayer: p.layerId });
+      return ok({ activeLayer: p.layerId, snapshot: this.doc.snapshot() });
+    } catch (e) {
+      return err("drafting_invalid", (e as Error).message, false);
+    }
+  }
+
+  /** layer.applyStandard — apply a named layer standard (architectural /
+   *  mechanical) to the document: every standard layer that does not already
+   *  exist (by name) is created with its standard color/linetype/lineweight
+   *  in ONE atomic versioned batch; existing layers are reported as skipped
+   *  (never silently overwritten). */
+  private cmdLayerApplyStandard(payload: unknown): CommandQueryResponse {
+    const p = payload as { standard?: unknown } | null;
+    if (p === null || typeof p !== "object" || typeof p.standard !== "string") {
+      return err("bad_payload", "layer.applyStandard requires a standard id ('architectural' | 'mechanical')", true);
+    }
+    const standard = layerStandardById(p.standard);
+    if (standard === null) {
+      return err("bad_payload", `layer.applyStandard: unknown standard '${p.standard}' (available: ${LAYER_STANDARDS.map((s) => s.id).join(", ")})`, true);
+    }
+    try {
+      const existingNames = new Set(this.doc.layerTable.map((l) => l.name));
+      const edits: DocumentEdit[] = [];
+      const createdNames: string[] = [];
+      const skippedNames: string[] = [];
+      for (const def of standard.layers) {
+        if (existingNames.has(def.name)) {
+          skippedNames.push(def.name);
+          continue;
+        }
+        const layer: LayerRecord = {
+          id: this.doc.mintLayerId(),
+          name: def.name,
+          color: def.color,
+          visible: true,
+          ...(def.linetype !== "Continuous" ? { linetype: def.linetype } : {}),
+          ...(def.lineweight !== STANDARD_DEFAULT_LINEWEIGHT ? { lineweight: def.lineweight } : {}),
+          ...(def.description.length > 0 ? { description: def.description } : {}),
+        };
+        edits.push({ type: "addLayer", layer });
+        createdNames.push(def.name);
+      }
+      if (edits.length > 0) {
+        this.doc.execute({ type: "applyEdits", edits });
+      }
+      return ok({
+        standard: standard.id,
+        created: createdNames,
+        skipped: skippedNames,
+        snapshot: this.doc.snapshot(),
+      });
+    } catch (e) {
+      return err("drafting_invalid", (e as Error).message, false);
+    }
+  }
+
+  /** layer.isolate — keep only the given layers (ids) visible; every other
+   *  layer is switched off in ONE atomic versioned batch. The previous layer
+   *  table state is saved as the reserved *ISOLATE* layer state so
+   *  layer.unisolate can restore it exactly (undoable independently). */
+  private cmdLayerIsolate(payload: unknown): CommandQueryResponse {
+    const p = payload as { layerIds?: unknown } | null;
+    if (p === null || typeof p !== "object" || !Array.isArray(p.layerIds) || !p.layerIds.every((x) => typeof x === "string")) {
+      return err("bad_payload", "layer.isolate requires a layerIds string array", true);
+    }
+    const keep = new Set(p.layerIds as string[]);
+    try {
+      const edits: DocumentEdit[] = [];
+      // Save the pre-isolation state first (replaces any stale isolation).
+      edits.push({ type: "addLayerState", state: this.doc.captureCurrentLayerState(ISOLATE_LAYER_STATE_NAME) });
+      for (const layer of this.doc.layerTable) {
+        if (keep.has(layer.id) || !layer.visible) continue;
+        edits.push({ type: "updateLayer", layerId: layer.id, patch: { visible: false } });
+      }
+      this.doc.execute({ type: "applyEdits", edits });
+      return ok({ isolated: [...keep], snapshot: this.doc.snapshot() });
+    } catch (e) {
+      return err("drafting_invalid", (e as Error).message, false);
+    }
+  }
+
+  /** layer.unisolate — restore the layer table state saved by layer.isolate
+   *  (and remove the reserved state). Without a stored isolation state the
+   *  command is a typed no-op failure (honest surface). */
+  private cmdLayerUnisolate(payload: unknown): CommandQueryResponse {
+    void payload;
+    const saved = this.doc.layerStateByName(ISOLATE_LAYER_STATE_NAME);
+    if (saved === undefined) {
+      return err("bad_state", "layer.unisolate: no isolation is active (run LAYISO first)", false);
+    }
+    try {
+      const edits: DocumentEdit[] = [...layerStateRestoreEdits(saved, this.doc.layerTable)];
+      edits.push({ type: "removeLayerState", stateName: ISOLATE_LAYER_STATE_NAME });
+      if (edits.length > 0) {
+        this.doc.execute({ type: "applyEdits", edits });
+      }
+      return ok({ restored: true, snapshot: this.doc.snapshot() });
+    } catch (e) {
+      return err("drafting_invalid", (e as Error).message, false);
+    }
+  }
+
+  /** layerState.save — capture the current layer table under a name
+   *  (re-save replaces; the reserved *ISOLATE* name is rejected here — it
+   *  belongs to the isolation machinery). */
+  private cmdLayerStateSave(payload: unknown): CommandQueryResponse {
+    const p = payload as { name?: unknown } | null;
+    if (p === null || typeof p !== "object" || typeof p.name !== "string" || p.name.trim().length === 0) {
+      return err("bad_payload", "layerState.save requires a non-empty name", true);
+    }
+    const name = p.name.trim();
+    if (name === ISOLATE_LAYER_STATE_NAME) {
+      return err("bad_payload", `layerState.save: '${ISOLATE_LAYER_STATE_NAME}' is reserved for LAYISO/LAYUNISO`, true);
+    }
+    try {
+      const state = this.doc.captureCurrentLayerState(name);
+      this.doc.execute({ type: "addLayerState", state });
+      return ok({ name, layers: state.layers.length, snapshot: this.doc.snapshot() });
+    } catch (e) {
+      return err("drafting_invalid", (e as Error).message, false);
+    }
+  }
+
+  /** layerState.restore — replay a saved layer state as ONE atomic
+   *  versioned batch (undoable; layers removed since the save are skipped
+   *  honestly and reported). */
+  private cmdLayerStateRestore(payload: unknown): CommandQueryResponse {
+    const p = payload as { name?: unknown } | null;
+    if (p === null || typeof p !== "object" || typeof p.name !== "string") {
+      return err("bad_payload", "layerState.restore requires a name string", true);
+    }
+    const state = this.doc.layerStateByName(p.name);
+    if (state === undefined) {
+      return err("bad_state", `layerState.restore: no layer state '${p.name}'`, false);
+    }
+    try {
+      const edits = layerStateRestoreEdits(state, this.doc.layerTable);
+      const restored = edits.length;
+      if (edits.length === 0) {
+        return ok({ restored: 0, skipped: state.layers.length, snapshot: this.doc.snapshot() });
+      }
+      this.doc.execute({ type: "applyEdits", edits });
+      return ok({ restored, skipped: state.layers.length - restored, snapshot: this.doc.snapshot() });
+    } catch (e) {
+      return err("drafting_invalid", (e as Error).message, false);
+    }
+  }
+
+  /** layerState.remove — delete a saved layer state. */
+  private cmdLayerStateRemove(payload: unknown): CommandQueryResponse {
+    const p = payload as { name?: unknown } | null;
+    if (p === null || typeof p !== "object" || typeof p.name !== "string") {
+      return err("bad_payload", "layerState.remove requires a name string", true);
+    }
+    if (this.doc.layerStateByName(p.name) === undefined) {
+      return err("bad_state", `layerState.remove: no layer state '${p.name}'`, false);
+    }
+    try {
+      this.doc.execute({ type: "removeLayerState", stateName: p.name });
+      return ok({ removed: p.name, snapshot: this.doc.snapshot() });
+    } catch (e) {
+      return err("drafting_invalid", (e as Error).message, false);
+    }
+  }
+
+  /** ltype.create — a user-defined linetype (dash/gap pattern in mm). */
+  private cmdLtypeCreate(payload: unknown): CommandQueryResponse {
+    const p = payload as Record<string, unknown> | null;
+    if (p === null || typeof p !== "object" || typeof p.name !== "string" || p.name.length === 0) {
+      return err("bad_payload", "ltype.create requires a non-empty name", true);
+    }
+    try {
+      const record: LtypeRecord = {
+        name: p.name,
+        description: typeof p.description === "string" ? p.description : "",
+        pattern: Array.isArray(p.pattern) ? (p.pattern as number[]) : [],
+      };
+      this.doc.execute({ type: "addLtype", ltype: record });
+      return ok({ name: record.name, snapshot: this.doc.snapshot() });
+    } catch (e) {
+      return err("drafting_invalid", (e as Error).message, false);
+    }
+  }
+
+  /** ltype.update — patch a user-defined linetype (name immutable). */
+  private cmdLtypeUpdate(payload: unknown): CommandQueryResponse {
+    const p = payload as { name?: unknown; patch?: unknown } | null;
+    if (p === null || typeof p !== "object" || typeof p.name !== "string" || typeof p.patch !== "object" || p.patch === null) {
+      return err("bad_payload", "ltype.update requires name + patch", true);
+    }
+    try {
+      this.doc.execute({ type: "updateLtype", ltypeName: p.name, patch: p.patch as Record<string, unknown> });
+      return ok({ snapshot: this.doc.snapshot() });
+    } catch (e) {
+      return err("drafting_invalid", (e as Error).message, false);
+    }
+  }
+
+  /** ltype.remove — delete a user-defined linetype (reference-checked:
+   *  layers/entities using it block removal — no silent cascade). */
+  private cmdLtypeRemove(payload: unknown): CommandQueryResponse {
+    const p = payload as { name?: unknown } | null;
+    if (p === null || typeof p !== "object" || typeof p.name !== "string") {
+      return err("bad_payload", "ltype.remove requires a name string", true);
+    }
+    try {
+      this.doc.execute({ type: "removeLtype", ltypeName: p.name });
+      return ok({ removed: p.name, snapshot: this.doc.snapshot() });
+    } catch (e) {
+      return err("drafting_invalid", (e as Error).message, false);
+    }
+  }
+
+  /** textStyle.create — a user-defined text style. */
+  private cmdTextStyleCreate(payload: unknown): CommandQueryResponse {
+    const p = payload as Record<string, unknown> | null;
+    if (p === null || typeof p !== "object" || typeof p.name !== "string" || p.name.length === 0) {
+      return err("bad_payload", "textStyle.create requires a non-empty name", true);
+    }
+    try {
+      const record: TextStyleRecord = {
+        name: p.name,
+        font: p.font === "mono" || p.font === "serif" ? p.font : "sans",
+        height: typeof p.height === "number" ? p.height : 0,
+        widthFactor: typeof p.widthFactor === "number" ? p.widthFactor : 1,
+        obliqueAngle: typeof p.obliqueAngle === "number" ? p.obliqueAngle : 0,
+      };
+      this.doc.execute({ type: "addTextStyle", style: record });
+      return ok({ name: record.name, snapshot: this.doc.snapshot() });
+    } catch (e) {
+      return err("drafting_invalid", (e as Error).message, false);
+    }
+  }
+
+  /** textStyle.update — patch a user-defined text style (name immutable). */
+  private cmdTextStyleUpdate(payload: unknown): CommandQueryResponse {
+    const p = payload as { name?: unknown; patch?: unknown } | null;
+    if (p === null || typeof p !== "object" || typeof p.name !== "string" || typeof p.patch !== "object" || p.patch === null) {
+      return err("bad_payload", "textStyle.update requires name + patch", true);
+    }
+    try {
+      this.doc.execute({ type: "updateTextStyle", styleName: p.name, patch: p.patch as Record<string, unknown> });
+      return ok({ snapshot: this.doc.snapshot() });
+    } catch (e) {
+      return err("drafting_invalid", (e as Error).message, false);
+    }
+  }
+
+  /** textStyle.remove — delete a user-defined text style (the current style
+   *  blocks removal). */
+  private cmdTextStyleRemove(payload: unknown): CommandQueryResponse {
+    const p = payload as { name?: unknown } | null;
+    if (p === null || typeof p !== "object" || typeof p.name !== "string") {
+      return err("bad_payload", "textStyle.remove requires a name string", true);
+    }
+    try {
+      this.doc.execute({ type: "removeTextStyle", styleName: p.name });
+      return ok({ removed: p.name, snapshot: this.doc.snapshot() });
+    } catch (e) {
+      return err("drafting_invalid", (e as Error).message, false);
+    }
+  }
+
+  /** dimStyle.create — a user-defined dimension style. */
+  private cmdDimStyleCreate(payload: unknown): CommandQueryResponse {
+    const p = payload as Record<string, unknown> | null;
+    if (p === null || typeof p !== "object" || typeof p.name !== "string" || p.name.length === 0) {
+      return err("bad_payload", "dimStyle.create requires a non-empty name", true);
+    }
+    try {
+      const record: DimStyleRecord = {
+        name: p.name,
+        textHeight: typeof p.textHeight === "number" ? p.textHeight : 2.5,
+        arrowSize: typeof p.arrowSize === "number" ? p.arrowSize : 2.5,
+        scale: typeof p.scale === "number" ? p.scale : 1,
+        precision: typeof p.precision === "number" ? p.precision : 0,
+      };
+      this.doc.execute({ type: "addDimStyle", style: record });
+      return ok({ name: record.name, snapshot: this.doc.snapshot() });
+    } catch (e) {
+      return err("drafting_invalid", (e as Error).message, false);
+    }
+  }
+
+  /** dimStyle.update — patch a user-defined dimension style (name immutable). */
+  private cmdDimStyleUpdate(payload: unknown): CommandQueryResponse {
+    const p = payload as { name?: unknown; patch?: unknown } | null;
+    if (p === null || typeof p !== "object" || typeof p.name !== "string" || typeof p.patch !== "object" || p.patch === null) {
+      return err("bad_payload", "dimStyle.update requires name + patch", true);
+    }
+    try {
+      this.doc.execute({ type: "updateDimStyle", styleName: p.name, patch: p.patch as Record<string, unknown> });
+      return ok({ snapshot: this.doc.snapshot() });
+    } catch (e) {
+      return err("drafting_invalid", (e as Error).message, false);
+    }
+  }
+
+  /** dimStyle.remove — delete a user-defined dimension style (the current
+   *  style + referencing dims block removal). */
+  private cmdDimStyleRemove(payload: unknown): CommandQueryResponse {
+    const p = payload as { name?: unknown } | null;
+    if (p === null || typeof p !== "object" || typeof p.name !== "string") {
+      return err("bad_payload", "dimStyle.remove requires a name string", true);
+    }
+    try {
+      this.doc.execute({ type: "removeDimStyle", styleName: p.name });
+      return ok({ removed: p.name, snapshot: this.doc.snapshot() });
     } catch (e) {
       return err("drafting_invalid", (e as Error).message, false);
     }
@@ -818,6 +1289,7 @@ export class AppApiHandler {
         this.doc.allElements(),
         (id) => this.doc.layerById(id) !== undefined,
         p.entities,
+        (name) => this.ltypeResolves(name),
       );
       if (outcome.edit === null) {
         return ok({ applied: false, reason: outcome.summary, snapshot: this.doc.snapshot() });
@@ -861,14 +1333,19 @@ export class AppApiHandler {
   }
 
   /** The visible canonical entity view shared by the precision queries —
-   *  identical filtering to the host renderers (hidden layers are neither
-   *  pickable nor snappable) so queries and renderers see one world. */
+   *  identical filtering to the host renderers so queries and renderers see
+   *  one world. CAD-PARITY-004: frozen layers are excluded like hidden ones
+   *  (regeneration-class exclusion), and LOCKED layers are excluded from
+   *  picking/snapping (AutoCAD-class: locked entities display but do not
+   *  interact — modification is blocked at the document gate). */
   private visiblePrecisionEntities() {
-    const visible = new Set(this.doc.layerTable.filter((l) => l.visible).map((l) => l.id));
+    const renderable = new Set(
+      this.doc.layerTable.filter((l) => l.visible && l.frozen !== true && l.locked !== true).map((l) => l.id),
+    );
     return toPrecisionEntities(
       this.doc.allElements().filter((el) => {
         const layer = (el.props as Record<string, unknown>).layer;
-        return typeof layer === "string" && visible.has(layer);
+        return typeof layer === "string" && renderable.has(layer);
       }),
     );
   }

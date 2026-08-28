@@ -9,6 +9,16 @@
  * the Web host 1:1 so both hosts present the SAME command surface and
  * semantics (LOCK-004).
  *
+ * CAD-PARITY-004 (Issue #80, CAD-2D-004) — layers, properties, styles &
+ * palettes: display resolution through the shared standards module (the
+ * ByLayer chain: entity override → layer → document standard — color,
+ * linetype dash, lineweight px, transparency alpha, locked-layer fade), the
+ * drawable/interactable entity views (frozen = suppressed; locked = drawn
+ * faded but not pickable/snappable), the professional Properties inspector,
+ * the Layers manager + Styles manager right dock, the idle-canvas context
+ * menu and the LWT status toggle — mirroring the Web host palettes.tsx so
+ * both hosts present the SAME property/layer/style surface (LOCK-004).
+ *
  * Adds the professional shell to the Electron host: application menu bar,
  * ribbon/tool palette, command-driven 2D Model canvas (SVG plan viewport
  * with crosshair, snap markers, ortho/polar rubber bands, window/crossing
@@ -28,7 +38,15 @@
  */
 
 import type { Command, CommandQueryResponse, Query } from "@offisos/cad-app-shell/contracts/app-api";
-import type { CADDocumentSnapshot, Element, LayerRecord } from "@offisos/cad-app-shell/contracts/caddocument";
+import type {
+  CADDocumentSnapshot,
+  DimStyleRecord,
+  Element,
+  LayerRecord,
+  LayerStateRecord,
+  LtypeRecord,
+  TextStyleRecord,
+} from "@offisos/cad-app-shell/contracts/caddocument";
 import type { Vec2 } from "@offisos/cad-app-shell/drafting/precision";
 import { elementToDraftEntity, isDraftingElement, type DraftEntity } from "@offisos/cad-app-shell/drafting/entities";
 import {
@@ -77,6 +95,27 @@ import {
 import { constrainCursor, DEFAULT_DRAFTING_AIDS, formatCoordinate, type DraftingAids } from "@offisos/cad-app-shell/workspace/feedback";
 import { mapKeyEvent } from "@offisos/cad-app-shell/workspace/keymap";
 import { defaultCommandContext, type CommandContext, type CommandPlan, type PromptValue } from "@offisos/cad-app-shell/workspace/types";
+// CAD-PARITY-004: the SAME shared standards module the Web host renderer,
+// the Web palettes and the App API run — display resolution (ByLayer chain),
+// layer filters, the built-in linetype catalog and the reserved style
+// records (LOCK-004 parity by construction; pure + engine-free, LOCK-003/018).
+import {
+  BUILT_IN_LTYPES,
+  LAYER_FILTER_MODES,
+  LAYER_STANDARDS,
+  LOCKED_LAYER_FADE_ALPHA,
+  STANDARD_DEFAULT_LINEWEIGHT,
+  STANDARD_DIM_STYLE,
+  STANDARD_LINEWEIGHTS,
+  STANDARD_TEXT_STYLE,
+  dashToDevicePx,
+  displayOverridesOf,
+  filterLayers,
+  lineweightToDevicePx,
+  resolveDisplay,
+  transparencyToAlpha,
+  type LayerFilterMode,
+} from "@offisos/cad-app-shell/workspace/standards";
 
 export interface ProfessionalOptions {
   /** The app root element (#app). */
@@ -250,11 +289,112 @@ const PRO_CSS = `
 .pro-ribbon-buttons { display:flex; gap:2px; }
 .pro-ribbon-tool { border:1px solid transparent; background:transparent; font-size:11px; padding:3px 7px; border-radius:4px; cursor:pointer; white-space:nowrap; }
 .pro-ribbon-tool:hover { background:#f1f5f9; border-color:var(--border); }
-.pro-props { position:absolute; top:8px; left:8px; z-index:15; max-width:280px; background:rgba(255,255,255,.96); border:1px solid var(--border); border-radius:6px; padding:6px 10px; font-size:11px; line-height:1.5; box-shadow:0 4px 12px rgba(15,23,42,.12); display:none; }
+.pro-props { position:absolute; top:8px; left:8px; z-index:15; max-width:300px; max-height:calc(100% - 16px); overflow-y:auto; background:rgba(255,255,255,.96); border:1px solid var(--border); border-radius:6px; padding:6px 10px; font-size:11px; line-height:1.5; box-shadow:0 4px 12px rgba(15,23,42,.12); display:none; }
+.pro-props::-webkit-scrollbar { width:8px; }
+.pro-props::-webkit-scrollbar-thumb { background:#cbd5e1; border-radius:4px; }
+.pro-props::-webkit-scrollbar-track { background:transparent; }
 .pro-props .t { font-weight:700; margin-bottom:2px; }
 .pro-props .row { display:flex; gap:10px; justify-content:space-between; }
 .pro-props .row .k { color:var(--muted); }
 .pro-props .row .v { font-family:ui-monospace,monospace; }
+/* CAD-PARITY-004: the professional inspector extension. */
+.pro-props .hdr { display:flex; align-items:center; justify-content:space-between; gap:6px; margin-bottom:2px; }
+.pro-props .collapse { border:0; background:transparent; cursor:pointer; color:var(--muted); font-size:10px; padding:1px 4px; border-radius:3px; }
+.pro-props .collapse:hover { background:#f1f5f9; color:var(--fg); }
+.pro-props .sec { font-size:9px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:var(--muted); margin:7px 0 2px; }
+.pro-props .prow { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:1px 0; }
+.pro-props .prow .k { color:var(--muted); white-space:nowrap; }
+.pro-props .prow .v { font-family:ui-monospace,monospace; font-size:11px; }
+.pro-props select { font-size:10px; border:1px solid var(--border); border-radius:3px; background:var(--bg); max-width:150px; padding:1px 2px; }
+.pro-props select:disabled { color:#94a3b8; background:#f8fafc; }
+.pro-props input[type="color"] { width:26px; height:16px; padding:0; border:1px solid var(--border); border-radius:3px; background:var(--bg); cursor:pointer; }
+.pro-props input[type="color"]:disabled { cursor:default; }
+.pro-props .mini { border:1px solid var(--border); background:transparent; font-size:9px; border-radius:3px; padding:1px 5px; cursor:pointer; color:var(--muted); }
+.pro-props .mini:hover:not(:disabled) { background:#f1f5f9; color:var(--fg); }
+.pro-props .mini:disabled { color:#cbd5e1; cursor:default; }
+.pro-props .locked { color:#b91c1c; font-size:10px; font-weight:600; }
+.pro-props .hint { color:var(--muted); font-size:10px; margin-top:4px; }
+.pro-props .swatch { display:inline-block; width:12px; height:12px; border:1px solid var(--border); border-radius:2px; vertical-align:-2px; margin-right:4px; }
+/* CAD-PARITY-004: the right dock (Layers manager + Styles manager). */
+.pro-model-card .body { display:flex; align-items:stretch; }
+.pro-viewport { position:relative; flex:1; min-width:0; }
+.pro-dock { display:flex; flex-direction:column; width:320px; max-width:46%; flex-shrink:0; border-left:1px solid var(--border); background:var(--bg); min-height:0; }
+.pro-dock.closed { display:none; }
+.pro-dock-tabs { display:flex; align-items:stretch; border-bottom:1px solid var(--border); }
+.pro-dock-tab { flex:1; border:0; background:transparent; font-size:11px; font-weight:600; padding:5px 4px; cursor:pointer; color:var(--muted); border-bottom:2px solid transparent; }
+.pro-dock-tab.active { color:var(--fg); border-bottom-color:var(--fg); }
+.pro-dock-tab:hover { background:#f1f5f9; }
+.pro-dock-close { border:0; background:transparent; cursor:pointer; color:var(--muted); padding:0 10px; font-size:13px; line-height:1; }
+.pro-dock-close:hover { color:var(--fg); }
+.pro-dock-body { flex:1; min-height:0; display:flex; flex-direction:column; }
+.pro-dock-scroll { overflow-y:auto; }
+.pro-dock-scroll::-webkit-scrollbar { width:8px; }
+.pro-dock-scroll::-webkit-scrollbar-thumb { background:#cbd5e1; border-radius:4px; }
+.pro-dock-scroll::-webkit-scrollbar-track { background:transparent; }
+.pro-dock .bar { display:flex; align-items:center; gap:4px; padding:6px 8px; border-bottom:1px solid var(--border); }
+.pro-dock .bar input[type="text"] { flex:1; min-width:0; border:1px solid var(--border); border-radius:4px; background:var(--bg); font-size:11px; padding:3px 6px; }
+.pro-dock .bar input[type="text"]:focus-visible { outline:1px solid #94a3b8; }
+.pro-dock .bar select { font-size:10px; border:1px solid var(--border); border-radius:4px; background:var(--bg); padding:3px 2px; }
+.pro-dock .iconbtn { display:inline-flex; align-items:center; justify-content:center; width:22px; height:22px; border:1px solid var(--border); border-radius:4px; background:transparent; cursor:pointer; color:var(--fg); flex-shrink:0; }
+.pro-dock .iconbtn:hover:not(:disabled) { background:#f1f5f9; }
+.pro-dock .iconbtn:disabled { color:#cbd5e1; cursor:default; }
+.pro-dock .sec { font-size:9px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:var(--muted); padding:7px 8px 2px; }
+.pro-dock .desc { font-size:10px; color:var(--muted); padding:1px 8px 3px; }
+.pro-layers-scroll { flex:1; min-height:0; overflow-y:auto; }
+.pro-layers-scroll::-webkit-scrollbar { width:8px; }
+.pro-layers-scroll::-webkit-scrollbar-thumb { background:#cbd5e1; border-radius:4px; }
+.pro-layers-scroll::-webkit-scrollbar-track { background:transparent; }
+.pro-layers-head, .pro-layer-row { display:grid; grid-template-columns:13px minmax(56px,1fr) 18px 18px 18px 27px 62px 46px 20px; gap:3px; align-items:center; padding:2px 8px; font-size:11px; }
+.pro-layers-head { position:sticky; top:0; z-index:1; background:var(--bg); border-bottom:1px solid var(--border); font-size:9px; font-weight:700; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); }
+.pro-layer-row:hover { background:#f8fafc; }
+.pro-layer-row.active { background:#f1f5f9; font-weight:600; }
+.pro-layer-row .name { min-width:0; display:flex; align-items:center; gap:2px; }
+.pro-layer-row .name .nm { min-width:0; flex:1; text-align:left; border:0; background:transparent; font-size:11px; cursor:pointer; padding:1px 2px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; border-radius:3px; color:inherit; font-weight:inherit; }
+.pro-layer-row .name .nm:hover:not(:disabled) { background:#e2e8f0; }
+.pro-layer-row .name .nm:disabled { color:var(--muted); cursor:default; }
+.pro-layer-row .name .unused { font-size:8px; color:#94a3b8; white-space:nowrap; }
+.pro-layer-row .name .rename { flex:1; min-width:0; border:1px solid #94a3b8; border-radius:3px; font-size:11px; padding:1px 3px; font-weight:400; }
+.pro-layer-row .dot { width:10px; height:10px; border-radius:50%; border:1px solid #94a3b8; background:transparent; cursor:pointer; padding:0; }
+.pro-layer-row .dot:disabled { cursor:default; opacity:.4; }
+.pro-layer-row.active .dot { background:var(--fg); border-color:var(--fg); }
+.pro-layer-row .tgl { border:0; background:transparent; cursor:pointer; color:#94a3b8; padding:1px; display:inline-flex; align-items:center; justify-content:center; border-radius:3px; font-size:10px; }
+.pro-layer-row .tgl:hover:not(:disabled) { background:#e2e8f0; color:var(--fg); }
+.pro-layer-row .tgl:disabled { opacity:.3; cursor:default; }
+.pro-layer-row .tgl.on { color:var(--fg); }
+.pro-layer-row .tgl.warn { color:#b45309; }
+.pro-layer-row input[type="color"] { width:25px; height:16px; padding:0; border:1px solid var(--border); border-radius:3px; background:var(--bg); cursor:pointer; }
+.pro-layer-row select { font-size:9px; border:1px solid var(--border); border-radius:3px; background:var(--bg); max-width:100%; padding:1px 0px; }
+.pro-dock .empty { padding:8px 10px; font-size:11px; color:var(--muted); }
+.pro-states { border-top:1px solid var(--border); }
+.pro-states .head { display:flex; align-items:center; gap:4px; width:100%; border:0; background:transparent; font-size:9px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:var(--muted); padding:5px 8px; cursor:pointer; }
+.pro-states .head:hover { background:#f8fafc; color:var(--fg); }
+.pro-states .body { max-height:150px; overflow-y:auto; padding:2px 8px 6px; }
+.pro-states .body::-webkit-scrollbar { width:8px; }
+.pro-states .body::-webkit-scrollbar-thumb { background:#cbd5e1; border-radius:4px; }
+.pro-state-row { display:flex; align-items:center; gap:4px; font-size:11px; padding:1px 0; border-radius:3px; }
+.pro-state-row:hover { background:#f8fafc; }
+.pro-state-row .nm { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-family:ui-monospace,monospace; }
+.pro-state-row .cnt { font-size:9px; color:var(--muted); white-space:nowrap; }
+.pro-style-row { display:flex; align-items:center; gap:4px; padding:2px 8px; font-size:11px; border-radius:3px; }
+.pro-style-row:hover { background:#f8fafc; }
+.pro-style-row .nm { width:72px; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.pro-style-row input, .pro-style-row select { font-size:10px; border:1px solid var(--border); border-radius:3px; background:var(--bg); padding:1px 2px; width:44px; }
+.pro-style-row input.num { text-align:right; font-family:ui-monospace,monospace; }
+.pro-style-row .ltsample { color:var(--fg); flex-shrink:0; display:inline-flex; }
+.pro-style-row .built-in { font-size:8px; color:#94a3b8; border:1px solid var(--border); border-radius:3px; padding:0 3px; white-space:nowrap; }
+.pro-style-row .grow { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.pro-style-row .muted { color:var(--muted); font-size:9px; }
+/* CAD-PARITY-004: the idle-canvas context menu. */
+.pro-ctx-backdrop { position:fixed; inset:0; z-index:90; }
+.pro-ctx-menu { position:fixed; z-index:91; min-width:200px; background:var(--bg); border:1px solid var(--border); border-radius:6px; box-shadow:0 8px 24px rgba(15,23,42,.16); padding:4px 0; display:flex; flex-direction:column; }
+.pro-ctx-head { font-size:9px; font-weight:700; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); padding:4px 12px 3px; }
+.pro-ctx-item { display:block; width:100%; text-align:left; border:0; background:transparent; font-size:12px; padding:5px 12px; cursor:pointer; color:var(--fg); }
+.pro-ctx-item:hover:not(:disabled) { background:#f1f5f9; }
+.pro-ctx-item:disabled { color:#94a3b8; cursor:default; }
+.pro-ctx-sep { border-top:1px solid var(--border); margin:4px 0; }
+/* CAD-PARITY-004: the status-bar active-layer link. */
+.pro-statusbar .layerlink { border:0; background:transparent; font-size:11px; font-weight:600; cursor:pointer; padding:1px 5px; border-radius:3px; color:var(--fg); }
+.pro-statusbar .layerlink:hover { background:#f1f5f9; }
 `;
 
 /** Public driver surface (used by test/smoke-workspace.mjs — the SAME code
@@ -301,6 +441,24 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
     paletteOpen: false,
   };
 
+  // --- CAD-PARITY-004 local UI state (host-local, LOCK-015 non-authoritative) ---
+  // Dock/tab visibility, the Layers manager filter + editing state and the
+  // panel input drafts. Survives re-renders (the panels rebuild on every
+  // refresh; input values restore from these).
+  let dockOpen = true;
+  let dockTab: "layers" | "styles" = "layers";
+  let layerFilterText = "";
+  let layerFilterMode: LayerFilterMode = "all";
+  let layerStatesOpen = false;
+  let editingLayerId: string | null = null;
+  let newLayerName = "";
+  let newStateName = "";
+  let newLtypeName = "";
+  let newLtypePattern = "8,4";
+  let newTextStyleName = "";
+  let newDimStyleName = "";
+  let propsCollapsed = false;
+
   // --- transport helpers -----------------------------------------------------
 
   const commandLog: string[] = [];
@@ -316,7 +474,14 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
     if (stateRes.ok) state.snapshot = stateRes.value as CADDocumentSnapshot;
     if (selRes.ok && Array.isArray(selRes.value)) state.selection = selRes.value as string[];
     const layers = state.snapshot?.layers ?? [];
-    if (!layers.some((l: LayerRecord) => l.id === state.activeLayer)) {
+    // CAD-PARITY-004: the ACTIVE layer is persisted document editor state
+    // (draftingSettings.activeLayer — CLAYER class; the same resolution the
+    // Web host runs). Falls back to the first existing layer when the
+    // persisted id is stale; switched ONLY through layer.setActive.
+    const persisted = state.snapshot?.draftingSettings?.activeLayer;
+    if (persisted !== undefined && layers.some((l: LayerRecord) => l.id === persisted)) {
+      state.activeLayer = persisted;
+    } else if (!layers.some((l: LayerRecord) => l.id === state.activeLayer)) {
       state.activeLayer = layers[0]?.id ?? "0";
     }
     if (state.activeStoryId === null) {
@@ -328,6 +493,7 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
     renderModel();
     renderCommandLine();
     renderStatusBar();
+    renderDock();
     opts.onLegacyRefresh();
   }
 
@@ -345,6 +511,10 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
       currentSelection: elements
         .filter((el) => state.selection.includes(el.id))
         .map((el) => ({ id: el.id, kind: el.kind, props: el.props as Record<string, unknown> })),
+      // CAD-PARITY-004: the document layer table — the -LAYER / CHPROP /
+      // LAYERSTATE builders resolve layer NAMES through it (name resolution,
+      // LAYON batching; empty on snapshots without layers).
+      layers: state.snapshot?.layers ?? [],
     });
   }
 
@@ -417,11 +587,32 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
           if (res.ok) pushLines(["SAVE: document saved through the App API."]);
           break;
         }
+        case "toggle.lweight": {
+          // CAD-PARITY-004: LWEIGHT — the lineweight display toggle (persisted
+          // drafting setting; identical on both hosts).
+          const settings = state.snapshot?.draftingSettings;
+          await command("drafting.setSettings", { settings: { lineweightDisplay: !(settings?.lineweightDisplay ?? false) } });
+          break;
+        }
         case "palette.show": {
           const palette = (action.payload as { palette?: string } | undefined)?.palette;
           if (palette === "search") openPalette(true);
-          else if (palette === "layers" || palette === "navigator" || palette === "properties") {
-            pushLines([`${palette.toUpperCase()} palette: available in the Web host dock; Electron keeps the legacy side panels.`]);
+          else if (palette === "linetypes" || palette === "textStyles" || palette === "dimStyles") {
+            // CAD-PARITY-004: the style managers (LTYPE/STYLE/DIMSTYLE).
+            openDock("styles");
+          } else if (palette === "layerStates") {
+            // CAD-PARITY-004: LAYERSTATE — the states section of the Layers
+            // manager (expanded on open).
+            layerStatesOpen = true;
+            openDock("layers");
+          } else if (palette === "layers") {
+            // CAD-PARITY-004: LAYER — the Layers manager (right dock).
+            openDock("layers");
+          } else if (palette === "properties") {
+            // CAD-PARITY-004: PROPERTIES — the professional inspector overlay.
+            showInspector();
+          } else if (palette === "navigator") {
+            pushLines(["NAVIGATOR palette: available in the Web host dock; Electron keeps the legacy side panels."]);
           }
           break;
         }
@@ -434,6 +625,17 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
 
   function pushLines(lines: readonly string[]): void {
     state.history = [...state.history, ...lines];
+    renderCommandLine();
+  }
+
+  /** CAD-PARITY-004: commit one App API command from a panel/inspector editor
+   *  (typed failures surface in the command-line history) + refresh. */
+  function commitCommand(name: string, payload: unknown): void {
+    void (async () => {
+      const res = await command(name, payload);
+      if (!res.ok) pushLines([`*ERROR* ${name}: ${res.code} — ${res.message}`]);
+      await refresh();
+    })();
   }
 
   async function dispatchEngine(event: Parameters<typeof applyPromptEvent>[1]): Promise<void> {
@@ -515,6 +717,10 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
         { label: "IFC", run: setIfcMode },
         { label: "Components", run: setComponentsMode },
         { label: "Zoom extents", run: runCmd("zoomextents") },
+        // CAD-PARITY-004: the managers (right dock + inspector overlay).
+        { label: "Layers manager", run: () => openDock("layers") },
+        { label: "Styles manager", run: () => openDock("styles") },
+        { label: "Properties inspector", run: () => showInspector() },
       ],
     },
     { label: "Insert", items: [{ label: "Door", run: runCmd("door") }, { label: "Window", run: runCmd("window") }, { label: "Slab", run: runCmd("slab") }] },
@@ -591,7 +797,33 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
       ],
     },
   ];
-  for (const group of RIBBON_GROUPS) {
+  // CAD-PARITY-004: the Layers / Styles / Properties ribbon groups — computed
+  // from the SAME shared registry the Web ribbon filters (per-tab instant vs
+  // interactive split, LOCK-004) so newly registered commands appear here
+  // automatically. The status-bar drafting-aid toggles, the document commands
+  // and the command palette keep their own surfaces, so the computed groups
+  // take only the settings-category managers and the unlisted interactive
+  // modify commands (CHPROP/MATCHPROP).
+  const listedIds = new Set(RIBBON_GROUPS.flatMap((g) => g.ids));
+  const layersRibbonIds = WORKSPACE_COMMANDS.filter(
+    (c) => !listedIds.has(c.id) && c.instant !== undefined && c.category === "settings" && c.ribbonTab === "Home",
+  ).map((c) => c.id);
+  const stylesRibbonIds = WORKSPACE_COMMANDS.filter(
+    (c) =>
+      !listedIds.has(c.id) &&
+      c.instant !== undefined &&
+      c.category === "settings" &&
+      (c.ribbonTab === "Annotate" || c.id === "lweight"),
+  ).map((c) => c.id);
+  const propsRibbonIds = WORKSPACE_COMMANDS.filter(
+    (c) => !listedIds.has(c.id) && c.instant === undefined && c.steps.length > 0 && c.category === "modify",
+  ).map((c) => c.id);
+  const RIBBON_GROUPS_CP4: readonly { label: string; ids: readonly string[] }[] = [
+    { label: "Properties", ids: propsRibbonIds },
+    { label: "Layers", ids: layersRibbonIds },
+    { label: "Styles", ids: stylesRibbonIds },
+  ];
+  for (const group of [...RIBBON_GROUPS, ...RIBBON_GROUPS_CP4]) {
     const g = h("div", "pro-ribbon-group");
     const label = h("span", "pro-ribbon-label");
     label.textContent = group.label;
@@ -625,13 +857,17 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
   modelHead.append(modelTitle, modelDesc);
   modelCard.append(modelHead);
   const modelBody = h("div", "body");
+  // CAD-PARITY-004: the body is a flex row — the plan viewport (svg + the
+  // absolute overlays) plus the right dock (Layers / Styles managers).
+  const viewport = h("div", "pro-viewport");
   const svg = svgNs("svg") as unknown as SVGSVGElement;
   svg.setAttribute("viewBox", `0 0 ${SVG_W} ${SVG_H}`);
   svg.setAttribute("role", "application");
   svg.setAttribute("aria-label", "Offisos Model viewport — 2D drafting and BIM plan canvas");
   svg.setAttribute("tabindex", "0");
   svg.setAttribute("data-testid", "pro-model-svg");
-  modelBody.append(svg);
+  viewport.append(svg);
+  modelBody.append(viewport);
   modelCard.append(modelBody);
   opts.main.insertBefore(modelCard, opts.main.firstChild);
 
@@ -639,15 +875,17 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
   miniToolbar.style.display = "none";
   miniToolbar.setAttribute("role", "toolbar");
   miniToolbar.setAttribute("aria-label", "selection actions");
-  modelBody.append(miniToolbar);
+  viewport.append(miniToolbar);
 
-  // CAD-PARITY-003: canonical entity type/geometry readout for the single
-  // selection (mirrors the Web PropertiesPanel canonical rows).
+  // CAD-PARITY-003/004: canonical entity type/geometry readout extended into
+  // the professional Properties inspector (mirrors the Web PropertiesPanel:
+  // General + Display + canonical Geometry rows, the current drafting
+  // environment when nothing is selected).
   const propsPanel = h("div", "pro-props");
   propsPanel.setAttribute("data-testid", "pro-properties");
   propsPanel.setAttribute("role", "region");
   propsPanel.setAttribute("aria-label", "selection properties");
-  modelBody.append(propsPanel);
+  viewport.append(propsPanel);
   const miniMove = h("button");
   miniMove.textContent = "Move";
   const miniCopy = h("button");
@@ -666,6 +904,60 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
       renderModel();
     });
   });
+
+  // --- CAD-PARITY-004 right dock: the Layers manager + the Styles manager ------
+
+  const dock = h("div", "pro-dock");
+  dock.setAttribute("role", "complementary");
+  dock.setAttribute("aria-label", "layers and styles managers");
+  dock.setAttribute("data-testid", "pro-dock");
+  const dockTabs = h("div", "pro-dock-tabs");
+  dockTabs.setAttribute("role", "tablist");
+  dockTabs.setAttribute("aria-label", "manager tabs");
+  const dockTabLayers = h("button", "pro-dock-tab");
+  dockTabLayers.type = "button";
+  dockTabLayers.textContent = "Layers";
+  dockTabLayers.setAttribute("role", "tab");
+  dockTabLayers.setAttribute("aria-label", "Layers manager");
+  dockTabLayers.addEventListener("click", () => {
+    dockTab = "layers";
+    renderDock();
+  });
+  const dockTabStyles = h("button", "pro-dock-tab");
+  dockTabStyles.type = "button";
+  dockTabStyles.textContent = "Styles";
+  dockTabStyles.setAttribute("role", "tab");
+  dockTabStyles.setAttribute("aria-label", "Styles manager");
+  dockTabStyles.addEventListener("click", () => {
+    dockTab = "styles";
+    renderDock();
+  });
+  const dockClose = h("button", "pro-dock-close");
+  dockClose.type = "button";
+  dockClose.textContent = "×";
+  dockClose.title = "Close the manager dock (reopen from the View menu, the status bar, LAYER/LINETYPE/STYLE/DIMSTYLE or the context menu)";
+  dockClose.setAttribute("aria-label", "close the manager dock");
+  dockClose.addEventListener("click", () => {
+    dockOpen = false;
+    renderDock();
+  });
+  dockTabs.append(dockTabLayers, dockTabStyles, dockClose);
+  const dockBody = h("div", "pro-dock-body");
+  dock.append(dockTabs, dockBody);
+  modelBody.append(dock);
+
+  /** Open (and focus) a manager dock tab. */
+  function openDock(tab: "layers" | "styles"): void {
+    dockOpen = true;
+    dockTab = tab;
+    renderDock();
+  }
+
+  /** Show (expand) the Properties inspector overlay. */
+  function showInspector(): void {
+    propsCollapsed = false;
+    renderModel();
+  }
 
   // --- view transform ------------------------------------------------------------------
 
@@ -722,15 +1014,82 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
     }
   }
 
-  // --- visible entities ------------------------------------------------------------------
+  // --- entity views (CAD-PARITY-004: frozen = suppressed; locked = drawn
+  // faded but not interactive — the same exclusion the App API precision
+  // queries run) ---------------------------------------------------------
 
-  function visibleElements(): Element[] {
-    const visible = new Set((state.snapshot?.layers ?? []).filter((l: LayerRecord) => l.visible).map((l: LayerRecord) => l.id));
+  /** DRAWABLE entities (rendering): visible + not frozen. LOCKED layers
+   *  render (faded through the locked-layer fade alpha) — the SVG mirror of
+   *  the Web drawableEntities. */
+  function drawableElements(): Element[] {
+    const renderable = new Set(
+      (state.snapshot?.layers ?? []).filter((l: LayerRecord) => l.visible && l.frozen !== true).map((l: LayerRecord) => l.id),
+    );
     return (state.snapshot?.elements ?? []).filter((el) => {
       const props = el.props as Record<string, unknown>;
       if (el.kind === "bim") return props.type === "bim.wall" || props.type === "bim.slab";
-      return typeof props.layer === "string" && visible.has(props.layer);
+      return typeof props.layer === "string" && renderable.has(props.layer);
     });
+  }
+
+  /** INTERACTABLE entities (pick/snap/window selection): additionally excludes
+   *  LOCKED layers (AutoCAD-class: locked entities display but do not
+   *  interact; modification is blocked at the document gate). */
+  function visibleElements(): Element[] {
+    const interactable = new Set(
+      (state.snapshot?.layers ?? [])
+        .filter((l: LayerRecord) => l.visible && l.frozen !== true && l.locked !== true)
+        .map((l: LayerRecord) => l.id),
+    );
+    return (state.snapshot?.elements ?? []).filter((el) => {
+      const props = el.props as Record<string, unknown>;
+      if (el.kind === "bim") return props.type === "bim.wall" || props.type === "bim.slab";
+      return typeof props.layer === "string" && interactable.has(props.layer);
+    });
+  }
+
+  /** The resolved display of one drawable entity (the shared standards
+   *  resolution — the SAME code the Web host and the App API run). */
+  interface DisplayDraw {
+    readonly dash: readonly number[] | null;
+    readonly weightPx: number;
+    readonly alpha: number;
+    readonly color: string;
+  }
+
+  /** CAD-PARITY-004: resolved display per drawable entity: linetype dash in
+   *  device px, lineweight px, transparency alpha + locked-layer fade (the
+   *  SVG mirror of the Web displayById). Unresolvable displays (stale
+   *  linetype references) fall back to the layer color, solid, hairline —
+   *  rendering never throws. */
+  function computeDisplayMap(
+    drawable: readonly Element[],
+    layerById: ReadonlyMap<string, LayerRecord>,
+  ): Map<string, DisplayDraw> {
+    const userLtypes = state.snapshot?.ltypes ?? [];
+    const standards = state.snapshot?.draftingSettings?.standards;
+    const lweightDisplay = state.snapshot?.draftingSettings?.lineweightDisplay === true;
+    const map = new Map<string, DisplayDraw>();
+    for (const el of drawable) {
+      const props = el.props as Record<string, unknown>;
+      const layerId = typeof props.layer === "string" ? props.layer : "0";
+      const layer = layerById.get(layerId);
+      if (layer === undefined) continue;
+      try {
+        const resolved = resolveDisplay(displayOverridesOf(props), layer, standards, userLtypes);
+        let alpha = transparencyToAlpha(resolved.transparency);
+        if (layer.locked === true) alpha *= LOCKED_LAYER_FADE_ALPHA;
+        map.set(el.id, {
+          dash: resolved.dash.length > 0 ? dashToDevicePx(resolved.dash, state.zoom) : null,
+          weightPx: lineweightToDevicePx(resolved.lineweight, state.zoom, lweightDisplay),
+          alpha,
+          color: resolved.color,
+        });
+      } catch {
+        map.set(el.id, { dash: null, weightPx: 1, alpha: layer.locked === true ? LOCKED_LAYER_FADE_ALPHA : 1, color: layer.color });
+      }
+    }
+    return map;
   }
 
   function constrainSnap(
@@ -842,12 +1201,18 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
     }
     if (e.button !== 0) return;
 
-    // Grip drag start.
+    // Grip drag start. CAD-PARITY-004: locked layers offer no grip editing —
+    // the grips are not rendered and the drag start is skipped (the document
+    // gate would reject the write anyway).
     const cmd = commandById(state.engine.commandId ?? "");
     const stepActive = cmd !== null && cmd.steps.length > 0;
     if (!stepActive && state.selection.length === 1) {
       const el = (state.snapshot?.elements ?? []).find((x) => x.id === state.selection[0]);
-      if (el !== undefined) {
+      const elLayerId = el !== undefined ? (el.props as Record<string, unknown>).layer : undefined;
+      const elLocked =
+        el !== undefined && typeof elLayerId === "string" &&
+        (state.snapshot?.layers ?? []).some((l) => l.id === elLayerId && l.locked === true);
+      if (el !== undefined && !elLocked) {
         for (const grip of gripsFor(el)) {
           const gs = toScreen(grip.point);
           const rect = svg.getBoundingClientRect();
@@ -1032,6 +1397,134 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
     void dispatchEngine({ type: "enter" });
   });
 
+  // --- CAD-PARITY-004 idle-canvas context menu (right-click) -----------------------
+  // During a command, right-click keeps its existing behavior (no menu — the
+  // command line owns the interaction); when idle, right-click opens the
+  // contextual layer/properties menu at the cursor — the SAME App API commands
+  // the Web context menu issues.
+
+  let ctxMenu: { backdrop: HTMLDivElement; root: HTMLDivElement } | null = null;
+
+  function closeContextMenu(): void {
+    if (ctxMenu !== null) {
+      ctxMenu.backdrop.remove();
+      ctxMenu.root.remove();
+      ctxMenu = null;
+    }
+  }
+
+  svg.addEventListener("contextmenu", (e) => {
+    e.preventDefault();
+    closeContextMenu();
+    // During a command (any active step, including option capture), right
+    // click keeps the legacy no-op behavior.
+    if (effectiveStep(state.engine) !== null) return;
+    const world = svgPoint(e);
+    const visible = visibleElements();
+    const picked = pickEntityAt(world, toEntities(visible), visible);
+    let layer: LayerRecord | null = null;
+    if (picked !== null) {
+      const hit = (state.snapshot?.elements ?? []).find((el) => el.id === picked.id);
+      const layerId = (hit?.props as Record<string, unknown> | undefined)?.layer;
+      if (hit !== undefined && typeof layerId === "string") {
+        layer = (state.snapshot?.layers ?? []).find((l) => l.id === layerId) ?? null;
+      }
+    }
+    openContextMenu(e.clientX, e.clientY, layer);
+  });
+
+  function openContextMenu(clientX: number, clientY: number, layer: LayerRecord | null): void {
+    const backdrop = h("div", "pro-ctx-backdrop");
+    const root = h("div", "pro-ctx-menu");
+    root.setAttribute("role", "menu");
+    root.setAttribute("aria-label", "canvas context menu");
+    root.setAttribute("data-testid", "pro-context-menu");
+    const close = (): void => closeContextMenu();
+    backdrop.addEventListener("click", close);
+    backdrop.addEventListener("contextmenu", (e) => {
+      e.preventDefault();
+      close();
+    });
+    const item = (label: string, run: () => void, disabled = false): void => {
+      const b = h("button", "pro-ctx-item");
+      b.type = "button";
+      b.textContent = label;
+      b.setAttribute("role", "menuitem");
+      if (disabled) {
+        b.disabled = true;
+      } else {
+        b.addEventListener("click", () => {
+          closeContextMenu();
+          run();
+        });
+      }
+      root.append(b);
+    };
+    const sep = (): void => {
+      const s = h("div", "pro-ctx-sep");
+      root.append(s);
+    };
+    const updateLayer = (layerId: string, patch: Record<string, unknown>): void => {
+      commitCommand("drafting.updateLayer", { layerId, patch });
+    };
+    if (layer !== null) {
+      const head = h("div", "pro-ctx-head");
+      head.textContent = `Layer “${layer.name}”`;
+      root.append(head);
+      item(layer.visible ? "Hide layer" : "Show layer", () => updateLayer(layer.id, { visible: !layer.visible }));
+      item(
+        layer.frozen === true ? "Thaw layer" : "Freeze layer",
+        () => updateLayer(layer.id, { frozen: layer.frozen !== true }),
+        layer.frozen !== true && layer.id === "0",
+      );
+      item(layer.locked === true ? "Unlock layer" : "Lock layer", () => updateLayer(layer.id, { locked: layer.locked !== true }));
+      item("Isolate layer", () => {
+        void (async () => {
+          const res = await command("layer.isolate", { layerIds: [layer.id] });
+          if (!res.ok) pushLines([`*ERROR* layer.isolate: ${res.code} — ${res.message}`]);
+          else pushLines(["LAYISO: 1 layer isolated. LAYUNISO restores."]);
+          await refresh();
+        })();
+      });
+      item("Make active layer", () => commitCommand("layer.setActive", { layerId: layer.id }));
+    } else {
+      const head = h("div", "pro-ctx-head");
+      head.textContent = "Layers";
+      root.append(head);
+    }
+    sep();
+    item("Show all layers (LAYON)", () => {
+      const edits = (state.snapshot?.layers ?? []).map((l) => ({ type: "updateLayer" as const, layerId: l.id, patch: { visible: true } }));
+      if (edits.length > 0) {
+        void (async () => {
+          const res = await command("document.applyEdit", { edit: { type: "applyEdits", edits } });
+          if (!res.ok) pushLines([`*ERROR* LAYON: ${res.code} — ${res.message}`]);
+          else pushLines([`LAYON: ${edits.length} layer(s) turned on.`]);
+          await refresh();
+        })();
+      }
+    });
+    item("Unisolate layers (LAYUNISO)", () => {
+      void (async () => {
+        const res = await command("layer.unisolate", {});
+        if (!res.ok) pushLines([`*ERROR* LAYUNISO: ${res.code} — ${res.message}`]);
+        else pushLines(["LAYUNISO: layer table restored."]);
+        await refresh();
+      })();
+    });
+    item("Layer Manager…", () => openDock("layers"));
+    item("Properties…", () => showInspector());
+    document.body.append(backdrop, root);
+    // Clamp to the viewport.
+    root.style.left = `${Math.max(4, Math.min(clientX, window.innerWidth - 210))}px`;
+    root.style.top = `${Math.max(4, Math.min(clientY, window.innerHeight - 260))}px`;
+    ctxMenu = { backdrop, root };
+  }
+
+  // Any canvas interaction closes an open context menu.
+  svg.addEventListener("mousedown", () => closeContextMenu());
+  window.addEventListener("blur", () => closeContextMenu());
+
   // --- CAD-PARITY-003 canonical entity painting (SVG mirror of the Web draw.ts) --------------
 
   const SELECTED_STROKE = "#0ea5e9";
@@ -1045,12 +1538,18 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
     readonly width: number;
     readonly dash: readonly number[] | null;
     readonly fill: string | null;
+    /** CAD-PARITY-004: composite alpha (transparency + locked-layer fade). */
+    readonly alpha?: number;
   }
 
   function styleGeomElement(node: SVGElement, style: GeomSvgStyle, fill: boolean): void {
     node.setAttribute("stroke", style.stroke);
     node.setAttribute("stroke-width", String(style.width));
     if (style.dash !== null) node.setAttribute("stroke-dasharray", style.dash.join(" "));
+    if (style.alpha !== undefined && style.alpha < 1) {
+      node.setAttribute("stroke-opacity", String(style.alpha));
+      node.setAttribute("fill-opacity", String(style.alpha));
+    }
     node.setAttribute("fill", fill && style.fill !== null ? style.fill : "none");
   }
 
@@ -1179,7 +1678,7 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
           m.setAttribute("x2", String(x2)); m.setAttribute("y2", String(y2));
           m.setAttribute("stroke", style.stroke);
           m.setAttribute("stroke-width", String(style.width));
-          m.setAttribute("stroke-opacity", "0.7");
+          m.setAttribute("stroke-opacity", String(0.7 * (style.alpha ?? 1)));
           svg.append(m);
         }
         break;
@@ -1190,15 +1689,23 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
   /** Draw a canonical CAD-PARITY-003 entity (any drafting element decoded
    *  through the geometry bridge — BOTH storage conventions). Professional
    *  conventions mirror the Web host: rays draw thin, construction lines
-   *  thin + dashed, regions fill translucent with a stroked boundary,
-   *  points draw as small crosses. */
-  function drawCanonicalEntity(geom: Geom, opts: { color: string; selected: boolean }): void {
+   *  thin, regions fill translucent with a stroked boundary, points draw as
+   *  small crosses. CAD-PARITY-004: the resolved display (linetype dash in
+   *  device px, lineweight px, transparency/locked-fade alpha) flows through
+   *  the options — the SAME resolution both hosts run (standards module);
+   *  selection strokes stay solid + highlighted for contrast. */
+  function drawCanonicalEntity(
+    geom: Geom,
+    opts: { color: string; selected: boolean; dash?: readonly number[] | null; weightPx?: number; alpha?: number },
+  ): void {
     const isConstruction = geom.type === "ray" || geom.type === "xline";
+    const legacyWidth = isConstruction ? 1 : 1.6;
     drawGeomSvg(geom, {
       stroke: opts.selected ? SELECTED_STROKE : opts.color,
-      width: opts.selected ? 2.4 : isConstruction ? 1 : 1.6,
-      dash: geom.type === "xline" ? [6, 4] : null,
+      width: opts.selected ? 2.4 : Math.max(isConstruction ? 0.75 : 1, opts.weightPx ?? legacyWidth),
+      dash: opts.selected ? null : (opts.dash ?? (geom.type === "xline" ? [6, 4] : null)),
       fill: geom.type === "region" ? (opts.selected ? REGION_FILL_SELECTED : REGION_FILL) : null,
+      alpha: opts.alpha,
     });
   }
 
@@ -1524,35 +2031,56 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
     const selectedSet = new Set(state.selection);
     const layerById = new Map<string, LayerRecord>((state.snapshot?.layers ?? []).map((l: LayerRecord) => [l.id, l] as const));
 
+    // CAD-PARITY-004: TWO entity views — the DRAWABLE view (visible + not
+    // frozen; LOCKED layers draw faded) for rendering, and the INTERACTABLE
+    // view (additionally excludes locked layers) for picking/snapping/window
+    // selection and the command previews (the same split the Web host runs).
+    const drawable = drawableElements();
+    const displayById = computeDisplayMap(drawable, layerById);
+    // The canonical geometry view of the DRAWABLE set (rendering — includes
+    // locked entities; toEntities skips annotations/BIM/malformed props).
+    const renderGeomById = new Map<string, GeomEntity>(toEntities(drawable).map((e) => [e.id, e] as const));
+    // The canonical INTERACTABLE view (pick/snap/preview — the SAME module
+    // the server-side precision queries run).
     const visible = visibleElements();
-    // CAD-PARITY-003: the canonical entity view over BOTH storage
-    // conventions (the SAME module the server-side precision queries run).
     const geoms = toEntities(visible);
     const geomById = new Map<string, GeomEntity>(geoms.map((e) => [e.id, e] as const));
 
-    for (const el of visible) {
+    for (const el of drawable) {
       const selected = selectedSet.has(el.id);
+      // CAD-PARITY-004: the resolved display (dash/lineweight/alpha) flows
+      // through the SAME standards resolution on both hosts.
+      const display = displayById.get(el.id);
       // CAD-PARITY-003: canonical geometry first — the SAME bridge painter
       // the Web host uses (ellipse/spline/point/ray/xline/region + the
       // classic types in BOTH conventions); annotations (dims) fall through
       // to the legacy painter below.
-      const canonical = geomById.get(el.id);
+      const canonical = renderGeomById.get(el.id);
       if (canonical !== undefined) {
         const layer = layerById.get(canonical.layer);
         drawCanonicalEntity(canonical.geom, {
-          color: canonical.color ?? layer?.color ?? "#111827",
+          color: display?.color ?? canonical.color ?? layer?.color ?? "#111827",
           selected,
+          dash: display?.dash ?? null,
+          weightPx: display?.weightPx,
+          alpha: display?.alpha,
         });
         continue;
       }
       const entity = parseEntity(el);
       if (entity !== null) {
         const layer = layerById.get(entity.layer);
-        const color = selected ? "#0ea5e9" : (layer?.color ?? "#111827");
+        const color = selected ? "#0ea5e9" : (display?.color ?? layer?.color ?? "#111827");
         const g = svgNs("g");
         g.setAttribute("stroke", color);
         g.setAttribute("fill", "none");
-        g.setAttribute("stroke-width", selected ? "2.4" : "1.6");
+        g.setAttribute("stroke-width", selected ? "2.4" : String(display?.weightPx ?? 1.6));
+        if (!selected && display?.dash !== null && display?.dash !== undefined) {
+          g.setAttribute("stroke-dasharray", display.dash.join(" "));
+        }
+        if (display?.alpha !== undefined && display.alpha < 1) {
+          g.setAttribute("opacity", String(display.alpha));
+        }
         if (entity.type === "line") {
           const a = toScreen(entity.from);
           const b = toScreen(entity.to);
@@ -1711,10 +2239,16 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
       svg.append(r);
     }
 
-    // Grips for the single selection.
+    // Grips for the single selection. CAD-PARITY-004: grips (and the anchored
+    // mini-toolbar — its Move/Copy/Erase actions are document-gated anyway)
+    // are READ-ONLY-hidden on LOCKED layers: a locked entity cannot be
+    // grip-edited, so the affordance must not offer it.
     if (state.selection.length === 1) {
       const el = (state.snapshot?.elements ?? []).find((x) => x.id === state.selection[0]);
-      if (el !== undefined) {
+      const elLayerId = el !== undefined ? (el.props as Record<string, unknown>).layer : undefined;
+      const elLocked =
+        el !== undefined && typeof elLayerId === "string" && layerById.get(elLayerId)?.locked === true;
+      if (el !== undefined && !elLocked) {
         for (const grip of gripsFor(el)) {
           const s = toScreen(grip.point);
           const r = svgNs("rect");
@@ -1754,94 +2288,381 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
       svg.append(lx, ly);
     }
 
-    renderProperties(geomById);
+    renderProperties();
   }
 
-  // --- CAD-PARITY-003 properties readout (mirrors the Web PropertiesPanel rows) ----------------
+  // --- CAD-PARITY-004 professional Properties inspector ------------------------
+  // (mirrors the Web PropertiesPanel: General + Display (ByLayer chain with
+  // entity.setDisplay writes) + the canonical geometry readout retained; the
+  // current drafting environment when nothing is selected.)
 
-  function renderProperties(geomById: Map<string, GeomEntity>): void {
+  /** One key/value readout row (mono value). */
+  function propRow(parent: HTMLElement, k: string, v: string): void {
+    const d = h("div", "prow");
+    const kEl = h("span", "k");
+    kEl.textContent = k;
+    const vEl = h("span", "v");
+    vEl.textContent = v;
+    d.append(kEl, vEl);
+    parent.append(d);
+  }
+
+  /** One section header. */
+  function propSection(parent: HTMLElement, title: string): void {
+    const s = h("div", "sec");
+    s.textContent = title;
+    parent.append(s);
+  }
+
+  /** The shared display-property editors (CHPROP-class writes through
+   *  entity.setDisplay — the DOM mirror of the Web DisplayEditors). */
+  function appendDisplayEditors(
+    parent: HTMLElement,
+    ids: readonly string[],
+    overrides: { color: string | null; linetype: string | null; lineweight: number | null; transparency: number | null },
+    layerId: string | null,
+    locked: boolean,
+  ): void {
+    const setDisplay = (patch: Record<string, unknown>): void => {
+      commitCommand("entity.setDisplay", { ids, patch });
+    };
+    const layers = state.snapshot?.layers ?? [];
+    const ltypeOptions = [...BUILT_IN_LTYPES.map((l) => l.name), ...(state.snapshot?.ltypes ?? []).map((l) => l.name)];
+
+    // color override + ByLayer reset.
+    const colorRow = h("div", "prow");
+    const colorKey = h("span", "k");
+    colorKey.textContent = "color";
+    const colorWrap = h("span");
+    colorWrap.style.cssText = "display:flex;align-items:center;gap:4px;";
+    const colorInput = h("input");
+    colorInput.type = "color";
+    colorInput.title = "Entity color override";
+    colorInput.setAttribute("aria-label", "entity color override");
+    colorInput.value = overrides.color ?? "#111827";
+    colorInput.disabled = locked;
+    colorInput.addEventListener("change", () => setDisplay({ color: colorInput.value }));
+    const colorReset = h("button", "mini");
+    colorReset.type = "button";
+    colorReset.textContent = "ByLayer";
+    colorReset.title = "Reset to ByLayer";
+    colorReset.setAttribute("aria-label", "reset color to ByLayer");
+    colorReset.disabled = locked;
+    colorReset.addEventListener("click", () => setDisplay({ color: "ByLayer" }));
+    colorWrap.append(colorInput, colorReset);
+    colorRow.append(colorKey, colorWrap);
+    parent.append(colorRow);
+
+    // linetype override.
+    const ltRow = h("div", "prow");
+    const ltKey = h("span", "k");
+    ltKey.textContent = "linetype";
+    const ltSelect = h("select");
+    ltSelect.title = "Entity linetype override";
+    ltSelect.setAttribute("aria-label", "entity linetype override");
+    ltSelect.disabled = locked;
+    const ltByLayer = h("option");
+    ltByLayer.value = "ByLayer";
+    ltByLayer.textContent = "ByLayer";
+    ltSelect.append(ltByLayer);
+    for (const name of ltypeOptions) {
+      const o = h("option");
+      o.value = name;
+      o.textContent = name;
+      ltSelect.append(o);
+    }
+    ltSelect.value = overrides.linetype ?? "ByLayer";
+    ltSelect.addEventListener("change", () => setDisplay({ linetype: ltSelect.value }));
+    ltRow.append(ltKey, ltSelect);
+    parent.append(ltRow);
+
+    // lineweight override.
+    const lwRow = h("div", "prow");
+    const lwKey = h("span", "k");
+    lwKey.textContent = "lineweight";
+    const lwSelect = h("select");
+    lwSelect.title = "Entity lineweight override (mm)";
+    lwSelect.setAttribute("aria-label", "entity lineweight override");
+    lwSelect.disabled = locked;
+    const lwByLayer = h("option");
+    lwByLayer.value = "ByLayer";
+    lwByLayer.textContent = "ByLayer";
+    lwSelect.append(lwByLayer);
+    for (const w of STANDARD_LINEWEIGHTS) {
+      const o = h("option");
+      o.value = String(w);
+      o.textContent = w.toFixed(2);
+      lwSelect.append(o);
+    }
+    lwSelect.value = overrides.lineweight !== null ? String(overrides.lineweight) : "ByLayer";
+    lwSelect.addEventListener("change", () =>
+      setDisplay({ lineweight: lwSelect.value === "ByLayer" ? "ByLayer" : Number(lwSelect.value) }),
+    );
+    lwRow.append(lwKey, lwSelect);
+    parent.append(lwRow);
+
+    // transparency override.
+    const trRow = h("div", "prow");
+    const trKey = h("span", "k");
+    trKey.textContent = "transparency";
+    const trSelect = h("select");
+    trSelect.title = "Entity transparency override";
+    trSelect.setAttribute("aria-label", "entity transparency override");
+    trSelect.disabled = locked;
+    const trByLayer = h("option");
+    trByLayer.value = "ByLayer";
+    trByLayer.textContent = "ByLayer";
+    trSelect.append(trByLayer);
+    for (let i = 1; i <= 9; i++) {
+      const o = h("option");
+      o.value = String(i * 10);
+      o.textContent = `${i * 10}%`;
+      trSelect.append(o);
+    }
+    trSelect.value = overrides.transparency !== null ? String(overrides.transparency) : "ByLayer";
+    trSelect.addEventListener("change", () =>
+      setDisplay({ transparency: trSelect.value === "ByLayer" ? "ByLayer" : Number(trSelect.value) }),
+    );
+    trRow.append(trKey, trSelect);
+    parent.append(trRow);
+
+    // layer assignment.
+    const layerRow = h("div", "prow");
+    const layerKey = h("span", "k");
+    layerKey.textContent = "layer";
+    const layerSelect = h("select");
+    layerSelect.title = "Entity layer";
+    layerSelect.setAttribute("aria-label", "entity layer");
+    layerSelect.disabled = locked;
+    for (const l of layers) {
+      const o = h("option");
+      o.value = l.id;
+      o.textContent = l.name;
+      layerSelect.append(o);
+    }
+    layerSelect.value = layerId ?? "";
+    layerSelect.addEventListener("change", () => setDisplay({ layer: layerSelect.value }));
+    layerRow.append(layerKey, layerSelect);
+    parent.append(layerRow);
+  }
+
+  function renderProperties(): void {
     while (propsPanel.firstChild) propsPanel.removeChild(propsPanel.firstChild);
-    const el =
-      state.selection.length === 1
-        ? (state.snapshot?.elements ?? []).find((x) => x.id === state.selection[0])
-        : undefined;
-    if (el === undefined) {
-      propsPanel.style.display = "none";
+    const layers = state.snapshot?.layers ?? [];
+    const layerById = new Map<string, LayerRecord>(layers.map((l) => [l.id, l] as const));
+    const selected = (state.snapshot?.elements ?? []).filter((el) => state.selection.includes(el.id));
+    const num = (v: number): string => String(Number(v.toFixed(3)));
+
+    // Header (title + collapse affordance).
+    const hdr = h("div", "hdr");
+    const title = h("span", "t");
+    if (selected.length === 1) {
+      const el = selected[0]!;
+      const p = el.props as Record<string, unknown>;
+      const canonical = geomFromElement(el);
+      title.textContent =
+        canonical !== null
+          ? GEOM_LABEL[canonical.type]
+          : typeof p.type === "string"
+            ? p.type
+            : el.kind;
+      const idSpan = h("span");
+      idSpan.textContent = ` · ${el.id}`;
+      title.append(idSpan);
+    } else if (selected.length > 1) {
+      title.textContent = `Selection — ${selected.length} entities`;
+    } else {
+      title.textContent = "Properties";
+    }
+    const collapse = h("button", "collapse");
+    collapse.type = "button";
+    collapse.textContent = propsCollapsed ? "▸" : "▾";
+    collapse.title = propsCollapsed ? "Expand the properties inspector" : "Collapse the properties inspector";
+    collapse.setAttribute("aria-label", propsCollapsed ? "expand properties inspector" : "collapse properties inspector");
+    collapse.addEventListener("click", () => {
+      propsCollapsed = !propsCollapsed;
+      renderModel();
+    });
+    hdr.append(title, collapse);
+    propsPanel.append(hdr);
+    propsPanel.style.display = "block";
+    if (propsCollapsed) return;
+
+    // --- No selection: the current drafting environment (AutoCAD-class). ----
+    if (selected.length === 0) {
+      const settings = state.snapshot?.draftingSettings;
+      const layer = layerById.get(state.activeLayer);
+      let resolved: { color: string; linetype: string; lineweight: number } | null = null;
+      if (layer !== undefined) {
+        try {
+          const r = resolveDisplay(
+            { color: null, linetype: null, lineweight: null, transparency: null },
+            layer,
+            settings?.standards,
+            state.snapshot?.ltypes ?? [],
+          );
+          resolved = { color: r.color, linetype: r.linetype, lineweight: r.lineweight };
+        } catch {
+          resolved = { color: layer.color, linetype: layer.linetype ?? "Continuous", lineweight: layer.lineweight ?? STANDARD_DEFAULT_LINEWEIGHT };
+        }
+      }
+      propSection(propsPanel, "Current drafting environment");
+      // Active layer select (layer.setActive; frozen layers are listed but
+      // disabled — a frozen layer cannot become current).
+      const activeRow = h("div", "prow");
+      const activeKey = h("span", "k");
+      activeKey.textContent = "active layer";
+      const activeSelect = h("select");
+      activeSelect.title = "Active layer for new entities (layer.setActive)";
+      activeSelect.setAttribute("aria-label", "active layer");
+      for (const l of layers) {
+        const o = h("option");
+        o.value = l.id;
+        o.textContent = l.frozen === true ? `${l.name} (frozen)` : l.name;
+        o.disabled = l.frozen === true;
+        activeSelect.append(o);
+      }
+      activeSelect.value = state.activeLayer;
+      activeSelect.addEventListener("change", () => commitCommand("layer.setActive", { layerId: activeSelect.value }));
+      activeRow.append(activeKey, activeSelect);
+      propsPanel.append(activeRow);
+      if (resolved !== null && layer !== undefined) {
+        const colorRow = h("div", "prow");
+        const colorKey = h("span", "k");
+        colorKey.textContent = "effective color";
+        const swatch = h("span", "swatch");
+        swatch.style.background = resolved.color;
+        swatch.setAttribute("aria-hidden", "true");
+        const colorVal = h("span", "v");
+        colorVal.textContent = resolved.color;
+        colorRow.append(colorKey, swatch, colorVal);
+        propsPanel.append(colorRow);
+        propRow(propsPanel, "effective linetype", resolved.linetype);
+        propRow(propsPanel, "effective lineweight", `${resolved.lineweight.toFixed(2)} mm`);
+      }
+      propRow(propsPanel, "current text style", settings?.textStyle ?? "Standard");
+      propRow(propsPanel, "current dim style", settings?.dimStyle ?? "Standard");
+      propRow(propsPanel, "linetype scale", String(settings?.standards?.linetypeScale ?? 1));
+      const hint = h("div", "hint");
+      hint.textContent = "No selection. Pick an entity in the Model viewport — or draw with LINE, CIRCLE, PLINE…";
+      propsPanel.append(hint);
       return;
     }
+
+    // --- Multi-selection: common-property editing (CHPROP-class). ------------
+    if (selected.length > 1) {
+      const drafting = selected.filter((el) => (el.props as Record<string, unknown>).drafting === true);
+      const locked = drafting.some((el) => {
+        const layerId = (el.props as Record<string, unknown>).layer;
+        return typeof layerId === "string" && layerById.get(layerId)?.locked === true;
+      });
+      propSection(propsPanel, `Selection — ${selected.length} entities`);
+      propRow(propsPanel, "drafting entities", String(drafting.length));
+      if (locked) {
+        const l = h("div", "locked");
+        l.textContent = "locked layer — read-only";
+        propsPanel.append(l);
+      }
+      if (drafting.length > 0) {
+        propSection(propsPanel, "Common display properties");
+        const firstLayer = (drafting[0]!.props as Record<string, unknown>).layer;
+        const commonLayer =
+          typeof firstLayer === "string" && drafting.every((el) => (el.props as Record<string, unknown>).layer === firstLayer)
+            ? firstLayer
+            : null;
+        appendDisplayEditors(
+          propsPanel,
+          drafting.map((el) => el.id),
+          { color: null, linetype: null, lineweight: null, transparency: null },
+          commonLayer,
+          locked,
+        );
+        const hint = h("div", "hint");
+        hint.textContent = `Display edits apply to the ${drafting.length} drafting entities atomically (CHPROP semantics); mixed values show ByLayer defaults.`;
+        propsPanel.append(hint);
+      }
+      return;
+    }
+
+    // --- Single selection: the full professional inspector. -------------------
+    const el = selected[0]!;
     const p = el.props as Record<string, unknown>;
-    const canonical = geomById.get(el.id)?.geom ?? null;
-    const num = (v: number): string => String(Number(v.toFixed(3)));
-    const row = (k: string, v: string): void => {
-      const d = h("div", "row");
-      const kEl = h("span", "k");
-      kEl.textContent = k;
-      const vEl = h("span", "v");
-      vEl.textContent = v;
-      d.append(kEl, vEl);
-      propsPanel.append(d);
-    };
-    const title = h("div", "t");
-    title.textContent =
-      canonical !== null
-        ? GEOM_LABEL[canonical.type]
-        : typeof p.type === "string"
-          ? p.type
-          : el.kind;
-    const idSpan = h("span");
-    idSpan.textContent = ` · ${el.id}`;
-    title.append(idSpan);
-    propsPanel.append(title);
-    if (typeof p.layer === "string") row("layer", p.layer);
+    const canonical = geomFromElement(el);
+    const layerId = typeof p.layer === "string" ? p.layer : null;
+    const layer = layerId !== null ? layerById.get(layerId) : undefined;
+    const locked = layer?.locked === true && p.drafting === true;
+
+    propSection(propsPanel, "General");
+    propRow(propsPanel, "id", el.id);
+    propRow(propsPanel, "kind", el.kind);
+    propRow(propsPanel, "layer", layer?.name ?? layerId ?? "—");
+
+    if (p.drafting === true) {
+      propSection(propsPanel, "Display (ByLayer chain)");
+      if (locked) {
+        const l = h("div", "locked");
+        l.textContent = `layer “${layer?.name ?? layerId}” locked — read-only`;
+        propsPanel.append(l);
+      }
+      const overrides = displayOverridesOf(p);
+      appendDisplayEditors(propsPanel, [el.id], overrides, layerId, locked);
+      if (layer !== undefined) {
+        propRow(propsPanel, "↳ layer color", layer.color);
+        propRow(propsPanel, "↳ layer linetype", layer.linetype ?? "Continuous");
+        propRow(propsPanel, "↳ layer lineweight", (layer.lineweight ?? STANDARD_DEFAULT_LINEWEIGHT).toFixed(2));
+      }
+    }
+
+    // The canonical geometry readout (CAD-PARITY-003 rows, retained verbatim).
     const g = canonical;
     if (g !== null) {
+      propSection(propsPanel, "Geometry");
       switch (g.type) {
         case "ellipse":
-          row("axes", `${num(g.rx)} × ${num(g.ry)}`);
-          row("rotation", `${num((g.rotation * 180) / Math.PI)}°`);
-          row("center", `${num(g.cx)}, ${num(g.cy)}`);
+          propRow(propsPanel, "axes", `${num(g.rx)} × ${num(g.ry)}`);
+          propRow(propsPanel, "rotation", `${num((g.rotation * 180) / Math.PI)}°`);
+          propRow(propsPanel, "center", `${num(g.cx)}, ${num(g.cy)}`);
           break;
         case "spline":
-          row("control points", String(g.controlPoints.length));
-          row("degree", String(g.degree));
+          propRow(propsPanel, "control points", String(g.controlPoints.length));
+          propRow(propsPanel, "degree", String(g.degree));
           break;
         case "point":
-          row("position", `${num(g.x)}, ${num(g.y)}`);
+          propRow(propsPanel, "position", `${num(g.x)}, ${num(g.y)}`);
           break;
         case "ray":
         case "xline": {
           const dirDeg = (Math.atan2(g.y2 - g.y1, g.x2 - g.x1) * 180) / Math.PI + 360;
-          row("base", `${num(g.x1)}, ${num(g.y1)}`);
-          row("through", `${num(g.x2)}, ${num(g.y2)}`);
-          row("direction", `${num(dirDeg % 360)}°`);
+          propRow(propsPanel, "base", `${num(g.x1)}, ${num(g.y1)}`);
+          propRow(propsPanel, "through", `${num(g.x2)}, ${num(g.y2)}`);
+          propRow(propsPanel, "direction", `${num(dirDeg % 360)}°`);
           break;
         }
         case "region":
-          row("boundary", g.boundary.kind);
-          row("area", num(g.area));
-          row("perimeter", num(g.perimeter));
-          row("centroid", `${num(g.centroid.x)}, ${num(g.centroid.y)}`);
+          propRow(propsPanel, "boundary", g.boundary.kind);
+          propRow(propsPanel, "area", num(g.area));
+          propRow(propsPanel, "perimeter", num(g.perimeter));
+          propRow(propsPanel, "centroid", `${num(g.centroid.x)}, ${num(g.centroid.y)}`);
           break;
         case "line":
-          row("from", `${num(g.x1)}, ${num(g.y1)}`);
-          row("to", `${num(g.x2)}, ${num(g.y2)}`);
+          propRow(propsPanel, "from", `${num(g.x1)}, ${num(g.y1)}`);
+          propRow(propsPanel, "to", `${num(g.x2)}, ${num(g.y2)}`);
           break;
         case "circle":
-          row("center", `${num(g.cx)}, ${num(g.cy)}`);
-          row("radius", num(g.r));
+          propRow(propsPanel, "center", `${num(g.cx)}, ${num(g.cy)}`);
+          propRow(propsPanel, "radius", num(g.r));
           break;
         case "arc":
-          row("center", `${num(g.cx)}, ${num(g.cy)}`);
-          row("radius", num(g.r));
-          row("sweep", `${num((((g.endAngle - g.startAngle) * 180) / Math.PI + 360) % 360)}°`);
+          propRow(propsPanel, "center", `${num(g.cx)}, ${num(g.cy)}`);
+          propRow(propsPanel, "radius", num(g.r));
+          propRow(propsPanel, "sweep", `${num((((g.endAngle - g.startAngle) * 180) / Math.PI + 360) % 360)}°`);
           break;
         case "polyline":
-          row("vertices", String(g.vertices.length));
-          row("closed", g.closed ? "yes" : "no");
+          propRow(propsPanel, "vertices", String(g.vertices.length));
+          propRow(propsPanel, "closed", g.closed ? "yes" : "no");
           break;
       }
     }
-    propsPanel.style.display = "block";
   }
 
   // --- command line + status bar ------------------------------------------------------------
@@ -1886,8 +2707,22 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
   makeToggle("ORTHO", "Orthogonal constraint (F8)", () => void executePlan({ appApi: [], ui: [{ action: "toggle.ortho" }], echo: [] }));
   makeToggle("POLAR", "Polar tracking (F10)", () => void executePlan({ appApi: [], ui: [{ action: "toggle.polar" }], echo: [] }));
   makeToggle("OTRACK", "Object tracking (F11)", () => void executePlan({ appApi: [], ui: [{ action: "toggle.otrack" }], echo: [] }));
+  // CAD-PARITY-004: LWT — the lineweight display toggle (LWEIGHT/LW class;
+  // persisted drafting setting, identical on both hosts).
+  makeToggle("LWT", "Lineweight display (LWEIGHT/LW) — lineweights render at weight × zoom when on", () =>
+    void executePlan({ appApi: [], ui: [{ action: "toggle.lweight" }], echo: [] }),
+  );
   const info = h("span");
   info.style.marginLeft = "auto";
+  // CAD-PARITY-004: the active-layer display is a clickable link to the
+  // Layers manager (the same affordance the Web status bar carries).
+  const layerLink = h("button", "layerlink");
+  layerLink.type = "button";
+  layerLink.title = "Active drafting layer — click to open the Layers manager";
+  layerLink.setAttribute("aria-label", "active layer — open the Layers manager");
+  layerLink.addEventListener("click", () => openDock("layers"));
+  const infoRest = h("span");
+  info.append(layerLink, infoRest);
   statusBar.append(coord, info);
 
   document.body.append(cmdLine, statusBar);
@@ -1919,10 +2754,816 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
     if (polarOn !== undefined) polarOn.classList.toggle("on", state.aids.polar);
     const otrackOn = toggleButtons.get("OTRACK");
     if (otrackOn !== undefined) otrackOn.classList.toggle("on", state.aids.otrack);
+    // CAD-PARITY-004: the lineweight display toggle state.
+    const lwtOn = toggleButtons.get("LWT");
+    if (lwtOn !== undefined) lwtOn.classList.toggle("on", settings?.lineweightDisplay === true);
     const elements = state.snapshot?.elements ?? [];
     const story = elements.find((el) => el.id === state.activeStoryId);
     const storyName = story !== undefined ? ((story.props as Record<string, unknown>).name as string | undefined) ?? "—" : "—";
-    info.textContent = `Layer ${state.activeLayer} · Story ${storyName} · Sel ${state.selection.length} · v${state.snapshot?.version?.version_number ?? 0} · ${settings?.units ?? "mm"}`;
+    const layerName =
+      (state.snapshot?.layers ?? []).find((l) => l.id === state.activeLayer)?.name ?? state.activeLayer;
+    layerLink.textContent = `Layer ${layerName}`;
+    infoRest.textContent = ` · Story ${storyName} · Sel ${state.selection.length} · v${state.snapshot?.version?.version_number ?? 0} · ${settings?.units ?? "mm"}`;
+  }
+
+  // --- CAD-PARITY-004 right dock: Layers manager + Styles manager ---------------
+  // (DOM mirrors of the Web palettes.tsx LayersPanel/StylesPanel; every write
+  //  goes through the App API command() helper + refresh.)
+
+  /** Tiny inline SVG glyph set for the panel icon buttons (12×12 line icons,
+   *  currentColor strokes — no external assets). */
+  function icon(d: string): SVGElement {
+    const s = svgNs("svg");
+    s.setAttribute("viewBox", "0 0 12 12");
+    s.setAttribute("width", "12");
+    s.setAttribute("height", "12");
+    s.setAttribute("aria-hidden", "true");
+    const p = svgNs("path");
+    p.setAttribute("d", d);
+    p.setAttribute("fill", "none");
+    p.setAttribute("stroke", "currentColor");
+    p.setAttribute("stroke-width", "1.1");
+    p.setAttribute("stroke-linecap", "round");
+    p.setAttribute("stroke-linejoin", "round");
+    s.append(p);
+    return s;
+  }
+
+  const ICON = {
+    plus: () => icon("M6 2 v8 M2 6 h8"),
+    trash: () => icon("M2 3 h8 M4.6 3 V1.9 h2.8 V3 M3 3 l.5 7.5 h5 L9.5 3"),
+    eye: () => icon("M1 6 C2.7 3.4, 9.3 3.4, 11 6 C9.3 8.6, 2.7 8.6, 1 6 Z M6 4.7 a1.3 1.3 0 1 0 0 2.6 a1.3 1.3 0 1 0 0 -2.6"),
+    eyeOff: () => icon("M1 6 C2.7 3.4, 9.3 3.4, 11 6 C9.3 8.6, 2.7 8.6, 1 6 Z M1.8 10.2 L10.2 1.8"),
+    snow: () => icon("M6 1 V11 M2.2 3.3 L9.8 8.7 M9.8 3.3 L2.2 8.7"),
+    lock: () => icon("M3.2 5.2 V4.2 a2.8 2.8 0 0 1 5.6 0 V5.2 M2.6 5.2 h6.8 v4.9 h-6.8 Z"),
+    unlock: () => icon("M3.2 5.2 V4.2 a2.8 2.8 0 0 1 5.6 0 M2.6 5.2 h6.8 v4.9 h-6.8 Z"),
+  } as const;
+
+  /** A small dash-pattern sample line (the linetype catalog preview). */
+  function dashSample(pattern: readonly number[]): SVGElement {
+    const s = svgNs("svg");
+    s.setAttribute("width", "42");
+    s.setAttribute("height", "8");
+    s.setAttribute("aria-hidden", "true");
+    const line = svgNs("line");
+    line.setAttribute("x1", "1");
+    line.setAttribute("y1", "4");
+    line.setAttribute("x2", "41");
+    line.setAttribute("y2", "4");
+    line.setAttribute("stroke", "currentColor");
+    line.setAttribute("stroke-width", "1");
+    if (pattern.length > 0) line.setAttribute("stroke-dasharray", pattern.join(","));
+    s.append(line);
+    return s;
+  }
+
+  function renderDock(): void {
+    dock.classList.toggle("closed", !dockOpen);
+    dockTabLayers.classList.toggle("active", dockTab === "layers");
+    dockTabStyles.classList.toggle("active", dockTab === "styles");
+    dockTabLayers.setAttribute("aria-selected", String(dockTab === "layers"));
+    dockTabStyles.setAttribute("aria-selected", String(dockTab === "styles"));
+    while (dockBody.firstChild) dockBody.removeChild(dockBody.firstChild);
+    if (dockTab === "layers") renderLayersPanel(dockBody);
+    else renderStylesPanel(dockBody);
+  }
+
+  /** The Layers manager (mirrors the Web LayersPanel): new layer + layer
+   *  standards, name/state filters, the layer table and the collapsible
+   *  layer-states section. */
+  function renderLayersPanel(container: HTMLElement): void {
+    const snapshot = state.snapshot;
+    const layers = snapshot?.layers ?? [];
+    const settings = snapshot?.draftingSettings;
+    const states = snapshot?.layerStates ?? [];
+    const usedLayerIds = new Set<string>();
+    for (const el of snapshot?.elements ?? []) {
+      const layer = (el.props as Record<string, unknown>).layer;
+      if (typeof layer === "string") usedLayerIds.add(layer);
+    }
+    const ltypeOptions = [...BUILT_IN_LTYPES.map((l) => l.name), ...(snapshot?.ltypes ?? []).map((l) => l.name)];
+    const updateLayer = (layerId: string, patch: Record<string, unknown>): void => {
+      commitCommand("drafting.updateLayer", { layerId, patch });
+    };
+
+    // Bar 1: new layer + Add + layer standards.
+    const bar1 = h("div", "bar");
+    const nameInput = h("input");
+    nameInput.type = "text";
+    nameInput.placeholder = "New layer name…";
+    nameInput.setAttribute("aria-label", "new layer name");
+    nameInput.value = newLayerName;
+    nameInput.addEventListener("input", () => {
+      newLayerName = nameInput.value;
+      addBtn.disabled = newLayerName.trim().length === 0;
+    });
+    const addLayer = (): void => {
+      const name = newLayerName.trim();
+      if (name.length === 0) return;
+      newLayerName = "";
+      commitCommand("drafting.addLayer", { name });
+    };
+    nameInput.addEventListener("keydown", (e) => {
+      e.stopPropagation();
+      if (e.key === "Enter") {
+        e.preventDefault();
+        addLayer();
+      }
+    });
+    const addBtn = h("button", "iconbtn");
+    addBtn.type = "button";
+    addBtn.title = "Add layer";
+    addBtn.setAttribute("aria-label", "add layer");
+    addBtn.disabled = newLayerName.trim().length === 0;
+    addBtn.append(ICON.plus());
+    addBtn.addEventListener("click", addLayer);
+    const stdSelect = h("select");
+    stdSelect.title = "Apply a named drawing standard (creates the standard layer set)";
+    stdSelect.setAttribute("aria-label", "apply layer standard");
+    const stdNone = h("option");
+    stdNone.value = "";
+    stdNone.textContent = "Standard…";
+    stdSelect.append(stdNone);
+    for (const s of LAYER_STANDARDS) {
+      const o = h("option");
+      o.value = s.id;
+      o.textContent = s.label;
+      stdSelect.append(o);
+    }
+    stdSelect.value = "";
+    stdSelect.addEventListener("change", () => {
+      if (stdSelect.value !== "") commitCommand("layer.applyStandard", { standard: stdSelect.value });
+    });
+    bar1.append(nameInput, addBtn, stdSelect);
+    container.append(bar1);
+
+    // Bar 2: filters (re-render only the table on input so the caret stays).
+    const bar2 = h("div", "bar");
+    const filterInput = h("input");
+    filterInput.type = "text";
+    filterInput.placeholder = "Filter layers…";
+    filterInput.setAttribute("aria-label", "layer name filter");
+    filterInput.value = layerFilterText;
+    const modeSelect = h("select");
+    modeSelect.title = "Layer state filter";
+    modeSelect.setAttribute("aria-label", "layer state filter");
+    for (const m of LAYER_FILTER_MODES) {
+      const o = h("option");
+      o.value = m.id;
+      o.textContent = m.label;
+      modeSelect.append(o);
+    }
+    modeSelect.value = layerFilterMode;
+    const tableWrap = h("div", "pro-layers-scroll");
+    tableWrap.setAttribute("aria-label", "layers list");
+    const renderTable = (): void => {
+      while (tableWrap.firstChild) tableWrap.removeChild(tableWrap.firstChild);
+      const filtered = filterLayers(layers, layerFilterMode, layerFilterText, usedLayerIds);
+      const head = h("div", "pro-layers-head");
+      const headCells = [
+        { label: "", title: "Active layer" },
+        { label: "Name", title: "Layer name" },
+        { label: "On", title: "Layer visibility" },
+        { label: "Frz", title: "Freeze" },
+        { label: "Lck", title: "Lock" },
+        { label: "Color", title: "Layer color" },
+        { label: "Linetype", title: "Layer linetype" },
+        { label: "Weight", title: "Layer lineweight (mm)" },
+        { label: "Plt", title: "Plot" },
+      ];
+      for (const cell of headCells) {
+        const span = h("span");
+        span.textContent = cell.label;
+        if (cell.title !== "") span.title = cell.title;
+        head.append(span);
+      }
+      tableWrap.append(head);
+      for (const layer of filtered) {
+        const active = state.activeLayer === layer.id;
+        const used = usedLayerIds.has(layer.id);
+        const row = h("div", "pro-layer-row" + (active ? " active" : ""));
+
+        // Active-layer dot.
+        const dot = h("button", "dot");
+        dot.type = "button";
+        dot.title = "Set active layer";
+        dot.setAttribute("aria-label", `${layer.name} set active`);
+        dot.disabled = layer.frozen === true;
+        dot.addEventListener("click", () => commitCommand("layer.setActive", { layerId: layer.id }));
+        row.append(dot);
+
+        // Name (double-click to rename) + delete.
+        const nameCell = h("span", "name");
+        if (editingLayerId === layer.id) {
+          const rename = h("input", "rename");
+          rename.type = "text";
+          rename.value = layer.name;
+          rename.setAttribute("aria-label", "rename layer");
+          rename.addEventListener("keydown", (e) => {
+            e.stopPropagation();
+            if (e.key === "Enter") {
+              e.preventDefault();
+              const v = rename.value.trim();
+              editingLayerId = null;
+              if (v.length > 0 && v !== layer.name) updateLayer(layer.id, { name: v });
+              else renderDock();
+            } else if (e.key === "Escape") {
+              e.preventDefault();
+              editingLayerId = null;
+              renderDock();
+            }
+          });
+          rename.addEventListener("blur", () => {
+            if (editingLayerId === layer.id) {
+              editingLayerId = null;
+              renderDock();
+            }
+          });
+          nameCell.append(rename);
+        } else {
+          const nm = h("button", "nm");
+          nm.type = "button";
+          nm.textContent = layer.name;
+          nm.title = layer.description ?? layer.name;
+          nm.disabled = layer.frozen === true;
+          nm.addEventListener("dblclick", () => {
+            editingLayerId = layer.id;
+            renderDock();
+            const inputEl = tableWrap.querySelector<HTMLInputElement>("input.rename");
+            if (inputEl !== null) {
+              inputEl.focus();
+              inputEl.select();
+            }
+          });
+          nm.addEventListener("click", () => commitCommand("layer.setActive", { layerId: layer.id }));
+          nameCell.append(nm);
+          if (!used) {
+            const unused = h("span", "unused");
+            unused.textContent = "(unused)";
+            unused.title = "No entities on this layer";
+            nameCell.append(unused);
+          }
+        }
+        const del = h("button", "tgl");
+        del.type = "button";
+        del.title = "Delete layer (blocked while entities reference it)";
+        del.setAttribute("aria-label", `delete layer ${layer.name}`);
+        del.disabled = used || layer.id === "0";
+        del.append(ICON.trash());
+        del.addEventListener("click", () => commitCommand("drafting.removeLayer", { layerId: layer.id }));
+        nameCell.append(del);
+        row.append(nameCell);
+
+        // Visibility toggle.
+        const vis = h("button", "tgl" + (layer.visible ? " on" : ""));
+        vis.type = "button";
+        vis.title = layer.visible ? "Hide layer" : "Show layer";
+        vis.setAttribute("aria-label", `${layer.name} ${layer.visible ? "hide" : "show"}`);
+        vis.append(layer.visible ? ICON.eye() : ICON.eyeOff());
+        vis.addEventListener("click", () => updateLayer(layer.id, { visible: !layer.visible }));
+        row.append(vis);
+
+        // Freeze toggle (the active layer cannot be frozen).
+        const frz = h("button", "tgl" + (layer.frozen === true ? " on" : ""));
+        frz.type = "button";
+        frz.title = layer.frozen === true ? "Thaw layer" : "Freeze layer (suppresses display, creation and snap)";
+        frz.setAttribute("aria-label", `${layer.name} ${layer.frozen === true ? "thaw" : "freeze"}`);
+        frz.disabled = active && layer.frozen !== true;
+        frz.append(ICON.snow());
+        frz.addEventListener("click", () => updateLayer(layer.id, { frozen: layer.frozen !== true }));
+        row.append(frz);
+
+        // Lock toggle.
+        const lck = h("button", "tgl" + (layer.locked === true ? " warn" : ""));
+        lck.type = "button";
+        lck.title = layer.locked === true ? "Unlock layer" : "Lock layer (entities become read-only)";
+        lck.setAttribute("aria-label", `${layer.name} ${layer.locked === true ? "unlock" : "lock"}`);
+        lck.append(layer.locked === true ? ICON.lock() : ICON.unlock());
+        lck.addEventListener("click", () => updateLayer(layer.id, { locked: layer.locked !== true }));
+        row.append(lck);
+
+        // Color.
+        const colorInput = h("input");
+        colorInput.type = "color";
+        colorInput.title = "Layer color";
+        colorInput.setAttribute("aria-label", `${layer.name} color`);
+        colorInput.value = layer.color;
+        colorInput.addEventListener("change", () => updateLayer(layer.id, { color: colorInput.value }));
+        row.append(colorInput);
+
+        // Linetype.
+        const ltSelect = h("select");
+        ltSelect.title = "Layer linetype";
+        ltSelect.setAttribute("aria-label", `${layer.name} linetype`);
+        for (const name of ltypeOptions) {
+          const o = h("option");
+          o.value = name;
+          o.textContent = name;
+          ltSelect.append(o);
+        }
+        ltSelect.value = layer.linetype ?? "Continuous";
+        ltSelect.addEventListener("change", () => updateLayer(layer.id, { linetype: ltSelect.value }));
+        row.append(ltSelect);
+
+        // Lineweight.
+        const lwSelect = h("select");
+        lwSelect.title = "Layer lineweight (mm)";
+        lwSelect.setAttribute("aria-label", `${layer.name} lineweight`);
+        for (const w of STANDARD_LINEWEIGHTS) {
+          const o = h("option");
+          o.value = String(w);
+          o.textContent = w.toFixed(2);
+          lwSelect.append(o);
+        }
+        lwSelect.value = String(layer.lineweight ?? settings?.standards?.defaultLineweight ?? STANDARD_DEFAULT_LINEWEIGHT);
+        lwSelect.addEventListener("change", () => updateLayer(layer.id, { lineweight: Number(lwSelect.value) }));
+        row.append(lwSelect);
+
+        // Plot toggle.
+        const plot = h("button", "tgl" + (layer.plot !== false ? " on" : ""));
+        plot.type = "button";
+        plot.title = layer.plot !== false ? "Exclude from plotting" : "Include in plotting";
+        plot.setAttribute("aria-label", `${layer.name} plot ${layer.plot !== false ? "off" : "on"}`);
+        plot.textContent = layer.plot !== false ? "✓" : "–";
+        plot.addEventListener("click", () => updateLayer(layer.id, { plot: layer.plot === false }));
+        row.append(plot);
+
+        tableWrap.append(row);
+      }
+      if (filtered.length === 0) {
+        const empty = h("div", "empty");
+        empty.textContent = "No layers match the filter.";
+        tableWrap.append(empty);
+      }
+    };
+    filterInput.addEventListener("input", () => {
+      layerFilterText = filterInput.value;
+      renderTable();
+    });
+    modeSelect.addEventListener("change", () => {
+      layerFilterMode = modeSelect.value as LayerFilterMode;
+      renderTable();
+    });
+    bar2.append(filterInput, modeSelect);
+    container.append(bar2);
+    renderTable();
+    container.append(tableWrap);
+
+    // Layer states (collapsible).
+    const statesSec = h("div", "pro-states");
+    const statesHead = h("button", "head");
+    statesHead.type = "button";
+    statesHead.textContent = `${layerStatesOpen ? "▾" : "▸"} Layer states (${states.length})`;
+    statesHead.setAttribute("aria-expanded", String(layerStatesOpen));
+    statesHead.setAttribute("aria-label", "layer states section");
+    statesHead.addEventListener("click", () => {
+      layerStatesOpen = !layerStatesOpen;
+      renderDock();
+    });
+    statesSec.append(statesHead);
+    if (layerStatesOpen) {
+      const body = h("div", "body");
+      const bar = h("div", "bar");
+      bar.style.borderBottom = "none";
+      bar.style.padding = "4px 0";
+      const stateInput = h("input");
+      stateInput.type = "text";
+      stateInput.placeholder = "State name…";
+      stateInput.setAttribute("aria-label", "new layer state name");
+      stateInput.value = newStateName;
+      const saveState = (): void => {
+        const name = newStateName.trim();
+        if (name.length === 0) return;
+        newStateName = "";
+        commitCommand("layerState.save", { name });
+      };
+      stateInput.addEventListener("input", () => {
+        newStateName = stateInput.value;
+        saveBtn.disabled = newStateName.trim().length === 0;
+      });
+      stateInput.addEventListener("keydown", (e) => {
+        e.stopPropagation();
+        if (e.key === "Enter") {
+          e.preventDefault();
+          saveState();
+        }
+      });
+      const saveBtn = h("button", "iconbtn");
+      saveBtn.type = "button";
+      saveBtn.title = "Save layer state";
+      saveBtn.setAttribute("aria-label", "save layer state");
+      saveBtn.disabled = newStateName.trim().length === 0;
+      saveBtn.textContent = "Save";
+      saveBtn.style.width = "auto";
+      saveBtn.style.fontSize = "10px";
+      saveBtn.addEventListener("click", saveState);
+      bar.append(stateInput, saveBtn);
+      body.append(bar);
+      for (const st of states as readonly LayerStateRecord[]) {
+        const r = h("div", "pro-state-row");
+        const nm = h("span", "nm");
+        nm.textContent = st.name;
+        nm.title = st.name;
+        const cnt = h("span", "cnt");
+        cnt.textContent = `${st.layers.length} layers`;
+        const restore = h("button", "tgl");
+        restore.type = "button";
+        restore.title = "Restore state";
+        restore.setAttribute("aria-label", `restore layer state ${st.name}`);
+        restore.textContent = "↺";
+        restore.addEventListener("click", () => commitCommand("layerState.restore", { name: st.name }));
+        const remove = h("button", "tgl");
+        remove.type = "button";
+        remove.title = "Delete state";
+        remove.setAttribute("aria-label", `delete layer state ${st.name}`);
+        remove.append(ICON.trash());
+        remove.addEventListener("click", () => commitCommand("layerState.remove", { name: st.name }));
+        r.append(nm, cnt, restore, remove);
+        body.append(r);
+      }
+      if (states.length === 0) {
+        const empty = h("div", "empty");
+        empty.style.padding = "2px 2px";
+        empty.textContent = "No saved states.";
+        body.append(empty);
+      }
+      statesSec.append(body);
+    }
+    container.append(statesSec);
+  }
+
+  /** The Styles manager (mirrors the Web StylesPanel): current styles +
+   *  standards, the linetype catalog + user linetypes, text styles and
+   *  dimension styles. */
+  function renderStylesPanel(container: HTMLElement): void {
+    const snapshot = state.snapshot;
+    const settings = snapshot?.draftingSettings;
+    const ltypes = snapshot?.ltypes ?? [];
+    const textStyles = snapshot?.textStyles ?? [];
+    const dimStyles = snapshot?.dimStyles ?? [];
+    const scroll = h("div", "pro-dock-scroll");
+    scroll.style.flex = "1";
+    const setSettings = (patch: Record<string, unknown>): void => {
+      commitCommand("drafting.setSettings", { settings: patch });
+    };
+    const sec = (title: string): void => {
+      const s = h("div", "sec");
+      s.textContent = title;
+      scroll.append(s);
+    };
+    const desc = (text: string): void => {
+      const d = h("div", "desc");
+      d.textContent = text;
+      scroll.append(d);
+    };
+
+    // --- Current styles + standards ---
+    sec("Current");
+    const styleRow = (label: string, build: (row: HTMLDivElement) => void): void => {
+      const r = h("div", "pro-style-row");
+      const k = h("span", "muted");
+      k.textContent = label;
+      r.append(k);
+      build(r);
+      scroll.append(r);
+    };
+    styleRow("text style", (r) => {
+      const sel = h("select");
+      sel.title = "Current text style";
+      sel.setAttribute("aria-label", "current text style");
+      sel.style.width = "120px";
+      const std = h("option");
+      std.value = "Standard";
+      std.textContent = "Standard (built-in)";
+      sel.append(std);
+      for (const s of textStyles as readonly TextStyleRecord[]) {
+        const o = h("option");
+        o.value = s.name;
+        o.textContent = s.name;
+        sel.append(o);
+      }
+      sel.value = settings?.textStyle ?? "Standard";
+      sel.addEventListener("change", () => setSettings({ textStyle: sel.value }));
+      r.append(sel);
+    });
+    styleRow("dim style", (r) => {
+      const sel = h("select");
+      sel.title = "Current dimension style";
+      sel.setAttribute("aria-label", "current dim style");
+      sel.style.width = "120px";
+      const std = h("option");
+      std.value = "Standard";
+      std.textContent = "Standard (built-in)";
+      sel.append(std);
+      for (const s of dimStyles as readonly DimStyleRecord[]) {
+        const o = h("option");
+        o.value = s.name;
+        o.textContent = s.name;
+        sel.append(o);
+      }
+      sel.value = settings?.dimStyle ?? "Standard";
+      sel.addEventListener("change", () => setSettings({ dimStyle: sel.value }));
+      r.append(sel);
+    });
+    styleRow("linetype scale", (r) => {
+      const input = h("input", "num");
+      input.type = "number";
+      input.step = "any";
+      input.title = "Global linetype scale (LTSCALE)";
+      input.setAttribute("aria-label", "linetype scale");
+      input.value = String(settings?.standards?.linetypeScale ?? 1);
+      input.addEventListener("change", () => {
+        const v = Number(input.value);
+        if (Number.isFinite(v) && v > 0) setSettings({ standards: { linetypeScale: v } });
+      });
+      r.append(input);
+    });
+    styleRow("default lineweight", (r) => {
+      const sel = h("select");
+      sel.title = "Default lineweight (mm)";
+      sel.setAttribute("aria-label", "default lineweight");
+      sel.style.width = "70px";
+      for (const w of STANDARD_LINEWEIGHTS) {
+        const o = h("option");
+        o.value = String(w);
+        o.textContent = w.toFixed(2);
+        sel.append(o);
+      }
+      sel.value = String(settings?.standards?.defaultLineweight ?? STANDARD_DEFAULT_LINEWEIGHT);
+      sel.addEventListener("change", () => setSettings({ standards: { defaultLineweight: Number(sel.value) } }));
+      r.append(sel);
+    });
+
+    // --- Linetypes ---
+    sec("Linetypes");
+    const ltypeBar = h("div", "pro-style-row");
+    const ltypeName = h("input");
+    ltypeName.type = "text";
+    ltypeName.placeholder = "Name…";
+    ltypeName.setAttribute("aria-label", "new linetype name");
+    ltypeName.value = newLtypeName;
+    const ltypePattern = h("input", "num");
+    ltypePattern.type = "text";
+    ltypePattern.placeholder = "8,4";
+    ltypePattern.title = "Dash/gap lengths in mm, comma separated (even count)";
+    ltypePattern.setAttribute("aria-label", "new linetype pattern");
+    ltypePattern.style.width = "56px";
+    ltypePattern.style.fontFamily = "ui-monospace, monospace";
+    ltypePattern.value = newLtypePattern;
+    const addLtype = (): void => {
+      const name = newLtypeName.trim();
+      if (name.length === 0) return;
+      const pattern = newLtypePattern
+        .split(",")
+        .map((s) => Number(s.trim()))
+        .filter((n) => Number.isFinite(n) && n > 0);
+      newLtypeName = "";
+      commitCommand("ltype.create", { name, description: "user-defined", pattern });
+    };
+    ltypeName.addEventListener("input", () => {
+      newLtypeName = ltypeName.value;
+      ltypeAdd.disabled = newLtypeName.trim().length === 0;
+    });
+    ltypeName.addEventListener("keydown", (e) => {
+      e.stopPropagation();
+      if (e.key === "Enter") {
+        e.preventDefault();
+        addLtype();
+      }
+    });
+    ltypePattern.addEventListener("input", () => {
+      newLtypePattern = ltypePattern.value;
+    });
+    const ltypeAdd = h("button", "iconbtn");
+    ltypeAdd.type = "button";
+    ltypeAdd.title = "Create linetype";
+    ltypeAdd.setAttribute("aria-label", "create linetype");
+    ltypeAdd.disabled = newLtypeName.trim().length === 0;
+    ltypeAdd.append(ICON.plus());
+    ltypeAdd.addEventListener("click", addLtype);
+    ltypeBar.append(ltypeName, ltypePattern, ltypeAdd);
+    scroll.append(ltypeBar);
+    for (const lt of BUILT_IN_LTYPES) {
+      const r = h("div", "pro-style-row");
+      const nm = h("span", "nm");
+      nm.textContent = lt.name;
+      nm.title = lt.description;
+      const d = h("span", "grow muted");
+      d.textContent = lt.description;
+      const sample = h("span", "ltsample");
+      sample.append(dashSample(lt.pattern));
+      const tag = h("span", "built-in");
+      tag.textContent = "built-in";
+      r.append(nm, d, sample, tag);
+      scroll.append(r);
+    }
+    for (const lt of ltypes as readonly LtypeRecord[]) {
+      const r = h("div", "pro-style-row");
+      const nm = h("span", "nm");
+      nm.textContent = lt.name;
+      nm.title = lt.name;
+      const sample = h("span", "ltsample");
+      sample.append(dashSample(lt.pattern));
+      const del = h("button", "tgl");
+      del.type = "button";
+      del.title = "Delete linetype (blocked while referenced)";
+      del.setAttribute("aria-label", `delete linetype ${lt.name}`);
+      del.append(ICON.trash());
+      del.addEventListener("click", () => commitCommand("ltype.remove", { name: lt.name }));
+      r.append(nm, sample, del);
+      scroll.append(r);
+    }
+
+    // --- Text styles ---
+    sec("Text styles");
+    desc(
+      `Standard — ${STANDARD_TEXT_STYLE.font}, height ${STANDARD_TEXT_STYLE.height || "auto"}, width ${STANDARD_TEXT_STYLE.widthFactor} (built-in)`,
+    );
+    const tsBar = h("div", "pro-style-row");
+    const tsName = h("input");
+    tsName.type = "text";
+    tsName.placeholder = "New text style name…";
+    tsName.setAttribute("aria-label", "new text style name");
+    tsName.value = newTextStyleName;
+    tsName.addEventListener("input", () => {
+      newTextStyleName = tsName.value;
+      tsAdd.disabled = newTextStyleName.trim().length === 0;
+    });
+    tsName.addEventListener("keydown", (e) => {
+      e.stopPropagation();
+      if (e.key === "Enter") {
+        e.preventDefault();
+        if (newTextStyleName.trim().length > 0) {
+          const name = newTextStyleName.trim();
+          newTextStyleName = "";
+          commitCommand("textStyle.create", { name });
+        }
+      }
+    });
+    const tsAdd = h("button", "iconbtn");
+    tsAdd.type = "button";
+    tsAdd.title = "Create text style";
+    tsAdd.setAttribute("aria-label", "create text style");
+    tsAdd.disabled = newTextStyleName.trim().length === 0;
+    tsAdd.append(ICON.plus());
+    tsAdd.addEventListener("click", () => {
+      const name = newTextStyleName.trim();
+      if (name.length === 0) return;
+      newTextStyleName = "";
+      commitCommand("textStyle.create", { name });
+    });
+    tsBar.append(tsName, tsAdd);
+    scroll.append(tsBar);
+    for (const s of textStyles as readonly TextStyleRecord[]) {
+      const r = h("div", "pro-style-row");
+      const nm = h("span", "nm");
+      nm.textContent = s.name;
+      nm.title = s.name;
+      const font = h("select");
+      font.title = "Font family";
+      font.setAttribute("aria-label", `${s.name} font`);
+      for (const f of ["sans", "mono", "serif"] as const) {
+        const o = h("option");
+        o.value = f;
+        o.textContent = f;
+        font.append(o);
+      }
+      font.value = s.font;
+      font.addEventListener("change", () => commitCommand("textStyle.update", { name: s.name, patch: { font: font.value } }));
+      const height = h("input", "num");
+      height.type = "number";
+      height.step = "any";
+      height.title = "Fixed height (0 = not fixed)";
+      height.setAttribute("aria-label", `${s.name} height`);
+      height.value = String(s.height);
+      height.addEventListener("change", () => {
+        const v = Number(height.value);
+        if (Number.isFinite(v) && v >= 0 && v !== s.height) {
+          commitCommand("textStyle.update", { name: s.name, patch: { height: v } });
+        }
+      });
+      const width = h("input", "num");
+      width.type = "number";
+      width.step = "0.05";
+      width.title = "Width factor";
+      width.setAttribute("aria-label", `${s.name} width factor`);
+      width.value = String(s.widthFactor);
+      width.addEventListener("change", () => {
+        const v = Number(width.value);
+        if (Number.isFinite(v) && v > 0 && v !== s.widthFactor) {
+          commitCommand("textStyle.update", { name: s.name, patch: { widthFactor: v } });
+        }
+      });
+      const oblique = h("input", "num");
+      oblique.type = "number";
+      oblique.step = "any";
+      oblique.title = "Oblique angle (°)";
+      oblique.setAttribute("aria-label", `${s.name} oblique angle`);
+      oblique.value = String(s.obliqueAngle);
+      oblique.addEventListener("change", () => {
+        const v = Number(oblique.value);
+        if (Number.isFinite(v) && v !== s.obliqueAngle) {
+          commitCommand("textStyle.update", { name: s.name, patch: { obliqueAngle: v } });
+        }
+      });
+      const del = h("button", "tgl");
+      del.type = "button";
+      del.title = "Delete text style (blocked while referenced)";
+      del.setAttribute("aria-label", `delete text style ${s.name}`);
+      del.append(ICON.trash());
+      del.addEventListener("click", () => commitCommand("textStyle.remove", { name: s.name }));
+      r.append(nm, font, height, width, oblique, del);
+      scroll.append(r);
+    }
+
+    // --- Dimension styles ---
+    sec("Dimension styles");
+    desc(
+      `Standard — text ${STANDARD_DIM_STYLE.textHeight}, arrows ${STANDARD_DIM_STYLE.arrowSize}, scale ${STANDARD_DIM_STYLE.scale}, precision ${STANDARD_DIM_STYLE.precision} (built-in)`,
+    );
+    const dsBar = h("div", "pro-style-row");
+    const dsName = h("input");
+    dsName.type = "text";
+    dsName.placeholder = "New dimension style name…";
+    dsName.setAttribute("aria-label", "new dim style name");
+    dsName.value = newDimStyleName;
+    dsName.addEventListener("input", () => {
+      newDimStyleName = dsName.value;
+      dsAdd.disabled = newDimStyleName.trim().length === 0;
+    });
+    dsName.addEventListener("keydown", (e) => {
+      e.stopPropagation();
+      if (e.key === "Enter") {
+        e.preventDefault();
+        if (newDimStyleName.trim().length > 0) {
+          const name = newDimStyleName.trim();
+          newDimStyleName = "";
+          commitCommand("dimStyle.create", { name });
+        }
+      }
+    });
+    const dsAdd = h("button", "iconbtn");
+    dsAdd.type = "button";
+    dsAdd.title = "Create dimension style";
+    dsAdd.setAttribute("aria-label", "create dim style");
+    dsAdd.disabled = newDimStyleName.trim().length === 0;
+    dsAdd.append(ICON.plus());
+    dsAdd.addEventListener("click", () => {
+      const name = newDimStyleName.trim();
+      if (name.length === 0) return;
+      newDimStyleName = "";
+      commitCommand("dimStyle.create", { name });
+    });
+    dsBar.append(dsName, dsAdd);
+    scroll.append(dsBar);
+    for (const s of dimStyles as readonly DimStyleRecord[]) {
+      const r = h("div", "pro-style-row");
+      const nm = h("span", "nm");
+      nm.textContent = s.name;
+      nm.title = s.name;
+      const numField = (
+        key: "textHeight" | "arrowSize" | "scale",
+        label: string,
+      ): HTMLInputElement => {
+        const input = h("input", "num");
+        input.type = "number";
+        input.step = "0.1";
+        input.title = `${label} (${s.name})`;
+        input.setAttribute("aria-label", `${s.name} ${label}`);
+        input.value = String(s[key]);
+        input.addEventListener("change", () => {
+          const v = Number(input.value);
+          if (Number.isFinite(v) && v > 0 && v !== s[key]) {
+            commitCommand("dimStyle.update", { name: s.name, patch: { [key]: v } });
+          }
+        });
+        return input;
+      };
+      const precision = h("select");
+      precision.title = "Measurement precision";
+      precision.setAttribute("aria-label", `${s.name} precision`);
+      precision.style.width = "40px";
+      for (let p = 0; p <= 3; p++) {
+        const o = h("option");
+        o.value = String(p);
+        o.textContent = String(p);
+        precision.append(o);
+      }
+      precision.value = String(s.precision);
+      precision.addEventListener("change", () =>
+        commitCommand("dimStyle.update", { name: s.name, patch: { precision: Number(precision.value) } }),
+      );
+      const del = h("button", "tgl");
+      del.type = "button";
+      del.title = "Delete dimension style (blocked while referenced)";
+      del.setAttribute("aria-label", `delete dim style ${s.name}`);
+      del.append(ICON.trash());
+      del.addEventListener("click", () => commitCommand("dimStyle.remove", { name: s.name }));
+      r.append(nm, numField("textHeight", "text"), numField("arrowSize", "arrow"), numField("scale", "scale"), precision, del);
+      scroll.append(r);
+    }
+
+    container.append(scroll);
   }
 
   input.addEventListener("keydown", (e) => {

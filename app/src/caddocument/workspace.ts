@@ -18,18 +18,34 @@
 import type {
   BimCameraPreset,
   BimSettings,
+  DimStyleRecord,
   DocsElevationDirection,
+  DocumentEdit,
   DocsSheetRecord,
   DocsTitleBlock,
   DocsViewKind,
   DocsViewPlacement,
   DocsViewRecord,
   DraftingSettings,
+  DrawingStandards,
   LayerRecord,
+  LayerStateEntry,
+  LayerStateRecord,
+  LtypeRecord,
   SnapKind,
   IfcImportRecordView,
+  TextStyleRecord,
 } from "../contracts/caddocument.js";
 import { DOCS_SHEET_FRAME as SHEET_FRAME } from "../contracts/caddocument.js";
+// CAD-PARITY-004: the shared standards constants (built-in linetype catalog,
+// standard lineweight set) live in the engine-free workspace standards module
+// so BOTH the document validators and the host renderers resolve the SAME
+// deterministic tables (type-only contracts import — no runtime cycle).
+import {
+  BUILT_IN_LTYPE_NAMES,
+  isStandardLineweight,
+  STANDARD_DEFAULT_LINEWEIGHT,
+} from "../workspace/standards/index.js";
 
 /** Canonical BIM camera presets (COMPAT-CAD-002). */
 export const BIM_CAMERA_PRESETS: readonly BimCameraPreset[] = ["iso", "top", "front", "right"];
@@ -78,7 +94,9 @@ function isFiniteNumber(v: unknown): v is number {
 }
 
 /** Structural validation of one layer record (LOCK-007). Throws on
- *  malformed input; returns the record untouched when valid. */
+ *  malformed input; returns the record untouched when valid. CAD-PARITY-004
+ *  additive optional fields (frozen/locked/linetype/lineweight/transparency/
+ *  plot/description) validate when PRESENT; absent means the default. */
 export function validateLayerRecord(layer: unknown): LayerRecord {
   if (typeof layer !== "object" || layer === null || Array.isArray(layer)) {
     throw new Error("layer record must be an object");
@@ -96,28 +114,86 @@ export function validateLayerRecord(layer: unknown): LayerRecord {
   if (typeof l.visible !== "boolean") {
     throw new Error(`layer '${l.id}': visible must be a boolean`);
   }
+  if (l.frozen !== undefined && typeof l.frozen !== "boolean") {
+    throw new Error(`layer '${l.id}': frozen must be a boolean when present`);
+  }
+  if (l.locked !== undefined && typeof l.locked !== "boolean") {
+    throw new Error(`layer '${l.id}': locked must be a boolean when present`);
+  }
+  if (l.linetype !== undefined) {
+    if (typeof l.linetype !== "string" || l.linetype.length === 0) {
+      throw new Error(`layer '${l.id}': linetype must be a non-empty string when present`);
+    }
+  }
+  if (l.lineweight !== undefined) {
+    if (!isFiniteNumber(l.lineweight) || !isStandardLineweight(l.lineweight as number)) {
+      throw new Error(
+        `layer '${l.id}': lineweight must be a standard lineweight (${STANDARD_DEFAULT_LINEWEIGHT} mm default) when present`,
+      );
+    }
+  }
+  if (l.transparency !== undefined) {
+    if (!Number.isInteger(l.transparency) || (l.transparency as number) < 0 || (l.transparency as number) > 90) {
+      throw new Error(`layer '${l.id}': transparency must be an integer 0–90 (percent) when present`);
+    }
+  }
+  if (l.plot !== undefined && typeof l.plot !== "boolean") {
+    throw new Error(`layer '${l.id}': plot must be a boolean when present`);
+  }
+  if (l.description !== undefined && typeof l.description !== "string") {
+    throw new Error(`layer '${l.id}': description must be a string when present`);
+  }
   return layer as LayerRecord;
 }
 
 /** Keys a layer patch may carry (updateLayer whitelists; anything else is
- *  rejected — no silent partial application). */
-const LAYER_PATCH_KEYS = ["name", "color", "visible"] as const;
+ *  rejected — no silent partial application). CAD-PARITY-004 extends the
+ *  whitelist with the professional state/display vocabulary. */
+const LAYER_PATCH_KEYS = [
+  "name",
+  "color",
+  "visible",
+  "frozen",
+  "locked",
+  "linetype",
+  "lineweight",
+  "transparency",
+  "plot",
+  "description",
+] as const;
+
+/** CAD-PARITY-004 canonical-minimal normalization: a patch value equal to the
+ *  field DEFAULT removes the optional field entirely (absent = default) so
+ *  layer records stay minimal and legacy-shaped unless genuinely customized
+ *  (deterministic snapshots — LOCK-004). Lineweight is NOT normalized away
+ *  (an explicit 0.25 must win over a standards-raised default). */
+function normalizeLayerOptionals(
+  record: Record<string, unknown>,
+): Record<string, unknown> {
+  if (record.frozen === false) delete record.frozen;
+  if (record.locked === false) delete record.locked;
+  if (record.plot === true) delete record.plot;
+  if (record.transparency === 0) delete record.transparency;
+  if (record.linetype === "Continuous") delete record.linetype;
+  if (record.description === "") delete record.description;
+  return record;
+}
 
 /** Validate + normalize an updateLayer patch against the current record.
- *  Returns the MERGED record (current ∪ patch). Throws on unknown keys or
- *  invalid merged results. */
+ *  Returns the MERGED record (current ∪ patch, default-valued optionals
+ *  removed). Throws on unknown keys or invalid merged results. */
 export function applyLayerPatch(current: LayerRecord, patch: Readonly<Record<string, unknown>>): LayerRecord {
   for (const key of Object.keys(patch)) {
     if (!(LAYER_PATCH_KEYS as readonly string[]).includes(key)) {
       throw new Error(`updateLayer: unknown layer field '${key}' (allowed: ${LAYER_PATCH_KEYS.join(", ")})`);
     }
   }
-  const merged: LayerRecord = {
-    id: current.id,
-    name: patch.name !== undefined ? (patch.name as string) : current.name,
-    color: patch.color !== undefined ? (patch.color as string) : current.color,
-    visible: patch.visible !== undefined ? (patch.visible as boolean) : current.visible,
-  };
+  const merged: Record<string, unknown> = { ...current };
+  for (const [key, value] of Object.entries(patch)) {
+    if (value === undefined) continue;
+    merged[key] = value;
+  }
+  normalizeLayerOptionals(merged);
   return validateLayerRecord(merged);
 }
 
@@ -183,11 +259,66 @@ export function validateDraftingSettings(value: unknown): DraftingSettings {
   if (!isFiniteNumber(vw.zoom) || (vw.zoom as number) <= 0) {
     throw new Error("draftingSettings.view.zoom must be a positive finite number");
   }
+  // CAD-PARITY-004 additive optional fields carried through only when
+  // present (absent = default; cross-reference checks like activeLayer
+  // existence live in the App API layer where document state is available).
+  const optional: {
+    activeLayer?: string;
+    lineweightDisplay?: boolean;
+    textStyle?: string;
+    dimStyle?: string;
+    standards?: DrawingStandards;
+  } = {};
+  if (s.activeLayer !== undefined) {
+    if (typeof s.activeLayer !== "string" || (s.activeLayer as string).length === 0) {
+      throw new Error("draftingSettings.activeLayer must be a non-empty string when present");
+    }
+    optional.activeLayer = s.activeLayer as string;
+  }
+  if (s.lineweightDisplay !== undefined) {
+    if (typeof s.lineweightDisplay !== "boolean") {
+      throw new Error("draftingSettings.lineweightDisplay must be a boolean when present");
+    }
+    optional.lineweightDisplay = s.lineweightDisplay as boolean;
+  }
+  if (s.textStyle !== undefined) {
+    if (typeof s.textStyle !== "string" || (s.textStyle as string).length === 0) {
+      throw new Error("draftingSettings.textStyle must be a non-empty string when present");
+    }
+    optional.textStyle = s.textStyle as string;
+  }
+  if (s.dimStyle !== undefined) {
+    if (typeof s.dimStyle !== "string" || (s.dimStyle as string).length === 0) {
+      throw new Error("draftingSettings.dimStyle must be a non-empty string when present");
+    }
+    optional.dimStyle = s.dimStyle as string;
+  }
+  if (s.standards !== undefined) {
+    if (typeof s.standards !== "object" || s.standards === null) {
+      throw new Error("draftingSettings.standards must be an object when present");
+    }
+    const st = s.standards as Record<string, unknown>;
+    if (st.linetypeScale !== undefined && (!isFiniteNumber(st.linetypeScale) || (st.linetypeScale as number) <= 0)) {
+      throw new Error("draftingSettings.standards.linetypeScale must be a positive finite number when present");
+    }
+    if (st.defaultLineweight !== undefined && (!isFiniteNumber(st.defaultLineweight) || !isStandardLineweight(st.defaultLineweight as number))) {
+      throw new Error(
+        `draftingSettings.standards.defaultLineweight must be a standard lineweight when present (${STANDARD_DEFAULT_LINEWEIGHT} default)`,
+      );
+    }
+    const standards: { linetypeScale?: number; defaultLineweight?: number } = {};
+    if (st.linetypeScale !== undefined) standards.linetypeScale = st.linetypeScale as number;
+    if (st.defaultLineweight !== undefined) standards.defaultLineweight = st.defaultLineweight as number;
+    optional.standards = standards;
+  }
   return {
     units: "mm",
     grid: { enabled: g.enabled as boolean, size: g.size as number },
     snap: { enabled: sn.enabled as boolean, kinds, tolerance: sn.tolerance as number },
     view: { pan: [vw.pan[0] as number, vw.pan[1] as number], zoom: vw.zoom as number },
+    // Absent optional fields stay absent — legacy snapshots (and the pinned
+    // parity fixture) stay byte-identical.
+    ...optional,
   };
 }
 
@@ -540,4 +671,257 @@ export function deriveIfcImportSequence(records: readonly IfcImportRecordView[])
     if (m !== null && m[1] !== undefined) max = Math.max(max, Number.parseInt(m[1], 10));
   }
   return max + 1;
+}
+
+// --- CAD-PARITY-004 (additive): linetype / text-style / dim-style tables ----
+// --- and layer states (name-keyed: the domain reference model) ---------------
+
+/** Reserved layer-state name owned by LAYISO/LAYUNISO (never a user state). */
+export const ISOLATE_LAYER_STATE_NAME = "*ISOLATE*";
+
+/** Structural validation of a user-defined linetype record (LOCK-007).
+ *  The name must not collide with the built-in catalog (the catalog is
+ *  code-resolved and immutable — creating/updating it is a typed failure).
+ *  Patterns: ≥ 2 entries, strictly positive finite numbers, first entry a
+ *  dash, alternating dash/gap (even indices are dashes, odd are gaps). */
+export function validateLtypeRecord(ltype: unknown): LtypeRecord {
+  if (typeof ltype !== "object" || ltype === null || Array.isArray(ltype)) {
+    throw new Error("linetype record must be an object");
+  }
+  const t = ltype as Record<string, unknown>;
+  if (typeof t.name !== "string" || t.name.length === 0) {
+    throw new Error("linetype.name must be a non-empty string");
+  }
+  if ((BUILT_IN_LTYPE_NAMES as readonly string[]).includes(t.name)) {
+    throw new Error(`linetype '${t.name}' is a built-in linetype (immutable — choose another name)`);
+  }
+  if (typeof t.description !== "string") {
+    throw new Error(`linetype '${t.name}': description must be a string`);
+  }
+  if (!Array.isArray(t.pattern) || t.pattern.length < 2 || t.pattern.length % 2 !== 0) {
+    throw new Error(`linetype '${t.name}': pattern must be an even-length array of dash/gap lengths (≥ 2 entries)`);
+  }
+  for (const seg of t.pattern) {
+    if (!isFiniteNumber(seg) || (seg as number) <= 0) {
+      throw new Error(`linetype '${t.name}': pattern entries must be strictly positive finite numbers (dash, gap, …)`);
+    }
+  }
+  return ltype as LtypeRecord;
+}
+
+/** Keys a linetype patch may carry (name is the immutable identity). */
+const LTYPE_PATCH_KEYS = ["description", "pattern"] as const;
+
+/** Validate + merge an updateLtype patch (name is immutable). */
+export function applyLtypePatch(current: LtypeRecord, patch: Readonly<Record<string, unknown>>): LtypeRecord {
+  for (const key of Object.keys(patch)) {
+    if (key === "name") {
+      throw new Error("updateLtype: name is the linetype identity — remove and re-create the linetype");
+    }
+    if (!(LTYPE_PATCH_KEYS as readonly string[]).includes(key)) {
+      throw new Error(`updateLtype: unknown linetype field '${key}' (allowed: ${LTYPE_PATCH_KEYS.join(", ")})`);
+    }
+  }
+  const cleaned: Record<string, unknown> = { ...current };
+  for (const [key, value] of Object.entries(patch)) {
+    if (value === undefined) continue;
+    cleaned[key] = value;
+  }
+  return validateLtypeRecord(cleaned);
+}
+
+/** Reserved style names that are code-resolved defaults (immutable). */
+export const RESERVED_STYLE_NAMES: readonly string[] = ["Standard"];
+
+/** Structural validation of a text-style record (LOCK-007). */
+export function validateTextStyleRecord(style: unknown): TextStyleRecord {
+  if (typeof style !== "object" || style === null || Array.isArray(style)) {
+    throw new Error("text style record must be an object");
+  }
+  const s = style as Record<string, unknown>;
+  if (typeof s.name !== "string" || s.name.length === 0) {
+    throw new Error("textStyle.name must be a non-empty string");
+  }
+  if ((RESERVED_STYLE_NAMES as readonly string[]).includes(s.name)) {
+    throw new Error("textStyle 'Standard' is the reserved built-in style (immutable)");
+  }
+  if (s.font !== "sans" && s.font !== "mono" && s.font !== "serif") {
+    throw new Error(`textStyle '${s.name}': font must be 'sans' | 'mono' | 'serif'`);
+  }
+  if (!isFiniteNumber(s.height) || (s.height as number) < 0) {
+    throw new Error(`textStyle '${s.name}': height must be a non-negative finite number (0 = not fixed)`);
+  }
+  if (!isFiniteNumber(s.widthFactor) || (s.widthFactor as number) <= 0) {
+    throw new Error(`textStyle '${s.name}': widthFactor must be a positive finite number`);
+  }
+  if (!isFiniteNumber(s.obliqueAngle) || Math.abs(s.obliqueAngle as number) > 85) {
+    throw new Error(`textStyle '${s.name}': obliqueAngle must be a finite number within ±85°`);
+  }
+  return style as TextStyleRecord;
+}
+
+/** Keys a text-style patch may carry (name is the immutable identity). */
+const TEXT_STYLE_PATCH_KEYS = ["font", "height", "widthFactor", "obliqueAngle"] as const;
+
+/** Validate + merge an updateTextStyle patch. */
+export function applyTextStylePatch(current: TextStyleRecord, patch: Readonly<Record<string, unknown>>): TextStyleRecord {
+  for (const key of Object.keys(patch)) {
+    if (key === "name") {
+      throw new Error("updateTextStyle: name is the style identity — remove and re-create the style");
+    }
+    if (!(TEXT_STYLE_PATCH_KEYS as readonly string[]).includes(key)) {
+      throw new Error(`updateTextStyle: unknown field '${key}' (allowed: ${TEXT_STYLE_PATCH_KEYS.join(", ")})`);
+    }
+  }
+  const cleaned: Record<string, unknown> = { ...current };
+  for (const [key, value] of Object.entries(patch)) {
+    if (value === undefined) continue;
+    cleaned[key] = value;
+  }
+  return validateTextStyleRecord(cleaned);
+}
+
+/** Structural validation of a dimension-style record (LOCK-007). */
+export function validateDimStyleRecord(style: unknown): DimStyleRecord {
+  if (typeof style !== "object" || style === null || Array.isArray(style)) {
+    throw new Error("dim style record must be an object");
+  }
+  const s = style as Record<string, unknown>;
+  if (typeof s.name !== "string" || s.name.length === 0) {
+    throw new Error("dimStyle.name must be a non-empty string");
+  }
+  if ((RESERVED_STYLE_NAMES as readonly string[]).includes(s.name)) {
+    throw new Error("dimStyle 'Standard' is the reserved built-in style (immutable)");
+  }
+  if (!isFiniteNumber(s.textHeight) || (s.textHeight as number) <= 0) {
+    throw new Error(`dimStyle '${s.name}': textHeight must be a positive finite number`);
+  }
+  if (!isFiniteNumber(s.arrowSize) || (s.arrowSize as number) <= 0) {
+    throw new Error(`dimStyle '${s.name}': arrowSize must be a positive finite number`);
+  }
+  if (!isFiniteNumber(s.scale) || (s.scale as number) <= 0) {
+    throw new Error(`dimStyle '${s.name}': scale must be a positive finite number`);
+  }
+  if (!Number.isInteger(s.precision) || (s.precision as number) < 0 || (s.precision as number) > 6) {
+    throw new Error(`dimStyle '${s.name}': precision must be an integer 0–6`);
+  }
+  return style as DimStyleRecord;
+}
+
+/** Keys a dim-style patch may carry (name is the immutable identity). */
+const DIM_STYLE_PATCH_KEYS = ["textHeight", "arrowSize", "scale", "precision"] as const;
+
+/** Validate + merge an updateDimStyle patch. */
+export function applyDimStylePatch(current: DimStyleRecord, patch: Readonly<Record<string, unknown>>): DimStyleRecord {
+  for (const key of Object.keys(patch)) {
+    if (key === "name") {
+      throw new Error("updateDimStyle: name is the style identity — remove and re-create the style");
+    }
+    if (!(DIM_STYLE_PATCH_KEYS as readonly string[]).includes(key)) {
+      throw new Error(`updateDimStyle: unknown field '${key}' (allowed: ${DIM_STYLE_PATCH_KEYS.join(", ")})`);
+    }
+  }
+  const cleaned: Record<string, unknown> = { ...current };
+  for (const [key, value] of Object.entries(patch)) {
+    if (value === undefined) continue;
+    cleaned[key] = value;
+  }
+  return validateDimStyleRecord(cleaned);
+}
+
+/** Structural validation of a layer-state record (LOCK-007). Entries must
+ *  reference distinct layers; names starting with '*' are reserved for the
+ *  isolation machinery (only *ISOLATE* is valid today). */
+export function validateLayerStateRecord(state: unknown): LayerStateRecord {
+  if (typeof state !== "object" || state === null || Array.isArray(state)) {
+    throw new Error("layer state record must be an object");
+  }
+  const s = state as Record<string, unknown>;
+  if (typeof s.name !== "string" || s.name.length === 0) {
+    throw new Error("layerState.name must be a non-empty string");
+  }
+  if (s.name !== ISOLATE_LAYER_STATE_NAME && (s.name as string).startsWith("*")) {
+    throw new Error(`layerState '${s.name}': names starting with '*' are reserved`);
+  }
+  if (!Array.isArray(s.layers) || s.layers.length === 0) {
+    throw new Error(`layerState '${s.name}': layers must be a non-empty array of per-layer states`);
+  }
+  const seen = new Set<string>();
+  for (const raw of s.layers) {
+    if (typeof raw !== "object" || raw === null) {
+      throw new Error(`layerState '${s.name}': each layer entry must be an object`);
+    }
+    const e = raw as Record<string, unknown>;
+    if (typeof e.layerId !== "string" || e.layerId.length === 0) {
+      throw new Error(`layerState '${s.name}': layer entry layerId must be a non-empty string`);
+    }
+    if (seen.has(e.layerId)) {
+      throw new Error(`layerState '${s.name}': layer '${e.layerId}' appears twice`);
+    }
+    seen.add(e.layerId);
+    if (typeof e.visible !== "boolean" || typeof e.frozen !== "boolean" || typeof e.locked !== "boolean") {
+      throw new Error(`layerState '${s.name}': layer '${e.layerId}' needs boolean visible/frozen/locked`);
+    }
+    if (typeof e.color !== "string" || !HEX_COLOR.test(e.color)) {
+      throw new Error(`layerState '${s.name}': layer '${e.layerId}' color must be #RRGGBB`);
+    }
+    if (typeof e.linetype !== "string" || e.linetype.length === 0) {
+      throw new Error(`layerState '${s.name}': layer '${e.layerId}' linetype must be a non-empty string`);
+    }
+    if (!isFiniteNumber(e.lineweight) || (e.lineweight as number) <= 0) {
+      throw new Error(`layerState '${s.name}': layer '${e.layerId}' lineweight must be a positive number`);
+    }
+    if (!Number.isInteger(e.transparency) || (e.transparency as number) < 0 || (e.transparency as number) > 90) {
+      throw new Error(`layerState '${s.name}': layer '${e.layerId}' transparency must be an integer 0–90`);
+    }
+    if (typeof e.plot !== "boolean") {
+      throw new Error(`layerState '${s.name}': layer '${e.layerId}' plot must be a boolean`);
+    }
+  }
+  return state as LayerStateRecord;
+}
+
+/** Capture a layer table into the per-layer state entries of a layer state
+ *  (defaults materialized explicitly — a state snapshot is complete). */
+export function captureLayerState(layers: readonly LayerRecord[]): readonly LayerStateEntry[] {
+  return layers.map((l): LayerStateEntry => ({
+    layerId: l.id,
+    visible: l.visible,
+    frozen: l.frozen === true,
+    locked: l.locked === true,
+    color: l.color,
+    linetype: l.linetype ?? "Continuous",
+    lineweight: l.lineweight ?? STANDARD_DEFAULT_LINEWEIGHT,
+    transparency: l.transparency ?? 0,
+    plot: l.plot !== false,
+  }));
+}
+
+/** Restore edits for a layer state: one updateLayer patch per captured layer
+ *  (applied as ONE atomic batch by the caller — versioned, undoable). Layers
+ *  removed after the state was saved are skipped honestly (no resurrection). */
+export function layerStateRestoreEdits(
+  state: LayerStateRecord,
+  currentLayers: readonly LayerRecord[],
+): readonly DocumentEdit[] {
+  const byId = new Map(currentLayers.map((l) => [l.id, l] as const));
+  const edits: DocumentEdit[] = [];
+  for (const entry of state.layers) {
+    if (!byId.has(entry.layerId)) continue;
+    edits.push({
+      type: "updateLayer",
+      layerId: entry.layerId,
+      patch: {
+        visible: entry.visible,
+        frozen: entry.frozen,
+        locked: entry.locked,
+        color: entry.color,
+        linetype: entry.linetype,
+        lineweight: entry.lineweight,
+        transparency: entry.transparency,
+        plot: entry.plot,
+      },
+    });
+  }
+  return edits;
 }

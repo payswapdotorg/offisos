@@ -24,7 +24,10 @@ export interface StatusBarProps {
   readonly activeStoryName: string | null;
   readonly selectionCount: number;
   readonly version: number;
-  readonly onToggle: (aid: "osnap" | "grid" | "ortho" | "snap" | "polar" | "otrack") => void;
+  /** CAD-PARITY-004: the lineweight display toggle (LWDISPLAY class). */
+  readonly lineweightDisplay: boolean;
+  readonly onToggle: (aid: "osnap" | "grid" | "ortho" | "snap" | "polar" | "otrack" | "lweight") => void;
+  readonly onActiveLayerClick: () => void;
 }
 
 function Toggle(
@@ -66,8 +69,21 @@ export function StatusBar(props: StatusBarProps): React.JSX.Element {
       <Toggle label="POLAR" active={props.aids.polar} title="Polar tracking (F10)" onClick={() => props.onToggle("polar")} />
       <Toggle label="OTRACK" active={props.aids.otrack} title="Object tracking (F11)" onClick={() => props.onToggle("otrack")} />
       <Toggle label="OSNAP" active title="Object snap modes (F3) — configured in settings" onClick={() => props.onToggle("osnap")} />
+      <Toggle
+        label="LWT"
+        active={props.lineweightDisplay}
+        title="Lineweight display (LWEIGHT/LW) — lineweights render at weight × zoom when on"
+        onClick={() => props.onToggle("lweight")}
+      />
       <span className="ml-auto flex items-center gap-x-3">
-        <span title="Active drafting layer">Layer <strong className="text-foreground">{props.activeLayer}</strong></span>
+        <button
+          type="button"
+          title="Active drafting layer — click to open the Layers manager"
+          onClick={props.onActiveLayerClick}
+          className="rounded px-1 hover:bg-muted"
+        >
+          Layer <strong className="text-foreground">{props.activeLayer}</strong>
+        </button>
         <span title="Active BIM story">
           Story <strong className="text-foreground">{props.activeStoryName ?? "—"}</strong>
         </span>

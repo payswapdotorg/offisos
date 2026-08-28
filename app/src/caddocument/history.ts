@@ -318,6 +318,53 @@ export function applyEditToElements(map: Map<string, Element>, edit: DocumentEdi
       if (edit.recordId === undefined) throw new Error("replay: removeIfcImport requires recordId");
       break; // import-record-table edit: element-set no-op
     }
+    // CAD-PARITY-004: standards/style-table + layer-state edits are
+    // element-set no-ops (the tables replay through the recorded applied
+    // edits; the element delta stays empty).
+    case "addLtype": {
+      if (edit.ltype === undefined) throw new Error("replay: addLtype requires ltype");
+      break;
+    }
+    case "updateLtype": {
+      if (edit.ltypeName === undefined) throw new Error("replay: updateLtype requires ltypeName");
+      break;
+    }
+    case "removeLtype": {
+      if (edit.ltypeName === undefined) throw new Error("replay: removeLtype requires ltypeName");
+      break;
+    }
+    case "addTextStyle": {
+      if (edit.style === undefined) throw new Error("replay: addTextStyle requires style");
+      break;
+    }
+    case "updateTextStyle": {
+      if (edit.styleName === undefined) throw new Error("replay: updateTextStyle requires styleName");
+      break;
+    }
+    case "removeTextStyle": {
+      if (edit.styleName === undefined) throw new Error("replay: removeTextStyle requires styleName");
+      break;
+    }
+    case "addDimStyle": {
+      if (edit.style === undefined) throw new Error("replay: addDimStyle requires style");
+      break;
+    }
+    case "updateDimStyle": {
+      if (edit.styleName === undefined) throw new Error("replay: updateDimStyle requires styleName");
+      break;
+    }
+    case "removeDimStyle": {
+      if (edit.styleName === undefined) throw new Error("replay: removeDimStyle requires styleName");
+      break;
+    }
+    case "addLayerState": {
+      if (edit.state === undefined) throw new Error("replay: addLayerState requires state");
+      break;
+    }
+    case "removeLayerState": {
+      if (edit.stateName === undefined) throw new Error("replay: removeLayerState requires stateName");
+      break;
+    }
     default: {
       const _exhaustive = edit satisfies never;
       throw new Error(`replay: unreachable edit type: ${JSON.stringify(_exhaustive)}`);

@@ -51,6 +51,14 @@ export interface GeomDrawOptions {
   readonly toScreen: (p: Vec2) => [number, number];
   readonly zoom: number;
   readonly viewport: { readonly w: number; readonly h: number };
+  /** CAD-PARITY-004: resolved linetype dash in DEVICE px (null/absent =
+   *  solid; selection strokes stay solid for contrast). */
+  readonly dash?: readonly number[] | null;
+  /** CAD-PARITY-004: resolved lineweight in DEVICE px (absent = the legacy
+   *  hairline width policy). */
+  readonly weightPx?: number;
+  /** CAD-PARITY-004: composite alpha (transparency + locked-layer fade). */
+  readonly alpha?: number;
 }
 
 interface GeomStroke {
@@ -275,15 +283,18 @@ function visibleWorldRectFromTransform(
 /** Draw a canonical CAD-PARITY-003 entity (any drafting element decoded
  *  through the geometry bridge — BOTH storage conventions). Professional
  *  conventions: rays draw thin, construction lines thin + dashed, regions
- *  fill translucent with a stroked boundary, points draw as small crosses. */
+ *  fill translucent with a stroked boundary, points draw as small crosses.
+ *  CAD-PARITY-004: the resolved display (linetype dash in device px,
+ *  lineweight in px, transparency/locked-fade alpha) flows through the
+ *  options — the SAME resolution both hosts run (standards module). */
 export function drawCanonicalEntity(ctx: CanvasRenderingContext2D, geom: Geom, opts: GeomDrawOptions): void {
   const { color, selected, toScreen, zoom, viewport } = opts;
   const isConstruction = geom.type === "ray" || geom.type === "xline";
-  const baseWidth = selected ? 1.8 : isConstruction ? 0.8 : 1;
+  const legacyWidth = Math.max(isConstruction ? 0.75 : 1, (selected ? 1.8 : isConstruction ? 0.8 : 1) * Math.min(2, zoom));
   const style: GeomStroke = {
     stroke: selected ? SELECTED_STROKE : color,
-    lineWidth: Math.max(isConstruction ? 0.75 : 1, baseWidth * Math.min(2, zoom)),
-    dash: geom.type === "xline" ? [6, 4] : null,
+    lineWidth: selected ? legacyWidth : Math.max(isConstruction ? 0.75 : 1, opts.weightPx ?? legacyWidth),
+    dash: selected ? null : (opts.dash ?? (geom.type === "xline" ? [6, 4] : null)),
     fill:
       geom.type === "region"
         ? selected
@@ -291,7 +302,10 @@ export function drawCanonicalEntity(ctx: CanvasRenderingContext2D, geom: Geom, o
           : REGION_FILL
         : null,
   };
+  const prevAlpha = ctx.globalAlpha;
+  if (opts.alpha !== undefined && opts.alpha < 1) ctx.globalAlpha = prevAlpha * opts.alpha;
   paintGeom(ctx, geom, style, toScreen, zoom, viewport);
+  if (ctx.globalAlpha !== prevAlpha) ctx.globalAlpha = prevAlpha;
 }
 
 /** Emphasize an entity (hover highlight before a pick, or a picked target
@@ -323,11 +337,28 @@ export function drawGeomEmphasis(
 export function drawEntity(
   ctx: CanvasRenderingContext2D,
   entity: DraftEntity,
-  opts: { color: string; selected: boolean; toScreen: (p: Vec2) => [number, number]; zoom: number },
+  opts: { color: string; selected: boolean; toScreen: (p: Vec2) => [number, number]; zoom: number; dash?: readonly number[] | null; weightPx?: number; alpha?: number; dimStyle?: { textHeight: number; arrowSize: number; scale: number; precision: number } },
 ): void {
   const { color, selected, toScreen, zoom } = opts;
   ctx.strokeStyle = selected ? "#0ea5e9" : color;
-  ctx.lineWidth = Math.max(1, (selected ? 1.8 : 1) * Math.min(2, zoom));
+  ctx.lineWidth = selected ? Math.max(1, 1.8 * Math.min(2, zoom)) : Math.max(1, opts.weightPx ?? Math.min(2, zoom));
+  if (!selected && opts.dash != null && opts.dash.length > 0) {
+    ctx.setLineDash([...opts.dash]);
+  }
+  const prevAlpha = ctx.globalAlpha;
+  if (opts.alpha !== undefined && opts.alpha < 1) ctx.globalAlpha = prevAlpha * opts.alpha;
+  drawDraftEntityPath(ctx, entity, toScreen, zoom, opts.dimStyle);
+  if (ctx.globalAlpha !== prevAlpha) ctx.globalAlpha = prevAlpha;
+  ctx.setLineDash([]);
+}
+
+function drawDraftEntityPath(
+  ctx: CanvasRenderingContext2D,
+  entity: DraftEntity,
+  toScreen: (p: Vec2) => [number, number],
+  zoom: number,
+  dimStyle?: { textHeight: number; arrowSize: number; scale: number; precision: number },
+): void {
   if (entity.type === "line") {
     const a = toScreen(entity.from);
     const b = toScreen(entity.to);
@@ -396,20 +427,42 @@ export function drawEntity(
     ctx.moveTo(a2[0], a2[1]);
     ctx.lineTo(b2[0], b2[1]);
     ctx.stroke();
+    // CAD-PARITY-004: the dimension STYLE drives text height, arrow size,
+    // scale and measurement precision (the resolved active dim style flows
+    // in from the canvas; Standard defaults keep the legacy look).
+    const st = dimStyle ?? { textHeight: 2.5, arrowSize: 2.5, scale: 1, precision: 0 };
+    const textPx = Math.max(9, st.textHeight * st.scale * zoom);
+    const arrowPx = Math.max(4, st.arrowSize * st.scale * zoom);
+    const dirX = (b2[0] - a2[0]);
+    const dirY = (b2[1] - a2[1]);
+    const dl = Math.hypot(dirX, dirY) || 1;
+    const ux = dirX / dl;
+    const uy = dirY / dl;
+    for (const tip of [a2, b2]) {
+      ctx.beginPath();
+      ctx.moveTo(tip[0], tip[1]);
+      ctx.lineTo(tip[0] - ux * arrowPx - uy * arrowPx * 0.3, tip[1] - uy * arrowPx + ux * arrowPx * 0.3);
+      ctx.lineTo(tip[0] - ux * arrowPx + uy * arrowPx * 0.3, tip[1] - uy * arrowPx - ux * arrowPx * 0.3);
+      ctx.closePath();
+      ctx.fillStyle = ctx.strokeStyle;
+      ctx.fill();
+    }
     ctx.fillStyle = ctx.strokeStyle;
-    ctx.font = "11px ui-monospace, monospace";
+    ctx.font = `${textPx.toFixed(1)}px ui-monospace, monospace`;
     const mid: [number, number] = [(a2[0] + b2[0]) / 2, (a2[1] + b2[1]) / 2];
-    ctx.fillText(`${entity.measured.toFixed(1)}`, mid[0] + 4, mid[1] - 4);
+    ctx.fillText(`${entity.measured.toFixed(st.precision)}`, mid[0] + 4, mid[1] - textPx * 0.35);
     return;
   }
   if (entity.type === "dim-radius") {
     // Radius dims annotate their target (no own geometry) — the label
     // renders in the annotation corner exactly like the COMPAT-CAD-001
-    // workbench did (same visual semantics).
+    // workbench did (same visual semantics; CAD-PARITY-004: the dim style
+    // drives precision).
+    const st = dimStyle ?? { textHeight: 2.5, arrowSize: 2.5, scale: 1, precision: 0 };
     ctx.lineWidth = 1;
     ctx.fillStyle = "#374151";
     ctx.font = "12px ui-monospace, monospace";
-    ctx.fillText(`R${entity.measured.toFixed(2)} → ${entity.target}`, 8, 16);
+    ctx.fillText(`R${entity.measured.toFixed(st.precision)} → ${entity.target}`, 8, 16);
     return;
   }
 }

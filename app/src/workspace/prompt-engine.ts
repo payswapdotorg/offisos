@@ -59,7 +59,8 @@ export interface PromptEngineState {
 export interface OptionCapture {
   readonly stepId: string;
   readonly keyword: string;
-  readonly kind: "number" | "distance" | "point";
+  /** CAD-PARITY-004: "text" captures a typed string (-LAYER/CHPROP values). */
+  readonly kind: "number" | "distance" | "point" | "text";
   readonly prompt: string;
   readonly defaultValue?: number;
 }
@@ -552,6 +553,16 @@ export function applyPromptEvent(
             ? { kind: "number", value: step.defaultValue }
             : { kind: "text", text: step.defaultValue };
         return collectValue(state, cmd, v, [`<${String(step.defaultValue)}>`], ctx);
+      }
+
+      // CAD-PARITY-004: an OPTIONAL single step (the -LAYER/CHPROP option
+      // prompts) completes on Enter — with whatever option values were
+      // collected (none → the builder echoes the honest no-op).
+      if (step.optional === true) {
+        const isLast = state.stepIndex === cmd.steps.length - 1;
+        if (isLast) return completeCommand(state, cmd, [], ctx);
+        const next: PromptEngineState = { ...state, stepIndex: state.stepIndex + 1 };
+        return { state: next, output: activeOutput(next, []) };
       }
 
       // Enter on a chained final point step ends the command.

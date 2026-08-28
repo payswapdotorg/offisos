@@ -72,7 +72,29 @@ export type CommandName =
   // reconciling import, BCF topic containers). Read-only surfaces are queries.
   | "ifc.export"
   | "ifc.import"
-  | "ifc.bcfCreate";
+  | "ifc.bcfCreate"
+  // --- CAD-PARITY-004 (additive, Issue #80): layers, properties, styles ---
+  // The professional properties & palettes command surface. Layer-table
+  // edits stay on the COMPAT-CAD-001 drafting.* commands (extended fields);
+  // these additions cover display overrides, standards, styles, states and
+  // isolation.
+  | "entity.setDisplay"
+  | "layer.setActive"
+  | "layer.applyStandard"
+  | "layer.isolate"
+  | "layer.unisolate"
+  | "layerState.save"
+  | "layerState.restore"
+  | "layerState.remove"
+  | "ltype.create"
+  | "ltype.update"
+  | "ltype.remove"
+  | "textStyle.create"
+  | "textStyle.update"
+  | "textStyle.remove"
+  | "dimStyle.create"
+  | "dimStyle.update"
+  | "dimStyle.remove";
 
 // --- Query names (non-mutating) ---
 // `document.getSelection` returns the ephemeral editor selection (orthogonal
