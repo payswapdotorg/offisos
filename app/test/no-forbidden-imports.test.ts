@@ -6,7 +6,7 @@
  * src/impact, — since COMPAT-CAD-001 — src/drafting, the 2D drafting core,
  * — since COMPAT-CAD-002 — src/bim, the BIM authoring core, — since
  * COMPAT-CAD-003 — src/docs, the construction-documentation core, and —
- * since COMPAT-IFC-001 — src/ifc, the IFC/openBIM core) imports
+ * since COMPAT-IFC-001 — src/ifc, the IFC/openBIM core, and — since CAD-PARITY-002 — src/workspace, the shared command/selection/input foundation) imports
  * Electron, browser UI, or CAD/BIM engine packages. The renderer/editor
  * core, the Construction Graph bridge, the drafting core and the BIM core
  * must not directly depend on these (LOCK-018/LOCK-019); host and engine
@@ -39,7 +39,7 @@ const FORBIDDEN_SPECIFIERS = [
   "IfcOpenShell",
 ];
 
-const PROTECTED_DIRS = ["src/contracts", "src/renderer", "src/app-api", "src/caddocument", "src/graph", "src/impact", "src/drafting", "src/bim", "src/docs", "src/ifc"];
+const PROTECTED_DIRS = ["src/contracts", "src/renderer", "src/app-api", "src/caddocument", "src/graph", "src/impact", "src/drafting", "src/bim", "src/docs", "src/ifc", "src/workspace"];
 
 function* walk(dir: string): Generator<string> {
   for (const entry of readdirSync(dir)) {

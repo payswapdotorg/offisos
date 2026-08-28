@@ -47,6 +47,7 @@ import type {
   ModelReplayResult,
 } from "@offisos/cad-app-shell/contracts/model";
 import type { Command, CommandQueryResponse, Query } from "@offisos/cad-app-shell/contracts/app-api";
+import { mountProfessionalWorkspace } from "./professional.js";
 
 interface ShapeProps {
   shape: "box" | "circle";
@@ -2882,6 +2883,21 @@ function main(): void {
   const root = document.getElementById("app");
   if (!root) return;
   ui = buildShell(root);
+  // CAD-PARITY-002: the professional workspace shell (menu bar, command
+  // line, status bar, command palette, Model plan canvas) — additive; the
+  // legacy modes/surfaces stay untouched and accessible.
+  const mainEl = root.querySelector("main");
+  if (mainEl !== null) {
+    mountProfessionalWorkspace({
+      root,
+      main: mainEl as HTMLElement,
+      send,
+      getMode: () => state.mode,
+      onLegacyRefresh: () => {
+        void refresh();
+      },
+    });
+  }
   void (async () => {
     state.loading = true;
     render();
