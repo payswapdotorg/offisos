@@ -1,0 +1,89 @@
+{
+  "id": "CAD-PARITY-004",
+  "title": "Layers, Properties, Styles & Palettes: the professional layer/style/display system",
+  "issue": 80,
+  "architecture_version": "1.1",
+  "requirements": [
+    "CAD-001"
+  ],
+  "dependencies": [],
+  "objective": "Deliver the professional layers/properties/styles system on the frozen CAD/BIM Product Architecture v1.0 (Issue #80; product requirement CAD-2D-004 of spec/cad-bim/requirements.md carried under platform requirement CAD-001): the full layer manager (professional palette with per-layer active/rename/delete, on/off, freeze, lock, color, linetype, lineweight, transparency and plot editors, name+state filters, named layer states with exact save/restore, and the named drawing standards — architectural/mechanical layer sets applied through the versioned layer-table command model); the layer states model (visibility, freeze suppressing display/creation/snap, lock blocking every forward DocumentEdit path with typed failures while undo/redo keep journal semantics); the object properties inspector (professional palette: General/Display ByLayer chain/Geometry sections, single- and multi-selection editing through the atomic entity.setDisplay command, locked-layer read-only affordances, current-environment view); the line/color/linetype/lineweight standards (the built-in deterministic linetype catalog, the standard lineweight set, user-defined linetype/text-style/dim-style tables with reference-checked removals, entity display overrides with the ByLayer inheritance chain resolved by the shared standards module, LTSCALE and default-lineweight drawing standards persisted with the snapshot); the dimension/text/annotation style tables (code-reserved Standard styles + user-defined records, current-style settings, dim rendering driven by the active style); the contextual palettes (idle-canvas right-click menu with layer actions, the LWT status toggle, the clickable active-layer status); the typed command surface (CHPROP, MATCHPROP, -LAYER, CLAYER, LAYISO/LAYUNISO, LAYON, LAYERSTATE, LINETYPE, STYLE, DIMSTYLE, LTSCALE, LWEIGHT through the ONE shared registry and prompt engine with text sub-prompts); and the App API additions (entity.setDisplay, layer.setActive/applyStandard/isolate/unisolate, layerState.save/restore/remove, ltype/textStyle/dimStyle create/update/remove, extended drafting.addLayer/updateLayer fields, precision queries excluding frozen AND locked layers) — with Web/Electron parity through the same shared core and the pinned CAD-PARITY-004 fixture, every additive field optional so legacy snapshots and the pinned CAD-PARITY-002 parity fixture stay byte-identical.",
+  "acceptance_criteria": [
+    "Semantic correctness: every advertised layer/style/display operation computes deterministic results with explicit typed failure behavior (LOCK-007 — locked-layer modifications, frozen-layer creation, active-layer freeze, reference-checked removals, unknown names and malformed values are rejected with stable codes, never silently repaired or cascaded).",
+    "Interaction parity: every CAD-PARITY-004 command is reachable from the command line (names + aliases), the ribbon/tool palette and the palettes on BOTH hosts through the ONE shared command registry and prompt engine — no host-specific command implementations.",
+    "Enforcement honesty: locked layers render (faded) but reject entity modification through every forward DocumentEdit path including applyEdits batches (simulated sequentially — unlock-then-edit is legitimate, edit-then-unlock is rejected) while undo/redo bypass the gate by journal semantics; frozen layers suppress display, creation and precision pick/snap; the precision queries and both host canvas pickers apply the SAME exclusion.",
+    "ByLayer chain: entity display overrides resolve override → layer value → document standard default through the shared standards module on both hosts and the server; display overrides are PRESERVED through every geometry modify operation (move/rotate/scale/mirror/copy inherit them — pinned by directed regression); ByLayer resets remove the override fields exactly (setProps semantics, single undo step).",
+    "Determinism: identical command sequences produce identical layer tables, style tables, snapshots, revision histories and persisted output on every host and every run (determinism double-runs in the suite; the CAD-PARITY-002 parity fixture save sha stays intact AND the new pinned CAD-PARITY-004 fixture carries the layers/styles command stream).",
+    "Web/Electron parity: the same command script produces the same canonical result on both hosts — the Electron layers/styles real-UI smoke (20 checks: canvas picks, command line, palette writes) asserts the SAME pinned CAD-PARITY-004 fixture (save sha + command stream) the Web smoke pins.",
+    "UI quality: professional CAD layer/properties feel — the full Layers manager with inline editors and filters, layer states, standards apply, the professional Properties inspector with the ByLayer chain and locked read-only markers, style managers, the contextual right-click menu, the LWT toggle, the clickable active-layer status — browser-verified on the dev server (the same build surface CI validates).",
+    "Regression: all existing workflows stay green — the 596 pre-existing app tests, the CAD-PARITY-002 web parity smoke with the pinned fixture, the ten Electron regression smokes and the 19-step workspace smoke.",
+    "Additive-optional persistence: every new snapshot field (extended layer fields, ltypes/textStyles/dimStyles/layerStates tables, draftingSettings activeLayer/lineweightDisplay/textStyle/dimStyle/standards) is optional and absent by default so legacy snapshots and the pinned CAD-PARITY-002 fixture stay byte-identical (pinned by the fixture regression gate)."
+  ],
+  "non_goals": [
+    "The annotation vocabulary itself (text/mtext/leaders/dimensions creation flows are CAD-PARITY-005 scope — this work item delivers the STYLE TABLES the annotation system will consume and the dim rendering driven by the active style).",
+    "Per-viewport layer freeze (VPFREEZE) and viewport-dependent layer states (single Model viewport this milestone; documented).",
+    "Layer transparency rendering on the Electron SVG host beyond the composite alpha (both hosts apply the same transparencyToAlpha; fine-grained render modes are out of scope).",
+    "Plot output honoring the plot flag (plotting is CAD-PARITY-008 scope — the flag persists and filters, honestly documented).",
+    "MATCHPROP option filtering (which properties to copy — the command copies color/linetype/lineweight/transparency/layer wholesale; the Settings dialog is future refinement).",
+    "CHPROP thickness/elevation/material (2D scope; the typed surface covers the display chain).",
+    "Multi-entity CHPROP canvas accumulation beyond the existing engine behavior (preselection + P covers batch flows — the objects-step advance-after-pick behavior is the established CAD-PARITY-002/003 engine semantics, unchanged).",
+    "Layer walk/fade/isolate-lock modes beyond the delivered LAYISO hide-isolation (documented).",
+    "Architecture changes (Architecture v1.1 and the CAD/BIM Product Architecture v1.0 stay frozen; no protected path touched).",
+    "Approval or verification claim by implementation (the process stops at PR_OPEN for Architect review of the actual UI and workflow behavior)."
+  ],
+  "risk_assumptions": [
+    "Issue #80 (scope) and the Architect work order it carries (the IM-channel directive 'CAD-PARITY-003 ✅ merged → CAD-PARITY-004 EXECUTE NEXT: Layers, Properties, Styles & Palettes') are authoritative for this execution release; the issue was opened carrying the Architect's scope text verbatim.",
+    "CAD-PARITY-003 is objectively satisfied on main (merge commit fac426c 'CAD-PARITY-003: Professional 2D primitives + modify system', with the DEC-002 deployed-Preview remediation recorded and the 596-test suite green); its work-item record remains at PR_OPEN (the post-merge VERIFIED transition is architect-side) — carried here as an objectively-satisfied assumption per the CAD-PARITY-002/003 precedent, not a registry dependency.",
+    "Requirements are carried as CAD-001 (professional-grade 2D drafting primitives and workflows) from spec/requirements.md because the governance validator resolves requirement IDs against that registry; the product-level requirement CAD-2D-004 lives in spec/cad-bim/requirements.md and defines this work item's scope (documented in the objective).",
+    "architecture_version '1.1' is the parent ConstructionOS platform version (the validator's registry); the CAD/BIM product architecture v1.0 is frozen separately in governance/cad-bim-freeze.json and feature work within the freeze does not change the platform version.",
+    "The name-keyed design for ltypes/textStyles/dimStyles/layerStates (NAME is the canonical identity — layers and entities reference linetypes by name; settings reference styles by name) diverges deliberately from the ly-NNNNNN layer-id precedent because the domain reference model is name-based; removals are reference-checked exactly like removeLayer (no silent cascade).",
+    "The CAD-PARITY-002 parity fixture (save sha a48a29a8…) and the 9-command stream stay intact because every new snapshot field is optional-and-absent-by-default and default-valued layer patches normalize away (canonical-minimal records); the fixture regression gate in BOTH web smokes and the Electron workspace smoke proves it on every run.",
+    "The locked-layer enforcement gate lives in CADDocument.execute (the single forward-edit choke point the App API, entity-ops and raw document.applyEdit all cross); undo/redo bypass it by journal semantics (AutoCAD-class) — an explicit design decision recorded here, not an oversight.",
+    "The -LAYER typed surface carries the state operations (Make/New/Set/ON/OFF/Freeze/Thaw/Lock/Unlock) while color/linetype assignment lives in the Layers manager palette; the AutoCAD classic STYLE alias 'ST' is owned by STORY in this registry's vocabulary (registry-unique aliases) — both divergences are documented in the command descriptions and here.",
+    "CI evidence (EV-003) is produced by the new cad-parity-004 workflow on the PR head after the branch is pushed; the local gauntlet (full app suite, both host typechecks/builds/lints, both web smokes, the Electron build + all eleven smokes) has run green on the implementation head before submission."
+  ],
+  "evidence_requirements": [
+    "Deterministic automated suites for the layer-table semantics (extended records, canonical-minimal normalization, the locked/frozen enforcement incl. batch simulation and journal bypass), layer states, filters, the named drawing standards, the linetype/lineweight/style tables, the ByLayer display resolution, entity.setDisplay semantics and the CHPROP/MATCHPROP/-LAYER/CLAYER/LAYISO/LAYUNISO/LAYON/LTSCALE command flows, running in CI on the pinned toolchains with the full regression baseline.",
+    "Green cad-parity-004 CI workflow on the implementation head: app suite with LOCK-018 covering the extended src/workspace core (incl. standards/ + commands-props), Web host lint/typecheck/build + BOTH workspace smokes against BOTH pinned parity fixtures, Electron build + all eleven smokes incl. the 20-check layers real-UI smoke.",
+    "Browser-verified golden paths on the dev server (the same build surface CI validates): the Layers manager (create/filter/edit/standard/state flows), CHPROP through the command line, the Properties inspector ByLayer chain, the contextual menu — with zero console errors."
+  ],
+  "state": "IMPLEMENTING",
+  "transitions": [
+    {
+      "from": "DRAFT",
+      "to": "READY",
+      "at": "2026-08-28T20:30:00Z",
+      "actor": "pectoraux",
+      "role": "architect",
+      "reason": "Architect work order issued through the program channel after CAD-PARITY-003 merged (fac426c): 'CAD-PARITY-004 — Layers, Properties, Styles & Palettes' with the full scope (layer manager, layer states/visibility/lock/freeze, object properties inspector, line/color/linetype/lineweight standards, dimension/text/annotation styles, professional properties palette, layer/property filters, contextual palettes, persistent drawing standards, Web/Electron parity + Vercel Preview); Issue #80 opened carrying the scope; ready on the merged CAD-PARITY-003 foundation.",
+      "references": {
+        "issue": 80
+      }
+    },
+    {
+      "from": "READY",
+      "to": "ASSIGNED",
+      "at": "2026-08-28T20:31:00Z",
+      "actor": "pectoraux",
+      "role": "architect",
+      "reason": "Architect execution directive in the same work order: 'Z.ai is authorized to implement CAD-PARITY-004 next' — assigned to the implementation agent.",
+      "references": {
+        "issue": 80,
+        "assignee": "z-ai-implementation-agent"
+      }
+    },
+    {
+      "from": "ASSIGNED",
+      "to": "IMPLEMENTING",
+      "at": "2026-08-28T20:45:00Z",
+      "actor": "z-ai-implementation-agent",
+      "role": "implementer",
+      "reason": "Implementation started on the assigned branch work/cad-parity-004-layers-properties (dependency satisfied on main per the work order: CAD-PARITY-003 merged at fac426c).",
+      "references": {
+        "issue": 80
+      }
+    }
+  ],
+  "evidence": [],
+  "decisions": []
+}
