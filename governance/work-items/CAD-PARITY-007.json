@@ -118,13 +118,13 @@
     {
       "id": "EV-003",
       "type": "ci-run",
-      "description": "CI-green on the PR head: the cad-parity-007 workflow runs the 871-test app suite with BOTH real engines (OCCT 7.8.1.1 + ifcopenshell 0.8.5), ALL FIVE web smokes (the 002/004/005/006 regression fixtures + the new 007 constraints fixture) and FOURTEEN electron smokes (the thirteen prior + the new constraints real-UI smoke) — the LOCK-018 forbidden-import scan covers the constraints core.",
-      "produced_at": "2026-08-29T20:00:00Z",
+      "description": "CI-green on the PR head fe04589: ALL 16 workflows succeeded, incl. the cad-parity-007 workflow (run 33251127687) — the 871-test app suite with BOTH real engines (OCCT 7.8.1.1 + ifcopenshell 0.8.5), ALL FIVE web smokes (the 002/004/005/006 regression fixtures + the new 007 constraints fixture, all byte-identical) and FOURTEEN electron smokes (the thirteen prior + the new constraints real-UI smoke over CDP); every pre-existing workflow stays green on the same head (the cad-parity-003/005/006 suites + the compat/research/implement regressions) — the CI typecheck caught the untyped test val() generics on the first head, fixed at fe04589.",
+      "produced_at": "2026-08-29T21:30:00Z",
       "reproducible": true,
       "reproduction": "The cad-parity-007 workflow on PR #87",
       "references": {
         "commit": "fe04589",
-        "pr": 87
+        "workflow_run": "33251127687"
       }
     },
     {
