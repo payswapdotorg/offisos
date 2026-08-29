@@ -102,7 +102,7 @@ test("COMMANDS_LAYOUTS: exactly the 14 CAD-PARITY-008 commands with their aliase
 
 test("layout.create/rename/clone/remove — atomic, typed, with the last-layout rule", async () => {
   const h = make();
-  const created = val(await cmd(h, "layout.create", { name: "Sheet-A" }));
+  const created = val<{ layoutId: string; name: string }>(await cmd(h, "layout.create", { name: "Sheet-A" }));
   assert.equal(created.layoutId, "lo-000001");
   assert.equal(created.name, "Sheet-A");
   // Duplicate name is a typed rejection.
@@ -119,7 +119,7 @@ test("layout.create/rename/clone/remove — atomic, typed, with the last-layout 
     view: { mode: "fit" },
   }));
   const before = (await state(h)).modelHistory!.revisions.length;
-  const cloned = val(await cmd(h, "layout.clone", { name: "Sheet-A", newName: "Copy-A" }));
+  const cloned = val<{ layoutId: string; clonedViewports: number }>(await cmd(h, "layout.clone", { name: "Sheet-A", newName: "Copy-A" }));
   assert.equal(cloned.layoutId, "lo-000003");
   assert.equal(cloned.clonedViewports, 1);
   const afterClone = (await state(h)).modelHistory!.revisions.length;
@@ -141,11 +141,11 @@ test("layout.setPageSetup patches + validates; a no-op returns unchanged without
   val(await cmd(h, "layout.create", { name: "Sheet-A" }));
   const before = (await state(h)).modelHistory!.revisions.length;
   // The SAME values → unchanged: true, NO revision.
-  const noop = val(await cmd(h, "layout.setPageSetup", { name: "Sheet-A", patch: { paperSize: "A3", widthMm: 297, heightMm: 420 } }));
+  const noop = val<{ unchanged: boolean }>(await cmd(h, "layout.setPageSetup", { name: "Sheet-A", patch: { paperSize: "A3", widthMm: 297, heightMm: 420 } }));
   assert.equal(noop.unchanged, true);
   assert.equal((await state(h)).modelHistory!.revisions.length, before);
   // A real patch (A1 portrait + tighter margins + 1:50).
-  const updated = val(await cmd(h, "layout.setPageSetup", { name: "Sheet-A", patch: {
+  const updated = val<{ pageSetup: { paperSize: string; plotScale: string } }>(await cmd(h, "layout.setPageSetup", { name: "Sheet-A", patch: {
     paperSize: "A1", widthMm: 594, heightMm: 841, orientation: "portrait",
     marginsMm: { top: 15, right: 15, bottom: 15, left: 15 },
     plotScale: "1:50",
@@ -162,23 +162,23 @@ test("layout.activate / layout.setSpace — the non-versioned editor context", a
   val(await cmd(h, "layout.create", { name: "Sheet-A" }));
   val(await cmd(h, "layout.create", { name: "Sheet-B" }));
   const before = (await state(h)).modelHistory!.revisions.length;
-  const activated = val(await cmd(h, "layout.activate", { name: "Sheet-B" }));
+  const activated = val<{ activeLayoutId: string; space: string }>(await cmd(h, "layout.activate", { name: "Sheet-B" }));
   assert.equal(activated.activeLayoutId, "lo-000002");
   assert.equal(activated.space, "paper");
   // No version bump (editor state, the activeLayer precedent).
   assert.equal((await state(h)).modelHistory!.revisions.length, before);
   // TILEMODE/PSPACE/MSPACE semantics.
-  const toModel = val(await cmd(h, "layout.setSpace", { space: "model" }));
+  const toModel = val<{ space: string }>(await cmd(h, "layout.setSpace", { space: "model" }));
   assert.equal(toModel.space, "model");
-  const toPaper = val(await cmd(h, "layout.setSpace", { space: "paper", name: "Sheet-A" }));
+  const toPaper = val<{ space: string; activeLayoutId: string }>(await cmd(h, "layout.setSpace", { space: "paper", name: "Sheet-A" }));
   assert.equal(toPaper.space, "paper");
   assert.equal(toPaper.activeLayoutId, "lo-000001");
   assert.equal(errCode(await cmd(h, "layout.setSpace", { space: "void" })), "bad_payload");
   // The context persists through save/open (acceptance #3: page setup AND
   // context survive).
-  const saved = val(await cmd(h, "document.save", {}));
+  const saved = val<{ bytes: number[] }>(await cmd(h, "document.save", {}));
   val(await cmd(h, "document.open", { source: Array.from(saved.bytes as number[]) }));
-  const ctx = val(await q(h, "layouts.list", {}));
+  const ctx = val<{ space: string; activeLayoutId: string }>(await q(h, "layouts.list", {}));
   assert.equal(ctx.space, "paper");
   assert.equal(ctx.activeLayoutId, "lo-000001");
 });
@@ -192,7 +192,7 @@ test("viewport.create fit/window/scale — the shared transform, one revision ea
   await drawScene(h);
   val(await cmd(h, "layout.create", { name: "Sheet-A" }));
   // FIT: the deterministic model extents (0..10000 × 0..6000; circle top 4500).
-  const fit = val(await cmd(h, "viewport.create", {
+  const fit = val<{ viewportId: string; scaleDenominator: number; camera: { centerX: number; centerY: number } }>(await cmd(h, "viewport.create", {
     layoutName: "Sheet-A", corner1: [20, 20], corner2: [190, 180], view: { mode: "fit" },
   }));
   assert.equal(fit.viewportId, "vp-000001");
@@ -200,13 +200,13 @@ test("viewport.create fit/window/scale — the shared transform, one revision ea
   assert.ok(Math.abs(fit.scaleDenominator - 10000 / 170) < 1e-9);
   assert.ok(Math.abs(fit.camera.centerX - 5000) < 1e-9);
   // WINDOW: an explicit model window.
-  const win = val(await cmd(h, "viewport.create", {
+  const win = val<{ scaleDenominator: number }>(await cmd(h, "viewport.create", {
     layoutName: "Sheet-A", corner1: [200, 20], corner2: [300, 120],
     view: { mode: "window", x1: 0, y1: 0, x2: 2000, y2: 1000 },
   }));
   assert.ok(Math.abs(win.scaleDenominator - 20) < 1e-9); // max(2000/100, 1000/100)
   // SCALE: an explicit denominator + center.
-  const scaled = val(await cmd(h, "viewport.create", {
+  const scaled = val<{ scaleDenominator: number }>(await cmd(h, "viewport.create", {
     layoutName: "Sheet-A", corner1: [20, 190], corner2: [190, 280],
     view: { mode: "scale", denominator: 50, centerX: 5000, centerY: 3000 },
   }));
@@ -243,7 +243,7 @@ test("viewport.update — the display-lock gate (view frozen, frame moves) + lay
   assert.equal(errCode(await cmd(h, "viewport.update", { id: "vp-000001", patch: { layerOverrides: [{ layerId: "ly-999" }] } })), "layout_invalid");
   // Unlock → view edits pass again.
   val(await cmd(h, "viewport.update", { id: "vp-000001", patch: { locked: false } }));
-  const rescaled = val(await cmd(h, "viewport.update", { id: "vp-000001", patch: { scaleDenominator: 100, rotationDeg: 90 } }));
+  const rescaled = val<{ viewport: { scaleDenominator: number } }>(await cmd(h, "viewport.update", { id: "vp-000001", patch: { scaleDenominator: 100, rotationDeg: 90 } }));
   assert.equal(rescaled.viewport.scaleDenominator, 100);
   assert.equal(errCode(await cmd(h, "viewport.update", { id: "vp-000404", patch: { locked: true } })), "bad_id");
   // Remove.
@@ -265,8 +265,8 @@ test("plot.preview — the canonical IR + stable hash (non-mutating)", async () 
     layoutName: "Sheet-A", corner1: [20, 20], corner2: [190, 180], view: { mode: "fit" },
   }));
   const before = (await state(h)).modelHistory!.revisions.length;
-  const a = val(await q(h, "plot.preview", { name: "Sheet-A" }));
-  const b = val(await q(h, "plot.preview", { name: "Sheet-A" }));
+  const a = val<{ hash: string; ir: { format: string; viewports: { primitiveCount: number }[]; primitiveCount: number; frame: { primitives: unknown[] } } }>(await q(h, "plot.preview", { name: "Sheet-A" }));
+  const b = val<{ hash: string }>(await q(h, "plot.preview", { name: "Sheet-A" }));
   assert.equal(a.hash, b.hash);
   assert.equal(a.ir.format, "offisos-plot-ir");
   assert.equal(a.ir.viewports.length, 1);
@@ -283,15 +283,15 @@ test("plot.export — deterministic SVG/PDF/IR with byte-identical repeats; type
   val(await cmd(h, "viewport.create", {
     layoutName: "Sheet-A", corner1: [20, 20], corner2: [190, 180], view: { mode: "fit" },
   }));
-  const svg1 = val(await cmd(h, "plot.export", { name: "Sheet-A", format: "svg" }));
-  const svg2 = val(await cmd(h, "plot.export", { name: "Sheet-A", format: "svg" }));
+  const svg1 = val<{ sha256: string; text: string }>(await cmd(h, "plot.export", { name: "Sheet-A", format: "svg" }));
+  const svg2 = val<{ sha256: string }>(await cmd(h, "plot.export", { name: "Sheet-A", format: "svg" }));
   assert.equal(svg1.sha256, svg2.sha256); // acceptance #5: byte-identical
   assert.equal(sha(svg1.text as string), svg1.sha256);
   assert.ok((svg1.text as string).startsWith("<svg"));
-  const pdf1 = val(await cmd(h, "plot.export", { name: "Sheet-A", format: "pdf" }));
-  const pdf2 = val(await cmd(h, "plot.export", { name: "Sheet-A", format: "pdf" }));
+  const pdf1 = val<{ sha256: string }>(await cmd(h, "plot.export", { name: "Sheet-A", format: "pdf" }));
+  const pdf2 = val<{ sha256: string }>(await cmd(h, "plot.export", { name: "Sheet-A", format: "pdf" }));
   assert.equal(pdf1.sha256, pdf2.sha256);
-  const ir1 = val(await cmd(h, "plot.export", { name: "Sheet-A", format: "plot-ir" }));
+  const ir1 = val<{ hash: string; irHash?: string }>(await cmd(h, "plot.export", { name: "Sheet-A", format: "plot-ir" }));
   assert.equal(ir1.hash, ir1.irHash ?? ir1.hash);
   // Typed declines: proprietary formats.
   assert.equal(errCode(await cmd(h, "plot.export", { name: "Sheet-A", format: "dwg" })), "plot_unsupported");
@@ -316,17 +316,17 @@ test("plot.publish — every layout into ONE deterministic multi-page PDF", asyn
   val(await cmd(h, "viewport.create", {
     layoutName: "Sheet-A", corner1: [20, 20], corner2: [190, 180], view: { mode: "fit" },
   }));
-  const published = val(await cmd(h, "plot.publish", { format: "pdf" }));
+  const published = val<{ pageCount: number; pages: { layoutName: string }[]; sha256: string }>(await cmd(h, "plot.publish", { format: "pdf" }));
   assert.equal(published.pageCount, 2);
-  assert.equal(published.pages[0].layoutName, "Sheet-A");
-  const again = val(await cmd(h, "plot.publish", { format: "pdf" }));
+  assert.equal(published.pages[0]!.layoutName, "Sheet-A");
+  const again = val<{ sha256: string }>(await cmd(h, "plot.publish", { format: "pdf" }));
   assert.equal(published.sha256, again.sha256);
   // The SVG set manifest.
-  const svgSet = val(await cmd(h, "plot.publish", { format: "svg" }));
+  const svgSet = val<{ pageCount: number; text: string }>(await cmd(h, "plot.publish", { format: "svg" }));
   assert.equal(svgSet.pageCount, 2);
   assert.ok((svgSet.text as string).includes("offisos-plot-svg-set"));
   // A subset by ids.
-  const subset = val(await cmd(h, "plot.publish", { format: "pdf", layoutIds: ["lo-000001"] }));
+  const subset = val<{ pageCount: number }>(await cmd(h, "plot.publish", { format: "pdf", layoutIds: ["lo-000001"] }));
   assert.equal(subset.pageCount, 1);
   assert.equal(errCode(await cmd(h, "plot.publish", { format: "dwg" })), "bad_payload");
 });
@@ -337,7 +337,7 @@ test("layouts.list — the tables + editor context", async () => {
   val(await cmd(h, "viewport.create", {
     layoutName: "Sheet-A", corner1: [20, 20], corner2: [190, 180], view: { mode: "fit" },
   }));
-  const ctx = val(await q(h, "layouts.list", {}));
+  const ctx = val<{ layouts: unknown[]; viewports: unknown[]; activeLayoutId: string; space: string }>(await q(h, "layouts.list", {}));
   assert.equal(ctx.layouts.length, 1);
   assert.equal(ctx.viewports.length, 1);
   assert.equal(ctx.activeLayoutId, "lo-000001");
@@ -377,7 +377,7 @@ async function runFlow(
   h: AppApiHandler,
   steps: readonly CommandScriptStep[],
   contextOverrides: Partial<CommandContext> = {},
-): Promise<{ executed: string[]; lines: string[] }> {
+): Promise<{ executed: string[]; lines: readonly string[] }> {
   const executed: string[] = [];
   const plans: CommandPlan[] = [];
   const ctx = (): CommandContext => defaultCommandContext(contextOverrides);
