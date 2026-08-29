@@ -322,6 +322,14 @@ export const COMMAND_PAYLOAD_SCHEMAS: Readonly<Record<CommandName, object>> = {
       name: { type: "string", minLength: 1 },
       color: { type: "string", pattern: "^#[0-9a-fA-F]{6}$" },
       visible: { type: "boolean" },
+      // CAD-PARITY-004 additive layer fields.
+      frozen: { type: "boolean" },
+      locked: { type: "boolean" },
+      linetype: { type: "string", minLength: 1 },
+      lineweight: { type: "number" },
+      transparency: { type: "integer", minimum: 0, maximum: 90 },
+      plot: { type: "boolean" },
+      description: { type: "string" },
     },
     required: ["name"],
   },
@@ -335,6 +343,14 @@ export const COMMAND_PAYLOAD_SCHEMAS: Readonly<Record<CommandName, object>> = {
           name: { type: "string", minLength: 1 },
           color: { type: "string", pattern: "^#[0-9a-fA-F]{6}$" },
           visible: { type: "boolean" },
+          // CAD-PARITY-004 additive layer patch fields.
+          frozen: { type: "boolean" },
+          locked: { type: "boolean" },
+          linetype: { type: "string", minLength: 1 },
+          lineweight: { type: "number" },
+          transparency: { type: "integer", minimum: 0, maximum: 90 },
+          plot: { type: "boolean" },
+          description: { type: "string" },
         },
         minProperties: 1,
       },
@@ -347,6 +363,170 @@ export const COMMAND_PAYLOAD_SCHEMAS: Readonly<Record<CommandName, object>> = {
       layerId: { type: "string" },
     },
     required: ["layerId"],
+  },
+
+  // --- CAD-PARITY-004 (additive, Issue #80): layers, properties, styles ---
+  "entity.setDisplay": {
+    type: "object",
+    properties: {
+      ids: { type: "array", items: { type: "string" }, minItems: 1 },
+      patch: {
+        type: "object",
+        properties: {
+          color: { type: "string" },
+          linetype: { type: "string" },
+          lineweight: { type: ["number", "string"] },
+          transparency: { type: ["integer", "string"] },
+          layer: { type: "string" },
+        },
+        minProperties: 1,
+      },
+    },
+    required: ["ids", "patch"],
+  },
+  "layer.setActive": {
+    type: "object",
+    properties: {
+      layerId: { type: "string" },
+    },
+    required: ["layerId"],
+  },
+  "layer.applyStandard": {
+    type: "object",
+    properties: {
+      standard: { type: "string", enum: ["architectural", "mechanical"] },
+    },
+    required: ["standard"],
+  },
+  "layer.isolate": {
+    type: "object",
+    properties: {
+      layerIds: { type: "array", items: { type: "string" }, minItems: 1 },
+    },
+    required: ["layerIds"],
+  },
+  "layer.unisolate": { type: "object", properties: {} },
+  "layerState.save": {
+    type: "object",
+    properties: {
+      name: { type: "string", minLength: 1 },
+    },
+    required: ["name"],
+  },
+  "layerState.restore": {
+    type: "object",
+    properties: {
+      name: { type: "string" },
+    },
+    required: ["name"],
+  },
+  "layerState.remove": {
+    type: "object",
+    properties: {
+      name: { type: "string" },
+    },
+    required: ["name"],
+  },
+  "ltype.create": {
+    type: "object",
+    properties: {
+      name: { type: "string", minLength: 1 },
+      description: { type: "string" },
+      pattern: { type: "array", items: { type: "number", exclusiveMinimum: 0 }, minItems: 2 },
+    },
+    required: ["name", "pattern"],
+  },
+  "ltype.update": {
+    type: "object",
+    properties: {
+      name: { type: "string" },
+      patch: {
+        type: "object",
+        properties: {
+          description: { type: "string" },
+          pattern: { type: "array", items: { type: "number", exclusiveMinimum: 0 }, minItems: 2 },
+        },
+        minProperties: 1,
+      },
+    },
+    required: ["name", "patch"],
+  },
+  "ltype.remove": {
+    type: "object",
+    properties: {
+      name: { type: "string" },
+    },
+    required: ["name"],
+  },
+  "textStyle.create": {
+    type: "object",
+    properties: {
+      name: { type: "string", minLength: 1 },
+      font: { type: "string", enum: ["sans", "mono", "serif"] },
+      height: { type: "number", minimum: 0 },
+      widthFactor: { type: "number", exclusiveMinimum: 0 },
+      obliqueAngle: { type: "number", minimum: -85, maximum: 85 },
+    },
+    required: ["name"],
+  },
+  "textStyle.update": {
+    type: "object",
+    properties: {
+      name: { type: "string" },
+      patch: {
+        type: "object",
+        properties: {
+          font: { type: "string", enum: ["sans", "mono", "serif"] },
+          height: { type: "number", minimum: 0 },
+          widthFactor: { type: "number", exclusiveMinimum: 0 },
+          obliqueAngle: { type: "number", minimum: -85, maximum: 85 },
+        },
+        minProperties: 1,
+      },
+    },
+    required: ["name", "patch"],
+  },
+  "textStyle.remove": {
+    type: "object",
+    properties: {
+      name: { type: "string" },
+    },
+    required: ["name"],
+  },
+  "dimStyle.create": {
+    type: "object",
+    properties: {
+      name: { type: "string", minLength: 1 },
+      textHeight: { type: "number", exclusiveMinimum: 0 },
+      arrowSize: { type: "number", exclusiveMinimum: 0 },
+      scale: { type: "number", exclusiveMinimum: 0 },
+      precision: { type: "integer", minimum: 0, maximum: 6 },
+    },
+    required: ["name"],
+  },
+  "dimStyle.update": {
+    type: "object",
+    properties: {
+      name: { type: "string" },
+      patch: {
+        type: "object",
+        properties: {
+          textHeight: { type: "number", exclusiveMinimum: 0 },
+          arrowSize: { type: "number", exclusiveMinimum: 0 },
+          scale: { type: "number", exclusiveMinimum: 0 },
+          precision: { type: "integer", minimum: 0, maximum: 6 },
+        },
+        minProperties: 1,
+      },
+    },
+    required: ["name", "patch"],
+  },
+  "dimStyle.remove": {
+    type: "object",
+    properties: {
+      name: { type: "string" },
+    },
+    required: ["name"],
   },
   // --- COMPAT-CAD-002 (additive, api-contract.md §8): 3D/BIM authoring
   // surface. Entity inputs mirror src/bim/elements.ts (validated strictly by

@@ -47,6 +47,17 @@ import { bbox as geomBBox } from "@offisos/cad-app-shell/workspace/geometry/enti
 import { closestOn } from "@offisos/cad-app-shell/workspace/geometry/entities";
 import type { Geom } from "@offisos/cad-app-shell/workspace/geometry/types";
 import { constrainCursor, type DraftingAids } from "@offisos/cad-app-shell/workspace/feedback";
+// CAD-PARITY-004: the shared standards module — the SAME display resolution
+// the Electron renderer and the App API run (LOCK-004 parity).
+import {
+  dashToDevicePx,
+  displayOverridesOf,
+  LOCKED_LAYER_FADE_ALPHA,
+  lineweightToDevicePx,
+  resolveDimStyle,
+  resolveDisplay,
+  transparencyToAlpha,
+} from "@offisos/cad-app-shell/workspace/standards";
 import { Eraser, Move, Copy, MousePointerSquareDashed } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -83,6 +94,9 @@ export interface ModelCanvasProps {
   readonly onCommandStart: (commandId: string) => void;
   /** Increments when ZOOMEXTENTS runs — the canvas fits the visible model. */
   readonly zoomExtentsSignal: number;
+  /** CAD-PARITY-004: contextual layer/palette actions from the canvas
+   *  right-click menu (dispatched by the shell through the App API). */
+  readonly onContextAction: (action: string, payload?: unknown) => void;
 }
 
 interface DragState {
@@ -137,9 +151,13 @@ export function ModelCanvas(props: ModelCanvasProps): React.JSX.Element {
   const [cursor, setCursor] = React.useState<Vec2 | null>(null);
   const [selectionRect, setSelectionRect] = React.useState<{ a: [number, number]; b: [number, number] } | null>(null);
   const [hotGrip, setHotGrip] = React.useState<string | null>(null);
+  // CAD-PARITY-004: the contextual right-click menu (idle canvas only —
+  // during a command, right-click stays Enter as before).
+  const [contextMenu, setContextMenu] = React.useState<{ screen: [number, number]; world: Vec2; layerId: string | null } | null>(null);
 
   const layers = snapshot?.layers ?? [];
   const settings = snapshot?.draftingSettings;
+  const lweightDisplay = settings?.lineweightDisplay === true;
 
   // Restore the persisted view once the first snapshot arrives (async —
   // state updates happen after the await boundary).
@@ -192,17 +210,72 @@ export function ModelCanvas(props: ModelCanvasProps): React.JSX.Element {
     }, 400);
   }, []);
 
-  // --- visible (pickable/snappable) entities ----------------------------------
+  // --- layer views (CAD-PARITY-004: frozen = suppressed; locked = drawn but
+  // not interactive — the same exclusion the App API precision queries run) ---
 
-  const visibleEntities = React.useMemo(() => {
-    const visible = new Set(layers.filter((l) => l.visible).map((l) => l.id));
+  const layerById = React.useMemo(() => new Map(layers.map((l) => [l.id, l] as const)), [layers]);
+
+  /** Rendered entities: visible + not frozen (LOCKED layers render faded). */
+  const drawableEntities = React.useMemo(() => {
+    const renderable = new Set(layers.filter((l) => l.visible && l.frozen !== true).map((l) => l.id));
     return (snapshot?.elements ?? []).filter((el) => {
       const props = el.props as Record<string, unknown>;
       if (el.kind === "bim") return props.type === "bim.wall" || props.type === "bim.slab";
       const layer = props.layer;
-      return typeof layer === "string" && visible.has(layer);
+      return typeof layer === "string" && renderable.has(layer);
     });
   }, [snapshot, layers]);
+
+  /** Interactable entities (pick/snap/window selection): additionally
+   *  excludes LOCKED layers (AutoCAD-class: locked entities display but do
+   *  not interact; modification is blocked at the document gate). */
+  const visibleEntities = React.useMemo(() => {
+    const interactable = new Set(layers.filter((l) => l.visible && l.frozen !== true && l.locked !== true).map((l) => l.id));
+    return (snapshot?.elements ?? []).filter((el) => {
+      const props = el.props as Record<string, unknown>;
+      if (el.kind === "bim") return props.type === "bim.wall" || props.type === "bim.slab";
+      const layer = props.layer;
+      return typeof layer === "string" && interactable.has(layer);
+    });
+  }, [snapshot, layers]);
+
+  /** CAD-PARITY-004: resolved display per drawable entity (the SAME
+   *  standards resolution on both hosts): linetype dash in device px,
+   *  lineweight px, transparency alpha + locked-layer fade. */
+  const displayById = React.useMemo(() => {
+    const userLtypes = snapshot?.ltypes ?? [];
+    const standards = settings?.standards;
+    const map = new Map<string, { dash: readonly number[] | null; weightPx: number; alpha: number; color: string }>();
+    for (const el of drawableEntities) {
+      const props = el.props as Record<string, unknown>;
+      const layerId = typeof props.layer === "string" ? props.layer : "0";
+      const layer = layerById.get(layerId);
+      if (layer === undefined) continue;
+      try {
+        const resolved = resolveDisplay(displayOverridesOf(props), layer, standards, userLtypes);
+        let alpha = transparencyToAlpha(resolved.transparency);
+        if (layer.locked === true) alpha *= LOCKED_LAYER_FADE_ALPHA;
+        map.set(el.id, {
+          dash: resolved.dash.length > 0 ? dashToDevicePx(resolved.dash, zoom) : null,
+          weightPx: lineweightToDevicePx(resolved.lineweight, zoom, lweightDisplay),
+          alpha,
+          color: resolved.color,
+        });
+      } catch {
+        // Unresolvable display (stale linetype reference) falls back to the
+        // layer color, solid, hairline — rendering never throws.
+        map.set(el.id, { dash: null, weightPx: 1, alpha: layer.locked === true ? LOCKED_LAYER_FADE_ALPHA : 1, color: layer.color });
+      }
+    }
+    return map;
+  }, [drawableEntities, layerById, snapshot, settings, zoom, lweightDisplay]);
+
+  /** CAD-PARITY-004: the resolved ACTIVE dimension style (dims render with
+   *  its text height, arrow size, scale and precision). */
+  const activeDimStyle = React.useMemo(
+    () => resolveDimStyle(settings?.dimStyle ?? "Standard", snapshot?.dimStyles ?? []) ?? undefined,
+    [settings, snapshot],
+  );
 
   // CAD-PARITY-003: the canonical entity view over BOTH storage conventions
   // (same module the server-side precision queries run) — used for shared
@@ -351,7 +424,19 @@ export function ModelCanvas(props: ModelCanvasProps): React.JSX.Element {
     if (selection.length !== 1) return null;
     return (snapshot?.elements ?? []).find((el) => el.id === selection[0]) ?? null;
   }, [selection, snapshot]);
-  const grips = React.useMemo(() => (singleSelected !== null ? gripsFor(singleSelected) : []), [singleSelected]);
+  // CAD-PARITY-004: grips are READ-ONLY-hidden on locked layers (a locked
+  // entity cannot be grip-edited; the document gate would reject it — the
+  // affordance must not offer it).
+  const singleSelectedLocked = React.useMemo(() => {
+    if (singleSelected === null) return false;
+    const layerId = (singleSelected.props as Record<string, unknown>).layer;
+    if (typeof layerId !== "string") return false;
+    return layerById.get(layerId)?.locked === true;
+  }, [singleSelected, layerById]);
+  const grips = React.useMemo(
+    () => (singleSelected !== null && !singleSelectedLocked ? gripsFor(singleSelected) : []),
+    [singleSelected, singleSelectedLocked],
+  );
 
   // --- pointer handlers -----------------------------------------------------------
 
@@ -591,32 +676,42 @@ export function ModelCanvas(props: ModelCanvasProps): React.JSX.Element {
     }
 
     const layerById = new Map<string, LayerRecord>(layers.map((l) => [l.id, l] as const));
-    for (const el of visibleEntities) {
+    for (const el of drawableEntities) {
       // CAD-PARITY-003: canonical geometry first (BOTH storage conventions
       // decode through the bridge — legacy line/polyline/circle/arc/rectangle
       // included); annotations (dims) fall through to the legacy painter.
+      // CAD-PARITY-004: the resolved display (dash/lineweight/alpha) flows
+      // through the SAME standards resolution on both hosts.
+      const display = displayById.get(el.id);
       const canonical = geomEntityMap.get(el.id);
       if (canonical !== undefined) {
         const layer = layerById.get(canonical.layer);
-        if (layer !== undefined && !layer.visible) continue;
+        if (layer !== undefined && (layer.frozen === true || !layer.visible)) continue;
         drawCanonicalEntity(ctx, canonical.geom, {
-          color: canonical.color ?? layer?.color ?? "#111827",
+          color: display?.color ?? canonical.color ?? layer?.color ?? "#111827",
           selected: selectedSet.has(el.id),
           toScreen,
           zoom,
           viewport: { w, h },
+          dash: display?.dash ?? null,
+          weightPx: display?.weightPx,
+          alpha: display?.alpha,
         });
         continue;
       }
       const entity = parseDraftEntity(el);
       if (entity !== null) {
         const layer = layerById.get(entity.layer);
-        if (layer !== undefined && !layer.visible) continue;
+        if (layer !== undefined && (layer.frozen === true || !layer.visible)) continue;
         drawEntity(ctx, entity, {
-          color: layer?.color ?? "#111827",
+          color: display?.color ?? layer?.color ?? "#111827",
           selected: selectedSet.has(el.id),
           toScreen,
           zoom,
+          dash: display?.dash ?? null,
+          weightPx: display?.weightPx,
+          alpha: display?.alpha,
+          dimStyle: activeDimStyle,
         });
         continue;
       }
@@ -681,7 +776,7 @@ export function ModelCanvas(props: ModelCanvasProps): React.JSX.Element {
     if (cursor !== null) {
       drawCrosshair(ctx, toScreen(cursor), w, h);
     }
-  }, [settings, layers, visibleEntities, geomEntityMap, selectedSet, toScreen, pan, zoom, cursor, selectionRect, snapPreview, polylinePending, activeStep, stepBase, singleSelected, grips, hotGrip, constrainedSnapped, command, engineState.values, targetGeoms, geomById, pickEntityAt]);
+  }, [settings, layers, drawableEntities, geomEntityMap, selectedSet, toScreen, pan, zoom, cursor, selectionRect, snapPreview, polylinePending, activeStep, stepBase, singleSelected, grips, hotGrip, constrainedSnapped, command, engineState.values, targetGeoms, geomById, pickEntityAt, displayById, activeDimStyle]);
 
   // --- mini-toolbar position -------------------------------------------------------------
 
@@ -739,12 +834,38 @@ export function ModelCanvas(props: ModelCanvasProps): React.JSX.Element {
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
         onWheel={onWheel}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          // CAD-PARITY-004: idle right-click opens the contextual layer/
+          // properties menu (during a command right-click stays Enter — the
+          // legacy double-click/Enter path is untouched).
+          if (activeStep !== null || contextMenu !== null) return;
+          const [sx, sy] = [e.nativeEvent.offsetX, e.nativeEvent.offsetY];
+          const world = toWorld(sx, sy);
+          const picked = pickEntityAt(world);
+          const layerId =
+            picked !== null
+              ? ((snapshot?.elements ?? []).find((el) => el.id === picked.id)?.props as Record<string, unknown> | undefined)?.layer
+              : null;
+          setContextMenu({ screen: [sx, sy], world, layerId: typeof layerId === "string" ? layerId : null });
+        }}
         onDoubleClick={() => {
           // Double-click = Enter (finishes polyline-style steps).
           const ev = new KeyboardEvent("keydown", { key: "Enter" });
           window.dispatchEvent(ev);
         }}
       />
+      {contextMenu !== null && (
+        <ContextMenuPanel
+          layer={contextMenu.layerId !== null ? layerById.get(contextMenu.layerId) ?? null : null}
+          screen={contextMenu.screen}
+          onAction={(action, payload) => {
+            setContextMenu(null);
+            props.onContextAction(action, payload);
+          }}
+          onClose={() => setContextMenu(null)}
+        />
+      )}
       {busy && (
         <div className="pointer-events-none absolute right-3 top-3 rounded bg-background/90 px-2 py-1 text-xs text-muted-foreground shadow" role="status">
           working…
@@ -772,5 +893,63 @@ export function ModelCanvas(props: ModelCanvasProps): React.JSX.Element {
         </div>
       )}
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// CAD-PARITY-004: the contextual right-click menu (idle canvas).
+// ---------------------------------------------------------------------------
+
+function ContextMenuPanel(props: {
+  readonly layer: LayerRecord | null;
+  readonly screen: readonly [number, number];
+  readonly onAction: (action: string, payload?: unknown) => void;
+  readonly onClose: () => void;
+}): React.JSX.Element {
+  const item = (action: string, label: string, payload?: unknown, disabled = false): React.JSX.Element => (
+    <button
+      key={action + String(payload ?? "")}
+      type="button"
+      disabled={disabled}
+      className={
+        "flex w-full items-center rounded px-2 py-1 text-left text-xs " +
+        (disabled ? "text-muted-foreground/50" : "hover:bg-muted")
+      }
+      onClick={() => props.onAction(action, payload)}
+    >
+      {label}
+    </button>
+  );
+  const l = props.layer;
+  return (
+    <>
+      <div className="fixed inset-0 z-40" onClick={props.onClose} onContextMenu={(e) => { e.preventDefault(); props.onClose(); }} aria-hidden />
+      <div
+        role="menu"
+        aria-label="canvas context menu"
+        className="absolute z-50 flex min-w-44 flex-col gap-0.5 rounded-md border bg-background p-1 shadow-lg"
+        style={{ left: Math.max(4, props.screen[0]), top: Math.max(4, props.screen[1]) }}
+      >
+        {l !== null ? (
+          <>
+            <div className="px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+              Layer “{l.name}”
+            </div>
+            {item("layer.toggleVisible", l.visible ? "Hide layer" : "Show layer", l.id)}
+            {item("layer.toggleFrozen", l.frozen === true ? "Thaw layer" : "Freeze layer", l.id, l.frozen !== true && l.id === "0")}
+            {item("layer.toggleLocked", l.locked === true ? "Unlock layer" : "Lock layer", l.id)}
+            {item("layer.isolate", "Isolate layer", l.id)}
+            {item("layer.setActive", "Make active layer", l.id)}
+          </>
+        ) : (
+          <div className="px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Layers</div>
+        )}
+        <div className="my-0.5 h-px bg-border" />
+        {item("layer.allOn", "Show all layers (LAYON)")}
+        {item("layer.unisolate", "Unisolate layers (LAYUNISO)", undefined, props.layer === undefined)}
+        {item("palette.layers", "Layer Manager…")}
+        {item("palette.properties", "Properties…")}
+      </div>
+    </>
   );
 }

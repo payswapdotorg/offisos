@@ -45,6 +45,13 @@ import {
 import { mirrorGeom, moveGeom, rotateGeom, scaleGeom } from "./geometry/transform.js";
 import { closestOn } from "./geometry/entities.js";
 import { dist, Pt, sub } from "./geometry/math2d.js";
+// CAD-PARITY-004: display overrides + the standards constants (engine-free
+// shared module — the SAME resolution on both hosts, LOCK-004).
+import {
+  displayOverridesOf,
+  isStandardLineweight,
+  type EntityDisplayOverrides,
+} from "./standards/index.js";
 
 // ---------------------------------------------------------------------------
 // Typed failures (stable codes across hosts; LOCK-007/008).
@@ -143,9 +150,16 @@ function loadEntities(
   return out;
 }
 
-/** addElement with a mintable placeholder id (the document assigns el-NNNNNN). */
-function addGeomEdit(geom: Geom, layer: string): DocumentEdit {
+/** addElement with a mintable placeholder id (the document assigns el-NNNNNN).
+ *  CAD-PARITY-004: display overrides (color/linetype/lineweight/transparency)
+ *  are carried onto the new entity when provided. */
+function addGeomEdit(
+  geom: Geom,
+  layer: string,
+  display: EntityDisplayOverrides | null = null,
+): DocumentEdit {
   const props: Record<string, unknown> = { drafting: true, layer, ...(geom as unknown as Record<string, unknown>) };
+  if (display !== null) applyDisplayToProps(props, display);
   return {
     type: "addElement",
     element: { id: "", kind: "geometry", engineId: null, props },
@@ -155,11 +169,24 @@ function addGeomEdit(geom: Geom, layer: string): DocumentEdit {
 /** setProps replacing an entity's props with the canonical form (FULL
  *  replacement — stale legacy fields are dropped, not merged; layer and
  *  element identity preserved; rectangle sources materialize as the closed
- *  polyline they mathematically are — never silent). */
+ *  polyline they mathematically are — never silent). CAD-PARITY-004: the
+ *  entity's DISPLAY OVERRIDES are preserved through every geometry modify
+ *  (move/rotate/scale/mirror/trim/… never strip professional display
+ *  properties — pinned by directed regression). */
 function replaceGeomEdit(view: EntityView, geom: Geom): DocumentEdit {
   const layer = layerOfElement(view.element);
   const props: Record<string, unknown> = { drafting: true, layer, ...(geom as unknown as Record<string, unknown>) };
+  applyDisplayToProps(props, displayOverridesOf(view.element.props as Record<string, unknown>));
   return { type: "setProps", elementId: view.element.id, patch: props };
+}
+
+/** Write validated display overrides into entity props (absent = ByLayer:
+ *  no field is materialized unless an override exists). */
+function applyDisplayToProps(props: Record<string, unknown>, display: EntityDisplayOverrides): void {
+  if (display.color !== null) props.color = display.color;
+  if (display.linetype !== null) props.linetype = display.linetype;
+  if (display.lineweight !== null) props.lineweight = display.lineweight;
+  if (display.transparency !== null) props.transparency = display.transparency;
 }
 
 function removeEdit(id: string): DocumentEdit {
@@ -231,6 +258,7 @@ export function createEntities(
   elements: readonly Element[],
   layerExists: (id: string) => boolean,
   inputs: readonly unknown[],
+  ltypeResolves?: (name: string) => boolean,
 ): EntityCreateOutcome {
   if (!Array.isArray(inputs) || inputs.length === 0) {
     throw new EntityOpError("entity.create requires a non-empty entities array", "bad_input");
@@ -271,7 +299,42 @@ export function createEntities(
         );
       }
     }
-    edits.push(addGeomEdit(geom, layer));
+    // CAD-PARITY-004: optional display overrides on creation (validated
+    // strictly — the same rules as setDisplay; absent = ByLayer).
+    const display: { color: string | null; linetype: string | null; lineweight: number | null; transparency: number | null } = {
+      color: null,
+      linetype: null,
+      lineweight: null,
+      transparency: null,
+    };
+    if (input.color !== undefined && input.color !== "ByLayer") {
+      if (typeof input.color !== "string" || !/^#[0-9a-fA-F]{6}$/.test(input.color)) {
+        throw new EntityOpError(`entities[${index}]: color must be 'ByLayer' or #RRGGBB`, "bad_input");
+      }
+      display.color = input.color;
+    }
+    if (input.linetype !== undefined && input.linetype !== "ByLayer") {
+      if (typeof input.linetype !== "string" || input.linetype.length === 0) {
+        throw new EntityOpError(`entities[${index}]: linetype must be 'ByLayer' or a linetype name`, "bad_input");
+      }
+      if (ltypeResolves !== undefined && !ltypeResolves(input.linetype)) {
+        throw new EntityOpError(`entities[${index}]: unknown linetype '${input.linetype}'`, "bad_linetype");
+      }
+      display.linetype = input.linetype;
+    }
+    if (input.lineweight !== undefined && input.lineweight !== "ByLayer") {
+      if (typeof input.lineweight !== "number" || !Number.isFinite(input.lineweight) || !isStandardLineweight(input.lineweight)) {
+        throw new EntityOpError(`entities[${index}]: lineweight must be 'ByLayer' or a standard lineweight (mm)`, "bad_input");
+      }
+      display.lineweight = input.lineweight;
+    }
+    if (input.transparency !== undefined && input.transparency !== "ByLayer") {
+      if (typeof input.transparency !== "number" || !Number.isInteger(input.transparency) || input.transparency < 0 || input.transparency > 90) {
+        throw new EntityOpError(`entities[${index}]: transparency must be 'ByLayer' or an integer 0–90`, "bad_input");
+      }
+      display.transparency = input.transparency;
+    }
+    edits.push(addGeomEdit(geom, layer, display));
     created++;
   }
 
@@ -353,7 +416,17 @@ export type EntityModifyOp =
   | { readonly op: "break"; readonly targetId: string; readonly p1: Pt; readonly p2: Pt | null }
   | { readonly op: "join"; readonly ids: readonly string[] }
   | { readonly op: "explode"; readonly ids: readonly string[] }
-  | { readonly op: "setGeometry"; readonly id: string; readonly geom: Geom };
+  | { readonly op: "setGeometry"; readonly id: string; readonly geom: Geom }
+  | {
+      /** CAD-PARITY-004: set display overrides + optional layer reassignment
+       *  for a batch of entities — ONE atomic applyEdits revision (CHPROP /
+       *  MATCHPROP / the Properties palette write path). */
+      readonly op: "setDisplay";
+      readonly ids: readonly string[];
+      readonly patch: Readonly<Record<string, unknown>>;
+      readonly layerExists?: (id: string) => boolean;
+      readonly ltypeResolves?: (name: string) => boolean;
+    };
 
 /** Apply one modify operation. All geometry resolution goes through the
  *  canonical bridge; all computation through the deterministic kernel. */
@@ -389,7 +462,124 @@ export function modifyEntities(elements: readonly Element[], op: EntityModifyOp)
       return opExplode(elements, op.ids);
     case "setGeometry":
       return opSetGeometry(elements, op.id, op.geom);
+    case "setDisplay":
+      return opSetDisplay(elements, op);
   }
+}
+
+/** CAD-PARITY-004 — validate + apply one display/layer patch to a batch of
+ *  entities as ONE atomic revision. Patch fields (all optional, validated
+ *  strictly — LOCK-007):
+ *  - color: "ByLayer" (reset) or a #RRGGBB hex override
+ *  - linetype: "ByLayer" (reset) or a resolvable linetype name
+ *  - lineweight: "ByLayer" (reset) or a STANDARD lineweight mm value
+ *  - transparency: "ByLayer" (reset) or an integer 0–90
+ *  - layer: reassign the entity to another EXISTING layer
+ *  Locked-layer entities reject the edit (document.execute gate); the
+ *  validation here is the pre-flight so failures are typed and stable. */
+function opSetDisplay(
+  elements: readonly Element[],
+  op: { ids: readonly string[]; patch: Readonly<Record<string, unknown>>; layerExists?: (id: string) => boolean; ltypeResolves?: (name: string) => boolean },
+): EntityOpOutcome {
+  const allowed = ["color", "linetype", "lineweight", "transparency", "layer"] as const;
+  for (const key of Object.keys(op.patch)) {
+    if (!(allowed as readonly string[]).includes(key)) {
+      throw new EntityOpError(`setDisplay: unknown field '${key}' (allowed: ${allowed.join(", ")})`, "bad_input");
+    }
+  }
+  if (op.patch.color !== undefined) {
+    const c = op.patch.color;
+    if (c !== "ByLayer" && (typeof c !== "string" || !/^#[0-9a-fA-F]{6}$/.test(c))) {
+      throw new EntityOpError("setDisplay: color must be 'ByLayer' or a #RRGGBB hex string", "bad_input");
+    }
+  }
+  if (op.patch.linetype !== undefined) {
+    const lt = op.patch.linetype;
+    if (lt !== "ByLayer") {
+      if (typeof lt !== "string" || lt.length === 0) {
+        throw new EntityOpError("setDisplay: linetype must be 'ByLayer' or a linetype name", "bad_input");
+      }
+      if (op.ltypeResolves !== undefined && !op.ltypeResolves(lt)) {
+        throw new EntityOpError(`setDisplay: unknown linetype '${lt}'`, "bad_linetype");
+      }
+    }
+  }
+  if (op.patch.lineweight !== undefined) {
+    const lw = op.patch.lineweight;
+    if (lw !== "ByLayer") {
+      if (typeof lw !== "number" || !Number.isFinite(lw) || !isStandardLineweight(lw)) {
+        throw new EntityOpError("setDisplay: lineweight must be 'ByLayer' or a standard lineweight (mm)", "bad_input");
+      }
+    }
+  }
+  if (op.patch.transparency !== undefined) {
+    const t = op.patch.transparency;
+    if (t !== "ByLayer") {
+      if (typeof t !== "number" || !Number.isInteger(t) || t < 0 || t > 90) {
+        throw new EntityOpError("setDisplay: transparency must be 'ByLayer' or an integer 0–90", "bad_input");
+      }
+    }
+  }
+  if (op.patch.layer !== undefined) {
+    const layer = op.patch.layer;
+    if (typeof layer !== "string" || layer.length === 0) {
+      throw new EntityOpError("setDisplay: layer must be a layer id string", "bad_input");
+    }
+    if (op.layerExists !== undefined && !op.layerExists(layer)) {
+      throw new EntityOpError(`setDisplay: layer '${layer}' does not exist`, "bad_layer");
+    }
+  }
+  if (op.ids.length === 0) {
+    throw new EntityOpError("setDisplay requires a non-empty ids array", "bad_input");
+  }
+  const byId = new Map(elements.map((el) => [el.id, el] as const));
+  const edits: DocumentEdit[] = [];
+  const parts: string[] = [];
+  for (const id of op.ids) {
+    const el = byId.get(id);
+    if (el === undefined) throw new EntityOpError(`entity '${id}' does not exist`, "bad_id");
+    const props = el.props as Record<string, unknown>;
+    const current = displayOverridesOf(props);
+    const next: EntityDisplayOverrides = {
+      color: op.patch.color !== undefined ? (op.patch.color === "ByLayer" ? null : (op.patch.color as string)) : current.color,
+      linetype: op.patch.linetype !== undefined ? (op.patch.linetype === "ByLayer" ? null : (op.patch.linetype as string)) : current.linetype,
+      lineweight: op.patch.lineweight !== undefined ? (op.patch.lineweight === "ByLayer" ? null : (op.patch.lineweight as number)) : current.lineweight,
+      transparency: op.patch.transparency !== undefined ? (op.patch.transparency === "ByLayer" ? null : (op.patch.transparency as number)) : current.transparency,
+    };
+    const patch: Record<string, unknown> = {};
+    if (next.color !== null) patch.color = next.color;
+    if (next.linetype !== null) patch.linetype = next.linetype;
+    if (next.lineweight !== null) patch.lineweight = next.lineweight;
+    if (next.transparency !== null) patch.transparency = next.transparency;
+    if (op.patch.layer !== undefined) patch.layer = op.patch.layer;
+    // A ByLayer RESET must REMOVE the override field — updateElement merges
+    // patches, so a key can only disappear through a FULL setProps (the
+    // COMPAT-CAD-002 exact-inverse precedent). Mixed batches pick the edit
+    // kind PER ENTITY (only entities carrying a field to drop need setProps).
+    const resetting =
+      (op.patch.color === "ByLayer" && current.color !== null) ||
+      (op.patch.linetype === "ByLayer" && current.linetype !== null) ||
+      (op.patch.lineweight === "ByLayer" && current.lineweight !== null) ||
+      (op.patch.transparency === "ByLayer" && current.transparency !== null);
+    if (resetting) {
+      const full: Record<string, unknown> = { ...props, ...patch };
+      if (next.color === null) delete full.color;
+      if (next.linetype === null) delete full.linetype;
+      if (next.lineweight === null) delete full.lineweight;
+      if (next.transparency === null) delete full.transparency;
+      edits.push({ type: "setProps", elementId: id, patch: full });
+    } else {
+      edits.push({ type: "updateElement", elementId: id, patch });
+    }
+  }
+  if (op.patch.color !== undefined) parts.push(`color ${op.patch.color}`);
+  if (op.patch.linetype !== undefined) parts.push(`linetype ${op.patch.linetype}`);
+  if (op.patch.lineweight !== undefined) parts.push(`lineweight ${String(op.patch.lineweight)}`);
+  if (op.patch.transparency !== undefined) parts.push(`transparency ${String(op.patch.transparency)}`);
+  if (op.patch.layer !== undefined) parts.push(`layer ${op.patch.layer}`);
+  return outcome(edits, `${plurality(op.ids.length, "entity", "entities")} — ${parts.join(", ")}`, {
+    modified: op.ids.length,
+  });
 }
 
 function opMove(elements: readonly Element[], ids: readonly string[], dx: number, dy: number): EntityOpOutcome {
@@ -412,7 +602,10 @@ function opCopy(elements: readonly Element[], ids: readonly string[], dx: number
   const views = loadEntities(elements, ids);
   const edits: DocumentEdit[] = [];
   for (const view of views.values()) {
-    edits.push(addGeomEdit(moveGeom(view.geom, dx, dy), layerOfElement(view.element)));
+    // CAD-PARITY-004: copies inherit the source's display overrides
+    // (AutoCAD-class COPY semantics — display properties travel with the
+    // copy; the layer assignment travels too via layerOfElement).
+    edits.push(addGeomEdit(moveGeom(view.geom, dx, dy), layerOfElement(view.element), displayOverridesOf(view.element.props as Record<string, unknown>)));
   }
   return outcome(edits, `${plurality(ids.length, "copy", "copies")} created`, { created: ids.length });
 }

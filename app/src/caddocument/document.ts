@@ -29,37 +29,49 @@ import { createHash } from "node:crypto";
 import type {
   BimSettings,
   CADDocumentSnapshot,
+  DimStyleRecord,
   DocsSheetRecord,
-  IfcImportRecordView,
   DocsViewRecord,
   DocumentEdit,
   DraftingSettings,
   Element,
   EditorState,
   LayerRecord,
+  LayerStateRecord,
+  LtypeRecord,
+  TextStyleRecord,
   VersionMeta,
+  IfcImportRecordView,
 } from "../contracts/caddocument.js";
 import type { ModelHistory } from "../contracts/model.js";
 import { childVersion, rootVersion } from "./versioning.js";
 import { canonicalStringify } from "./serialization.js";
 import {
   DEFAULT_LAYER,
+  applyDimStylePatch,
   applyLayerPatch,
+  applyLtypePatch,
   applySheetPatch,
+  applyTextStylePatch,
   applyViewPatch,
+  captureLayerState,
   defaultBimSettings,
   defaultDraftingSettings,
+  deriveIfcImportSequence,
   deriveLayerSequence,
   deriveSheetSequence,
   deriveViewSequence,
   elementLayerReference,
   validateBimSettings,
+  validateDimStyleRecord,
   validateDocsSheetRecord,
   validateIfcImportRecord,
-  deriveIfcImportSequence,
   validateDocsViewRecord,
   validateDraftingSettings,
   validateLayerRecord,
+  validateLayerStateRecord,
+  validateLtypeRecord,
+  validateTextStyleRecord,
 } from "./workspace.js";
 import {
   appendRevision,
@@ -122,6 +134,17 @@ export class CADDocument {
   private readonly ifcImports: Map<string, IfcImportRecordView> = new Map();
   /** COMPAT-IFC-001: monotonic mint counter for `if-NNNNNN` identities. */
   private nextIfcImportSequence: number;
+  /** CAD-PARITY-004: user-defined linetypes (name-keyed — the domain
+   *  reference model; the built-in catalog is code-resolved). Insertion
+   *  order; edited through the DocumentEdit command model. */
+  private readonly ltypes: Map<string, LtypeRecord> = new Map();
+  /** CAD-PARITY-004: user-defined text styles (name-keyed). */
+  private readonly textStyles: Map<string, TextStyleRecord> = new Map();
+  /** CAD-PARITY-004: user-defined dimension styles (name-keyed). */
+  private readonly dimStyles: Map<string, DimStyleRecord> = new Map();
+  /** CAD-PARITY-004: named layer states (name-keyed; addLayerState on an
+   *  existing name replaces — LAYERSTATE re-save semantics). */
+  private readonly layerStates: Map<string, LayerStateRecord> = new Map();
   /** Ephemeral editor selection (§5.4 editor state). Orthogonal to the
    *  versioned document content: it is NOT in the version-id derivation and
    *  NOT in the parity content hash (§5.5). Since COMPAT-CAD-001 it IS
@@ -149,6 +172,10 @@ export class CADDocument {
     nextSheetSequence: number,
     ifcImports: Iterable<IfcImportRecordView>,
     nextIfcImportSequence: number,
+    ltypes: Iterable<LtypeRecord>,
+    textStyles: Iterable<TextStyleRecord>,
+    dimStyles: Iterable<DimStyleRecord>,
+    layerStates: Iterable<LayerStateRecord>,
   ) {
     this.version = version;
     for (const e of elements) this.elements.set(e.id, e);
@@ -169,6 +196,11 @@ export class CADDocument {
     this.nextSheetSequence = nextSheetSequence;
     for (const r of ifcImports) this.ifcImports.set(r.id, r);
     this.nextIfcImportSequence = nextIfcImportSequence;
+    // CAD-PARITY-004: the name-keyed standards/style/state tables.
+    for (const t of ltypes) this.ltypes.set(t.name, t);
+    for (const s of textStyles) this.textStyles.set(s.name, s);
+    for (const d of dimStyles) this.dimStyles.set(d.name, d);
+    for (const st of layerStates) this.layerStates.set(st.name, st);
   }
 
   /** Open a snapshot: load state, set version, clear undo/redo, adopt the
@@ -219,6 +251,17 @@ export class CADDocument {
     // (validated structurally, LOCK-007); a legacy snapshot opens with none.
     const ifcImports = [...(snapshot.ifcImports ?? [])];
     for (const record of ifcImports) validateIfcImportRecord(record);
+    // CAD-PARITY-004: adopt the name-keyed standards/style/state tables when
+    // present (validated structurally, LOCK-007); a legacy snapshot opens
+    // with empty tables (the built-in catalog/styles are code-resolved).
+    const ltypes = [...(snapshot.ltypes ?? [])];
+    for (const t of ltypes) validateLtypeRecord(t);
+    const textStyles = [...(snapshot.textStyles ?? [])];
+    for (const s of textStyles) validateTextStyleRecord(s);
+    const dimStyles = [...(snapshot.dimStyles ?? [])];
+    for (const d of dimStyles) validateDimStyleRecord(d);
+    const layerStates = [...(snapshot.layerStates ?? [])];
+    for (const st of layerStates) validateLayerStateRecord(st);
     return new CADDocument(
       snapshot.version,
       snapshot.elements,
@@ -239,6 +282,10 @@ export class CADDocument {
       Math.max(deriveSheetSequence(docsSheets), history.next_sheet_sequence ?? 1),
       ifcImports,
       Math.max(deriveIfcImportSequence(ifcImports), history.next_ifc_import_sequence ?? 1),
+      ltypes,
+      textStyles,
+      dimStyles,
+      layerStates,
     );
   }
 
@@ -268,6 +315,11 @@ export class CADDocument {
       1,
       [],
       1,
+      // CAD-PARITY-004: empty name-keyed tables (built-ins are code-resolved).
+      [],
+      [],
+      [],
+      [],
     );
   }
 
@@ -338,6 +390,15 @@ export class CADDocument {
    *  sub-edit), and the recorded inverse is the reversed inverse batch. One
    *  execute = one version = one revision = one undo entry. */
   execute(edit: DocumentEdit): DocumentEdit {
+    // CAD-PARITY-004: locked/frozen layer enforcement — the SINGLE semantic
+    // gate for every FORWARD edit path (App API commands, entity ops, raw
+    // document.applyEdit). Drafting entities on a LOCKED layer reject
+    // modification/removal; new drafting entities cannot be created on a
+    // FROZEN layer; moving an entity ONTO a locked/frozen layer is rejected.
+    // Undo/redo bypass this gate by design (journal semantics — undoing a
+    // locked-layer edit after a later lock change must never wedge the
+    // journal; AutoCAD-class behavior).
+    this.validateEditLocking(edit);
     const normalized = this.normalizeEdit(edit);
     const beforeElements = [...this.elements.values()];
     const inverse = this.applyWithInverse(normalized);
@@ -470,10 +531,106 @@ export class CADDocument {
       // COMPAT-IFC-001: deterministic import records — omitted when none so
       // legacy snapshots stay byte-identical (additive-optional contract).
       ...(this.ifcImports.size > 0 ? { ifcImports: [...this.ifcImports.values()] } : {}),
+      // CAD-PARITY-004: the name-keyed standards/style/state tables — omitted
+      // while empty so legacy snapshots (and the pinned parity fixture) stay
+      // byte-identical (additive-optional contract).
+      ...(this.ltypes.size > 0 ? { ltypes: [...this.ltypes.values()] } : {}),
+      ...(this.textStyles.size > 0 ? { textStyles: [...this.textStyles.values()] } : {}),
+      ...(this.dimStyles.size > 0 ? { dimStyles: [...this.dimStyles.values()] } : {}),
+      ...(this.layerStates.size > 0 ? { layerStates: [...this.layerStates.values()] } : {}),
     };
   }
 
   // --- Internals -----------------------------------------------------------
+
+  /** CAD-PARITY-004: locked/frozen layer enforcement for FORWARD edits (the
+   *  execute() gate — undo/redo bypass by journal semantics). The walk
+   * simulates applyEdits batches in order so a batch that unlocks a layer
+   * and then edits its entities is legitimate, while a batch that edits a
+   * locked layer's entities is rejected deterministically.
+   *  - DRAFTING entities (props.drafting === true) on a locked layer reject
+   *    updateElement/setProps/removeElement;
+   *  - new drafting entities cannot be ADDED to a frozen layer;
+   *  - a patch/setProps that reassigns an entity ONTO a locked or frozen
+   *    layer is rejected.
+   *  BIM/annotation elements are not layer-managed (documented scope). */
+  private validateEditLocking(edit: DocumentEdit): void {
+    const frozenOverrides = new Map<string, boolean>();
+    const lockedOverrides = new Map<string, boolean>();
+    const layerFrozen = (id: string): boolean => {
+      if (frozenOverrides.has(id)) return frozenOverrides.get(id) === true;
+      return this.layers.get(id)?.frozen === true;
+    };
+    const layerLocked = (id: string): boolean => {
+      if (lockedOverrides.has(id)) return lockedOverrides.get(id) === true;
+      return this.layers.get(id)?.locked === true;
+    };
+    const checkTargetLayer = (target: unknown): void => {
+      if (typeof target !== "string" || target.length === 0) return;
+      if (layerFrozen(target)) {
+        throw new Error(`layer '${target}' is frozen — entities cannot be assigned to a frozen layer`);
+      }
+      if (layerLocked(target)) {
+        throw new Error(`layer '${target}' is locked — entities cannot be assigned to a locked layer`);
+      }
+    };
+    const walk = (e: DocumentEdit): void => {
+      switch (e.type) {
+        case "applyEdits": {
+          for (const sub of e.edits) walk(sub);
+          return;
+        }
+        case "updateLayer": {
+          if (e.layerId === undefined) return;
+          frozenOverrides.set(e.layerId, e.patch.frozen !== undefined ? e.patch.frozen === true : layerFrozen(e.layerId));
+          lockedOverrides.set(e.layerId, e.patch.locked !== undefined ? e.patch.locked === true : layerLocked(e.layerId));
+          return;
+        }
+        case "addLayer": {
+          const layer = e.layer;
+          if (layer !== undefined) {
+            frozenOverrides.set(layer.id, layer.frozen === true);
+            lockedOverrides.set(layer.id, layer.locked === true);
+          }
+          return;
+        }
+        case "removeLayer":
+          return;
+        case "addElement": {
+          const p = e.element?.props as Record<string, unknown> | undefined;
+          if (p !== undefined && p.drafting === true && typeof p.layer === "string") {
+            if (layerFrozen(p.layer)) {
+              throw new Error(`layer '${p.layer}' is frozen — new entities cannot be created on a frozen layer`);
+            }
+          }
+          return;
+        }
+        case "updateElement":
+        case "setProps": {
+          const el = this.elements.get(e.elementId);
+          if (el === undefined) return;
+          const p = el.props as Record<string, unknown>;
+          if (p.drafting === true && typeof p.layer === "string" && layerLocked(p.layer)) {
+            throw new Error(`element '${el.id}' is on locked layer '${p.layer}' — unlock the layer to modify it`);
+          }
+          checkTargetLayer((e.patch as Record<string, unknown> | undefined)?.layer);
+          return;
+        }
+        case "removeElement": {
+          const el = this.elements.get(e.elementId);
+          if (el === undefined) return;
+          const p = el.props as Record<string, unknown>;
+          if (p.drafting === true && typeof p.layer === "string" && layerLocked(p.layer)) {
+            throw new Error(`element '${el.id}' is on locked layer '${p.layer}' — unlock the layer to erase it`);
+          }
+          return;
+        }
+        default:
+          return;
+      }
+    };
+    walk(edit);
+  }
 
   /** Canonical-identity normalization for incoming edits (§5.4):
    *  - addElement with a missing/non-string/empty id → the DOCUMENT mints a
@@ -805,6 +962,106 @@ export class CADDocument {
         this.docsSheets.delete(edit.sheetId);
         break;
       }
+      // --- CAD-PARITY-004 (additive): standards/style tables + layer states ---
+      case "addLtype": {
+        if (edit.ltype === undefined) throw new Error("addLtype requires ltype");
+        const ltype = validateLtypeRecord(edit.ltype);
+        if (this.ltypes.has(ltype.name)) {
+          throw new Error(`addLtype: linetype '${ltype.name}' already exists — remove it first`);
+        }
+        this.ltypes.set(ltype.name, ltype);
+        break;
+      }
+      case "updateLtype": {
+        if (edit.ltypeName === undefined || edit.patch === undefined) {
+          throw new Error("updateLtype requires ltypeName + patch");
+        }
+        const current = this.ltypes.get(edit.ltypeName);
+        if (current === undefined) throw new Error(`updateLtype: no linetype '${edit.ltypeName}'`);
+        this.ltypes.set(edit.ltypeName, applyLtypePatch(current, edit.patch));
+        break;
+      }
+      case "removeLtype": {
+        if (edit.ltypeName === undefined) throw new Error("removeLtype requires ltypeName");
+        if (!this.ltypes.has(edit.ltypeName)) throw new Error(`removeLtype: no linetype '${edit.ltypeName}'`);
+        this.assertLtypeUnreferenced(edit.ltypeName);
+        this.ltypes.delete(edit.ltypeName);
+        break;
+      }
+      case "addTextStyle": {
+        if (edit.style === undefined) throw new Error("addTextStyle requires style");
+        const style = validateTextStyleRecord(edit.style);
+        if (this.textStyles.has(style.name)) {
+          throw new Error(`addTextStyle: text style '${style.name}' already exists — remove it first`);
+        }
+        this.textStyles.set(style.name, style);
+        break;
+      }
+      case "updateTextStyle": {
+        if (edit.styleName === undefined || edit.patch === undefined) {
+          throw new Error("updateTextStyle requires styleName + patch");
+        }
+        const current = this.textStyles.get(edit.styleName);
+        if (current === undefined) throw new Error(`updateTextStyle: no text style '${edit.styleName}'`);
+        this.textStyles.set(edit.styleName, applyTextStylePatch(current, edit.patch));
+        break;
+      }
+      case "removeTextStyle": {
+        if (edit.styleName === undefined) throw new Error("removeTextStyle requires styleName");
+        if (!this.textStyles.has(edit.styleName)) throw new Error(`removeTextStyle: no text style '${edit.styleName}'`);
+        if (this.draftingSettingsState.textStyle === edit.styleName) {
+          throw new Error(`removeTextStyle: '${edit.styleName}' is the current text style — switch to another style first`);
+        }
+        this.textStyles.delete(edit.styleName);
+        break;
+      }
+      case "addDimStyle": {
+        if (edit.style === undefined) throw new Error("addDimStyle requires style");
+        const style = validateDimStyleRecord(edit.style);
+        if (this.dimStyles.has(style.name)) {
+          throw new Error(`addDimStyle: dimension style '${style.name}' already exists — remove it first`);
+        }
+        this.dimStyles.set(style.name, style);
+        break;
+      }
+      case "updateDimStyle": {
+        if (edit.styleName === undefined || edit.patch === undefined) {
+          throw new Error("updateDimStyle requires styleName + patch");
+        }
+        const current = this.dimStyles.get(edit.styleName);
+        if (current === undefined) throw new Error(`updateDimStyle: no dimension style '${edit.styleName}'`);
+        this.dimStyles.set(edit.styleName, applyDimStylePatch(current, edit.patch));
+        break;
+      }
+      case "removeDimStyle": {
+        if (edit.styleName === undefined) throw new Error("removeDimStyle requires styleName");
+        if (!this.dimStyles.has(edit.styleName)) throw new Error(`removeDimStyle: no dimension style '${edit.styleName}'`);
+        if (this.draftingSettingsState.dimStyle === edit.styleName) {
+          throw new Error(`removeDimStyle: '${edit.styleName}' is the current dimension style — switch to another style first`);
+        }
+        let refs = 0;
+        for (const el of this.elements.values()) {
+          if ((el.props as Record<string, unknown>).style === edit.styleName) refs += 1;
+        }
+        if (refs > 0) {
+          throw new Error(`removeDimStyle: '${edit.styleName}' is referenced by ${refs} dimension element(s) — reassign them first (no silent cascade)`);
+        }
+        this.dimStyles.delete(edit.styleName);
+        break;
+      }
+      case "addLayerState": {
+        if (edit.state === undefined) throw new Error("addLayerState requires state");
+        const state = validateLayerStateRecord(edit.state);
+        // Same-name re-save replaces (LAYERSTATE semantics).
+        this.layerStates.set(state.name, state);
+        break;
+      }
+      case "removeLayerState": {
+        if (edit.stateName === undefined) throw new Error("removeLayerState requires stateName");
+        if (!this.layerStates.has(edit.stateName)) throw new Error(`removeLayerState: no layer state '${edit.stateName}'`);
+        this.layerStates.delete(edit.stateName);
+        break;
+      }
       case "setViewRecord": {
         if (edit.viewId === undefined || edit.view === undefined) {
           throw new Error("setViewRecord requires viewId + view");
@@ -1000,6 +1257,87 @@ export class CADDocument {
         if (existing === undefined) throw new Error(`removeSheet: no sheet '${edit.sheetId}'`);
         return { type: "addSheet", sheet: existing };
       }
+      // --- CAD-PARITY-004 (additive): standards/style tables + layer states ---
+      case "addLtype": {
+        if (edit.ltype === undefined) throw new Error("addLtype requires ltype");
+        const ltype = validateLtypeRecord(edit.ltype);
+        return { type: "removeLtype", ltypeName: ltype.name };
+      }
+      case "updateLtype": {
+        if (edit.ltypeName === undefined || edit.patch === undefined) {
+          throw new Error("updateLtype requires ltypeName + patch");
+        }
+        const current = this.ltypes.get(edit.ltypeName);
+        if (current === undefined) throw new Error(`updateLtype: no linetype '${edit.ltypeName}'`);
+        const prevValues: Record<string, unknown> = {};
+        for (const k of Object.keys(edit.patch)) {
+          prevValues[k] = (current as unknown as Record<string, unknown>)[k];
+        }
+        return { type: "updateLtype", ltypeName: edit.ltypeName, patch: prevValues };
+      }
+      case "removeLtype": {
+        if (edit.ltypeName === undefined) throw new Error("removeLtype requires ltypeName");
+        const existing = this.ltypes.get(edit.ltypeName);
+        if (existing === undefined) throw new Error(`removeLtype: no linetype '${edit.ltypeName}'`);
+        return { type: "addLtype", ltype: existing };
+      }
+      case "addTextStyle": {
+        if (edit.style === undefined) throw new Error("addTextStyle requires style");
+        const style = validateTextStyleRecord(edit.style);
+        return { type: "removeTextStyle", styleName: style.name };
+      }
+      case "updateTextStyle": {
+        if (edit.styleName === undefined || edit.patch === undefined) {
+          throw new Error("updateTextStyle requires styleName + patch");
+        }
+        const current = this.textStyles.get(edit.styleName);
+        if (current === undefined) throw new Error(`updateTextStyle: no text style '${edit.styleName}'`);
+        const prevValues: Record<string, unknown> = {};
+        for (const k of Object.keys(edit.patch)) {
+          prevValues[k] = (current as unknown as Record<string, unknown>)[k];
+        }
+        return { type: "updateTextStyle", styleName: edit.styleName, patch: prevValues };
+      }
+      case "removeTextStyle": {
+        if (edit.styleName === undefined) throw new Error("removeTextStyle requires styleName");
+        const existing = this.textStyles.get(edit.styleName);
+        if (existing === undefined) throw new Error(`removeTextStyle: no text style '${edit.styleName}'`);
+        return { type: "addTextStyle", style: existing };
+      }
+      case "addDimStyle": {
+        if (edit.style === undefined) throw new Error("addDimStyle requires style");
+        const style = validateDimStyleRecord(edit.style);
+        return { type: "removeDimStyle", styleName: style.name };
+      }
+      case "updateDimStyle": {
+        if (edit.styleName === undefined || edit.patch === undefined) {
+          throw new Error("updateDimStyle requires styleName + patch");
+        }
+        const current = this.dimStyles.get(edit.styleName);
+        if (current === undefined) throw new Error(`updateDimStyle: no dimension style '${edit.styleName}'`);
+        const prevValues: Record<string, unknown> = {};
+        for (const k of Object.keys(edit.patch)) {
+          prevValues[k] = (current as unknown as Record<string, unknown>)[k];
+        }
+        return { type: "updateDimStyle", styleName: edit.styleName, patch: prevValues };
+      }
+      case "removeDimStyle": {
+        if (edit.styleName === undefined) throw new Error("removeDimStyle requires styleName");
+        const existing = this.dimStyles.get(edit.styleName);
+        if (existing === undefined) throw new Error(`removeDimStyle: no dimension style '${edit.styleName}'`);
+        return { type: "addDimStyle", style: existing };
+      }
+      case "addLayerState": {
+        if (edit.state === undefined) throw new Error("addLayerState requires state");
+        const state = validateLayerStateRecord(edit.state);
+        return { type: "removeLayerState", stateName: state.name };
+      }
+      case "removeLayerState": {
+        if (edit.stateName === undefined) throw new Error("removeLayerState requires stateName");
+        const existing = this.layerStates.get(edit.stateName);
+        if (existing === undefined) throw new Error(`removeLayerState: no layer state '${edit.stateName}'`);
+        return { type: "addLayerState", state: existing };
+      }
       default: {
         const _exhaustive = edit satisfies never;
         throw new Error(`unreachable edit type: ${JSON.stringify(_exhaustive)}`);
@@ -1016,6 +1354,72 @@ export class CADDocument {
   /** Look up a layer by canonical id. */
   layerById(id: string): LayerRecord | undefined {
     return this.layers.get(id);
+  }
+
+  // --- CAD-PARITY-004: the name-keyed standards/style/state tables ----------
+
+  /** The user-defined linetype table (insertion order). */
+  get ltypeTable(): readonly LtypeRecord[] {
+    return [...this.ltypes.values()];
+  }
+
+  /** Look up a user-defined linetype by name. */
+  ltypeByName(name: string): LtypeRecord | undefined {
+    return this.ltypes.get(name);
+  }
+
+  /** The user-defined text-style table (insertion order). */
+  get textStyleTable(): readonly TextStyleRecord[] {
+    return [...this.textStyles.values()];
+  }
+
+  /** Look up a user-defined text style by name. */
+  textStyleByName(name: string): TextStyleRecord | undefined {
+    return this.textStyles.get(name);
+  }
+
+  /** The user-defined dimension-style table (insertion order). */
+  get dimStyleTable(): readonly DimStyleRecord[] {
+    return [...this.dimStyles.values()];
+  }
+
+  /** Look up a user-defined dimension style by name. */
+  dimStyleByName(name: string): DimStyleRecord | undefined {
+    return this.dimStyles.get(name);
+  }
+
+  /** The named layer states (insertion order). */
+  get layerStateTable(): readonly LayerStateRecord[] {
+    return [...this.layerStates.values()];
+  }
+
+  /** Look up a layer state by name. */
+  layerStateByName(name: string): LayerStateRecord | undefined {
+    return this.layerStates.get(name);
+  }
+
+  /** Capture the current layer table as a LayerStateRecord body (the
+   *  LAYERSTATE save path; used by the App API layerState.save command). */
+  captureCurrentLayerState(name: string): LayerStateRecord {
+    return { name, layers: captureLayerState([...this.layers.values()]) };
+  }
+
+  /** Reference check for removeLtype: layers + entities referencing the
+   *  linetype name block removal (no silent cascade — the removeLayer
+   *  precedent). */
+  private assertLtypeUnreferenced(name: string): void {
+    for (const layer of this.layers.values()) {
+      if (layer.linetype === name) {
+        throw new Error(`removeLtype: linetype '${name}' is still used by layer '${layer.name}' — reassign it first (no silent cascade)`);
+      }
+    }
+    let refs = 0;
+    for (const el of this.elements.values()) {
+      if ((el.props as Record<string, unknown>).linetype === name) refs += 1;
+    }
+    if (refs > 0) {
+      throw new Error(`removeLtype: linetype '${name}' is still used by ${refs} element override(s) — reassign them first (no silent cascade)`);
+    }
   }
 
   /** Element lookup by canonical id (drafting command support). */

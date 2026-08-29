@@ -93,7 +93,6 @@ export function WorkspaceShell(): React.JSX.Element {
   const [paletteOpen, setPaletteOpen] = React.useState(false);
   const [helpOpen, setHelpOpen] = React.useState(false);
   const [aids, setAids] = React.useState<DraftingAids>(DEFAULT_DRAFTING_AIDS);
-  const [activeLayer, setActiveLayer] = React.useState("0");
   const [activeStoryId, setActiveStoryId] = React.useState<string | null>(null);
   const [cursor, setCursor] = React.useState<Vec2 | null>(null);
   const [engineState, setEngineState] = React.useState<PromptEngineState>(IDLE_PROMPT_STATE);
@@ -113,16 +112,11 @@ export function WorkspaceShell(): React.JSX.Element {
     if (snap !== null) {
       setSnapshot(snap);
       setSel(sel);
-      if (!(snap.layers ?? []).some((l) => l.id === activeLayer)) {
-        setActiveLayer(snap.layers?.[0]?.id ?? "0");
-      }
-      const story = (snap.elements ?? []).find((el) => el.kind === "bim" && (el.props as Record<string, unknown>).type === "bim.story");
-      if (activeStoryId === null && story !== undefined) setActiveStoryId(story.id);
       setError(null);
     } else if (!stateRes.ok) {
       setError(`[getState] ${stateRes.code}: ${stateRes.message}`);
     }
-  }, [activeLayer, activeStoryId]);
+  }, []);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -134,6 +128,32 @@ export function WorkspaceShell(): React.JSX.Element {
       cancelled = true;
     };
   }, []);
+
+  // CAD-PARITY-004: the ACTIVE layer is persisted document editor state
+  // (draftingSettings.activeLayer — CLAYER class, survives save/open and is
+  // identical on both hosts). Falls back to the first existing layer when
+  // the persisted id is stale; switched ONLY through layer.setActive.
+  const activeLayer = React.useMemo(() => {
+    const layers = snapshot?.layers ?? [];
+    const persisted = snapshot?.draftingSettings?.activeLayer;
+    if (persisted !== undefined && layers.some((l) => l.id === persisted)) return persisted;
+    return layers[0]?.id ?? "0";
+  }, [snapshot]);
+  const onActiveLayer = React.useCallback(
+    (layerId: string) => {
+      void (async () => {
+        const res = await send({ type: "command", name: "layer.setActive" as Command["name"], payload: { layerId } });
+        if (!res.ok) setError(`[layer.setActive] ${res.code}: ${res.message}`);
+        await refresh();
+      })();
+    },
+    [refresh],
+  );
+  // The status bar shows the layer NAME (the id stays canonical).
+  const activeLayerName = React.useMemo(
+    () => (snapshot?.layers ?? []).find((l) => l.id === activeLayer)?.name ?? activeLayer,
+    [snapshot, activeLayer],
+  );
 
   // --- engine context -----------------------------------------------------------
 
@@ -149,6 +169,9 @@ export function WorkspaceShell(): React.JSX.Element {
       elementCount: elements.length,
       storyCount: stories.length,
       currentSelection,
+      // CAD-PARITY-004: the layer table (name resolution for -LAYER/CHPROP/
+      // LAYON builders — the SAME document state both hosts pass).
+      layers: snapshot?.layers ?? [],
     });
   }, [snapshot, selection, activeLayer, activeStoryId]);
 
@@ -237,9 +260,26 @@ export function WorkspaceShell(): React.JSX.Element {
             } else if (palette === "navigator") {
               setDockTab("navigator");
               setDockVisible(true);
+            } else if (palette === "linetypes" || palette === "textStyles" || palette === "dimStyles") {
+              // CAD-PARITY-004: the style managers (LTYPE/STYLE/DIMSTYLE).
+              setDockTab("styles");
+              setDockVisible(true);
+            } else if (palette === "layerStates") {
+              // CAD-PARITY-004: LAYERSTATE — the states section of the Layers
+              // manager.
+              setDockTab("layers");
+              setDockVisible(true);
             } else if (palette === "workspace") {
               setPreset((p) => (p === "compact" ? "drafting" : "compact"));
             }
+            break;
+          }
+          case "toggle.lweight": {
+            // CAD-PARITY-004: LWEIGHT — the lineweight display toggle
+            // (persisted drafting setting; identical on both hosts).
+            const enabled = !(snapshot?.draftingSettings?.lineweightDisplay ?? false);
+            const res = await send({ type: "command", name: "drafting.setSettings" as Command["name"], payload: { settings: { lineweightDisplay: enabled } } });
+            if (!res.ok) setError(`[drafting.setSettings] ${res.code}: ${res.message}`);
             break;
           }
           case "toggle.ortho":
@@ -614,6 +654,56 @@ export function WorkspaceShell(): React.JSX.Element {
                 }}
                 onCommandStart={startCommand}
                 zoomExtentsSignal={zoomExtentsSignal}
+                onContextAction={(action, payload) => {
+                  // CAD-PARITY-004: the canvas context-menu actions (layer
+                  // toggles/isolation/managers — one App API command each).
+                  void (async () => {
+                    setBusy(true);
+                    try {
+                      if (action === "layer.toggleVisible" || action === "layer.toggleFrozen" || action === "layer.toggleLocked") {
+                        const layerId = payload as string;
+                        const layer = (snapshot?.layers ?? []).find((l) => l.id === layerId);
+                        if (layer !== undefined) {
+                          const patch: Record<string, unknown> =
+                            action === "layer.toggleVisible"
+                              ? { visible: !layer.visible }
+                              : action === "layer.toggleFrozen"
+                                ? { frozen: layer.frozen !== true }
+                                : { locked: layer.locked !== true };
+                          const res = await send({ type: "command", name: "drafting.updateLayer" as Command["name"], payload: { layerId, patch } });
+                          if (!res.ok) setError(`[drafting.updateLayer] ${res.code}: ${res.message}`);
+                        }
+                      } else if (action === "layer.isolate") {
+                        const res = await send({ type: "command", name: "layer.isolate" as Command["name"], payload: { layerIds: [payload as string] } });
+                        if (!res.ok) setError(`[layer.isolate] ${res.code}: ${res.message}`);
+                        else setHistoryLines((h) => [...h, "LAYISO: 1 layer isolated. LAYUNISO restores."]);
+                      } else if (action === "layer.setActive") {
+                        const res = await send({ type: "command", name: "layer.setActive" as Command["name"], payload: { layerId: payload as string } });
+                        if (!res.ok) setError(`[layer.setActive] ${res.code}: ${res.message}`);
+                      } else if (action === "layer.allOn") {
+                        const edits = (snapshot?.layers ?? []).map((l) => ({ type: "updateLayer" as const, layerId: l.id, patch: { visible: true } }));
+                        if (edits.length > 0) {
+                          const res = await send({ type: "command", name: "document.applyEdit" as Command["name"], payload: { edit: { type: "applyEdits", edits } } });
+                          if (!res.ok) setError(`[LAYON] ${res.code}: ${res.message}`);
+                          else setHistoryLines((h) => [...h, `LAYON: ${edits.length} layer(s) turned on.`]);
+                        }
+                      } else if (action === "layer.unisolate") {
+                        const res = await send({ type: "command", name: "layer.unisolate" as Command["name"], payload: {} });
+                        if (!res.ok) setError(`[LAYUNISO] ${res.code}: ${res.message}`);
+                        else setHistoryLines((h) => [...h, "LAYUNISO: layer table restored."]);
+                      } else if (action === "palette.layers") {
+                        setDockTab("layers");
+                        setDockVisible(true);
+                      } else if (action === "palette.properties") {
+                        setDockTab("properties");
+                        setDockVisible(true);
+                      }
+                    } finally {
+                      await refresh();
+                      setBusy(false);
+                    }
+                  })();
+                }}
               />
             )}
             {view === "bim3d" && <BimWorkbench />}
@@ -638,7 +728,12 @@ export function WorkspaceShell(): React.JSX.Element {
             gridEnabled={snapshot?.draftingSettings?.grid.enabled ?? true}
             snapEnabled={snapshot?.draftingSettings?.snap.enabled ?? true}
             units={snapshot?.draftingSettings?.units ?? "mm"}
-            activeLayer={activeLayer}
+            activeLayer={activeLayerName}
+            lineweightDisplay={snapshot?.draftingSettings?.lineweightDisplay ?? false}
+            onActiveLayerClick={() => {
+              setDockTab("layers");
+              setDockVisible(true);
+            }}
             activeStoryName={activeStoryName}
             selectionCount={selection.length}
             version={version?.version_number ?? 0}
@@ -653,6 +748,10 @@ export function WorkspaceShell(): React.JSX.Element {
                 void send({ type: "command", name: "drafting.setSettings" as Command["name"], payload: { settings: { [aid]: { enabled } } } }).then(refresh);
                 return;
               }
+              if (aid === "lweight") {
+                void send({ type: "command", name: "drafting.setSettings" as Command["name"], payload: { settings: { lineweightDisplay: !(snapshot?.draftingSettings?.lineweightDisplay ?? false) } } }).then(refresh);
+                return;
+              }
               setHistoryLines((h) => [...h, "OSNAP modes are configured in the layers palette settings."]);
             }}
           />
@@ -664,7 +763,7 @@ export function WorkspaceShell(): React.JSX.Element {
           activeTab={dockTab}
           onTab={setDockTab}
           activeLayer={activeLayer}
-          onActiveLayer={setActiveLayer}
+          onActiveLayer={onActiveLayer}
           activeStoryId={activeStoryId}
           onActiveStory={setActiveStoryId}
           onSelection={(ids) => void onSelectionChange(ids)}

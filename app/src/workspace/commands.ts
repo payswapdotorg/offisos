@@ -23,6 +23,7 @@
 import type { Vec2 } from "../drafting/precision.js";
 import { propsToGeom } from "./geometry/types.js";
 import { COMMANDS_2D } from "./commands-2d.js";
+import { COMMANDS_PROPS } from "./commands-props.js";
 import type {
   AppApiCommandPlanEntry,
   CommandCategory,
@@ -1012,6 +1013,7 @@ export const WORKSPACE_COMMANDS: readonly WorkspaceCommand[] = [
   },
   // --- CAD-PARITY-003 (Issue #78): the 2D draw/modify vocabulary ---------
   ...COMMANDS_2D,
+  ...COMMANDS_PROPS,
 ];
 
 function normalize(a: number): number {
