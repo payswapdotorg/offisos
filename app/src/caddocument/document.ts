@@ -38,6 +38,7 @@ import type {
   EditorState,
   LayerRecord,
   LayerStateRecord,
+  LayoutRecord,
   LtypeRecord,
   TextStyleRecord,
   VersionMeta,
@@ -45,6 +46,7 @@ import type {
   BlockDefinitionRecord,
   XrefRecord,
   ConstraintRecord,
+  ViewportRecord,
 } from "../contracts/caddocument.js";
 import type { ModelHistory } from "../contracts/model.js";
 import { childVersion, rootVersion } from "./versioning.js";
@@ -55,10 +57,12 @@ import {
   applyConstraintPatch,
   applyDimStylePatch,
   applyLayerPatch,
+  applyLayoutPatch,
   applyLtypePatch,
   applySheetPatch,
   applyTextStylePatch,
   applyViewPatch,
+  applyViewportPatch,
   applyXrefPatch,
   captureLayerState,
   defaultBimSettings,
@@ -67,8 +71,10 @@ import {
   deriveConstraintSequence,
   deriveIfcImportSequence,
   deriveLayerSequence,
+  deriveLayoutSequence,
   deriveSheetSequence,
   deriveViewSequence,
+  deriveViewportSequence,
   deriveXrefSequence,
   elementLayerReference,
   validateBimSettings,
@@ -81,8 +87,10 @@ import {
   validateDraftingSettings,
   validateLayerRecord,
   validateLayerStateRecord,
+  validateLayoutRecord,
   validateLtypeRecord,
   validateTextStyleRecord,
+  validateViewportRecord,
   validateXrefRecord,
 } from "./workspace.js";
 import { assertDefinitionGraph, normalizeBlockEntities, referencedBlockIds } from "../workspace/blocks/types.js";
@@ -187,6 +195,18 @@ export class CADDocument {
   private readonly constraints: Map<string, ConstraintRecord> = new Map();
   /** CAD-PARITY-007: monotonic mint counter for `con-NNNNNN` identities. */
   private nextConstraintSequence: number;
+  /** CAD-PARITY-008: the paper-space layout table (id-keyed, insertion-
+   *  ordered; edited ONLY through the DocumentEdit command model — one
+   *  edit = one revision = one undo entry; model geometry is REFERENCED
+   *  through viewport records, never copied). */
+  private readonly layouts: Map<string, LayoutRecord> = new Map();
+  /** CAD-PARITY-008: monotonic mint counter for `lo-NNNNNN` identities. */
+  private nextLayoutSequence: number;
+  /** CAD-PARITY-008: the rectangular layout viewport table (id-keyed,
+   *  insertion-ordered; the per-layout paper composition). */
+  private readonly viewports: Map<string, ViewportRecord> = new Map();
+  /** CAD-PARITY-008: monotonic mint counter for `vp-NNNNNN` identities. */
+  private nextViewportSequence: number;
   /** Ephemeral editor selection (§5.4 editor state). Orthogonal to the
    *  versioned document content: it is NOT in the version-id derivation and
    *  NOT in the parity content hash (§5.5). Since COMPAT-CAD-001 it IS
@@ -224,6 +244,10 @@ export class CADDocument {
     nextXrefSequence: number,
     constraints: Iterable<ConstraintRecord>,
     nextConstraintSequence: number,
+    layouts: Iterable<LayoutRecord>,
+    nextLayoutSequence: number,
+    viewports: Iterable<ViewportRecord>,
+    nextViewportSequence: number,
   ) {
     this.version = version;
     for (const e of elements) this.elements.set(e.id, e);
@@ -257,6 +281,11 @@ export class CADDocument {
     // CAD-PARITY-007: the declared constraint table.
     for (const c of constraints) this.constraints.set(c.id, c);
     this.nextConstraintSequence = nextConstraintSequence;
+    // CAD-PARITY-008: the layout + viewport tables.
+    for (const l of layouts) this.layouts.set(l.id, l);
+    this.nextLayoutSequence = nextLayoutSequence;
+    for (const v of viewports) this.viewports.set(v.id, v);
+    this.nextViewportSequence = nextViewportSequence;
   }
 
   /** Open a snapshot: load state, set version, clear undo/redo, adopt the
@@ -383,6 +412,45 @@ export class CADDocument {
       constraintIds.add(validated.id);
       constraints.push(validated);
     }
+    // CAD-PARITY-008: adopt the layout + viewport tables when present
+    // (validated structurally through the shared paper/viewport grammar,
+    // LOCK-007); a legacy snapshot opens with empty tables (the
+    // additive-feature default, not a repair). Viewport references are
+    // dangling-checked against the ADOPTED layout table (a viewport without
+    // its layout is corrupt, not repairable — LOCK-007).
+    const layouts: LayoutRecord[] = [];
+    const layoutIds = new Set<string>();
+    const layoutNames = new Set<string>();
+    for (const l of [...(snapshot.layouts ?? [])]) {
+      const validated = validateLayoutRecord(l);
+      if (layoutIds.has(validated.id)) {
+        throw new Error(`open: duplicate layout id '${validated.id}'`);
+      }
+      if (layoutNames.has(validated.name)) {
+        throw new Error(`open: duplicate layout name '${validated.name}'`);
+      }
+      layoutIds.add(validated.id);
+      layoutNames.add(validated.name);
+      layouts.push(validated);
+    }
+    const viewports: ViewportRecord[] = [];
+    const viewportIds = new Set<string>();
+    for (const v of [...(snapshot.viewports ?? [])]) {
+      const validated = validateViewportRecord(v);
+      if (viewportIds.has(validated.id)) {
+        throw new Error(`open: duplicate viewport id '${validated.id}'`);
+      }
+      if (!layoutIds.has(validated.layoutId)) {
+        throw new Error(`open: viewport '${validated.id}' references unknown layout '${validated.layoutId}'`);
+      }
+      viewportIds.add(validated.id);
+      viewports.push(validated);
+    }
+    // The active-layout editor reference must resolve when present.
+    const activeLayout = snapshot.draftingSettings?.activeLayout;
+    if (activeLayout !== undefined && !layoutIds.has(activeLayout)) {
+      throw new Error(`open: activeLayout '${activeLayout}' does not reference an adopted layout`);
+    }
     return new CADDocument(
       snapshot.version,
       snapshot.elements,
@@ -413,6 +481,10 @@ export class CADDocument {
       Math.max(deriveXrefSequence(xrefs), history.next_xref_sequence ?? 1),
       constraints,
       Math.max(deriveConstraintSequence(constraints), history.next_constraint_sequence ?? 1),
+      layouts,
+      Math.max(deriveLayoutSequence(layouts), history.next_layout_sequence ?? 1),
+      viewports,
+      Math.max(deriveViewportSequence(viewports), history.next_viewport_sequence ?? 1),
     );
   }
 
@@ -453,6 +525,11 @@ export class CADDocument {
       [],
       1,
       // CAD-PARITY-007: empty constraint table.
+      [],
+      1,
+      // CAD-PARITY-008: empty layout + viewport tables.
+      [],
+      1,
       [],
       1,
     );
@@ -560,6 +637,8 @@ export class CADDocument {
       nextBlockSequence: this.nextBlockSequence,
       nextXrefSequence: this.nextXrefSequence,
       nextConstraintSequence: this.nextConstraintSequence,
+      nextLayoutSequence: this.nextLayoutSequence,
+      nextViewportSequence: this.nextViewportSequence,
     });
     return inverse;
   }
@@ -609,6 +688,8 @@ export class CADDocument {
       nextBlockSequence: this.nextBlockSequence,
       nextXrefSequence: this.nextXrefSequence,
       nextConstraintSequence: this.nextConstraintSequence,
+      nextLayoutSequence: this.nextLayoutSequence,
+      nextViewportSequence: this.nextViewportSequence,
     });
     return entry.forward;
   }
@@ -642,6 +723,8 @@ export class CADDocument {
       nextBlockSequence: this.nextBlockSequence,
       nextXrefSequence: this.nextXrefSequence,
       nextConstraintSequence: this.nextConstraintSequence,
+      nextLayoutSequence: this.nextLayoutSequence,
+      nextViewportSequence: this.nextViewportSequence,
     });
     return entry.forward;
   }
@@ -690,6 +773,12 @@ export class CADDocument {
       // CAD-PARITY-007: the declared constraint graph — omitted while empty
       // (the same additive-optional contract; satisfaction is never stored).
       ...(this.constraints.size > 0 ? { constraints: [...this.constraints.values()] } : {}),
+      // CAD-PARITY-008: the layout + viewport tables — omitted while empty
+      // so legacy snapshots (and the pinned parity fixtures) stay
+      // byte-identical (the additive-optional contract; the plot IR is
+      // derived state, never stored).
+      ...(this.layouts.size > 0 ? { layouts: [...this.layouts.values()] } : {}),
+      ...(this.viewports.size > 0 ? { viewports: [...this.viewports.values()] } : {}),
     };
   }
 
@@ -883,6 +972,23 @@ export class CADDocument {
       let minted = this.mintConstraintId();
       while (this.constraints.has(minted)) minted = this.mintConstraintId();
       return { ...edit, constraint: { ...edit.constraint, id: minted } } as DocumentEdit;
+    }
+    // CAD-PARITY-008: addLayout mints a `lo-NNNNNN` identity when missing
+    // (the addConstraint pattern — the mint skips past taken ids).
+    if (edit.type === "addLayout") {
+      const raw = edit.layout as { id?: unknown };
+      if (typeof raw.id === "string" && raw.id.length > 0) return edit;
+      let minted = this.mintLayoutId();
+      while (this.layouts.has(minted)) minted = this.mintLayoutId();
+      return { ...edit, layout: { ...edit.layout, id: minted } } as DocumentEdit;
+    }
+    // CAD-PARITY-008: addViewport mints a `vp-NNNNNN` identity when missing.
+    if (edit.type === "addViewport") {
+      const raw = edit.viewport as { id?: unknown };
+      if (typeof raw.id === "string" && raw.id.length > 0) return edit;
+      let minted = this.mintViewportId();
+      while (this.viewports.has(minted)) minted = this.mintViewportId();
+      return { ...edit, viewport: { ...edit.viewport, id: minted } } as DocumentEdit;
     }
     if (edit.type !== "addElement") return edit;
     const element = edit.element;
@@ -1369,6 +1475,96 @@ export class CADDocument {
         this.constraints.delete(edit.constraintId);
         break;
       }
+      // --- CAD-PARITY-008 (additive): the layout + viewport tables -----
+      case "addLayout": {
+        if (edit.layout === undefined) throw new Error("addLayout requires layout");
+        const layout = validateLayoutRecord(edit.layout);
+        if (this.layouts.has(layout.id)) {
+          throw new Error(
+            `addLayout: layout id '${layout.id}' already exists — canonical layout identity must not be reused while the layout exists`,
+          );
+        }
+        this.assertLayoutNameFree(layout.name, null);
+        this.layouts.set(layout.id, layout);
+        break;
+      }
+      case "updateLayout": {
+        if (edit.layoutId === undefined || edit.patch === undefined) {
+          throw new Error("updateLayout requires layoutId + patch");
+        }
+        const current = this.layouts.get(edit.layoutId);
+        if (current === undefined) throw new Error(`updateLayout: no layout '${edit.layoutId}'`);
+        const merged = applyLayoutPatch(current, edit.patch);
+        this.assertLayoutNameFree(merged.name, edit.layoutId);
+        this.layouts.set(edit.layoutId, merged);
+        // Keep the editor reference honest: a rename never breaks the
+        // activeLayout reference (it references the immutable id).
+        break;
+      }
+      case "setLayoutRecord": {
+        if (edit.layoutId === undefined || edit.layout === undefined) {
+          throw new Error("setLayoutRecord requires layoutId + layout");
+        }
+        const layout = validateLayoutRecord(edit.layout);
+        if (layout.id !== edit.layoutId) throw new Error("setLayoutRecord: layout.id must equal layoutId");
+        if (!this.layouts.has(layout.id)) throw new Error(`setLayoutRecord: no layout '${layout.id}'`);
+        this.assertLayoutNameFree(layout.name, layout.id);
+        this.layouts.set(layout.id, layout);
+        break;
+      }
+      case "removeLayout": {
+        if (edit.layoutId === undefined) throw new Error("removeLayout requires layoutId");
+        if (!this.layouts.has(edit.layoutId)) throw new Error(`removeLayout: no layout '${edit.layoutId}'`);
+        this.assertLayoutUnreferenced(edit.layoutId);
+        // NOTE: the last-layout rule is a COMMAND-layer rule (LAYOUTDELETE),
+        // NOT a document-edit rule — undoing the FIRST layout creation
+        // replays removeLayout on a one-layout table and must succeed
+        // (journal semantics, the locked-layer-gate precedent).
+        this.layouts.delete(edit.layoutId);
+        break;
+      }
+      case "addViewport": {
+        if (edit.viewport === undefined) throw new Error("addViewport requires viewport");
+        const viewport = validateViewportRecord(edit.viewport);
+        if (this.viewports.has(viewport.id)) {
+          throw new Error(
+            `addViewport: viewport id '${viewport.id}' already exists — canonical viewport identity must not be reused while the viewport exists`,
+          );
+        }
+        if (!this.layouts.has(viewport.layoutId)) {
+          throw new Error(`addViewport: viewport references unknown layout '${viewport.layoutId}'`);
+        }
+        this.viewports.set(viewport.id, viewport);
+        break;
+      }
+      case "updateViewport": {
+        if (edit.viewportId === undefined || edit.patch === undefined) {
+          throw new Error("updateViewport requires viewportId + patch");
+        }
+        const current = this.viewports.get(edit.viewportId);
+        if (current === undefined) throw new Error(`updateViewport: no viewport '${edit.viewportId}'`);
+        this.viewports.set(edit.viewportId, applyViewportPatch(current, edit.patch));
+        break;
+      }
+      case "setViewportRecord": {
+        if (edit.viewportId === undefined || edit.viewport === undefined) {
+          throw new Error("setViewportRecord requires viewportId + viewport");
+        }
+        const viewport = validateViewportRecord(edit.viewport);
+        if (viewport.id !== edit.viewportId) throw new Error("setViewportRecord: viewport.id must equal viewportId");
+        if (!this.viewports.has(viewport.id)) throw new Error(`setViewportRecord: no viewport '${viewport.id}'`);
+        if (!this.layouts.has(viewport.layoutId)) {
+          throw new Error(`setViewportRecord: viewport references unknown layout '${viewport.layoutId}'`);
+        }
+        this.viewports.set(viewport.id, viewport);
+        break;
+      }
+      case "removeViewport": {
+        if (edit.viewportId === undefined) throw new Error("removeViewport requires viewportId");
+        if (!this.viewports.has(edit.viewportId)) throw new Error(`removeViewport: no viewport '${edit.viewportId}'`);
+        this.viewports.delete(edit.viewportId);
+        break;
+      }
       case "setViewRecord": {
         if (edit.viewId === undefined || edit.view === undefined) {
           throw new Error("setViewRecord requires viewId + view");
@@ -1768,6 +1964,83 @@ export class CADDocument {
         if (existing === undefined) throw new Error(`removeConstraint: no constraint '${edit.constraintId}'`);
         return { type: "addConstraint", constraint: existing };
       }
+      // --- CAD-PARITY-008 (additive): layout + viewport inverses --------
+      case "addLayout": {
+        if (edit.layout === undefined) throw new Error("addLayout requires layout");
+        const layout = validateLayoutRecord(edit.layout);
+        return { type: "removeLayout", layoutId: layout.id };
+      }
+      case "updateLayout": {
+        if (edit.layoutId === undefined || edit.patch === undefined) {
+          throw new Error("updateLayout requires layoutId + patch");
+        }
+        const current = this.layouts.get(edit.layoutId);
+        if (current === undefined) throw new Error(`updateLayout: no layout '${edit.layoutId}'`);
+        const patchKeys = Object.keys(edit.patch);
+        const addsKey = patchKeys.some(
+          (k) => !Object.prototype.hasOwnProperty.call(current as unknown as Record<string, unknown>, k),
+        );
+        if (addsKey) {
+          return { type: "setLayoutRecord", layoutId: edit.layoutId, layout: current };
+        }
+        const prevValues: Record<string, unknown> = {};
+        for (const k of patchKeys) {
+          prevValues[k] = (current as unknown as Record<string, unknown>)[k];
+        }
+        return { type: "updateLayout", layoutId: edit.layoutId, patch: prevValues };
+      }
+      case "setLayoutRecord": {
+        if (edit.layoutId === undefined || edit.layout === undefined) {
+          throw new Error("setLayoutRecord requires layoutId + layout");
+        }
+        const current = this.layouts.get(edit.layoutId);
+        if (current === undefined) throw new Error(`setLayoutRecord: no layout '${edit.layoutId}'`);
+        return { type: "setLayoutRecord", layoutId: edit.layoutId, layout: current };
+      }
+      case "removeLayout": {
+        if (edit.layoutId === undefined) throw new Error("removeLayout requires layoutId");
+        const existing = this.layouts.get(edit.layoutId);
+        if (existing === undefined) throw new Error(`removeLayout: no layout '${edit.layoutId}'`);
+        return { type: "addLayout", layout: existing };
+      }
+      case "addViewport": {
+        if (edit.viewport === undefined) throw new Error("addViewport requires viewport");
+        const viewport = validateViewportRecord(edit.viewport);
+        return { type: "removeViewport", viewportId: viewport.id };
+      }
+      case "updateViewport": {
+        if (edit.viewportId === undefined || edit.patch === undefined) {
+          throw new Error("updateViewport requires viewportId + patch");
+        }
+        const current = this.viewports.get(edit.viewportId);
+        if (current === undefined) throw new Error(`updateViewport: no viewport '${edit.viewportId}'`);
+        const patchKeys = Object.keys(edit.patch);
+        const addsKey = patchKeys.some(
+          (k) => !Object.prototype.hasOwnProperty.call(current as unknown as Record<string, unknown>, k),
+        );
+        if (addsKey) {
+          return { type: "setViewportRecord", viewportId: edit.viewportId, viewport: current };
+        }
+        const prevValues: Record<string, unknown> = {};
+        for (const k of patchKeys) {
+          prevValues[k] = (current as unknown as Record<string, unknown>)[k];
+        }
+        return { type: "updateViewport", viewportId: edit.viewportId, patch: prevValues };
+      }
+      case "setViewportRecord": {
+        if (edit.viewportId === undefined || edit.viewport === undefined) {
+          throw new Error("setViewportRecord requires viewportId + viewport");
+        }
+        const current = this.viewports.get(edit.viewportId);
+        if (current === undefined) throw new Error(`setViewportRecord: no viewport '${edit.viewportId}'`);
+        return { type: "setViewportRecord", viewportId: edit.viewportId, viewport: current };
+      }
+      case "removeViewport": {
+        if (edit.viewportId === undefined) throw new Error("removeViewport requires viewportId");
+        const existing = this.viewports.get(edit.viewportId);
+        if (existing === undefined) throw new Error(`removeViewport: no viewport '${edit.viewportId}'`);
+        return { type: "addViewport", viewport: existing };
+      }
       default: {
         const _exhaustive = edit satisfies never;
         throw new Error(`unreachable edit type: ${JSON.stringify(_exhaustive)}`);
@@ -1876,6 +2149,51 @@ export class CADDocument {
     return this.constraints.get(id);
   }
 
+  // --- CAD-PARITY-008: the layout + viewport tables -------------------------
+
+  /** The paper-space layout table (insertion order). */
+  get layoutTable(): readonly LayoutRecord[] {
+    return [...this.layouts.values()];
+  }
+
+  /** Look up one layout by canonical id. */
+  layoutById(id: string): LayoutRecord | undefined {
+    return this.layouts.get(id);
+  }
+
+  /** Look up one layout by its unique user-facing name. */
+  layoutByName(name: string): LayoutRecord | undefined {
+    for (const l of this.layouts.values()) {
+      if (l.name === name) return l;
+    }
+    return undefined;
+  }
+
+  /** The rectangular layout viewport table (insertion order). */
+  get viewportTable(): readonly ViewportRecord[] {
+    return [...this.viewports.values()];
+  }
+
+  /** Look up one viewport by canonical id. */
+  viewportById(id: string): ViewportRecord | undefined {
+    return this.viewports.get(id);
+  }
+
+  /** The viewports of ONE layout (table order — the deterministic z-order). */
+  viewportsOfLayout(layoutId: string): readonly ViewportRecord[] {
+    return [...this.viewports.values()].filter((v) => v.layoutId === layoutId);
+  }
+
+  /** Current mint counter for layout identities (persisted via the history). */
+  get layoutSequence(): number {
+    return this.nextLayoutSequence;
+  }
+
+  /** Current mint counter for viewport identities (persisted via the history). */
+  get viewportSequence(): number {
+    return this.nextViewportSequence;
+  }
+
   /** Mint a canonical block-definition identity (`blk-NNNNNN`, monotonic,
    *  never reused) — document authority, mirrors mintLayerId. */
   mintBlockId(): string {
@@ -1897,6 +2215,22 @@ export class CADDocument {
   mintConstraintId(): string {
     const minted = `con-${String(this.nextConstraintSequence).padStart(6, "0")}`;
     this.nextConstraintSequence += 1;
+    return minted;
+  }
+
+  /** CAD-PARITY-008: mint a canonical layout identity (`lo-NNNNNN`,
+   *  monotonic, never reused) — document authority. */
+  mintLayoutId(): string {
+    const minted = `lo-${String(this.nextLayoutSequence).padStart(6, "0")}`;
+    this.nextLayoutSequence += 1;
+    return minted;
+  }
+
+  /** CAD-PARITY-008: mint a canonical viewport identity (`vp-NNNNNN`,
+   *  monotonic, never reused) — document authority. */
+  mintViewportId(): string {
+    const minted = `vp-${String(this.nextViewportSequence).padStart(6, "0")}`;
+    this.nextViewportSequence += 1;
     return minted;
   }
 
@@ -1987,6 +2321,33 @@ export class CADDocument {
     if (instances > 0) {
       throw new Error(
         `removeXref: '${id}' is referenced by ${instances} reference instance${instances === 1 ? "" : "s"} — detach through the reference manager (XDETACH) instead`,
+      );
+    }
+  }
+
+  // --- CAD-PARITY-008: layout reference checks -------------------------------
+
+  /** Uniqueness check for layout names (rename keeps names unique). */
+  private assertLayoutNameFree(name: string, excludeId: string | null): void {
+    for (const l of this.layouts.values()) {
+      if (l.id !== excludeId && l.name === name) {
+        throw new Error(`layout name '${name}' already exists — layout names are unique`);
+      }
+    }
+  }
+
+  /** Reference check for removeLayout: viewport records referencing the
+   *  layout block removal — the LAYOUTDELETE command removes the viewports
+   *  and the record as ONE atomic batch (the xref.detach precedent — the
+   *  explicit cascade lives at the command layer, never silently here). */
+  private assertLayoutUnreferenced(id: string): void {
+    let refs = 0;
+    for (const v of this.viewports.values()) {
+      if (v.layoutId === id) refs += 1;
+    }
+    if (refs > 0) {
+      throw new Error(
+        `removeLayout: '${id}' is referenced by ${refs} viewport${refs === 1 ? "" : "s"} — LAYOUTDELETE removes the layout and its viewports as one atomic command`,
       );
     }
   }

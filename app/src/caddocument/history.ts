@@ -131,6 +131,12 @@ export interface RecordRevisionInput {
   /** CAD-PARITY-007: the constraint mint counter after this revision
    *  (never-reused `con-NNNNNN` identities). */
   readonly nextConstraintSequence?: number;
+  /** CAD-PARITY-008: the layout mint counter after this revision
+   *  (never-reused `lo-NNNNNN` identities). */
+  readonly nextLayoutSequence?: number;
+  /** CAD-PARITY-008: the viewport mint counter after this revision
+   *  (never-reused `vp-NNNNNN` identities). */
+  readonly nextViewportSequence?: number;
 }
 
 /** Append one immutable revision to a history (returns a NEW frozen
@@ -160,6 +166,8 @@ export function appendRevision(input: RecordRevisionInput): ModelHistory {
   const nextBlock = Math.max(history.next_block_sequence ?? 1, input.nextBlockSequence ?? 1);
   const nextXref = Math.max(history.next_xref_sequence ?? 1, input.nextXrefSequence ?? 1);
   const nextConstraint = Math.max(history.next_constraint_sequence ?? 1, input.nextConstraintSequence ?? 1);
+  const nextLayout = Math.max(history.next_layout_sequence ?? 1, input.nextLayoutSequence ?? 1);
+  const nextViewport = Math.max(history.next_viewport_sequence ?? 1, input.nextViewportSequence ?? 1);
   return deepFreeze({
     entity_id: history.entity_id,
     format: history.format,
@@ -173,6 +181,8 @@ export function appendRevision(input: RecordRevisionInput): ModelHistory {
     ...(nextBlock > 1 ? { next_block_sequence: nextBlock } : {}),
     ...(nextXref > 1 ? { next_xref_sequence: nextXref } : {}),
     ...(nextConstraint > 1 ? { next_constraint_sequence: nextConstraint } : {}),
+    ...(nextLayout > 1 ? { next_layout_sequence: nextLayout } : {}),
+    ...(nextViewport > 1 ? { next_viewport_sequence: nextViewport } : {}),
     revisions: deepFreeze([...history.revisions, revision]),
   });
 }
@@ -444,6 +454,45 @@ export function applyEditToElements(map: Map<string, Element>, edit: DocumentEdi
       if (edit.constraintId === undefined) throw new Error("replay: removeConstraint requires constraintId");
       break;
     }
+    // CAD-PARITY-008: layout/viewport-table edits are element-set no-ops
+    // (the table replays through the recorded applied edits; the element
+    // delta stays empty — the constraint precedent).
+    case "addLayout": {
+      if (edit.layout === undefined) throw new Error("replay: addLayout requires layout");
+      break;
+    }
+    case "updateLayout": {
+      if (edit.layoutId === undefined) throw new Error("replay: updateLayout requires layoutId");
+      break;
+    }
+    case "setLayoutRecord": {
+      if (edit.layoutId === undefined || edit.layout === undefined) {
+        throw new Error("replay: setLayoutRecord requires layoutId + layout");
+      }
+      break;
+    }
+    case "removeLayout": {
+      if (edit.layoutId === undefined) throw new Error("replay: removeLayout requires layoutId");
+      break;
+    }
+    case "addViewport": {
+      if (edit.viewport === undefined) throw new Error("replay: addViewport requires viewport");
+      break;
+    }
+    case "updateViewport": {
+      if (edit.viewportId === undefined) throw new Error("replay: updateViewport requires viewportId");
+      break;
+    }
+    case "setViewportRecord": {
+      if (edit.viewportId === undefined || edit.viewport === undefined) {
+        throw new Error("replay: setViewportRecord requires viewportId + viewport");
+      }
+      break;
+    }
+    case "removeViewport": {
+      if (edit.viewportId === undefined) throw new Error("replay: removeViewport requires viewportId");
+      break;
+    }
     default: {
       const _exhaustive = edit satisfies never;
       throw new Error(`replay: unreachable edit type: ${JSON.stringify(_exhaustive)}`);
@@ -538,7 +587,12 @@ function isValidDocumentEdit(v: unknown): boolean {
     v.type !== "setXrefRecord" &&
     // CAD-PARITY-007 additive edit types (the parametric constraint table).
     v.type !== "addConstraint" && v.type !== "updateConstraint" && v.type !== "removeConstraint" &&
-    v.type !== "setConstraintRecord"
+    v.type !== "setConstraintRecord" &&
+    // CAD-PARITY-008 additive edit types (the layout + viewport tables).
+    v.type !== "addLayout" && v.type !== "updateLayout" && v.type !== "removeLayout" &&
+    v.type !== "setLayoutRecord" &&
+    v.type !== "addViewport" && v.type !== "updateViewport" && v.type !== "removeViewport" &&
+    v.type !== "setViewportRecord"
   ) {
     return false;
   }
@@ -732,6 +786,22 @@ export function validateModelHistory(history: unknown): asserts history is Model
       history.next_constraint_sequence < 1)
   ) {
     throw new Error("modelHistory.next_constraint_sequence must be a positive integer when present");
+  }
+  if (
+    history.next_layout_sequence !== undefined &&
+    (typeof history.next_layout_sequence !== "number" ||
+      !Number.isInteger(history.next_layout_sequence) ||
+      history.next_layout_sequence < 1)
+  ) {
+    throw new Error("modelHistory.next_layout_sequence must be a positive integer when present");
+  }
+  if (
+    history.next_viewport_sequence !== undefined &&
+    (typeof history.next_viewport_sequence !== "number" ||
+      !Number.isInteger(history.next_viewport_sequence) ||
+      history.next_viewport_sequence < 1)
+  ) {
+    throw new Error("modelHistory.next_viewport_sequence must be a positive integer when present");
   }
   if (!Array.isArray(history.revisions)) throw new Error("modelHistory.revisions must be an array");
   for (const [i, rev] of history.revisions.entries()) {

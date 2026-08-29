@@ -17,6 +17,11 @@ export interface OffisosCadApi {
    *  main-process dialog) — the typed pick outcome; `content` is the parsed
    *  offisos snapshot object for xref.attach/xref.reload. */
   pickReferenceFile(): Promise<OffisosReferenceFilePick>;
+  /** CAD-PARITY-008 (Issue #88): the plot-artifact save flow — pickSavePath
+   *  (the main-process showSaveDialog) + savePlotFile (the single fs write
+   *  of the deterministic SVG/PDF artifact). Typed outcomes. */
+  pickSavePath(defaultPath?: string): Promise<{ status: "canceled" } | { status: "saved"; filePath: string } | { status: "error"; message: string }>;
+  savePlotFile(payload: { filePath: string; text?: string; bytesBase64?: string }): Promise<{ status: "saved"; size: number } | { status: "error"; message: string }>;
 }
 
 /** The cad:pickReferenceFile outcome (CAD-PARITY-006). */

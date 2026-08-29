@@ -31,10 +31,12 @@ import type {
   LayerRecord,
   LayerStateEntry,
   LayerStateRecord,
+  LayoutRecord,
   LtypeRecord,
   SnapKind,
   IfcImportRecordView,
   TextStyleRecord,
+  ViewportRecord,
 } from "../contracts/caddocument.js";
 import { DOCS_SHEET_FRAME as SHEET_FRAME } from "../contracts/caddocument.js";
 // CAD-PARITY-004: the shared standards constants (built-in linetype catalog,
@@ -46,6 +48,11 @@ import {
   isStandardLineweight,
   STANDARD_DEFAULT_LINEWEIGHT,
 } from "../workspace/standards/index.js";
+// CAD-PARITY-008: the shared paper/page-setup grammar (the constraints-core
+// precedent: the shared grammar IS the validator — type-only contracts import
+// plus this one runtime import; no cycle: layouts/paper imports contracts
+// types only).
+import { validatePageSetup } from "../workspace/layouts/paper.js";
 
 /** Canonical BIM camera presets (COMPAT-CAD-002). */
 export const BIM_CAMERA_PRESETS: readonly BimCameraPreset[] = ["iso", "top", "front", "right"];
@@ -268,6 +275,8 @@ export function validateDraftingSettings(value: unknown): DraftingSettings {
     textStyle?: string;
     dimStyle?: string;
     standards?: DrawingStandards;
+    activeLayout?: string;
+    space?: "model" | "paper";
   } = {};
   if (s.activeLayer !== undefined) {
     if (typeof s.activeLayer !== "string" || (s.activeLayer as string).length === 0) {
@@ -318,6 +327,22 @@ export function validateDraftingSettings(value: unknown): DraftingSettings {
       standards.annotationScale = st.annotationScale as number;
     }
     optional.standards = standards;
+  }
+  // CAD-PARITY-008 (additive + optional): the active layout id + the
+  // TILEMODE-class space context (persisted editor state; cross-reference
+  // checks like activeLayout existence live in the App API layer where the
+  // adopted table is available — the activeLayer precedent).
+  if (s.activeLayout !== undefined) {
+    if (typeof s.activeLayout !== "string" || (s.activeLayout as string).length === 0) {
+      throw new Error("draftingSettings.activeLayout must be a non-empty string when present");
+    }
+    optional.activeLayout = s.activeLayout as string;
+  }
+  if (s.space !== undefined) {
+    if (s.space !== "model" && s.space !== "paper") {
+      throw new Error("draftingSettings.space must be 'model' or 'paper' when present");
+    }
+    optional.space = s.space;
   }
   return {
     units: "mm",
@@ -1228,6 +1253,192 @@ export function deriveConstraintSequence(constraints: readonly ConstraintRecord[
   let max = 0;
   for (const c of constraints) {
     const m = /^con-(\d{6,})$/.exec(c.id);
+    if (m !== null && m[1] !== undefined) max = Math.max(max, Number.parseInt(m[1], 10));
+  }
+  return max + 1;
+}
+
+// --- CAD-PARITY-008 (additive): the layout + viewport tables ---------------
+
+/** CAD-PARITY-008: validate + normalize a layout record (the structural
+ *  grammar — the embedded page setup validates through the SHARED paper
+ *  module so document state, commands and hosts agree on every value,
+ *  LOCK-007). */
+export function validateLayoutRecord(record: unknown): LayoutRecord {
+  if (typeof record !== "object" || record === null) {
+    throw new Error("layout record must be an object");
+  }
+  const r = record as Record<string, unknown>;
+  if (typeof r.id !== "string" || r.id.length === 0) {
+    throw new Error("layout record: id must be a non-empty string");
+  }
+  if (typeof r.name !== "string" || r.name.trim().length === 0 || r.name.length > 255) {
+    throw new Error(`layout '${r.id}': name must be a non-empty trimmed string (max 255 chars)`);
+  }
+  if (typeof r.createdAt !== "string" || r.createdAt.length === 0) {
+    throw new Error(`layout '${r.id}': createdAt must be a non-empty string`);
+  }
+  let pageSetup: LayoutRecord["pageSetup"];
+  try {
+    pageSetup = validatePageSetup(r.pageSetup);
+  } catch (e) {
+    throw new Error(`layout '${r.name}': ${(e as Error).message}`);
+  }
+  return { id: r.id, name: r.name, pageSetup, createdAt: r.createdAt };
+}
+
+/** Keys a layout patch may carry (id/createdAt are the record identity —
+ *  immutable; pageSetup replaces the whole embedded object). */
+const LAYOUT_PATCH_KEYS = ["name", "pageSetup"] as const;
+
+/** Validate + merge an updateLayout patch (the merged record re-validates
+ *  as a whole through the shared grammar). */
+export function applyLayoutPatch(current: LayoutRecord, patch: Readonly<Record<string, unknown>>): LayoutRecord {
+  for (const key of Object.keys(patch)) {
+    if (key === "id" || key === "createdAt") {
+      throw new Error("updateLayout: id/createdAt are the layout identity — immutable");
+    }
+    if (!(LAYOUT_PATCH_KEYS as readonly string[]).includes(key)) {
+      throw new Error(`updateLayout: unknown field '${key}' (allowed: ${LAYOUT_PATCH_KEYS.join(", ")})`);
+    }
+  }
+  const cleaned: Record<string, unknown> = { ...current };
+  for (const [key, value] of Object.entries(patch)) {
+    if (value === undefined) continue;
+    cleaned[key] = value;
+  }
+  return validateLayoutRecord(cleaned);
+}
+
+/** CAD-PARITY-008: derive the layout mint-sequence counter from existing
+ *  minted ids (`lo-NNNNNN`) — the deriveConstraintSequence contract. */
+export function deriveLayoutSequence(layouts: readonly LayoutRecord[]): number {
+  let max = 0;
+  for (const l of layouts) {
+    const m = /^lo-(\d{6,})$/.exec(l.id);
+    if (m !== null && m[1] !== undefined) max = Math.max(max, Number.parseInt(m[1], 10));
+  }
+  return max + 1;
+}
+
+/** CAD-PARITY-008: validate + normalize a viewport record (the structural
+ *  grammar: a non-degenerate paper rectangle, a finite camera/scale/
+ *  rotation triple and at most ONE override entry per layer). */
+export function validateViewportRecord(record: unknown): ViewportRecord {
+  if (typeof record !== "object" || record === null) {
+    throw new Error("viewport record must be an object");
+  }
+  const r = record as Record<string, unknown>;
+  if (typeof r.id !== "string" || r.id.length === 0) {
+    throw new Error("viewport record: id must be a non-empty string");
+  }
+  if (typeof r.layoutId !== "string" || r.layoutId.length === 0) {
+    throw new Error(`viewport '${r.id}': layoutId must be a non-empty string`);
+  }
+  const corner = (v: unknown, which: string): readonly [number, number] => {
+    if (!Array.isArray(v) || v.length !== 2 || typeof v[0] !== "number" || typeof v[1] !== "number" || !Number.isFinite(v[0]) || !Number.isFinite(v[1])) {
+      throw new Error(`viewport '${r.id}': corner${which} must be [number, number]`);
+    }
+    return [v[0] as number, v[1] as number];
+  };
+  const corner1 = corner(r.corner1, "1");
+  const corner2 = corner(r.corner2, "2");
+  if (Math.abs(corner1[0] - corner2[0]) < 1e-9 || Math.abs(corner1[1] - corner2[1]) < 1e-9) {
+    throw new Error(`viewport '${r.id}': the paper rectangle is degenerate (zero width or height)`);
+  }
+  const camera = r.camera;
+  if (typeof camera !== "object" || camera === null) {
+    throw new Error(`viewport '${r.id}': camera must be an object`);
+  }
+  const cam = camera as Record<string, unknown>;
+  if (typeof cam.centerX !== "number" || !Number.isFinite(cam.centerX) || typeof cam.centerY !== "number" || !Number.isFinite(cam.centerY)) {
+    throw new Error(`viewport '${r.id}': camera.centerX/centerY must be finite numbers`);
+  }
+  if (typeof r.scaleDenominator !== "number" || !Number.isFinite(r.scaleDenominator) || (r.scaleDenominator as number) <= 0) {
+    throw new Error(`viewport '${r.id}': scaleDenominator must be a positive finite number (model units per paper mm)`);
+  }
+  if (typeof r.rotationDeg !== "number" || !Number.isFinite(r.rotationDeg)) {
+    throw new Error(`viewport '${r.id}': rotationDeg must be a finite number`);
+  }
+  if (r.locked !== undefined && typeof r.locked !== "boolean") {
+    throw new Error(`viewport '${r.id}': locked must be a boolean when present`);
+  }
+  let layerOverrides: ViewportRecord["layerOverrides"];
+  if (r.layerOverrides !== undefined) {
+    if (!Array.isArray(r.layerOverrides)) {
+      throw new Error(`viewport '${r.id}': layerOverrides must be an array when present`);
+    }
+    const seen = new Set<string>();
+    const overrides: { layerId: string; visible?: boolean; frozen?: boolean }[] = [];
+    for (const raw of r.layerOverrides) {
+      if (typeof raw !== "object" || raw === null) {
+        throw new Error(`viewport '${r.id}': each layer override must be an object`);
+      }
+      const o = raw as Record<string, unknown>;
+      if (typeof o.layerId !== "string" || (o.layerId as string).length === 0) {
+        throw new Error(`viewport '${r.id}': a layer override requires a non-empty layerId`);
+      }
+      if (o.visible !== undefined && typeof o.visible !== "boolean") {
+        throw new Error(`viewport '${r.id}': override visible must be a boolean when present`);
+      }
+      if (o.frozen !== undefined && typeof o.frozen !== "boolean") {
+        throw new Error(`viewport '${r.id}': override frozen must be a boolean when present`);
+      }
+      if (seen.has(o.layerId as string)) {
+        throw new Error(`viewport '${r.id}': duplicate layer override for '${o.layerId as string}' (one entry per layer)`);
+      }
+      seen.add(o.layerId as string);
+      overrides.push({
+        layerId: o.layerId as string,
+        ...(o.visible !== undefined ? { visible: o.visible as boolean } : {}),
+        ...(o.frozen !== undefined ? { frozen: o.frozen as boolean } : {}),
+      });
+    }
+    layerOverrides = overrides;
+  }
+  return {
+    id: r.id as string,
+    layoutId: r.layoutId as string,
+    corner1,
+    corner2,
+    camera: { centerX: cam.centerX as number, centerY: cam.centerY as number },
+    scaleDenominator: r.scaleDenominator as number,
+    rotationDeg: r.rotationDeg as number,
+    ...(r.locked !== undefined ? { locked: r.locked as boolean } : {}),
+    ...(layerOverrides !== undefined ? { layerOverrides } : {}),
+  };
+}
+
+/** Keys a viewport patch may carry (id/layoutId are the record identity —
+ *  immutable; moving a viewport to another layout is a remove + re-create,
+ *  the honest bounded rule). */
+const VIEWPORT_PATCH_KEYS = ["corner1", "corner2", "camera", "scaleDenominator", "rotationDeg", "locked", "layerOverrides"] as const;
+
+/** Validate + merge an updateViewport patch (the merged record re-validates
+ *  as a whole). */
+export function applyViewportPatch(current: ViewportRecord, patch: Readonly<Record<string, unknown>>): ViewportRecord {
+  for (const key of Object.keys(patch)) {
+    if (key === "id" || key === "layoutId") {
+      throw new Error("updateViewport: id/layoutId are the viewport identity — immutable (remove + re-create)");
+    }
+    if (!(VIEWPORT_PATCH_KEYS as readonly string[]).includes(key)) {
+      throw new Error(`updateViewport: unknown field '${key}' (allowed: ${VIEWPORT_PATCH_KEYS.join(", ")})`);
+    }
+  }
+  const cleaned: Record<string, unknown> = { ...current };
+  for (const [key, value] of Object.entries(patch)) {
+    if (value === undefined) continue;
+    cleaned[key] = value;
+  }
+  return validateViewportRecord(cleaned);
+}
+
+/** CAD-PARITY-008: derive the viewport mint-sequence counter from existing
+ *  minted ids (`vp-NNNNNN`). */
+export function deriveViewportSequence(viewports: readonly ViewportRecord[]): number {
+  let max = 0;
+  for (const v of viewports) {
+    const m = /^vp-(\d{6,})$/.exec(v.id);
     if (m !== null && m[1] !== undefined) max = Math.max(max, Number.parseInt(m[1], 10));
   }
   return max + 1;

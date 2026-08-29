@@ -297,6 +297,110 @@ export interface ConstraintRecord {
   readonly createdAt: string;
 }
 
+// --- CAD-PARITY-008 (additive): layouts, viewports, page setup, plotting ---
+
+/** The named ISO paper sizes of the bounded layout slice (portrait sheet
+ *  dimensions in mm; "CUSTOM" carries explicit widthMm/heightMm). */
+export type LayoutPaperSizeName = "A4" | "A3" | "A2" | "A1" | "A0" | "CUSTOM";
+
+/** The page setup of ONE layout (CAD-PARITY-008, CAD-2D-009 bounded).
+ *  Embedded per layout (one ACTIVE setup per layout — the named-page-setup
+ *  TABLE is an explicit non-goal of this slice). Margins define the
+ *  printable area; `plotScale` is the bounded plot policy: "fit" (the
+ *  layout plots at exact paper size — the bounded layout-plot equivalence)
+ *  or an explicit "N:M" sheet-scale ratio (paper mm : output units).
+ *  `plotStyleTable` is an EXPLICIT document setting: a named CTB/STB
+ *  reference persists with the record, but applying proprietary
+ *  CTB/STB plot styles is a TYPED DECLINE (plot_unsupported) — the
+ *  bounded slice plots "as displayed" with plotStyleKind "none"
+ *  (honest bounds, LOCK-007). */
+export interface PageSetup {
+  readonly paperSize: LayoutPaperSizeName;
+  /** Portrait sheet width in mm (landscape swaps at use). */
+  readonly widthMm: number;
+  /** Portrait sheet height in mm. */
+  readonly heightMm: number;
+  readonly orientation: "portrait" | "landscape";
+  /** Sheet margins in mm (top/right/bottom/left of the ORIENTED sheet). */
+  readonly marginsMm: {
+    readonly top: number;
+    readonly right: number;
+    readonly bottom: number;
+    readonly left: number;
+  };
+  /** "fit" or "N:M" (N paper mm : M output units) — see interface doc. */
+  readonly plotScale: string;
+  /** Plot origin offset in mm applied to the plotted layout content
+   *  relative to the printable-area origin. */
+  readonly plotOriginMm: readonly [number, number];
+  /** Center the plotted content in the printable area (overrides the
+   *  origin translation when true). */
+  readonly centerPlot: boolean;
+  /** Named plot style table reference (explicit document setting). */
+  readonly plotStyleTable: string | null;
+  readonly plotStyleKind: "none" | "ctb" | "stb";
+  /** Plot viewport borders. Absent = true. */
+  readonly plotViewports?: boolean;
+}
+
+/** A paper-space layout (CAD-PARITY-008). Canonical identity `lo-NNNNNN`
+ *  is minted by the document (monotonic, never reused — the blk-/xr-/con-
+ *  pattern); the NAME is the user-facing address (unique among layouts;
+ * rename is safe — viewports reference the immutable id). Layouts are
+ *  versioned document STRUCTURE edited through the DocumentEdit command
+ *  model (addLayout/updateLayout/setLayoutRecord/removeLayout): one edit =
+ *  one revision = one undo entry. A layout's paper-space CONTENT is its
+ *  viewport records (a separate table keyed by layoutId) — model geometry
+ *  is REFERENCED through viewports, never copied (the sheet/plot IR is
+ *  DERIVED state, recomputed on demand and never stored). */
+export interface LayoutRecord {
+  readonly id: string;
+  readonly name: string;
+  readonly pageSetup: PageSetup;
+  /** Fixed deterministic creation timestamp (provenance). */
+  readonly createdAt: string;
+}
+
+/** One per-viewport layer visibility override (CAD-PARITY-008 bounded to
+ *  the EXISTING layer model — the VPLAYER visibility surface): an absent
+ *  field inherits the layer-table value. Per-viewport color/linetype
+ *  overrides are an explicit non-goal of this slice. */
+export interface ViewportLayerOverride {
+  readonly layerId: string;
+  /** Absent = inherit the layer table's `visible`. */
+  readonly visible?: boolean;
+  /** Absent = inherit the layer table's `frozen`. */
+  readonly frozen?: boolean;
+}
+
+/** A rectangular layout viewport (CAD-PARITY-008). Canonical identity
+ *  `vp-NNNNNN` is minted by the document (monotonic, never reused).
+ *  `corner1`/`corner2` are the paper-space rectangle corners in sheet mm
+ *  (y-up from the sheet's lower-left). The viewport displays model space
+ *  through the deterministic model↔paper transform: paper = vpCenter +
+ *  R(rotationDeg)·((model − camera) / scaleDenominator) — `camera` is the
+ *  model-space view center, `scaleDenominator` the model units per paper
+ *  mm (50 for 1:50), `rotationDeg` the view twist (degrees CCW).
+ *  `locked` locks the VIEW (camera/scale/rotation reject edits — the frame
+ *  still moves/resizes, AutoCAD display-lock semantics); the model content
+ *  is clipped to the rectangle (rectangular clipping only — the bounded
+ *  slice's declared limit). */
+export interface ViewportRecord {
+  readonly id: string;
+  readonly layoutId: string;
+  readonly corner1: readonly [number, number];
+  readonly corner2: readonly [number, number];
+  readonly camera: { readonly centerX: number; readonly centerY: number };
+  /** Model units per paper mm. > 0. */
+  readonly scaleDenominator: number;
+  /** View twist in degrees CCW. */
+  readonly rotationDeg: number;
+  /** Absent = false. */
+  readonly locked?: boolean;
+  /** Absent = inherit the layer table per field. */
+  readonly layerOverrides?: readonly ViewportLayerOverride[];
+}
+
 /** COMPAT-CAD-001 (additive): non-versioned drafting workspace settings
  *  (grid/snap configuration, units, view state). Persisted with the snapshot
  *  so save/open restores the drafting environment; NOT part of the version
@@ -329,6 +433,15 @@ export interface DraftingSettings {
    *  Absent = all defaults (linetypeScale 1, defaultLineweight 0.25, no
    *  layer standard applied). */
   readonly standards?: DrawingStandards;
+  /** CAD-PARITY-008: the ACTIVE layout id (persisted editor state — the
+   *  activeLayout precedent; survives save/open on every host). Absent =
+   *  the first layout in table order when layouts exist (Model space is
+   *  the drafting view itself, never a layout). */
+  readonly activeLayout?: string;
+  /** CAD-PARITY-008: the TILEMODE-class space context. "model" = model
+   *  space (TILEMODE 1 — the Model view), "paper" = the active layout
+   *  (TILEMODE 0 — MSPACE/PSPACE switch between them). Absent = "model". */
+  readonly space?: "model" | "paper";
 }
 
 /** CAD-PARITY-004 persistent drawing standards: the document-wide display
@@ -557,6 +670,16 @@ export interface CADDocumentSnapshot {
  *   *  constraint graph only — satisfaction is computed on demand, never
  *   *  stored stale. */
   readonly constraints?: readonly ConstraintRecord[];
+  /** CAD-PARITY-008: paper-space layouts (absent while empty so legacy
+   *  snapshots and the pinned CAD-PARITY-002/004/005/006/007 fixtures stay
+   *  byte-identical; versioned through the addLayout/updateLayout/
+   *  setLayoutRecord/removeLayout command model). */
+  readonly layouts?: readonly LayoutRecord[];
+  /** CAD-PARITY-008: rectangular layout viewports (absent while empty;
+   *  versioned through the addViewport/updateViewport/setViewportRecord/
+   *  removeViewport command model — model geometry is referenced, never
+   *  copied; the sheet/plot IR is derived state, never stored). */
+  readonly viewports?: readonly ViewportRecord[];
 }
 
 /** One canonical↔GlobalId provenance mapping entry of an IFC import
@@ -957,4 +1080,88 @@ export type DocumentEdit =
       readonly element?: undefined;
       readonly patch?: undefined;
       readonly constraintId: string;
+    }
+  // --- CAD-PARITY-008 (additive): the layout + viewport tables ----------
+  | {
+      /** Add a paper-space layout. A missing/empty id mints a canonical
+       *  `lo-NNNNNN` identity (the addBlockDef pattern); duplicate ids and
+       *  duplicate names are rejected. The embedded page setup is
+       *  validated as a whole. */
+      readonly type: "addLayout";
+      readonly elementId?: undefined;
+      readonly element?: undefined;
+      readonly patch?: undefined;
+      readonly layout: LayoutRecord;
+    }
+  | {
+      /** Patch a layout (name — kept unique — and/or the whole pageSetup
+       *  object; id/createdAt are immutable). */
+      readonly type: "updateLayout";
+      readonly elementId?: undefined;
+      readonly element?: undefined;
+      readonly patch: Readonly<Record<string, unknown>>;
+      readonly layoutId: string;
+    }
+  | {
+      /** Full-record layout restore (exact inverse semantics — mirrors
+       *  setConstraintRecord: used as the updateLayout inverse so absence
+       *  of keys is representable on undo/replay). */
+      readonly type: "setLayoutRecord";
+      readonly elementId?: undefined;
+      readonly element?: undefined;
+      readonly patch?: undefined;
+      readonly layoutId: string;
+      readonly layout: LayoutRecord;
+    }
+  | {
+      /** Remove a layout record. Rejected while viewport records still
+       *  reference it — the LAYOUTDELETE command removes the viewports and
+       *  the record as ONE atomic batch (the explicit cascade lives at the
+       *  command layer, the xref.detach precedent — never silently here).
+       *  The LAST remaining layout is rejected (a document always keeps at
+       *  least one layout once one exists — the AutoCAD last-tab rule). */
+      readonly type: "removeLayout";
+      readonly elementId?: undefined;
+      readonly element?: undefined;
+      readonly patch?: undefined;
+      readonly layoutId: string;
+    }
+  | {
+      /** Add a rectangular layout viewport. A missing/empty id mints a
+       *  canonical `vp-NNNNNN` identity; the layoutId must reference an
+       *  existing layout at apply time; the camera/scale/rotation/rect
+       *  combination is validated as a whole. */
+      readonly type: "addViewport";
+      readonly elementId?: undefined;
+      readonly element?: undefined;
+      readonly patch?: undefined;
+      readonly viewport: ViewportRecord;
+    }
+  | {
+      /** Patch a viewport (corner1/corner2/camera/scaleDenominator/
+       *  rotationDeg/locked/layerOverrides — id/layoutId are immutable).
+       *  The merged record re-validates as a whole. */
+      readonly type: "updateViewport";
+      readonly elementId?: undefined;
+      readonly element?: undefined;
+      readonly patch: Readonly<Record<string, unknown>>;
+      readonly viewportId: string;
+    }
+  | {
+      /** Full-record viewport restore (setLayoutRecord semantics). */
+      readonly type: "setViewportRecord";
+      readonly elementId?: undefined;
+      readonly element?: undefined;
+      readonly patch?: undefined;
+      readonly viewportId: string;
+      readonly viewport: ViewportRecord;
+    }
+  | {
+      /** Remove a viewport record (the layout forgets it; model geometry
+       *  is untouched — viewports reference, never own). */
+      readonly type: "removeViewport";
+      readonly elementId?: undefined;
+      readonly element?: undefined;
+      readonly patch?: undefined;
+      readonly viewportId: string;
     };

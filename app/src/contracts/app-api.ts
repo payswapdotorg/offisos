@@ -136,7 +136,36 @@ export type CommandName =
   | "constraint.create"
   | "constraint.update"
   | "constraint.remove"
-  | "constraint.solve";
+  | "constraint.solve"
+  // --- CAD-PARITY-008 (additive, Issue #88): layouts, viewports, plot ---
+  // layout.create/rename/clone/remove manage the paper-space layout table
+  // (clone/remove are ONE atomic revision each — clone copies the layout
+  // AND its viewports with fresh document-minted identities; remove cascades
+  // the viewports away with the record); layout.setPageSetup patches the
+  // embedded page setup (a detected no-op returns unchanged without a
+  // revision); layout.activate/layout.setSpace are the NON-VERSIONED editor
+  // context (the active tab + the TILEMODE-class model/paper switch — the
+  // activeLayer precedent, no undo entry); viewport.create fits/projects
+  // through the shared transform (fit = the deterministic model extents,
+  // window = an explicit model window, scale = an explicit denominator);
+  // viewport.update patches scale/rotation/lock/camera/frame/layer
+  // overrides (a locked view rejects camera/scale/rotation edits with a
+  // typed viewport_locked error — the frame still moves); plot.export and
+  // plot.publish are NON-MUTATING deterministic exports (SVG + the minimal
+  // deterministic PDF writer + the Plot IR; proprietary formats are typed
+  // plot_unsupported declines).
+  | "layout.create"
+  | "layout.rename"
+  | "layout.clone"
+  | "layout.remove"
+  | "layout.setPageSetup"
+  | "layout.activate"
+  | "layout.setSpace"
+  | "viewport.create"
+  | "viewport.update"
+  | "viewport.remove"
+  | "plot.export"
+  | "plot.publish";
 
 // --- Query names (non-mutating) ---
 // `document.getSelection` returns the ephemeral editor selection (orthogonal
@@ -203,7 +232,14 @@ export type QueryName =
   // per-component degrees-of-freedom accounting, the typed outcome —
   // non-mutating, computed fresh every call, never persisted stale).
   | "constraints.list"
-  | "constraints.diagnostics";
+  | "constraints.diagnostics"
+  // CAD-PARITY-008 (additive): the layout/viewport inventory (tables + the
+  // non-versioned editor context) and the deterministic plot preview (the
+  // canonical Plot IR + its hash — the same IR the export writers and both
+  // hosts' paper canvases consume; non-mutating, computed fresh every
+  // call, never persisted stale).
+  | "layouts.list"
+  | "plot.preview";
 
 export interface Command {
   readonly type: "command";

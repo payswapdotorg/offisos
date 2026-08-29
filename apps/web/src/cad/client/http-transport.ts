@@ -1278,3 +1278,91 @@ export type {
   WireEnvelope,
   VersionMeta,
 };
+
+// --- CAD-PARITY-008: the layouts/plot surface (Issue #88) -----------------
+
+/** `layout.create` — add ONE paper-space layout (canonical default page
+ *  setup: A3 landscape, 10 mm margins, "fit", as-displayed plot style). */
+export async function layoutCreate(name: string): Promise<CommandQueryResponse> {
+  return command("layout.create", { name });
+}
+
+/** `layout.rename` — keep names unique (viewports reference the id). */
+export async function layoutRename(target: { id?: string; name?: string }, newName: string): Promise<CommandQueryResponse> {
+  return command("layout.rename", { ...target, newName });
+}
+
+/** `layout.clone` — deep-copy the layout AND its viewports (one revision). */
+export async function layoutClone(target: { id?: string; name?: string }, newName: string): Promise<CommandQueryResponse> {
+  return command("layout.clone", { ...target, newName });
+}
+
+/** `layout.remove` — the explicit cascade: viewports + record in one revision. */
+export async function layoutRemove(target: { id?: string; name?: string }): Promise<CommandQueryResponse> {
+  return command("layout.remove", target);
+}
+
+/** `layout.setPageSetup` — patch the embedded page setup (a no-op returns
+ *  unchanged: true without a revision). */
+export async function layoutSetPageSetup(target: { id?: string; name?: string }, patch: Record<string, unknown>): Promise<CommandQueryResponse> {
+  return command("layout.setPageSetup", { ...target, patch });
+}
+
+/** `layout.activate` — the non-versioned active-tab editor context. */
+export async function layoutActivate(target: { id?: string; name?: string }): Promise<CommandQueryResponse> {
+  return command("layout.activate", target);
+}
+
+/** `layout.setSpace` — the TILEMODE-class model/paper context switch. */
+export async function layoutSetSpace(space: "model" | "paper", target?: { id?: string; name?: string }): Promise<CommandQueryResponse> {
+  return command("layout.setSpace", { space, ...target });
+}
+
+/** `viewport.create` — ONE rectangular viewport through the shared
+ *  transform (fit = the deterministic model extents; window = an explicit
+ *  model window; scale = an explicit denominator + center). */
+export async function viewportCreate(payload: {
+  layoutId?: string;
+  layoutName?: string;
+  corner1: readonly [number, number];
+  corner2: readonly [number, number];
+  view: { mode: "fit" } | { mode: "scale"; denominator: number; centerX: number; centerY: number } | { mode: "window"; x1: number; y1: number; x2: number; y2: number };
+  rotationDeg?: number;
+  locked?: boolean;
+}): Promise<CommandQueryResponse> {
+  return command("viewport.create", payload);
+}
+
+/** `viewport.update` — patch the view/frame/lock/layer overrides (the
+ *  locked view rejects camera/scale/rotation edits — typed viewport_locked). */
+export async function viewportUpdate(id: string, patch: Record<string, unknown>): Promise<CommandQueryResponse> {
+  return command("viewport.update", { id, patch });
+}
+
+/** `viewport.remove` — delete the viewport record (model geometry stays). */
+export async function viewportRemove(id: string): Promise<CommandQueryResponse> {
+  return command("viewport.remove", { id });
+}
+
+/** `plot.export` — the NON-MUTATING deterministic export (svg | pdf |
+ *  plot-ir; proprietary formats are typed declines). */
+export async function plotExport(target: { id?: string; name?: string }, format: "svg" | "pdf" | "plot-ir"): Promise<CommandQueryResponse> {
+  return command("plot.export", { ...target, format });
+}
+
+/** `plot.publish` — the bounded batch: every layout into ONE multi-page
+ *  PDF (or an SVG set manifest). */
+export async function plotPublish(format: "pdf" | "svg", layoutIds?: readonly string[]): Promise<CommandQueryResponse> {
+  return command("plot.publish", { format, ...(layoutIds !== undefined ? { layoutIds } : {}) });
+}
+
+/** `layouts.list` (query) — the tables + the editor context. */
+export async function layoutsList(): Promise<CommandQueryResponse> {
+  return query("layouts.list", {});
+}
+
+/** `plot.preview` (query) — the canonical Plot IR + hash of ONE layout
+ *  (the same representation the export writers consume). */
+export async function plotPreview(target: { id?: string; name?: string }): Promise<CommandQueryResponse> {
+  return query("plot.preview", target);
+}

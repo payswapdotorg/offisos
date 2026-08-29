@@ -22,15 +22,18 @@ import {
   Egg,
   Expand,
   FilePlus2,
+  FileOutput,
   FileSliders,
   FlipHorizontal2,
   FolderOpen,
   Grid3x3,
   HelpCircle,
   Layers,
+  LayoutTemplate,
   Link2,
   List,
   ListTree,
+  Lock,
   Bomb,
   MessageSquareText,
   Minus,
@@ -43,12 +46,14 @@ import {
   Paperclip,
   Pentagon,
   PencilRuler,
+  Printer,
   Redo2,
   RefreshCw,
   RotateCw,
   Ruler,
   Save,
   Scaling,
+  Scan,
   Scissors,
   Slice,
   Spline,
@@ -69,7 +74,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { WORKSPACE_COMMANDS, commandById, type WorkspaceCommand } from "@offisos/cad-app-shell/workspace/commands";
 
-export type WorkspaceView = "model" | "bim3d" | "docs" | "ifc" | "components";
+export type WorkspaceView = "model" | "layout" | "bim3d" | "docs" | "ifc" | "components";
 export type WorkspacePreset = "drafting" | "bim" | "documentation" | "compact";
 
 // ---------------------------------------------------------------------------
@@ -177,6 +182,7 @@ export function MenuBar(props: MenuBarProps): React.JSX.Element {
       </Menu>
       <Menu label="View">
         <MenuItem label="Model (2D plan)" onClick={() => props.onSwitchView("model")} />
+        <MenuItem label="Layout & viewports" onClick={() => props.onSwitchView("layout")} />
         <MenuItem label="3D BIM view" onClick={() => props.onSwitchView("bim3d")} />
         <MenuItem label="Documentation" onClick={() => props.onSwitchView("docs")} />
         <MenuItem label="Interoperability (IFC)" onClick={() => props.onSwitchView("ifc")} />
@@ -186,6 +192,16 @@ export function MenuBar(props: MenuBarProps): React.JSX.Element {
         <MenuItem label="Navigator" onClick={() => props.onCommand("navigator")} />
         <MenuItem label="Layers palette (LA)" onClick={() => props.onCommand("layer")} />
         <MenuItem label="Properties (PR)" onClick={() => props.onCommand("properties")} />
+      </Menu>
+      <Menu label="Output">
+        {/* CAD-PARITY-008 (Issue #88): the layouts & publishing surface. */}
+        <MenuItem label="Layout Manager (LO)" onClick={() => props.onCommand("layout")} />
+        <MenuItem label="New Layout (LAYOUTNEW)" onClick={() => props.onCommand("layoutnew")} />
+        <MenuItem label="Page Setup (PAGESETUP)" onClick={() => props.onCommand("pagesetup")} />
+        <div className="my-1 border-t" />
+        <MenuItem label="Plot Preview (PREVIEW)" onClick={() => props.onCommand("preview")} />
+        <MenuItem label="Plot… (PLOT)" onClick={() => props.onCommand("plot")} />
+        <MenuItem label="Publish (PUBLISH)" onClick={() => props.onCommand("publish")} />
       </Menu>
       <Menu label="Insert">
         {/* CAD-PARITY-006 (Issue #84): the blocks & references vocabulary —
@@ -287,6 +303,11 @@ const RIBBON_TABS: readonly { id: string; label: string }[] = [
   // constraint manager surface, auto-mapped from the registry like every
   // other tab).
   { id: "Parametric", label: "Parametric" },
+  // CAD-PARITY-008 (Issue #88): the Layout tab (LAYOUT family / TILEMODE /
+  // MSPACE / PSPACE / MVIEW / VPORTS / PAGESETUP / PREVIEW / PLOT /
+  // PUBLISH — the layout & publishing surface, auto-mapped from the
+  // registry).
+  { id: "Layout", label: "Layout" },
   { id: "BIM", label: "BIM" },
   { id: "Document", label: "Document" },
   { id: "View", label: "View" },
@@ -344,6 +365,21 @@ const TAB_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
   delconstraint: Unlink,
   constraints: Waypoints,
   array: Grid3x3,
+  // CAD-PARITY-008 (Issue #88): the Layout tab icons.
+  layout: LayoutTemplate,
+  layoutnew: FilePlus2,
+  layoutrename: SquarePen,
+  layoutclone: Columns2,
+  layoutdelete: Trash2,
+  tilemode: Split,
+  mspace: Grid3x3,
+  pspace: LayoutTemplate,
+  mview: Scan,
+  vports: PanelRight,
+  pagesetup: FileSliders,
+  preview: Printer,
+  plot: FileOutput,
+  publish: Package,
   // CAD-PARITY-003 modify vocabulary.
   rotate: RotateCw,
   scale: Scaling,
@@ -432,6 +468,16 @@ export function Ribbon(props: RibbonProps): React.JSX.Element {
             onClick={() => props.onSwitchView("model")}
           >
             <Grid3x3 className="h-3.5 w-3.5" aria-hidden /> Model
+          </Button>
+          <Button
+            size="sm"
+            variant={props.view === "layout" ? "default" : "outline"}
+            className="h-7 gap-1 px-2 text-[11px]"
+            onClick={() => props.onSwitchView("layout")}
+            title="The active paper-space layout (Layouts, viewports, plot preview)"
+            data-testid="view-tab-layout-quick"
+          >
+            <LayoutTemplate className="h-3.5 w-3.5" aria-hidden /> Layout
           </Button>
           <Button
             size="sm"
