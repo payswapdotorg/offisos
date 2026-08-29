@@ -123,7 +123,7 @@ test("constraint.create: horizontal applies the closed form + declares in ONE re
   const h = make();
   await drawScene(h);
   const revisionsBefore = (await state(h)).modelHistory?.revisions?.length ?? 0;
-  const r = val(await cmd(h, "constraint.create", { kind: "horizontal", targets: [{ id: "el-000001" }] }));
+  const r = val<{ constraintId: string; kind: string; outcome: string; summary: string }>(await cmd(h, "constraint.create", { kind: "horizontal", targets: [{ id: "el-000001" }] }));
   assert.equal(r.constraintId, "con-000001");
   assert.equal(r.kind, "horizontal");
   assert.ok(r.summary.includes("under-constrained"));
@@ -183,7 +183,7 @@ test("constraint.update: the value re-solve propagates (deterministic)", async (
   assert.equal(g.x2, 150);
   assert.equal(g.y2, 0);
   // Re-declare the length: the line extends along its direction.
-  val(await cmd(h, "constraint.update", { id: "con-000002", patch: { value: 200 } }));
+  val<{ value: number }>(await cmd(h, "constraint.update", { id: "con-000002", patch: { value: 200 } }));
   g = await lineAt(h, "el-000001");
   assert.equal(g.x2, 200);
   assert.equal(g.y2, 0);
@@ -222,27 +222,27 @@ test("constraint.remove + constraint.solve + the queries", async () => {
   val(await cmd(h, "constraint.create", { kind: "horizontal", targets: [{ id: "el-000001" }] }));
   val(await cmd(h, "constraint.create", { kind: "distance", targets: [{ id: "el-000001" }], value: 150 }));
   // constraints.list carries the computed statuses.
-  const list = val(await q(h, "constraints.list", {}));
+  const list = val<{ constraints: { id: string; kind: string; label: string; satisfied: boolean }[]; outcome: string }>(await q(h, "constraints.list", {}));
   assert.equal(list.constraints.length, 2);
-  assert.equal(list.constraints[0].satisfied, true);
-  assert.equal(list.constraints[0].label, "Horizontal");
+  assert.equal(list.constraints[0]?.satisfied, true);
+  assert.equal(list.constraints[0]?.label, "Horizontal");
   // diagnostics: the full report.
-  const diag = val(await q(h, "constraints.diagnostics", {}));
+  const diag = val<{ outcome: string; statuses: unknown[]; dof: { entities: string[]; constraints: string[]; dof: number }[] }>(await q(h, "constraints.diagnostics", {}));
   assert.equal(diag.outcome, "under-constrained");
-  assert.equal(diag.dof[0].dof, 2);
+  assert.equal(diag.dof[0]?.dof, 2);
   // remove.
   val(await cmd(h, "constraint.remove", { id: "con-000001" }));
   assert.equal((await state(h)).constraints?.length, 1);
   assert.equal(errCode(await cmd(h, "constraint.remove", { id: "con-000001" })), "bad_id");
   // solve (full graph, explicit diagnostics surface).
-  const solved = val(await cmd(h, "constraint.solve", {}));
+  const solved = val<{ outcome: string; summary: string }>(await cmd(h, "constraint.solve", {}));
   assert.ok(solved.summary.includes("under-constrained"));
 });
 
 test("constraint.solve: no declared graph is a clean no-op", async () => {
   const h = make();
   await drawScene(h);
-  const r = val(await cmd(h, "constraint.solve", {}));
+  const r = val<{ outcome: string; summary: string }>(await cmd(h, "constraint.solve", {}));
   assert.ok(r.summary.includes("no constraints"));
 });
 
@@ -254,7 +254,7 @@ test("constraint-aware MOVE: a moved FIXED entity is restored inside the same re
   const h = make();
   await drawScene(h);
   val(await cmd(h, "constraint.create", { kind: "fixed", targets: [{ id: "el-000001" }] }));
-  const r = val(await cmd(h, "entity.modify", { op: "move", ids: ["el-000001"], dx: 500, dy: 500 }));
+  const r = val<{ summary: string }>(await cmd(h, "entity.modify", { op: "move", ids: ["el-000001"], dx: 500, dy: 500 }));
   assert.ok(r.summary.includes("restored to its fixed position"), r.summary);
   const g = await lineAt(h, "el-000001");
   assert.deepEqual([g.x1, g.y1, g.x2, g.y2], [0, 0, 100, 30]);
@@ -284,7 +284,7 @@ test("severance: drafting.delete removes the dead constraints in the SAME revisi
   // Two constraints referencing the circle (no DoF conflict between them).
   val(await cmd(h, "constraint.create", { kind: "radius", targets: [{ id: "el-000003" }], value: 40 }));
   val(await cmd(h, "constraint.create", { kind: "tangent", targets: [{ id: "el-000002" }, { id: "el-000003" }] }));
-  const r = val(await cmd(h, "drafting.delete", { ids: ["el-000003"] }));
+  const r = val<{ summary: string }>(await cmd(h, "drafting.delete", { ids: ["el-000003"] }));
   assert.ok(r.summary.includes("2 constraints severed"), r.summary);
   // All constraints severed → the snapshot key is GONE (canonical-minimal).
   assert.equal((await state(h)).constraints, undefined);
@@ -296,7 +296,7 @@ test("severance: TRIM re-topologizes — the target's constraints are severed", 
   val(await cmd(h, "constraint.create", { kind: "horizontal", targets: [{ id: "el-000002" }] }));
   // Trim el-2 against a new cutting edge (Pt picks — the entity-ops convention).
   val(await cmd(h, "entity.create", { entities: [{ type: "line", layer: "0", x1: 230, y1: -50, x2: 230, y2: 50 }] }));
-  const r = val(await cmd(h, "entity.modify", {
+  const r = val<{ summary: string }>(await cmd(h, "entity.modify", {
     op: "trim",
     edges: ["el-000004"],
     trims: [{ targetId: "el-000002", pick: { x: 255, y: 5 } }],
@@ -317,7 +317,7 @@ test("entity.modify array (rectangular): document-minted copies in ONE revision"
   const h = make();
   await drawScene(h);
   const revisionsBefore = (await state(h)).modelHistory?.revisions?.length ?? 0;
-  const r = val(await cmd(h, "entity.modify", {
+  const r = val<{ created: number; summary: string }>(await cmd(h, "entity.modify", {
     op: "array",
     mode: "rectangular",
     ids: ["el-000001"],
@@ -343,7 +343,7 @@ test("entity.modify array (rectangular): document-minted copies in ONE revision"
 test("entity.modify array (polar): rotation about the center", async () => {
   const h = make();
   await drawScene(h);
-  const r = val(await cmd(h, "entity.modify", {
+  const r = val<{ created: number; summary: string }>(await cmd(h, "entity.modify", {
     op: "array",
     mode: "polar",
     ids: ["el-000001"],
@@ -366,7 +366,7 @@ test("array validation: typed failures (bad counts, 1x1 no-op)", async () => {
   await drawScene(h);
   assert.equal(errCode(await cmd(h, "entity.modify", { op: "array", mode: "rectangular", ids: ["el-000001"], rows: 0, columns: 3 })), "bad_input");
   assert.equal(errCode(await cmd(h, "entity.modify", { op: "array", mode: "polar", ids: ["el-000001"], items: 1, center: { x: 0, y: 0 } })), "bad_input");
-  const noOp = val(await cmd(h, "entity.modify", { op: "array", mode: "rectangular", ids: ["el-000001"], rows: 1, columns: 1 }));
+  const noOp = val<{ applied: boolean; reason: string }>(await cmd(h, "entity.modify", { op: "array", mode: "rectangular", ids: ["el-000001"], rows: 1, columns: 1 }));
   assert.equal(noOp.applied, false);
   assert.ok(String(noOp.reason).includes("single item"));
 });
@@ -611,7 +611,7 @@ test("save/open round-trip preserves the constraint world + determinism", async 
   val(await cmd(h, "constraint.create", { kind: "horizontal", targets: [{ id: "el-000001" }] }));
   val(await cmd(h, "constraint.create", { kind: "distance", targets: [{ id: "el-000001" }], value: 150 }));
   val(await cmd(h, "constraint.create", { kind: "tangent", targets: [{ id: "el-000002" }, { id: "el-000003" }] }));
-  const saved = val(await cmd(h, "document.save", {}));
+  const saved = val<{ bytes: number[] }>(await cmd(h, "document.save", {}));
   ok_open: {
     const opened = await cmd(h, "document.open", { source: saved.bytes, entityId: "cp7-reopened" });
     assert.equal(opened.ok, true);
@@ -620,7 +620,7 @@ test("save/open round-trip preserves the constraint world + determinism", async 
   const s = await state(h);
   assert.equal(s.constraints?.length, 3);
   // Deterministic double-save.
-  const s1 = val(await cmd(h, "document.save", {}));
-  const s2 = val(await cmd(h, "document.save", {}));
+  const s1 = val<{ bytes: number[] }>(await cmd(h, "document.save", {}));
+  const s2 = val<{ bytes: number[] }>(await cmd(h, "document.save", {}));
   assert.equal(JSON.stringify(s1.bytes), JSON.stringify(s2.bytes));
 });

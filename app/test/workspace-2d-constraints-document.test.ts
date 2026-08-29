@@ -198,7 +198,7 @@ test("history validation: a malformed counter is rejected on open", () => {
   doc.execute({ type: "addElement", element: { id: "el-1", kind: "geometry", engineId: null, props: { drafting: true, layer: "0", type: "line", x1: 0, y1: 0, x2: 100, y2: 0 } } });
   doc.execute({ type: "addConstraint", constraint: con("", "horizontal", [{ id: "el-1" }]) });
   const snap = JSON.parse(canonicalStringify(doc.snapshot())) as CADDocumentSnapshot;
-  snap.modelHistory = { ...snap.modelHistory!, next_constraint_sequence: 0 };
+  (snap as { modelHistory?: unknown }).modelHistory = { ...snap.modelHistory!, next_constraint_sequence: 0 };
   assert.throws(() => CADDocument.open(snap, "cp7-tests"));
 });
 
@@ -219,7 +219,7 @@ test("legacy snapshots (no constraints field) open with an empty table", () => {
   const doc = empty();
   doc.execute({ type: "addElement", element: { id: "el-1", kind: "geometry", engineId: null, props: { drafting: true, layer: "0", type: "line", x1: 0, y1: 0, x2: 100, y2: 0 } } });
   const snap = JSON.parse(canonicalStringify(doc.snapshot())) as CADDocumentSnapshot;
-  delete snap.constraints;
+  delete (snap as { constraints?: unknown }).constraints;
   const reopened = CADDocument.open(snap, "cp7-tests");
   assert.equal(reopened.constraintTable.length, 0);
   // Byte-identity: a constraint-free document serializes WITHOUT the key.
