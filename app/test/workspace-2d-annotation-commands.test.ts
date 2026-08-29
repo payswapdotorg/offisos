@@ -681,6 +681,16 @@ test("DISASSOCIATION regression: linear dim, ONE ref deleted — dead ref droppe
   const rem = val<{ applied: boolean; summary: string }>(await cmd(h, "annotation.remeasure", { ids: [dimId] }));
   assert.equal(rem.applied, false);
   assert.equal(rem.summary, "all measurements current");
+  // STAGED deletion: deleting the LAST surviving target severs the remaining
+  // ref too (the refs key is gone; the last-known value survives).
+  val(await cmd(h, "drafting.delete", { ids: [lineAId] }));
+  p = (await state(h)).elements.find((e) => e.id === dimId)!.props as Record<string, unknown>;
+  assert.ok(!("refs" in p), `staged full loss: the refs key must be removed (got refs=${JSON.stringify(p.refs)})`);
+  assert.deepEqual(p.p1, { x: 150, y: 0 }, "staged full loss: last-known p1");
+  assert.deepEqual(p.p2, { x: 200, y: 0 }, "staged full loss: last-known p2");
+  assert.equal(p.measured, 50, "staged full loss: last-known measurement");
+  const rem2 = val<{ applied: boolean; summary: string }>(await cmd(h, "annotation.remeasure", { ids: [dimId] }));
+  assert.equal(rem2.applied, false, "staged full loss: remeasure no-op");
 });
 
 /** The orthogonal-legs angular fixture: legA (0,0)-(100,0) [end → leg1],
@@ -736,6 +746,17 @@ test("DISASSOCIATION regression: angular dim, ONE leg deleted — dead leg ref d
   const rem = val<{ applied: boolean; summary: string }>(await cmd(h, "annotation.remeasure", { ids: [dimId] }));
   assert.equal(rem.applied, false);
   assert.equal(rem.summary, "all measurements current");
+  // STAGED deletion: deleting the LAST surviving leg severs its ref too —
+  // the refs key is gone (the incomplete-pair early return must PRUNE the
+  // dead survivor instead of leaving it stale), value survives, no-op after.
+  val(await cmd(h, "drafting.delete", { ids: [legAId] }));
+  p = (await state(h)).elements.find((e) => e.id === dimId)!.props as Record<string, unknown>;
+  assert.ok(!("refs" in p), `staged full loss: the refs key must be removed (got refs=${JSON.stringify(p.refs)})`);
+  assert.deepEqual(p.vertex, { x: 0, y: 0 }, "staged full loss: last-known vertex");
+  assert.ok(Math.abs((p.measured as number) - Math.PI / 2) < TOL, "staged full loss: last-known measurement");
+  const rem2 = val<{ applied: boolean; summary: string }>(await cmd(h, "annotation.remeasure", { ids: [dimId] }));
+  assert.equal(rem2.applied, false, "staged full loss: remeasure no-op");
+  assert.equal(rem2.summary, "all measurements current");
 });
 
 test("DISASSOCIATION regression: angular dim, BOTH legs deleted — refs key REMOVED, value survives, remeasure no-op", async () => {

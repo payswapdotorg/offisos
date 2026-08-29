@@ -225,7 +225,22 @@ export function remeasureAnnotation(
       const leg1Ref = refs.find((r) => r.to === "leg1");
       const leg2Ref = refs.find((r) => r.to === "leg2");
       if (leg1Ref === undefined || leg2Ref === undefined) {
-        return { annotation: a, changed: false, note: "no leg references" };
+        // Incomplete leg pair: a stable state when every stored ref still
+        // resolves (never-associated or already fully disassociated — no-op).
+        // But a stored ref whose target was DELETED must still be pruned
+        // (the staged sequence: one leg lost earlier, then the survivor's
+        // element is deleted — PR #83 comment 5460214794).
+        const live = refs.filter((r) => byId.has(r.id));
+        if (live.length === refs.length) {
+          return { annotation: a, changed: false, note: "no leg references" };
+        }
+        return {
+          annotation: withLiveRefs(a, live),
+          changed: true,
+          note: live.length === 0
+            ? "both leg references gone — angular dimension disassociated at its last known value"
+            : "missing leg reference — angular dimension disassociated at its last known value",
+        };
       }
       const leg1 = byId.get(leg1Ref.id);
       const leg2 = byId.get(leg2Ref.id);
