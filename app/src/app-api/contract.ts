@@ -1535,6 +1535,14 @@ export class AppApiHandler {
     if (typeof p.x !== "number" || !Number.isFinite(p.x) || typeof p.y !== "number" || !Number.isFinite(p.y)) {
       return err("bad_payload", "block.insert requires x/y finite numbers", true);
     }
+    // LOCK-007: a supplied scale must be a positive finite number — never
+    // silently coerced (non-uniform/negative scales are unsupported).
+    if (p.scale !== undefined && !(typeof p.scale === "number" && Number.isFinite(p.scale) && p.scale > 0)) {
+      return err("bad_payload", "block.insert scale must be a positive finite number (non-uniform scaling is unsupported)", true);
+    }
+    if (p.rotation !== undefined && !(typeof p.rotation === "number" && Number.isFinite(p.rotation))) {
+      return err("bad_payload", "block.insert rotation must be a finite number", true);
+    }
     try {
       const def = this.resolveBlockDef(p);
       const scale = typeof p.scale === "number" && p.scale > 0 ? p.scale : 1;
@@ -1662,7 +1670,14 @@ export class AppApiHandler {
       }
       const kept = (ref.attributes ?? []).filter((a) => a.tag !== tag);
       const nextAttributes = clear ? kept : [...kept, { tag, value: p.value as string }];
-      const props: Record<string, unknown> = blockRefToProps({ ...ref, ...(nextAttributes.length > 0 ? { attributes: nextAttributes } : {}) });
+      // Strip-then-reattach: the spread of `ref` would otherwise carry the
+      // OLD attributes array when the new one is empty (an emptied value
+      // list must leave NO key — the canonical-minimal record form).
+      const { attributes: _stale, ...rest } = ref;
+      void _stale;
+      const props: Record<string, unknown> = blockRefToProps(
+        nextAttributes.length > 0 ? { ...rest, attributes: nextAttributes } : rest,
+      );
       // Full-record setProps: a cleared value must REMOVE the key (the
       // updateElement merge could not represent absence).
       this.doc.execute({ type: "setProps", elementId: el.id, patch: props });
@@ -1753,8 +1768,14 @@ export class AppApiHandler {
       const edits: DocumentEdit[] = [{ type: "addXref", xref: record }];
       let elementId: string | null = null;
       if (typeof p.x === "number" && Number.isFinite(p.x) && typeof p.y === "number" && Number.isFinite(p.y)) {
-        const scale = typeof p.scale === "number" && p.scale > 0 ? p.scale : 1;
-        const rotation = typeof p.rotation === "number" && Number.isFinite(p.rotation) ? p.rotation : 0;
+        if (p.scale !== undefined && !(typeof p.scale === "number" && Number.isFinite(p.scale) && p.scale > 0)) {
+          throw new BlockError("scale must be a positive finite number (non-uniform scaling is unsupported)", "bad_input");
+        }
+        if (p.rotation !== undefined && !(typeof p.rotation === "number" && Number.isFinite(p.rotation))) {
+          throw new BlockError("rotation must be a finite number", "bad_input");
+        }
+        const scale = typeof p.scale === "number" ? p.scale : 1;
+        const rotation = typeof p.rotation === "number" ? p.rotation : 0;
         const layer = typeof p.layer === "string" && p.layer.length > 0 ? p.layer : "0";
         if (!this.doc.layerTable.some((l) => l.id === layer)) {
           throw new BlockError(`layer '${layer}' does not exist`, "bad_layer");

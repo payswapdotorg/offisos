@@ -264,14 +264,15 @@ export const COMMANDS_BLOCK: readonly WorkspaceCommand[] = [
             const tag = String(attdef.tag);
             const fallback =
               typeof attdef.default === "string" && attdef.default.length > 0 ? attdef.default : "";
+            // Enter SKIPS the slot (the definition default renders — nothing
+            // is stored; AutoCAD -INSERT semantics); typing a value stores it.
             steps.push({
               id: `attr:${tag}`,
               kind: "text",
               prompt:
                 typeof attdef.prompt === "string" && attdef.prompt.length > 0
-                  ? `${attdef.prompt} <${fallback}>:`
-                  : `Enter value for attribute '${tag}' <${fallback}>:`,
-              defaultValue: fallback,
+                  ? `${attdef.prompt} <${fallback}> (Enter = default):`
+                  : `Enter value for attribute '${tag}' <${fallback}> (Enter = default):`,
               optional: true,
             });
           }

@@ -258,7 +258,7 @@ test("XATTACH flow: attaches unresolved with the honest echo; XLIST lists status
 test("block.create converts sources + removes them in ONE revision; undo restores both", async () => {
   const h = make();
   await drawScene(h);
-  const result = val(await cmd(h, "block.create", { name: "SYMBOL", basePoint: { x: 50, y: 0 }, fromElementIds: ["el-000001", "el-000002"] }));
+  const result = val<{ entityCount: number; removedSources: number }>(await cmd(h, "block.create", { name: "SYMBOL", basePoint: { x: 50, y: 0 }, fromElementIds: ["el-000001", "el-000002"] }));
   assert.equal(result.entityCount, 2);
   assert.equal(result.removedSources, 2);
   const snap = await state(h);
@@ -292,7 +292,7 @@ test("block.insert places instances; attributes validated against the definition
     { type: "circle", cx: 50, cy: 20, r: 10, layer: "0" },
     { type: "attdef", tag: "TITLE", default: "Untitled", layer: "0", x: 0, y: 0, height: 2.5, rotation: 0 },
   ] } }));
-  const ins = val(await cmd(h, "block.insert", { name: "SYMBOL", x: 500, y: 500, scale: 2, rotation: 90 * DEG, attributes: [{ tag: "TITLE", value: "Plan" }] }));
+  const ins = val<{ elementId: string }>(await cmd(h, "block.insert", { name: "SYMBOL", x: 500, y: 500, scale: 2, rotation: 90 * DEG, attributes: [{ tag: "TITLE", value: "Plan" }] }));
   assert.equal(typeof ins.elementId, "string");
   const snap = await state(h);
   const ref = snap.elements[0]!.props as Record<string, unknown>;
@@ -326,7 +326,7 @@ test("block.remove is reference-checked through the API", async () => {
   const h = make();
   await drawScene(h);
   val(await cmd(h, "block.create", { name: "SYMBOL", basePoint: { x: 0, y: 0 }, fromElementIds: ["el-000001"] }));
-  const ins = val(await cmd(h, "block.insert", { name: "SYMBOL", x: 0, y: 0 }));
+  const ins = val<{ elementId: string }>(await cmd(h, "block.insert", { name: "SYMBOL", x: 0, y: 0 }));
   const r = await cmd(h, "block.remove", { name: "SYMBOL" });
   assert.equal(r.ok, false);
   assert.ok(errMsg(r).includes("no silent cascade"), errMsg(r));
@@ -346,8 +346,8 @@ test("EXPLODE through entity.modify: one-level materialization with attribute te
     { type: "line", x1: 0, y1: 0, x2: 100, y2: 0, layer: "0" },
     { type: "attdef", tag: "TITLE", default: "D", layer: "0", x: 10, y: 10, height: 2.5, rotation: 0 },
   ] } }));
-  const ins = val(await cmd(h, "block.insert", { name: "SYMBOL", x: 100, y: 100, scale: 2, rotation: 0, attributes: [{ tag: "TITLE", value: "V" }] }));
-  const result = val(await cmd(h, "entity.modify", { op: "explode", ids: [ins.elementId] }));
+  const ins = val<{ elementId: string }>(await cmd(h, "block.insert", { name: "SYMBOL", x: 100, y: 100, scale: 2, rotation: 0, attributes: [{ tag: "TITLE", value: "V" }] }));
+  const result = val<{ applied: boolean; summary: string }>(await cmd(h, "entity.modify", { op: "explode", ids: [ins.elementId] }));
   assert.equal(result.applied, true);
   assert.ok(String(result.summary).includes("materialized"), String(result.summary));
   const snap = await state(h);
@@ -374,7 +374,7 @@ test("nested EXPLODE: one level per explode (the nested ref becomes an independe
   val(await cmd(h, "block.create", { name: "OUTER", basePoint: { x: 0, y: 0 }, entities: [
     { type: "block-ref", layer: "0", blockId: "blk-000001", x: 20, y: 0, scale: 1, rotation: 0 },
   ] }));
-  const ins = val(await cmd(h, "block.insert", { name: "OUTER", x: 100, y: 100, scale: 1, rotation: 0 }));
+  const ins = val<{ elementId: string }>(await cmd(h, "block.insert", { name: "OUTER", x: 100, y: 100, scale: 1, rotation: 0 }));
   val(await cmd(h, "entity.modify", { op: "explode", ids: [ins.elementId] }));
   let snap = await state(h);
   const nestedEl = snap.elements.find((e) => (e.props as Record<string, unknown>).type === "block-ref")!;
@@ -393,7 +393,7 @@ test("instance MOVE/ROTATE/SCALE/COPY transform the placement exactly; MIRROR is
   await drawScene(h);
   val(await cmd(h, "block.create", { name: "SYMBOL", basePoint: { x: 0, y: 0 }, fromElementIds: ["el-000001"] }));
   val(await cmd(h, "block.update", { name: "SYMBOL", patch: { entities: [{ type: "line", x1: 0, y1: 0, x2: 10, y2: 0, layer: "0" }] } }));
-  const ins = val(await cmd(h, "block.insert", { name: "SYMBOL", x: 100, y: 100, scale: 1, rotation: 0 }));
+  const ins = val<{ elementId: string }>(await cmd(h, "block.insert", { name: "SYMBOL", x: 100, y: 100, scale: 1, rotation: 0 }));
   const id = ins.elementId as string;
   const refOf = async (): Promise<Record<string, unknown>> => {
     const s = await state(h);
@@ -440,7 +440,7 @@ test("attribute.update rewrites values; null clears back to the definition defau
   val(await cmd(h, "block.update", { name: "T", patch: { entities: [
     { type: "attdef", tag: "TITLE", default: "Default", layer: "0", x: 0, y: 0, height: 2.5, rotation: 0 },
   ] } }));
-  const ins = val(await cmd(h, "block.insert", { name: "T", x: 0, y: 0, attributes: [{ tag: "TITLE", value: "First" }] }));
+  const ins = val<{ elementId: string }>(await cmd(h, "block.insert", { name: "T", x: 0, y: 0, attributes: [{ tag: "TITLE", value: "First" }] }));
   const id = ins.elementId as string;
   const refOf = async (): Promise<Record<string, unknown>> => {
     const s = await state(h);
@@ -489,7 +489,7 @@ test("xref.attach with content: loaded with provenance hash + placement instance
   const external = make();
   await drawScene(external);
   const content = val(await q(external, "document.getState", {}));
-  const result = val(await cmd(h, "xref.attach", { name: "SITE", path: "site.offisos", x: 200, y: 200, scale: 2, rotation: 0, content }));
+  const result = val<{ status: string; resolved: number; skipped: number; sourceHash: string; elementId: string }>(await cmd(h, "xref.attach", { name: "SITE", path: "site.offisos", x: 200, y: 200, scale: 2, rotation: 0, content }));
   assert.equal(result.status, "loaded");
   assert.equal(result.resolved, 2);
   assert.equal(result.skipped, 0);
@@ -509,7 +509,7 @@ test("xref.attach with content: loaded with provenance hash + placement instance
 
 test("xref.attach without content attaches unresolved (the command-line bound)", async () => {
   const h = make();
-  const result = val(await cmd(h, "xref.attach", { name: "MISSING", path: "m.offisos", x: 0, y: 0 }));
+  const result = val<{ status: string; sourceHash: string | null }>(await cmd(h, "xref.attach", { name: "MISSING", path: "m.offisos", x: 0, y: 0 }));
   assert.equal(result.status, "unresolved");
   assert.equal(result.sourceHash, null);
   const snap = await state(h);
@@ -522,7 +522,7 @@ test("xref.reload re-resolves with fresh content; without content it is a typed 
   const external = make();
   await drawScene(external);
   const content = val(await q(external, "document.getState", {}));
-  const reloaded = val(await cmd(h, "xref.reload", { name: "SITE", content }));
+  const reloaded = val<{ status: string; resolved: number }>(await cmd(h, "xref.reload", { name: "SITE", content }));
   assert.equal(reloaded.status, "loaded");
   assert.equal(reloaded.resolved, 2);
   const r = await cmd(h, "xref.reload", { name: "SITE" });
@@ -537,7 +537,7 @@ test("xref.detach removes the record AND instances in ONE atomic revision", asyn
   const content = val(await q(external, "document.getState", {}));
   val(await cmd(h, "xref.attach", { name: "SITE", path: "site.offisos", x: 0, y: 0, content }));
   val(await cmd(h, "xref.attach", { name: "TOPO", path: "topo.offisos", x: 500, y: 500, content }));
-  const detached = val(await cmd(h, "xref.detach", { name: "SITE" }));
+  const detached = val<{ removedInstances: number }>(await cmd(h, "xref.detach", { name: "SITE" }));
   assert.equal(detached.removedInstances, 1);
   const snap = await state(h);
   assert.deepEqual(snap.xrefs!.map((x) => x.name), ["TOPO"]);
@@ -577,7 +577,7 @@ test("locked/frozen layers gate instance creation + modification through the API
   val(await cmd(h, "drafting.updateLayer", { layerId: lockedId, patch: { locked: true } }));
   // Instances are drafting entities: creation on a locked layer is allowed;
   // MODIFICATION is what locked blocks (the frozen gate blocks creation).
-  const ins = val(await cmd(h, "block.insert", { name: "SYMBOL", x: 0, y: 0, layer: lockedId }));
+  const ins = val<{ elementId: string }>(await cmd(h, "block.insert", { name: "SYMBOL", x: 0, y: 0, layer: lockedId }));
   const moveResult = await cmd(h, "entity.modify", { op: "move", ids: [ins.elementId], dx: 1, dy: 1 });
   assert.equal(moveResult.ok, false);
   val(await cmd(h, "drafting.updateLayer", { layerId: lockedId, patch: { locked: false, frozen: true } }));

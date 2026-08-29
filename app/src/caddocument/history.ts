@@ -131,7 +131,13 @@ export interface RecordRevisionInput {
 }
 
 /** Append one immutable revision to a history (returns a NEW frozen
- *  history; the input history is never mutated — append-only integrity). */
+ *  history; the input history is never mutated — append-only integrity).
+ *  CAD-PARITY-006: the block/xref mint counters are CANONICAL-MINIMAL —
+ *  emitted only once a block/xref identity has actually been minted
+ *  (counter > 1) so histories (and saves) of documents that never touch
+ *  blocks stay BYTE-IDENTICAL to the pre-006 form (the pinned parity
+ *  fixtures; the counters only ever grow — never-reuse — so a materialized
+ *  counter never drops back out). */
 export function appendRevision(input: RecordRevisionInput): ModelHistory {
   const { history } = input;
   const revisionNumber = history.revisions.length + 1;
@@ -148,6 +154,8 @@ export function appendRevision(input: RecordRevisionInput): ModelHistory {
     created_at: HISTORY_NOW,
     created_by: input.createdBy,
   });
+  const nextBlock = Math.max(history.next_block_sequence ?? 1, input.nextBlockSequence ?? 1);
+  const nextXref = Math.max(history.next_xref_sequence ?? 1, input.nextXrefSequence ?? 1);
   return deepFreeze({
     entity_id: history.entity_id,
     format: history.format,
@@ -158,8 +166,8 @@ export function appendRevision(input: RecordRevisionInput): ModelHistory {
     next_view_sequence: Math.max(history.next_view_sequence ?? 1, input.nextViewSequence),
     next_sheet_sequence: Math.max(history.next_sheet_sequence ?? 1, input.nextSheetSequence),
     next_ifc_import_sequence: Math.max(history.next_ifc_import_sequence ?? 1, input.nextIfcImportSequence ?? 1),
-    next_block_sequence: Math.max(history.next_block_sequence ?? 1, input.nextBlockSequence ?? 1),
-    next_xref_sequence: Math.max(history.next_xref_sequence ?? 1, input.nextXrefSequence ?? 1),
+    ...(nextBlock > 1 ? { next_block_sequence: nextBlock } : {}),
+    ...(nextXref > 1 ? { next_xref_sequence: nextXref } : {}),
     revisions: deepFreeze([...history.revisions, revision]),
   });
 }
@@ -181,14 +189,14 @@ export function createdHistory(entityId: string, format: string, formatVersion: 
     next_view_sequence: 1,
     next_sheet_sequence: 1,
     next_ifc_import_sequence: 1,
-    next_block_sequence: 1,
-    next_xref_sequence: 1,
     revisions: [],
   });
 }
 
 /** Seeded history for an opened snapshot WITHOUT a persisted history
- *  (legacy artifact): the opened state becomes the base (origin "opened"). */
+ *  (legacy artifact): the opened state becomes the base (origin "opened").
+ *  CAD-PARITY-006: the block/xref counters stay ABSENT until the first
+ *  mint (canonical-minimal — legacy-fixture byte-identity). */
 export function openedHistory(
   entityId: string,
   format: string,
@@ -212,8 +220,6 @@ export function openedHistory(
     next_view_sequence: 1,
     next_sheet_sequence: 1,
     next_ifc_import_sequence: 1,
-    next_block_sequence: 1,
-    next_xref_sequence: 1,
     revisions: [],
   });
 }

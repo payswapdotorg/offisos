@@ -13,7 +13,7 @@ import assert from "node:assert/strict";
 
 import { CADDocument } from "../src/caddocument/document.js";
 import { canonicalStringify } from "../src/caddocument/serialization.js";
-import type { BlockDefinitionRecord, XrefRecord } from "../src/contracts/caddocument.js";
+import type { BlockDefinitionRecord, CADDocumentSnapshot, XrefRecord } from "../src/contracts/caddocument.js";
 
 const TOL = 1e-9;
 
@@ -240,25 +240,25 @@ test("open rejects corrupt snapshots: dangling instances, cycles, duplicate name
   base.execute({ type: "addBlockDef", block: block("A") });
   const good = base.snapshot();
   // A dangling instance reference.
-  const dangling: typeof good = JSON.parse(JSON.stringify(good));
+  const dangling = JSON.parse(JSON.stringify(good)) as unknown as Record<string, unknown>;
   dangling.elements = [
     { id: "el-000001", kind: "geometry", engineId: null, props: { drafting: true, type: "block-ref", layer: "0", blockId: "blk-999999", x: 0, y: 0, scale: 1, rotation: 0 } },
   ];
-  assert.throws(() => CADDocument.open(dangling, "x"), /unknown block definition/i);
+  assert.throws(() => CADDocument.open(dangling as unknown as CADDocumentSnapshot, "x"), /unknown block definition/i);
   // A cyclic definition table.
-  const cyclic: typeof good = JSON.parse(JSON.stringify(good));
+  const cyclic = JSON.parse(JSON.stringify(good)) as unknown as Record<string, unknown>;
   cyclic.blockDefs = [
     { ...block("A", [{ type: "block-ref", layer: "0", blockId: "blk-000001", x: 0, y: 0, scale: 1, rotation: 0 }], "blk-000001") },
   ];
-  assert.throws(() => CADDocument.open(cyclic, "x"), /circular/i);
+  assert.throws(() => CADDocument.open(cyclic as unknown as CADDocumentSnapshot, "x"), /circular/i);
   // Duplicate names.
-  const dupes: typeof good = JSON.parse(JSON.stringify(good));
+  const dupes = JSON.parse(JSON.stringify(good)) as unknown as Record<string, unknown>;
   dupes.blockDefs = [block("A", [], "blk-000001"), block("A", [], "blk-000002")];
-  assert.throws(() => CADDocument.open(dupes, "x"), /duplicate block definition name/i);
+  assert.throws(() => CADDocument.open(dupes as unknown as CADDocumentSnapshot, "x"), /duplicate block definition name/i);
   // A malformed inline entity.
-  const badEntity: typeof good = JSON.parse(JSON.stringify(good));
+  const badEntity = JSON.parse(JSON.stringify(good)) as unknown as Record<string, unknown>;
   badEntity.blockDefs = [block("A", [{ type: "nonsense" }], "blk-000001")];
-  assert.throws(() => CADDocument.open(badEntity, "x"), /blockDef/);
+  assert.throws(() => CADDocument.open(badEntity as unknown as CADDocumentSnapshot, "x"), /blockDef/);
 });
 
 test("locked/frozen layer gate applies to instance ELEMENTS (the drafting marker is present)", () => {

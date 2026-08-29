@@ -1033,6 +1033,7 @@ export function validateBlockDefinitionRecord(
     name: b.name,
     basePoint: { x: bp.x, y: bp.y },
     entities,
+    createdAt: b.createdAt,
   };
   if (typeof b.description === "string" && b.description.length > 0) out.description = b.description;
   return out as unknown as BlockDefinitionRecord;

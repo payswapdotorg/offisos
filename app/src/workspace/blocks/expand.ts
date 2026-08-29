@@ -96,7 +96,7 @@ export function composeSim(outer: Sim2, inner: Sim2): Sim2 {
   // outer(inner(p)) = s2·R(r2)·(s1·R(r1)·p + t1) + t2
   //                 = (s1·s2)·R(r1+r2)·p + (s2·R(r2)·t1 + t2)
   const lin = applySimLinear(outer, { x: inner.tx, y: inner.ty });
-  return { s: inner.s * outer.s, rot: inner.rot + outer.rot, tx: lin.x, ty: lin.y };
+  return { s: inner.s * outer.s, rot: inner.rot + outer.rot, tx: lin.x + outer.tx, ty: lin.y + outer.ty };
 }
 
 function applySimLinear(m: Sim2, p: Pt): Pt {
