@@ -83,11 +83,11 @@
       "at": "2026-08-29T19:30:00Z",
       "actor": "z-ai-implementation-agent",
       "role": "implementer",
-      "reason": "Implementation complete and submitted for review: PR #87 (branch work/cad-parity-007-parametrics) — the shared constraints core (the bounded deterministic solver with the six typed outcomes + the constraint-aware cascades + the glyph painter) + both host mirrors + 68 deterministic tests + the pinned 007 parity fixture asserted by BOTH hosts (the web prompt-engine smoke + the Electron real-UI smoke 21/21 over CDP) + the CI workflow; the exact head deployed to Vercel and verified (all five fixtures byte-identical + the 15/15 deployed constraints protocol + the deployed browser protocol with zero page errors). No APPROVED/VERIFIED claim — awaiting the Architect's review.",
+      "reason": "Implementation complete and submitted for review: PR #87 (branch work/cad-parity-007-parametrics, 3 commits) — the shared constraints core (the bounded deterministic solver with the six typed outcomes + the constraint-aware cascades + the glyph painter) + both host mirrors + 68 deterministic tests + the pinned 007 parity fixture asserted by BOTH hosts (the web prompt-engine smoke + the Electron real-UI smoke 21/21 over CDP) + the CI workflow; the exact head deployed to Vercel and verified (all five fixtures byte-identical + the 15/15 deployed constraints protocol + the deployed browser protocol with zero page errors). No APPROVED/VERIFIED claim — awaiting the Architect's review.",
       "references": {
         "issue": 86,
         "pr": 87,
-        "commit": "ee5d892"
+        "commit": "fe04589"
       }
     }
   ],
@@ -95,12 +95,12 @@
     {
       "id": "EV-001",
       "type": "automated-test-suite",
-      "description": "871/871 app tests green at head ee5d892 (803 pre-existing + 68 new CAD-PARITY-007 tests in three files: workspace-2d-constraints-solver (24), workspace-2d-constraints-document (13), workspace-2d-constraints-commands (31)) — the vocabulary grammar + typed declines, the closed-form applications with the authority/fixed-flip rules, the six outcomes explicit + reproducible, the DoF accounting, the fixed-restore cascade, the minting/inverses/byte-identity/replay suites, the App API surface with the over-constraint create gate, the constraint-aware editing + remeasure composition, severance, the ARRAY ops and all six prompt-engine flows; the suites pinned implementation defects before commit (the tangent shift sign + authority direction, the polar-array double transform, the unwrapped single-edit batch shape).",
+      "description": "871/871 app tests green at head fe04589 (the typing-fix head; the implementation head ee5d892 carried the same suite count) (803 pre-existing + 68 new CAD-PARITY-007 tests in three files: workspace-2d-constraints-solver (24), workspace-2d-constraints-document (13), workspace-2d-constraints-commands (31)) — the vocabulary grammar + typed declines, the closed-form applications with the authority/fixed-flip rules, the six outcomes explicit + reproducible, the DoF accounting, the fixed-restore cascade, the minting/inverses/byte-identity/replay suites, the App API surface with the over-constraint create gate, the constraint-aware editing + remeasure composition, severance, the ARRAY ops and all six prompt-engine flows; the suites pinned implementation defects before commit (the tangent shift sign + authority direction, the polar-array double transform, the unwrapped single-edit batch shape; the CI typecheck additionally caught the untyped test val() generics — fixed at fe04589).",
       "produced_at": "2026-08-29T16:20:00Z",
       "reproducible": true,
       "reproduction": "cd app && node --import tsx --test test/*.test.ts",
       "references": {
-        "commit": "ee5d892"
+        "commit": "fe04589"
       }
     },
     {
@@ -111,7 +111,7 @@
       "reproducible": true,
       "reproduction": "cd apps/web && npm run dev -- -p 3100 & then node --import tsx apps/web/test/constraints-smoke.mjs; cd apps/electron && npm run build && node test/smoke-constraints.mjs",
       "references": {
-        "commit": "ee5d892",
+        "commit": "fe04589",
         "artifact_path": "app/test/fixtures/cad-parity-007-constraints.json"
       }
     },
@@ -123,19 +123,19 @@
       "reproducible": true,
       "reproduction": "The cad-parity-007 workflow on PR #87",
       "references": {
-        "commit": "ee5d892",
+        "commit": "fe04589",
         "pr": 87
       }
     },
     {
       "id": "EV-004",
       "type": "inspectable-artifact",
-      "description": "Deployed verification of the EXACT PR head: Vercel deployment dpl_ymS26WJzQL13boG9qnpeK6x2B9eL READY at https://offisos-2jytui4hp-ekonplacidegmailcoms-projects.vercel.app with meta gitsha=ee5d892e849c832549f1b40e6e465500f37b0d41, pr=87, workitem=CAD-PARITY-007 (identity via the Vercel REST API). Against the deployed build through the instance-pinning relay: ALL FIVE parity fixtures byte-identical (007 cd9f3f61…, 002 a48a29a8…, 004 f92be229…, 005 a14ce71c…, 006 a7d7ff4c…); the deployed constraints protocol 15/15 (constraint.create atomicity + the exact inverse, the over-constraint create gate, the unsupported vocabulary decline, the update re-solve, the diagnostics/list inventories, the fixed-restore, severance, the ARRAY patterns, solve, save/open + determinism); the deployed browser protocol (the Parametric ribbon tab, GEOMCONSTRAINT Horizontal through the deployed command line with a REAL canvas pick, DIMCONSTRAINT Length with the dynamic current-value default, the Constraints palette rendering the live diagnostics — the under-constrained outcome + the DoF accounting + the per-constraint rows — the palette value edit re-solving through the deployed build, the constraint glyph badges VLM-confirmed) with ZERO page errors and ZERO console errors.",
+      "description": "Deployed verification of the EXACT PR head: Vercel deployment dpl_6VWv8WnWYvMfaCZ8H4DVSCDVa9Ec READY at https://offisos-m42ewpit0-ekonplacidegmailcoms-projects.vercel.app with meta gitsha=fe0458923254d73994eccd85b287ee3128dcdc85, pr=87, workitem=CAD-PARITY-007 (identity via the Vercel REST API). Against the deployed build through the instance-pinning relay: ALL FIVE parity fixtures byte-identical (007 cd9f3f61…, 002 a48a29a8…, 004 f92be229…, 005 a14ce71c…, 006 a7d7ff4c…); the deployed constraints protocol 15/15 (constraint.create atomicity + the exact inverse, the over-constraint create gate, the unsupported vocabulary decline, the update re-solve, the diagnostics/list inventories, the fixed-restore, severance, the ARRAY patterns, solve, save/open + determinism); the deployed browser protocol (the Parametric ribbon tab, GEOMCONSTRAINT Horizontal through the deployed command line with a REAL canvas pick, DIMCONSTRAINT Length with the dynamic current-value default, the Constraints palette rendering the live diagnostics — the under-constrained outcome + the DoF accounting + the per-constraint rows — the palette value edit re-solving through the deployed build, the constraint glyph badges VLM-confirmed) with ZERO page errors and ZERO console errors. (Re-verified on the FINAL head fe04589 after the test-typing fix: the deployment dpl_6VWv8WnWYvMfaCZ8H4DVSCDVa9Ec reproduces all five fixtures byte-identically + the 15/15 deployed constraints protocol; the browser protocol ran against the same build content at ee5d892 — the fix touched test files only.)",
       "produced_at": "2026-08-29T19:50:00Z",
       "reproducible": true,
       "reproduction": "python3 relay-pinned.py <deployment-url> 3199 & then node constraints-protocol.mjs http://localhost:3199 (the protocol + relay live in /home/z/cp7-deployed/)",
       "references": {
-        "commit": "ee5d892",
+        "commit": "fe04589",
         "pr": 87,
         "artifact_path": "/home/z/cp7-deployed/constraints-protocol.mjs"
       }
