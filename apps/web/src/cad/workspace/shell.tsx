@@ -61,6 +61,8 @@ import type { GripEditResult } from "@offisos/cad-app-shell/workspace/grips";
 import { MenuBar, Ribbon, ToolPalette, type WorkspacePreset, type WorkspaceView } from "@/cad/workspace/ribbon";
 import { RightDock, type DockTab } from "@/cad/workspace/palettes";
 import { ModelCanvas } from "@/cad/workspace/model-canvas";
+import { LayoutCanvas } from "@/cad/workspace/layout-canvas";
+import { PlotPreview } from "@/cad/workspace/plot-preview";
 import { CommandLine } from "@/cad/workspace/command-line";
 import { StatusBar } from "@/cad/workspace/status-bar";
 import { CommandPalette } from "@/cad/workspace/command-palette";
@@ -100,6 +102,10 @@ export function WorkspaceShell(): React.JSX.Element {
   const [zoomExtentsSignal, setZoomExtentsSignal] = React.useState(0);
   const [showHistory, setShowHistory] = React.useState(false);
   const [historyData, setHistoryData] = React.useState<{ revisions: number; graphEvents: number; replayNote: string | null }>({ revisions: 0, graphEvents: 0, replayNote: null });
+  // CAD-PARITY-008: the paper-space editor surface — the selected viewport
+  // (frame grip editing on the paper canvas) and the plot preview overlay.
+  const [selectedViewportId, setSelectedViewportId] = React.useState<string | null>(null);
+  const [plotPreviewOpen, setPlotPreviewOpen] = React.useState(false);
 
   const fileInputRef = React.useRef<HTMLInputElement | null>(null);
 
@@ -189,6 +195,13 @@ export function WorkspaceShell(): React.JSX.Element {
       // (CONSTRAINTLIST/DELCONSTRAINT builders — the SAME document state
       // both hosts pass).
       constraints: snapshot?.constraints ?? [],
+      // CAD-PARITY-008: the paper-space layout/viewport tables + the
+      // TILEMODE-class editor context (the SAME document state both hosts
+      // pass — the layout command builders resolve names/active defaults).
+      layouts: snapshot?.layouts ?? [],
+      viewports: snapshot?.viewports ?? [],
+      activeLayoutId: snapshot?.draftingSettings?.activeLayout ?? snapshot?.layouts?.[0]?.id ?? null,
+      space: snapshot?.draftingSettings?.space ?? "model",
     });
   }, [snapshot, selection, activeLayer, activeStoryId]);
 
@@ -255,6 +268,37 @@ export function WorkspaceShell(): React.JSX.Element {
               if (story !== undefined) setActiveStoryId(story.id);
             }
           }
+        } else if (res.ok && (entry.name === "plot.export" || entry.name === "plot.publish")) {
+          // CAD-PARITY-008: PLOT/PUBLISH deliver the deterministic artifact —
+          // download the exported bytes (SVG text or PDF base64).
+          const value = res.value as {
+            format?: string; text?: string; bytesBase64?: string; sha256?: string;
+            layoutName?: string; pageCount?: number;
+          };
+          try {
+            const isPdf = value.bytesBase64 !== undefined;
+            const bytes: Uint8Array = isPdf
+              ? Uint8Array.from(atob(value.bytesBase64 ?? ""), (c) => c.charCodeAt(0))
+              : new TextEncoder().encode(value.text ?? "");
+            const blob = new Blob([bytes as unknown as BlobPart], { type: isPdf ? "application/pdf" : value.format === "svg" || value.format === "plot-ir" ? "image/svg+xml" : "application/json" });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            const base = (value.layoutName ?? "layouts").replace(/\s+/g, "-").toLowerCase();
+            const ext = value.format === "pdf" ? "pdf" : value.format === "svg" ? "svg" : "json";
+            a.download = `offisos-${base}${value.pageCount !== undefined && value.pageCount > 1 ? "-set" : ""}.${ext}`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+            setHistoryLines((h) => [
+              ...h,
+              `PLOT: ${value.pageCount !== undefined && value.pageCount > 1 ? `${value.pageCount} layouts published` : `${value.layoutName ?? "layout"} exported`} as ${(value.format ?? "?").toUpperCase()} (sha256 ${(value.sha256 ?? "").slice(0, 12)}…) — downloaded.`,
+            ]);
+          } catch {
+            // Download is best-effort in headless contexts; the command itself
+            // already succeeded (the artifact hash is in the response).
+          }
         }
         setBusy(false);
       }
@@ -296,6 +340,12 @@ export function WorkspaceShell(): React.JSX.Element {
               // diagnostics, dimensional value editing, removal).
               setDockTab("constraints");
               setDockVisible(true);
+            } else if (palette === "layouts") {
+              // CAD-PARITY-008: LAYOUT/VPORTS — the layouts manager (the
+              // layout table, page setup, viewport scale/rotation/lock + the
+              // per-viewport layer visibility).
+              setDockTab("layouts");
+              setDockVisible(true);
             } else if (palette === "workspace") {
               setPreset((p) => (p === "compact" ? "drafting" : "compact"));
             }
@@ -332,6 +382,21 @@ export function WorkspaceShell(): React.JSX.Element {
           }
           case "view.zoomExtents":
             setZoomExtentsSignal((n) => n + 1);
+            break;
+          // CAD-PARITY-008: the paper-space context switches + the plot
+          // preview surface (host-local view state, LOCK-015).
+          case "space.model":
+            setView("model");
+            break;
+          case "space.paper":
+            setView("layout");
+            break;
+          case "plot.preview":
+            setPlotPreviewOpen(true);
+            break;
+          case "plot.download":
+            // The download already happened inline with the plot.export /
+            // plot.publish response (see the appApi loop above).
             break;
           case "selection.clear":
             await setDocumentSelection([]);
@@ -614,7 +679,9 @@ export function WorkspaceShell(): React.JSX.Element {
         <ToolPalette activeCommand={engineState.commandId} onCommand={startCommand} visible={!compact} />
 
         <main className="flex min-w-0 flex-1 flex-col" aria-label="workspace content">
-          {/* Document/view tabs */}
+          {/* Document/view tabs — the fixed views + ONE tab per paper-space
+              layout (CAD-PARITY-008: layout tabs are DISTINCT from the Model
+              tab; clicking one activates the layout through layout.activate). */}
           <div className="flex items-center gap-0.5 border-b bg-muted/30 px-2 pt-1" role="tablist" aria-label="document and view tabs">
             {VIEW_TABS.map((tab) => (
               <button
@@ -631,6 +698,36 @@ export function WorkspaceShell(): React.JSX.Element {
                 {tab.label}
               </button>
             ))}
+            {(snapshot?.layouts ?? []).length > 0 && <div className="mx-1 h-4 w-px self-center bg-border" aria-hidden />}
+            {(snapshot?.layouts ?? []).map((layout) => {
+              const isActiveLayout = (snapshot?.draftingSettings?.activeLayout ?? snapshot?.layouts?.[0]?.id) === layout.id;
+              return (
+                <button
+                  key={layout.id}
+                  type="button"
+                  role="tab"
+                  aria-selected={view === "layout" && isActiveLayout}
+                  data-testid={"layout-tab-" + layout.id}
+                  className={
+                    "rounded-t border border-b-0 px-3 py-1 text-xs font-medium " +
+                    (view === "layout" && isActiveLayout
+                      ? "bg-background text-foreground"
+                      : "bg-transparent text-muted-foreground hover:bg-background/60")
+                  }
+                  onClick={() => {
+                    setSelectedViewportId(null);
+                    void (async () => {
+                      const res = await send({ type: "command", name: "layout.activate" as Command["name"], payload: { name: layout.name } });
+                      if (!res.ok) setError(`[layout.activate] ${res.code}: ${res.message}`);
+                      setView("layout");
+                    })();
+                  }}
+                  title={`Activate the '${layout.name}' layout (${layout.pageSetup.paperSize} ${layout.pageSetup.orientation})`}
+                >
+                  {layout.name}
+                </button>
+              );
+            })}
             <div className="ml-auto flex items-center gap-1 pb-1">
               {currentCommandName !== null && (
                 <Badge variant="default" className="font-mono text-[10px]" data-testid="active-command">
@@ -758,6 +855,35 @@ export function WorkspaceShell(): React.JSX.Element {
             {view === "docs" && <DocsWorkbench />}
             {view === "ifc" && <IfcWorkbench />}
             {view === "components" && <ComponentsWorkbench />}
+            {view === "layout" && (
+              <LayoutCanvas
+                snapshot={snapshot}
+                engineState={engineState}
+                busy={busy}
+                selectedViewportId={selectedViewportId}
+                onSelectedViewport={setSelectedViewportId}
+                onCursor={(paper) => setCursor(paper)}
+                onPickPoint={(paper) => dispatchEngine({ type: "pick", point: paper })}
+                onViewportUpdate={(id, patch) => {
+                  void (async () => {
+                    setBusy(true);
+                    try {
+                      const res = await send({ type: "command", name: "viewport.update" as Command["name"], payload: { id, patch } });
+                      if (!res.ok) {
+                        setHistoryLines((h) => [...h, `*ERROR* viewport.update: ${res.code} — ${res.message}`]);
+                        setError(`[viewport.update] ${res.code}: ${res.message}`);
+                      } else {
+                        setHistoryLines((h) => [...h, `Viewport ${id} frame updated.`]);
+                      }
+                    } finally {
+                      await refresh();
+                      setBusy(false);
+                    }
+                  })();
+                }}
+                onCommandStart={startCommand}
+              />
+            )}
           </div>
 
           <CommandLine
@@ -778,6 +904,13 @@ export function WorkspaceShell(): React.JSX.Element {
             units={snapshot?.draftingSettings?.units ?? "mm"}
             activeLayer={activeLayerName}
             lineweightDisplay={snapshot?.draftingSettings?.lineweightDisplay ?? false}
+            spaceLabel={
+              (snapshot?.layouts ?? []).length > 0
+                ? (snapshot?.draftingSettings?.space ?? "model") === "model"
+                  ? "Model"
+                  : `Paper · ${(snapshot?.layouts ?? []).find((l) => l.id === (snapshot?.draftingSettings?.activeLayout ?? snapshot?.layouts?.[0]?.id))?.name ?? "—"}`
+                : null
+            }
             onActiveLayerClick={() => {
               setDockTab("layers");
               setDockVisible(true);
@@ -833,6 +966,14 @@ export function WorkspaceShell(): React.JSX.Element {
       </div>
 
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} onRun={onPaletteRun} />
+
+      {plotPreviewOpen && (
+        <PlotPreview
+          snapshot={snapshot}
+          onClose={() => setPlotPreviewOpen(false)}
+          onEcho={(line) => setHistoryLines((h) => [...h, line])}
+        />
+      )}
 
       {helpOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30" role="dialog" aria-modal="true" aria-label="Help" onClick={() => setHelpOpen(false)}>

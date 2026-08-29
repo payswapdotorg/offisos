@@ -54,6 +54,10 @@ import {
   Ruler,
   Waves,
   Waypoints,
+  LayoutTemplate,
+  Printer,
+  FileOutput,
+  Copy,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -111,7 +115,7 @@ import {
 } from "@offisos/cad-app-shell/workspace/standards";
 import { setSelection } from "@/cad/client/http-transport";
 
-export type DockTab = "properties" | "layers" | "styles" | "blocks" | "constraints" | "navigator";
+export type DockTab = "properties" | "layers" | "styles" | "blocks" | "constraints" | "layouts" | "navigator";
 
 export interface PalettesProps {
   readonly snapshot: CADDocumentSnapshot | null;
@@ -2389,6 +2393,429 @@ function ConstraintsPanel(props: PalettesProps): React.JSX.Element {
 // The dock.
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// CAD-PARITY-008: the Layouts manager (Issue #88) — the layout table with
+// page setup, the viewport inventory (scale/rotation/lock — the 1:N field IS
+// the viewport-scale ZOOM workflow) and the per-viewport layer visibility
+// (the VPLAYER surface). Every write is ONE App API command (one atomic
+// revision); the layout.activate context switch is non-versioned editor
+// state (the activeLayer precedent).
+// ---------------------------------------------------------------------------
+
+function LayoutsPanel(props: PalettesProps): React.JSX.Element {
+  const commit = props.onCommitEdit;
+  const layouts = props.snapshot?.layouts ?? [];
+  const viewports = props.snapshot?.viewports ?? [];
+  const layers = props.snapshot?.layers ?? [];
+  const activeLayoutId = props.snapshot?.draftingSettings?.activeLayout ?? layouts[0]?.id ?? null;
+  const activeLayout = layouts.find((l) => l.id === activeLayoutId) ?? null;
+  const layoutViewports = viewports.filter((v) => v.layoutId === activeLayout?.id);
+  const [renaming, setRenaming] = React.useState<string | null>(null);
+  const [renameText, setRenameText] = React.useState("");
+  const [newName, setNewName] = React.useState("");
+  const [layerVpOpen, setLayerVpOpen] = React.useState<string | null>(null);
+
+  const setActive = (name: string): void => {
+    void commit("layout.activate", async () => {
+      const { layoutActivate } = await import("@/cad/client/http-transport");
+      return layoutActivate({ name });
+    });
+  };
+
+  const setup = activeLayout?.pageSetup;
+
+  return (
+    <div className="flex h-full flex-col overflow-y-auto" data-testid="layouts-panel">
+      {/* Header: new layout + the manager actions */}
+      <div className="flex items-center gap-1 border-b p-2">
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-7 gap-1 px-2 text-[11px]"
+          title="Create a paper-space layout with the canonical A3 landscape page setup (LAYOUTNEW)"
+          onClick={() => props.onRunCommand("layoutnew")}
+          data-testid="layouts-new"
+        >
+          <Plus className="h-3.5 w-3.5" aria-hidden /> New
+        </Button>
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-7 gap-1 px-2 text-[11px]"
+          title="The bounded viewport manager (VPORTS)"
+          onClick={() => props.onRunCommand("vports")}
+        >
+          Viewports
+        </Button>
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-7 gap-1 px-2 text-[11px]"
+          title="The deterministic plot preview of the active layout (PREVIEW)"
+          onClick={() => props.onRunCommand("preview")}
+        >
+          <Printer className="h-3.5 w-3.5" aria-hidden /> Preview
+        </Button>
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-7 gap-1 px-2 text-[11px]"
+          title="Publish every layout as one multi-page PDF (PUBLISH)"
+          onClick={() => props.onRunCommand("publish")}
+        >
+          <FileOutput className="h-3.5 w-3.5" aria-hidden /> Publish
+        </Button>
+      </div>
+
+      {layouts.length === 0 && (
+        <div className="p-3 text-xs text-muted-foreground" data-testid="layouts-empty">
+          No layouts yet — <span className="font-mono text-foreground">LAYOUTNEW</span> creates one with the canonical A3 landscape page setup (10 mm margins, fit, as-displayed plot style).
+        </div>
+      )}
+
+      {/* The layout table */}
+      <PropSection title={`Layouts (${layouts.length})`}>
+        {layouts.map((layout) => {
+          const vps = viewports.filter((v) => v.layoutId === layout.id);
+          const isActive = layout.id === activeLayout?.id;
+          return (
+            <div
+              key={layout.id}
+              className={"rounded border px-2 py-1.5 " + (isActive ? "border-foreground/40 bg-muted/40" : "border-border")}
+              data-testid={"layout-row-" + layout.id}
+            >
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  className={"flex-1 truncate text-left text-xs font-medium " + (isActive ? "text-foreground" : "text-muted-foreground hover:text-foreground")}
+                  onClick={() => setActive(layout.name)}
+                  title="Activate this layout (paper space)"
+                >
+                  {isActive ? "▸ " : ""}
+                  {layout.name}
+                </button>
+                <span className="font-mono text-[9px] text-muted-foreground">{layout.pageSetup.paperSize}</span>
+                <span className="font-mono text-[9px] text-muted-foreground">{vps.length}vp</span>
+                <button
+                  type="button"
+                  className="rounded px-1 text-[10px] text-muted-foreground hover:bg-muted"
+                  title="Rename layout (LAYOUTRENAME)"
+                  onClick={() => {
+                    setRenaming(layout.id);
+                    setRenameText(layout.name);
+                  }}
+                >
+                  <Wrench className="h-3 w-3" aria-hidden />
+                </button>
+                <button
+                  type="button"
+                  className="rounded px-1 text-[10px] text-muted-foreground hover:bg-muted"
+                  title="Clone layout with its viewports (LAYOUTCLONE)"
+                  onClick={() =>
+                    void commit("layout.clone", async () => {
+                      const { layoutClone } = await import("@/cad/client/http-transport");
+                      return layoutClone({ name: layout.name }, `${layout.name}-Copy`);
+                    })
+                  }
+                >
+                  <Copy className="h-3 w-3" aria-hidden />
+                </button>
+                <button
+                  type="button"
+                  className="rounded px-1 text-[10px] text-red-600/80 hover:bg-red-50"
+                  title="Delete layout and its viewports (LAYOUTDELETE)"
+                  onClick={() =>
+                    void commit("layout.remove", async () => {
+                      const { layoutRemove } = await import("@/cad/client/http-transport");
+                      return layoutRemove({ name: layout.name });
+                    })
+                  }
+                >
+                  <Trash2 className="h-3 w-3" aria-hidden />
+                </button>
+              </div>
+              {renaming === layout.id && (
+                <div className="mt-1 flex gap-1">
+                  <input
+                    className={TEXT_INPUT + " flex-1"}
+                    value={renameText}
+                    aria-label="new layout name"
+                    onChange={(e) => setRenameText(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        void commit("layout.rename", async () => {
+                          const { layoutRename } = await import("@/cad/client/http-transport");
+                          return layoutRename({ name: layout.name }, renameText.trim());
+                        });
+                        setRenaming(null);
+                      }
+                      if (e.key === "Escape") setRenaming(null);
+                    }}
+                    autoFocus
+                  />
+                  <Button size="sm" variant="outline" className="h-6 px-2 text-[10px]"
+                    onClick={() => {
+                      void commit("layout.rename", async () => {
+                        const { layoutRename } = await import("@/cad/client/http-transport");
+                        return layoutRename({ name: layout.name }, renameText.trim());
+                      });
+                      setRenaming(null);
+                    }}
+                  >
+                    OK
+                  </Button>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </PropSection>
+
+      {/* The page setup of the ACTIVE layout */}
+      {setup !== undefined && activeLayout !== null && (
+        <PropSection title="Page setup (active)">
+          <PropRow label="Paper">
+            <select
+              className={SELECT_INPUT}
+              aria-label="paper size"
+              value={setup.paperSize === "CUSTOM" ? "CUSTOM" : setup.paperSize}
+              onChange={(e) => {
+                const size = e.target.value as "A4" | "A3" | "A2" | "A1" | "A0";
+                const dims: Record<string, { w: number; h: number }> = {
+                  A4: { w: 210, h: 297 },
+                  A3: { w: 297, h: 420 },
+                  A2: { w: 420, h: 594 },
+                  A1: { w: 594, h: 841 },
+                  A0: { w: 841, h: 1189 },
+                };
+                const d = dims[size]!;
+                void commit("layout.setPageSetup", async () => {
+                  const { layoutSetPageSetup } = await import("@/cad/client/http-transport");
+                  return layoutSetPageSetup({ name: activeLayout.name }, { paperSize: size, widthMm: d.w, heightMm: d.h });
+                });
+              }}
+            >
+              {["A4", "A3", "A2", "A1", "A0"].map((s) => (
+                <option key={s} value={s}>{s}</option>
+              ))}
+              {setup.paperSize === "CUSTOM" && <option value="CUSTOM">CUSTOM</option>}
+            </select>
+          </PropRow>
+          <PropRow label="Orientation">
+            <select
+              className={SELECT_INPUT}
+              aria-label="orientation"
+              value={setup.orientation}
+              onChange={(e) => {
+                const orientation = e.target.value as "portrait" | "landscape";
+                void commit("layout.setPageSetup", async () => {
+                  const { layoutSetPageSetup } = await import("@/cad/client/http-transport");
+                  return layoutSetPageSetup({ name: activeLayout.name }, { orientation });
+                });
+              }}
+            >
+              <option value="portrait">Portrait</option>
+              <option value="landscape">Landscape</option>
+            </select>
+          </PropRow>
+          <PropRow label="Margin (mm)">
+            <NumberField
+              value={setup.marginsMm.top}
+              step={1}
+              ariaLabel="uniform margin mm"
+              onCommit={(m) => {
+                void commit("layout.setPageSetup", async () => {
+                  const { layoutSetPageSetup } = await import("@/cad/client/http-transport");
+                  return layoutSetPageSetup({ name: activeLayout.name }, { marginsMm: { top: m, right: m, bottom: m, left: m } });
+                });
+              }}
+            />
+          </PropRow>
+          <PropRow label="Plot scale">
+            <input
+              className={TEXT_INPUT + " flex-1"}
+              defaultValue={setup.plotScale}
+              key={setup.plotScale}
+              aria-label="plot scale (fit or N:M)"
+              onBlur={(e) => {
+                const value = e.target.value.trim();
+                if (value === setup.plotScale) return;
+                void commit("layout.setPageSetup", async () => {
+                  const { layoutSetPageSetup } = await import("@/cad/client/http-transport");
+                  return layoutSetPageSetup({ name: activeLayout.name }, { plotScale: value });
+                });
+              }}
+            />
+          </PropRow>
+          <PropRow label="Center plot">
+            <input
+              type="checkbox"
+              checked={setup.centerPlot}
+              aria-label="center the plot"
+              onChange={(e) => {
+                const centerPlot = e.target.checked;
+                void commit("layout.setPageSetup", async () => {
+                  const { layoutSetPageSetup } = await import("@/cad/client/http-transport");
+                  return layoutSetPageSetup({ name: activeLayout.name }, { centerPlot });
+                });
+              }}
+            />
+          </PropRow>
+          <PropRow label="Plot borders">
+            <input
+              type="checkbox"
+              checked={setup.plotViewports !== false}
+              aria-label="plot viewport borders"
+              onChange={(e) => {
+                const plotViewports = e.target.checked;
+                void commit("layout.setPageSetup", async () => {
+                  const { layoutSetPageSetup } = await import("@/cad/client/http-transport");
+                  return layoutSetPageSetup({ name: activeLayout.name }, { plotViewports });
+                });
+              }}
+            />
+          </PropRow>
+          <div className="px-1 text-[9px] text-muted-foreground">
+            Plot style: {setup.plotStyleKind === "none" ? "none (as displayed)" : `${setup.plotStyleTable} — CTB/STB application is a typed decline`}
+          </div>
+        </PropSection>
+      )}
+
+      {/* The viewport inventory of the active layout */}
+      <PropSection title={`Viewports — ${activeLayout?.name ?? "…"} (${layoutViewports.length})`}>
+        {layoutViewports.length === 0 && (
+          <div className="px-1 text-[10px] text-muted-foreground">
+            None yet — <span className="font-mono text-foreground">MVIEW</span> places one (two paper corners + Fit/Scale/Window).
+          </div>
+        )}
+        {layoutViewports.map((vp) => {
+          const locked = vp.locked === true;
+          return (
+            <div key={vp.id} className="rounded border border-border px-2 py-1.5" data-testid={"viewport-row-" + vp.id}>
+              <div className="flex items-center gap-1">
+                <span className="font-mono text-[10px] font-semibold">{vp.id}</span>
+                <span className="ml-auto font-mono text-[9px] text-muted-foreground">
+                  1:{Number(vp.scaleDenominator.toFixed(3))} · {vp.rotationDeg}°
+                </span>
+              </div>
+              <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] text-muted-foreground">
+                <label className="flex items-center gap-1">
+                  1:
+                  <NumberField
+                    value={vp.scaleDenominator}
+                    step={1}
+                    ariaLabel={"viewport " + vp.id + " scale denominator"}
+                    disabled={locked}
+                    onCommit={(d) => {
+                      void commit("viewport scale", async () => {
+                        const { viewportUpdate } = await import("@/cad/client/http-transport");
+                        return viewportUpdate(vp.id, { scaleDenominator: d });
+                      });
+                    }}
+                  />
+                </label>
+                <label className="flex items-center gap-1">
+                  rot°
+                  <NumberField
+                    value={vp.rotationDeg}
+                    step={15}
+                    ariaLabel={"viewport " + vp.id + " rotation degrees"}
+                    disabled={locked}
+                    onCommit={(r) => {
+                      void commit("viewport rotation", async () => {
+                        const { viewportUpdate } = await import("@/cad/client/http-transport");
+                        return viewportUpdate(vp.id, { rotationDeg: r });
+                      });
+                    }}
+                  />
+                </label>
+                <label className="flex items-center gap-1" title="Display lock: the view (camera/scale/rotation) freezes; the frame still moves">
+                  <input
+                    type="checkbox"
+                    checked={locked}
+                    aria-label={"viewport " + vp.id + " display lock"}
+                    onChange={(e) => {
+                      const value = e.target.checked;
+                      void commit("viewport lock", async () => {
+                        const { viewportUpdate } = await import("@/cad/client/http-transport");
+                        return viewportUpdate(vp.id, { locked: value });
+                      });
+                    }}
+                  />
+                  lock
+                </label>
+                <button
+                  type="button"
+                  className="rounded px-1 text-[10px] text-muted-foreground hover:bg-muted"
+                  aria-expanded={layerVpOpen === vp.id}
+                  onClick={() => setLayerVpOpen((id) => (id === vp.id ? null : vp.id))}
+                >
+                  layers
+                </button>
+                <button
+                  type="button"
+                  className="ml-auto rounded px-1 text-red-600/80 hover:bg-red-50"
+                  title="Delete viewport"
+                  onClick={() =>
+                    void commit("viewport.remove", async () => {
+                      const { viewportRemove } = await import("@/cad/client/http-transport");
+                      return viewportRemove(vp.id);
+                    })
+                  }
+                >
+                  <Trash2 className="h-3 w-3" aria-hidden />
+                </button>
+              </div>
+              {layerVpOpen === vp.id && (
+                <div className="mt-1 max-h-40 overflow-y-auto rounded bg-muted/30 p-1" data-testid={"viewport-layers-" + vp.id}>
+                  <div className="mb-1 text-[9px] text-muted-foreground">Per-viewport layer visibility (VPLAYER) — absent = inherit the layer table</div>
+                  {layers.map((layer) => {
+                    const override = (vp.layerOverrides ?? []).find((o) => o.layerId === layer.id);
+                    const effective = override?.visible ?? layer.visible;
+                    return (
+                      <label key={layer.id} className="flex items-center gap-1 py-0.5 text-[10px]">
+                        <input
+                          type="checkbox"
+                          checked={effective}
+                          aria-label={"viewport layer " + layer.name + " visible"}
+                          onChange={(e) => {
+                            const visible = e.target.checked;
+                            const next = layers
+                              .map((l2) => {
+                                const o = (vp.layerOverrides ?? []).find((x) => x.layerId === l2.id);
+                                const eff = o?.visible ?? l2.visible;
+                                return { layerId: l2.id, visible: eff };
+                              })
+                              .filter((o) => o.visible !== layers.find((l2) => l2.id === o.layerId)!.visible || (vp.layerOverrides ?? []).some((x) => x.layerId === o.layerId));
+                            // Keep entries only where the override DIFFERS from
+                            // the table (canonical-minimal overrides).
+                            const entry = next.find((o) => o.layerId === layer.id);
+                            if (entry !== undefined) entry.visible = visible;
+                            const cleaned = next.filter((o) => o.visible !== layers.find((l2) => l2.id === o.layerId)!.visible);
+                            void commit("viewport layer visibility", async () => {
+                              const { viewportUpdate } = await import("@/cad/client/http-transport");
+                              return viewportUpdate(vp.id, { layerOverrides: cleaned });
+                            });
+                          }}
+                        />
+                        <span className="flex-1 truncate">{layer.name}</span>
+                        {override !== undefined && <span className="font-mono text-[8px] text-muted-foreground">override</span>}
+                      </label>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </PropSection>
+      <div className="p-2 text-[10px] text-muted-foreground">
+        The layout tabs live above the canvas; the paper canvas edits viewport frames (grip resize/move). PLOT/PUBLISH export deterministic SVG/PDF.
+      </div>
+    </div>
+  );
+}
+
 export function RightDock(props: PalettesProps): React.JSX.Element | null {
   if (!props.visible) return null;
   const tabs: readonly { id: DockTab; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
@@ -2402,6 +2829,10 @@ export function RightDock(props: PalettesProps): React.JSX.Element | null {
     // diagnostics with the six typed outcomes, DoF accounting, dimensional
     // value editing + removal).
     { id: "constraints", label: "Constr", icon: Waypoints },
+    // CAD-PARITY-008 (Issue #88): the layouts manager (the layout table,
+    // page setup, viewport scale/rotation/lock + per-viewport layer
+    // visibility — the VPLAYER surface).
+    { id: "layouts", label: "Layouts", icon: LayoutTemplate },
     { id: "navigator", label: "Nav", icon: Navigation },
   ];
   return (
@@ -2432,6 +2863,7 @@ export function RightDock(props: PalettesProps): React.JSX.Element | null {
         {props.activeTab === "styles" && <StylesPanel {...props} />}
         {props.activeTab === "blocks" && <BlocksPanel {...props} />}
         {props.activeTab === "constraints" && <ConstraintsPanel {...props} />}
+        {props.activeTab === "layouts" && <LayoutsPanel {...props} />}
         {props.activeTab === "navigator" && <NavigatorPanel {...props} />}
       </div>
       <div className="border-t p-2 text-[10px] text-muted-foreground">

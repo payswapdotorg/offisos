@@ -280,7 +280,7 @@ export const COMMANDS_LAYOUTS: readonly WorkspaceCommand[] = [
     label: "Tile Mode",
     description:
       "The bounded model/paper context switch: 1 = model space (the Model view), 0 = the active layout (paper space). MSPACE/PSPACE are the direct switches.",
-    category: "settings",
+    category: "document",
     ribbonTab: "Layout",
     steps: [
       {

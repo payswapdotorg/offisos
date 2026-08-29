@@ -26,6 +26,8 @@ export interface StatusBarProps {
   readonly version: number;
   /** CAD-PARITY-004: the lineweight display toggle (LWDISPLAY class). */
   readonly lineweightDisplay: boolean;
+  /** CAD-PARITY-008: the TILEMODE-class context ("Model" | "Paper · layout"). */
+  readonly spaceLabel: string | null;
   readonly onToggle: (aid: "osnap" | "grid" | "ortho" | "snap" | "polar" | "otrack" | "lweight") => void;
   readonly onActiveLayerClick: () => void;
 }
@@ -63,6 +65,11 @@ export function StatusBar(props: StatusBarProps): React.JSX.Element {
         {props.cursor !== null ? formatCoordinate(props.cursor) : "—"}
       </span>
       <span className="font-mono" title="Active workplane: World XY (mm)">UCS ▸ World</span>
+      {props.spaceLabel !== null && (
+        <span className="font-mono" title="Editing context (TILEMODE/MSPACE/PSPACE — layout.setSpace)" data-testid="space-indicator">
+          {props.spaceLabel}
+        </span>
+      )}
       <Toggle label="SNAP" active={props.snapEnabled} title="Grid snap stepping (F9)" onClick={() => props.onToggle("snap")} />
       <Toggle label="GRID" active={props.gridEnabled} title="Grid display (F7)" onClick={() => props.onToggle("grid")} />
       <Toggle label="ORTHO" active={props.aids.ortho} title="Orthogonal constraint (F8)" onClick={() => props.onToggle("ortho")} />
