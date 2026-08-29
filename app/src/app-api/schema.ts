@@ -770,6 +770,183 @@ export const COMMAND_PAYLOAD_SCHEMAS: Readonly<Record<CommandName, object>> = {
     },
     required: ["format"],
   },
+  // --- CAD-PARITY-009 (additive): 3D navigation, UCS/workplanes, modeling ---
+  "ucs.define": {
+    type: "object",
+    properties: {
+      name: { type: "string", minLength: 1, maxLength: 255 },
+      origin: { type: "array", items: { type: "number" }, minItems: 3, maxItems: 3 },
+      xAxis: { type: "array", items: { type: "number" }, minItems: 3, maxItems: 3 },
+      yAxis: { type: "array", items: { type: "number" }, minItems: 3, maxItems: 3 },
+      zAxis: { type: "array", items: { type: "number" }, minItems: 3, maxItems: 3 },
+    },
+    required: ["name", "origin", "xAxis", "yAxis"],
+  },
+  "ucs.update": {
+    type: "object",
+    properties: {
+      id: { type: "string", minLength: 1 },
+      name: { type: "string", minLength: 1 },
+      patch: {
+        type: "object",
+        minProperties: 1,
+        properties: {
+          name: { type: "string", minLength: 1, maxLength: 255 },
+          origin: { type: "array", items: { type: "number" }, minItems: 3, maxItems: 3 },
+          xAxis: { type: "array", items: { type: "number" }, minItems: 3, maxItems: 3 },
+          yAxis: { type: "array", items: { type: "number" }, minItems: 3, maxItems: 3 },
+          zAxis: { type: "array", items: { type: "number" }, minItems: 3, maxItems: 3 },
+        },
+      },
+    },
+    required: ["patch"],
+  },
+  "ucs.remove": {
+    type: "object",
+    properties: {
+      id: { type: "string", minLength: 1 },
+      name: { type: "string", minLength: 1 },
+    },
+  },
+  "ucs.activate": {
+    type: "object",
+    properties: {
+      id: { type: "string", minLength: 1 },
+      name: { type: "string", minLength: 1 },
+    },
+  },
+  "view3d.set": {
+    type: "object",
+    properties: {
+      eye: { type: "array", items: { type: "number" }, minItems: 3, maxItems: 3 },
+      target: { type: "array", items: { type: "number" }, minItems: 3, maxItems: 3 },
+      up: { type: "array", items: { type: "number" }, minItems: 3, maxItems: 3 },
+      mode: { type: "string", enum: ["orthographic", "perspective"] },
+      orthoHalfHeight: { type: "number", exclusiveMinimum: 0 },
+      fovDeg: { type: "number", exclusiveMinimum: 0, exclusiveMaximum: 180 },
+    },
+  },
+  "view3d.fit": {
+    type: "object",
+    properties: {
+      aspect: { type: "number", exclusiveMinimum: 0 },
+      mode: { type: "string", enum: ["orthographic", "perspective"] },
+    },
+  },
+  "view3d.standard": {
+    type: "object",
+    properties: {
+      view: { type: "string", enum: ["top", "bottom", "front", "back", "left", "right", "iso"] },
+      aspect: { type: "number", exclusiveMinimum: 0 },
+      mode: { type: "string", enum: ["orthographic", "perspective"] },
+    },
+    required: ["view"],
+  },
+  "model3d.box": {
+    type: "object",
+    properties: {
+      width: { type: "number", exclusiveMinimum: 0 },
+      depth: { type: "number", exclusiveMinimum: 0 },
+      height: { type: "number", exclusiveMinimum: 0 },
+      at: { type: "array", items: { type: "number" }, minItems: 3, maxItems: 3 },
+      ucsId: { type: "string", minLength: 1 },
+      ucsName: { type: "string", minLength: 1 },
+    },
+    required: ["width", "depth", "height"],
+  },
+  "model3d.cylinder": {
+    type: "object",
+    properties: {
+      radius: { type: "number", exclusiveMinimum: 0 },
+      height: { type: "number", exclusiveMinimum: 0 },
+      at: { type: "array", items: { type: "number" }, minItems: 3, maxItems: 3 },
+      ucsId: { type: "string", minLength: 1 },
+      ucsName: { type: "string", minLength: 1 },
+    },
+    required: ["radius", "height"],
+  },
+  "model3d.extrude": {
+    type: "object",
+    properties: {
+      profile: {
+        type: "array",
+        minItems: 3,
+        items: { type: "array", items: { type: "number" }, minItems: 2, maxItems: 2 },
+      },
+      height: { type: "number", exclusiveMinimum: 0 },
+      baseZ: { type: "number" },
+      at: { type: "array", items: { type: "number" }, minItems: 3, maxItems: 3 },
+      ucsId: { type: "string", minLength: 1 },
+      ucsName: { type: "string", minLength: 1 },
+    },
+    required: ["profile", "height"],
+  },
+  "model3d.move": {
+    type: "object",
+    properties: {
+      elementId: { type: "string", minLength: 1 },
+      delta: { type: "array", items: { type: "number" }, minItems: 3, maxItems: 3 },
+      ucsId: { type: "string", minLength: 1 },
+      ucsName: { type: "string", minLength: 1 },
+    },
+    required: ["elementId", "delta"],
+  },
+  "model3d.rotate": {
+    type: "object",
+    properties: {
+      elementId: { type: "string", minLength: 1 },
+      axis: { type: "array", items: { type: "number" }, minItems: 3, maxItems: 3 },
+      deg: { type: "number" },
+      base: { type: "array", items: { type: "number" }, minItems: 3, maxItems: 3 },
+      ucsId: { type: "string", minLength: 1 },
+      ucsName: { type: "string", minLength: 1 },
+    },
+    required: ["elementId", "axis", "deg"],
+  },
+  "model3d.scale": {
+    type: "object",
+    properties: {
+      elementId: { type: "string", minLength: 1 },
+      factor: { type: "number", exclusiveMinimum: 0 },
+      base: { type: "array", items: { type: "number" }, minItems: 3, maxItems: 3 },
+      ucsId: { type: "string", minLength: 1 },
+      ucsName: { type: "string", minLength: 1 },
+    },
+    required: ["elementId", "factor"],
+  },
+  "sectionplane.create": {
+    type: "object",
+    properties: {
+      name: { type: "string", minLength: 1, maxLength: 255 },
+      origin: { type: "array", items: { type: "number" }, minItems: 3, maxItems: 3 },
+      normal: { type: "array", items: { type: "number" }, minItems: 3, maxItems: 3 },
+    },
+    required: ["name", "origin", "normal"],
+  },
+  "sectionplane.update": {
+    type: "object",
+    properties: {
+      id: { type: "string", minLength: 1 },
+      name: { type: "string", minLength: 1 },
+      patch: {
+        type: "object",
+        minProperties: 1,
+        properties: {
+          name: { type: "string", minLength: 1, maxLength: 255 },
+          origin: { type: "array", items: { type: "number" }, minItems: 3, maxItems: 3 },
+          normal: { type: "array", items: { type: "number" }, minItems: 3, maxItems: 3 },
+        },
+      },
+    },
+    required: ["patch"],
+  },
+  "sectionplane.remove": {
+    type: "object",
+    properties: {
+      id: { type: "string", minLength: 1 },
+      name: { type: "string", minLength: 1 },
+    },
+  },
   "layerState.save": {
     type: "object",
     properties: {
@@ -1373,6 +1550,41 @@ export const QUERY_PAYLOAD_SCHEMAS: Readonly<Record<QueryName, object>> = {
       id: { type: "string", minLength: 1 },
       name: { type: "string", minLength: 1 },
     },
+  },
+  // CAD-PARITY-009 (additive): the 3D navigation/UCS/modeling queries.
+  "ucs.list": { type: "object", properties: {} },
+  "view3d.state": { type: "object", properties: {} },
+  "model3d.pick": {
+    type: "object",
+    properties: {
+      screenX: { type: "number" },
+      screenY: { type: "number" },
+      viewport: {
+        type: "object",
+        properties: {
+          width: { type: "number", exclusiveMinimum: 0 },
+          height: { type: "number", exclusiveMinimum: 0 },
+        },
+        required: ["width", "height"],
+      },
+      subEntity: { type: "boolean" },
+    },
+    required: ["screenX", "screenY", "viewport"],
+  },
+  "model3d.sectionPreview": {
+    type: "object",
+    properties: {
+      id: { type: "string", minLength: 1 },
+      name: { type: "string", minLength: 1 },
+      exact: { type: "boolean" },
+    },
+  },
+  "model3d.mesh": {
+    type: "object",
+    properties: {
+      elementId: { type: "string", minLength: 1 },
+    },
+    required: ["elementId"],
   },
 };
 
