@@ -112,6 +112,31 @@
         "commit": "6c24611551b021810ffd33bd2893ee811366c04e"
       },
       "reproduction": "cd apps/web && npm run dev -- -p 3100 & node --import tsx apps/web/test/annotation-smoke.mjs (fixture app/test/fixtures/cad-parity-005-annotation.json, save sha a14ce71cfebd3a1d\u2026); cd apps/electron && node test/smoke-annotation.mjs (20/20 real-UI checks asserting the SAME fixture sha AND the SAME 36-command stream)"
+    },
+    {
+      "id": "EV-003",
+      "type": "ci-run",
+      "description": "CI-green on the PR head 3fa2bb5: all FOURTEEN triggered workflows completed SUCCESS (30/30 check runs), including the new cad-parity-005 workflow run #1 \u2014 the workspace-shell job (733-test suite with both real engines installed: OCCT 7.8.1.1 + ifcopenshell 0.8.5; the 78 CAD-PARITY-005 tests; the LOCK-018 forbidden-import scan covering annotation/ + commands-anno), the web-host job (lint/typecheck/build + ALL THREE workspace smokes against ALL THREE pinned parity fixtures \u2014 002 a48a29a8\u2026, 004 f92be229\u2026, 005 a14ce71c\u2026), and the electron-host job (build + TWELVE smokes incl. the new annotation real-UI smoke asserting the SAME 005 fixture sha AND the SAME 36-command stream). The pre-existing regression workflows (cad-implement-001/002/003, compat-cad-001/002/003, compat-bim-003, compat-ifc-001, cad-parity-002/003/004, research-cad-007, governance) all stayed green on the same head.",
+      "produced_at": "2026-08-29T04:30:00Z",
+      "reproducible": true,
+      "reproduction": "The cad-parity-005 workflow runs on every push/PR touching app/ apps/web/ apps/electron/ \u2014 workflow_run 33231700643 (run #1) on head 3fa2bb5; see the PR #83 checks tab.",
+      "references": {
+        "commit": "3fa2bb551449ee2deb3ce156e3e94c76e688215f",
+        "pr": 83,
+        "workflow_run": "33231700643"
+      }
+    },
+    {
+      "id": "EV-004",
+      "type": "inspectable-artifact",
+      "description": "Deployed Vercel Preview verification of the EXACT PR head 3fa2bb5 (the post-CAD-PARITY-002 program rule): deployment dpl_BWa14yDPkqTp1RCQrqBDacyBmosP READY at https://offisos-hl4yh44qa-ekonplacidegmailcoms-projects.vercel.app with deployment meta gitsha=3fa2bb551449ee2deb3ce156e3e94c76e688215f, pr=83, workitem=CAD-PARITY-005 \u2014 identity asserted through the Vercel REST API. Deployed-surface probes: GET / 200, /api/cad canonical CAD state, cache-busted probe ok. The FULL 36-command annotation smoke against the DEPLOYED build \u2014 PASS with the exact pinned CAD-PARITY-005 fixture sha a14ce71cfebd3a1d\u2026; the CAD-PARITY-002 parity smoke (a48a29a8\u2026, 9-command stream intact) AND the CAD-PARITY-004 parity smoke (f92be229\u2026, 55-command stream intact) both PASS against the same deployment. The deployed browser protocol (agent-browser driving the REAL deployed UI through the serializing relay \u2014 the instance-split mitigation documented since CAD-PARITY-002): the shell renders with the full 005 Annotate surface; DIMLINEAR through the deployed command line creates the horizontal dimension measured SERVER-side (1000); DIMRADIUS with the canvas pointer ENTITY pick on the circle creates the associative radius dimension (250); the Properties inspector shows the Radius Dimension section with the measured readout; ZERO page errors across the whole session.",
+      "produced_at": "2026-08-29T04:50:00Z",
+      "reproducible": true,
+      "reproduction": "Deployment dpl_BWa14yDPkqTp1RCQrqBDacyBmosP at https://offisos-hl4yh44qa-ekonplacidegmailcoms-projects.vercel.app (identity via the Vercel REST API: readyState READY, meta gitsha=3fa2bb551449ee2deb3ce156e3e94c76e688215f, pr=83, workitem=CAD-PARITY-005). OFFISOS_WEB_URL=<url> node --import tsx apps/web/test/annotation-smoke.mjs (and the 002/004 smokes with the same env); the browser protocol drove the deployed UI through a transparent local relay that serializes /api/cad requests (the serverless instance-split mitigation documented since CAD-PARITY-002; the relay transcript is preserved) \u2014 no app code executed locally.",
+      "references": {
+        "commit": "3fa2bb551449ee2deb3ce156e3e94c76e688215f",
+        "pr": 83
+      }
     }
   ],
   "decisions": []
