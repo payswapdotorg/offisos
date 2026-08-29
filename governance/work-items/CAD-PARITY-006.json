@@ -1,0 +1,143 @@
+{
+  "id": "CAD-PARITY-006",
+  "title": "Blocks, Components, References & Reuse: the professional block subsystem",
+  "issue": 84,
+  "architecture_version": "1.1",
+  "requirements": [
+    "CAD-001"
+  ],
+  "dependencies": [],
+  "objective": "Deliver the professional blocks/components/references subsystem on the frozen CAD/BIM Product Architecture v1.0 (Issue #84; the CAD-PARITY program's next AutoCAD-class subsystem after CAD-PARITY-005 merged at d859feb): reusable block/component definitions (a versioned, id-keyed block-definition table with canonical blk-NNNNNN identity, insertion base point and validated inline entity content \u2014 the CAD-PARITY-003 geometry vocabulary + CAD-PARITY-005 text + attribute definitions; edited through the DocumentEdit command model: one edit = one revision = one undo entry, with reference-checked removal against instances AND other definitions' content \u2014 no silent cascade); block instances + transforms (block-ref elements carrying blockId + insertion point + uniform scale + rotation; MOVE/ROTATE/SCALE/COPY transform the instance placement exactly through the shared entity.modify kernel; MIRROR is an explicit typed decline \u2014 mirrored content needs negative/non-uniform scales, honestly out of the bounded slice); nested blocks (inline block-ref content with COMPOSED similarity transforms \u2014 cycles rejected and the total nesting depth capped at write time so render-time expansion can never recurse unboundedly); insertion/explode workflows (BLOCK converts selected entities into definition content and removes the sources in ONE atomic revision; INSERT places an instance and prompts ONE VALUE PER attribute definition through the prompt engine's NEW rematerializing dynamic steps; EXPLODE materializes the definition content at the instance transform \u2014 attributes become text entities, nested references stay references: one level per explode, AutoCAD semantics); attributes / attribute editing (ATTDEF adds slots to a definition \u2014 every instance renders the new slot through the shared expansion without re-insertion; ATTEDIT edits per-instance values; attribute.update is the inspector write path with clear-to-default semantics); external references bounded first slice (an xref table with canonical xr-NNNNNN identity, path + status loaded/unresolved + sha-256 source-hash provenance; XATTACH attaches unresolved through the command line \u2014 the engine-free core cannot read files, an honest LOCK-013 bound \u2014 while the References palette attaches with resolved content through the host file dialog (the ifc.import payload precedent); reload re-resolves with fresh content; detach removes record + instances as ONE atomic batch; unresolved references render the canonical placeholder box with typed diagnostics; NO binding/overlay/underlay \u2014 explicit non-goals); canonical identity + provenance (document-minted monotonic blk-/xr- identities that are never reused \u2014 deletion never permits identity reuse \u2014 and the canonical-minimal history counters keep pre-006 documents byte-identical); definition \u2192 instance propagation (instance content is DERIVED from the definition at render/pick/explode time through the ONE shared similarity-transform expansion \u2014 never duplicated \u2014 so a definition edit changes every instance on both hosts); Web/Electron parity (the SAME shared core drives both hosts; the Insert ribbon surfaces the 10 commands; the Properties inspector shows Block/Reference Instance sections; the Blocks palette manages definitions + the xref manager with real file dialogs on desktop; BOTH hosts assert the SAME pinned 006 parity fixture and the SAME 32-command semantic stream); Vercel deployed verification (the exact PR head deployed and verified against all four pinned fixtures + a deployed blocks protocol + the deployed browser protocol).",
+  "acceptance_criteria": [
+    "Semantic correctness: every advertised blocks operation computes deterministic results with explicit typed failure behavior (LOCK-007 \u2014 unknown names/ids, unknown attribute tags, malformed inline entities, cyclic or over-deep nesting, non-positive scales, duplicate names, locked-layer instance modifications and frozen-layer instance creations are rejected with stable codes, never silently repaired; MIRROR on instances and exploding xref instances are explicit typed declines naming the limitation).",
+    "Identity honesty: block-definition and xref identities are document-minted, monotonic and never reused (deletion never permits identity reuse); instances reference definitions by the immutable canonical id (rename-safe); the provenance source hash pins the exact external content bytes; the history's block/xref mint counters are canonical-minimal \u2014 pre-006 documents (and the pinned 002/004/005 parity fixtures) stay byte-identical.",
+    "Atomicity: BLOCK conversion (definition + source removal), xref attach (record + instance) and xref detach (record + instances) each apply as ONE versioned revision \u2014 one undo entry restores everything together; EXPLODE materialization and instance placement edits are single atomic revisions; undo/redo converge exactly (deep-equal snapshots incl. key-removal restores through the full-record setBlockDefRecord/setXrefRecord inverses).",
+    "Propagation: instance content is DERIVED from the referenced definition at render/pick/explode time through the ONE shared expansion core (similarity transforms composed exactly across nesting; attribute values materialize as text \u2014 instance value first, definition default second, nothing for empty slots); a definition edit changes every instance on BOTH hosts with no duplication; expansion through a missing definition renders the honest placeholder, never a crash.",
+    "Associativity bounds: dimensions/leaders do not attach to block content (entity-pick validators reject with typed messages); annotations reference element ids only \u2014 the block-content inline records carry no element identity, so the CAD-PARITY-005 associative cascade is unaffected (regression-pinned by the byte-identical 005 fixture).",
+    "Interaction parity: the SAME 10-command Insert vocabulary (BLOCK, INSERT, ATTDEF, ATTEDIT, XATTACH, XDETACH, XRELOAD, XLIST, XREF, BLOCKLIST) runs through the deterministic prompt engine on BOTH hosts; INSERT's per-attribute prompts appear once the block name is known (rematerializing dynamic steps \u2014 prefix-stable, same ctx + values \u2192 same steps, every host); both hosts' canvas pick of block content selects the WHOLE instance; the inspector edits placement + attribute values; the References palette attach/reload/detach with real content; the Web smoke AND the Electron real-UI smoke assert the IDENTICAL save sha AND the IDENTICAL 32-command semantic stream (LOCK-004).",
+    "Persistence: save/open round-trips the full blocks world (definitions, instances with attribute values, xref records with resolved content + provenance) byte-exactly; reopening adopts the tables with full integrity validation (duplicate names, dangling instance references, cyclic definitions and malformed inline entities reject); mint counters persist and continue past the reopened values.",
+    "Governance: the CI workflow (cad-parity-006.yml) runs the 803-test app suite (737 pre-existing + 66 new), the LOCK-018 forbidden-import scan over the extended workspace core, the web lint/typecheck/build + ALL FOUR pinned parity fixtures, and the Electron build + 13 real-UI smokes; the exact PR head is deployed to Vercel and the deployment is verified against the pinned fixtures + a deployed blocks protocol + the deployed browser protocol with zero page errors."
+  ],
+  "non_goals": [
+    "No dynamic blocks (no parameters, visibility states, flip/lookup actions) \u2014 CAD-2D-007's dynamic slice is future scope.",
+    "No ByBlock property resolution (instance display overrides never cascade into content; content renders with its own authored layer/display through the standard ByLayer chain).",
+    "No non-uniform or negative instance scaling (uniform positive scale only \u2014 INSERT validates; MIRROR on instances is a typed decline) and no mirrored block content.",
+    "No xref binding, overlay/underlay distinction, path repathing or nested xref resolution \u2014 the bounded first slice is attach/detach/reload/status-diagnostics only; exploding an xref instance is a typed decline.",
+    "No block editor surface (no BEDIT/BSAVE \u2014 definition editing happens through BLOCK redefinition and ATTDEF; documented bounded workflow).",
+    "No WBLOCK/block write-out, no attribute extraction (ATTEXT/DAT), no invisible/constant/verify/preset attribute modes, no multiline attributes.",
+    "No grips on instance sub-entities (the insertion point edit flows through the inspector placement fields and the shared modify ops)."
+  ],
+  "risk_assumptions": [
+    "The prompt engine's dynamicSteps/rematerialize extension is additive and mechanical (state carries the materialized steps; every existing command is unaffected \u2014 regression-pinned by the byte-identical 002/004/005 fixtures and the 737 pre-existing tests).",
+    "The ModelHistory counter extension is canonical-minimal; a hand-built history carrying next_block_sequence: 1 would canonicalize the field away (validateModelHistory still accepts it) \u2014 acceptable because the document writer never emits 1.",
+    "The bounded xref content rides the payload (the ifc.import precedent); external snapshot elements outside the convertible vocabulary (BIM, dims, leaders) are SKIPPED with an honest count, never guessed into content."
+  ],
+  "evidence_requirements": [
+    "Deterministic automated suites for the blocks vocabulary (typed constructors, the attdef grammar, inline-entity normalization, exact similarity-transform math incl. nesting composition, attribute materialization, one-level explode, graph gates), the document model (minting, reference-checked removal, exact inverses, snapshot/open integrity, locking) and the App API/command surface (BLOCK conversion, INSERT dynamic prompts, ATTDEF/ATTEDIT, transforms + the mirror decline, EXPLODE nested, the xref lifecycle with provenance, inventories, save/open, determinism).",
+    "The pinned CAD-PARITY-006 parity fixture asserted by BOTH hosts (the web smoke through the real prompt engine + the Electron real-UI smoke through CDP): the identical save sha256 AND the identical 32-command semantic stream.",
+    "The pre-existing parity fixtures (002/004/005) stay byte-identical (the additive-feature default, not a repair).",
+    "A CI workflow running the full matrix (app suite + LOCK-018 scan + web build + four smokes + electron build + 13 smokes) on the PR head.",
+    "Deployed verification of the exact PR head: the Vercel deployment identity bound to the commit sha, all four fixtures byte-identical against the deployed build, a deployed blocks protocol through the deployed /api/cad, and the deployed browser protocol with zero page errors."
+  ],
+  "state": "PR_OPEN",
+  "transitions": [
+    {
+      "from": "DRAFT",
+      "to": "READY",
+      "at": "2026-08-29T05:20:00Z",
+      "actor": "pectoraux",
+      "role": "architect",
+      "reason": "Architect work order issued through the program channel after CAD-PARITY-005 merged (d859feb): 'CAD-PARITY-006 \u2014 Blocks, Components, References & Reuse \u2026 reusable block/component definitions, block instances + transforms, nested blocks, insertion/explode workflows, attributes / attribute editing, external references (bounded first slice), canonical identity + provenance, definition \u2192 instance propagation, Web/Electron parity, Vercel deployed verification' \u2014 explicitly preferring the shared semantic subsystem while 'preserving the frozen architecture and avoiding premature full Xref/package complexity'; Issue #84 opened carrying the scope; ready on the merged CAD-PARITY-005 foundation.",
+      "references": {
+        "issue": 84
+      }
+    },
+    {
+      "from": "READY",
+      "to": "ASSIGNED",
+      "at": "2026-08-29T05:25:00Z",
+      "actor": "pectoraux",
+      "role": "architect",
+      "reason": "Assigned to the Z.ai implementation agent for the CAD-PARITY program.",
+      "references": {
+        "issue": 84,
+        "assignee": "z-ai-implementation-agent"
+      }
+    },
+    {
+      "from": "ASSIGNED",
+      "to": "IMPLEMENTING",
+      "at": "2026-08-29T05:30:00Z",
+      "actor": "z-ai-implementation-agent",
+      "role": "implementer",
+      "reason": "Implementation started on branch work/cad-parity-006-blocks-reuse.",
+      "references": {
+        "issue": 84
+      }
+    },
+    {
+      "from": "IMPLEMENTING",
+      "to": "PR_OPEN",
+      "at": "2026-08-29T08:20:00Z",
+      "actor": "z-ai-implementation-agent",
+      "role": "implementer",
+      "reason": "Implementation complete and submitted for review: PR #85 (branch work/cad-parity-006-blocks-reuse, 7 commits) \u2014 the shared blocks/attributes/xrefs core + both host mirrors + 66 deterministic tests + the pinned 006 parity fixture asserted by BOTH hosts + the CI workflow; all 15 workflows green on the head 6a72b4f and the exact head deployed to Vercel and verified (all four fixtures byte-identical + the 21/21 deployed blocks protocol + the deployed browser protocol with zero page errors). No APPROVED/VERIFIED claim \u2014 awaiting the Architect's review.",
+      "references": {
+        "issue": 84,
+        "pr": 85,
+        "commit": "6a72b4f"
+      }
+    }
+  ],
+  "evidence": [
+    {
+      "id": "EV-001",
+      "type": "automated-test-suite",
+      "description": "803/803 app tests green at head 4945eb3 (737 pre-existing + 66 new CAD-PARITY-006 tests in three files: workspace-2d-blocks-entities (25), workspace-2d-blocks-document (15), workspace-2d-blocks-commands (26)) \u2014 the full vocabulary/expansion/explode/graph-gate, document-minting/inverse/integrity/locking and App API/prompt-engine suites; the tests pinned four implementation defects before commit (composeSim's missing outer translation, the createdAt canonicalization drop, the attribute-clear stale-key spread, the silent scale coercion).",
+      "produced_at": "2026-08-29T06:40:00Z",
+      "reproducible": true,
+      "reproduction": "cd app && node --import tsx --test test/*.test.ts",
+      "references": {
+        "commit": "4945eb3"
+      }
+    },
+    {
+      "id": "EV-002",
+      "type": "inspectable-artifact",
+      "description": "The pinned CAD-PARITY-006 parity fixture (app/test/fixtures/cad-parity-006-blocks.json: saveSha256 a7d7ff4c191b0d71539dfaaa79729b16d6b46deb4997b9e4e9339882d42cdd49, saveSize 32741, 2 definitions, 1 xref, 32-command stream) asserted byte-exactly by the web blocks smoke (through the real prompt engine against the dev server) AND the Electron real-UI blocks smoke (28/28 checks through CDP: canvas ENTITY picks of the block sources + the instance, the dynamic INSERT prompts, the nested explode, the xref lifecycle) \u2014 Web/Electron parity (LOCK-004); the 002/004/005 fixtures stay byte-identical (a48a29a8\u2026, f92be229\u2026, a14ce71c\u2026) after the canonical-minimal counter fix 0e38f14.",
+      "produced_at": "2026-08-29T06:45:00Z",
+      "reproducible": true,
+      "reproduction": "cd apps/web && npm run dev -- -p 3100 & node --import tsx apps/web/test/blocks-smoke.mjs; cd ../electron && node test/smoke-blocks.mjs",
+      "references": {
+        "commit": "4945eb3",
+        "artifact_path": "app/test/fixtures/cad-parity-006-blocks.json"
+      }
+    },
+    {
+      "id": "EV-003",
+      "type": "ci-run",
+      "description": "ALL FIFTEEN triggered workflows SUCCESS on the PR head 6a72b4f \u2014 cad-parity-006 run 33239324026 (the 803-test app suite + the LOCK-018 scan + web lint/typecheck/build + all four parity-fixture smokes + the Electron build + 13 real-UI smokes incl. the new blocks smoke) and governance run 33239323987, plus every pre-existing regression workflow green.",
+      "produced_at": "2026-08-29T07:50:00Z",
+      "reproducible": true,
+      "reproduction": "https://github.com/pectoraux/offisos/actions/runs/33239324026",
+      "references": {
+        "commit": "6a72b4f",
+        "workflow_run": "33239324026"
+      }
+    },
+    {
+      "id": "EV-004",
+      "type": "inspectable-artifact",
+      "description": "Deployed verification of the EXACT PR head: Vercel deployment dpl_8yLTtkN1FrEGLw1FfSH5fvFN6sUh READY at https://offisos-43qjubbms-ekonplacidegmailcoms-projects.vercel.app with meta gitsha=6a72b4f775f06bf6296c966e5bf74f47d693c841, pr=85, workitem=CAD-PARITY-006 (identity via the Vercel REST API). Against the deployed build through the instance-pinning relay: ALL FOUR parity fixtures byte-identical (006 a7d7ff4c191b0d71\u2026, 002 a48a29a8\u2026, 004 f92be229\u2026, 005 a14ce71c\u2026); the deployed blocks protocol 21/21 (BLOCK conversion atomicity + the self-cycle typed failure, INSERT exact placement + attribute storage, inventory, attribute set/clear, instance transform composition + the mirror decline, one-level explode incl. nested, the full xref lifecycle with sha-256 provenance, save/open, determinism); the deployed browser protocol (BLOCK through real canvas picks, ATTDEF, INSERT with the dynamic attribute prompt, the instance rendering VLM-confirmed incl. the materialized 'DEPLOYED PLAN' attribute text, the canvas click on the expanded content selecting the whole instance, the Block Instance inspector section) with ZERO page errors and ZERO console errors.",
+      "produced_at": "2026-08-29T08:20:00Z",
+      "reproducible": true,
+      "reproduction": "python3 relay-pinned.py https://offisos-43qjubbms-ekonplacidegmailcoms-projects.vercel.app 3198 && node /home/z/cp6-deployed/blocks-protocol.mjs http://localhost:3198",
+      "references": {
+        "commit": "6a72b4f",
+        "pr": 85,
+        "artifact_path": "/home/z/cp6-deployed/blocks-protocol.mjs"
+      }
+    }
+  ],
+  "decisions": []
+}

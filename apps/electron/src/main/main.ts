@@ -49,8 +49,8 @@
  * `app.exit(0|1)`. This is the reproducible Electron smoke evidence.
  */
 
-import { app, BrowserWindow, ipcMain } from "electron";
-import { join } from "node:path";
+import { app, BrowserWindow, dialog, ipcMain } from "electron";
+import { basename, join } from "node:path";
 import { readFileSync, writeFileSync } from "node:fs";
 
 import { AppApiHandler } from "@offisos/cad-app-shell/app-api";
@@ -80,6 +80,12 @@ const CONFIG = {
   formatVersion: "1",
   createdBy: "electron-workspace",
 };
+
+// CAD-PARITY-006 (Issue #84): the main BrowserWindow — the external-reference
+// file dialog is modal to it (set by createWindow; the renderer can only
+// invoke `cad:pickReferenceFile` after the window loaded, so it is always
+// non-null in practice).
+let mainWindow: BrowserWindow | null = null;
 
 const isSmoke = process.argv.includes("--smoke");
 const isGeometrySmoke = process.argv.includes("--smoke-geometry");
@@ -112,6 +118,7 @@ function createWindow(): BrowserWindow {
     },
   });
   void win.loadFile(join(appRoot, "dist", "renderer", "index.html"));
+  mainWindow = win;
   return win;
 }
 
@@ -142,7 +149,50 @@ function registerIpc(bundle: EngineAdapterBundle = CONFIG.adapterBundle): { hand
     return Promise.resolve(handler.currentContentHash());
   });
 
+  // CAD-PARITY-006 (Issue #84): the external-reference file picker — a REAL
+  // Electron dialog (dialog.showOpenDialog filtered to .offisos/.json)
+  // followed by the file read + JSON.parse IN THE MAIN PROCESS. The renderer
+  // receives the parsed offisos snapshot object (the xref.attach `content`
+  // payload — the ifc.import payload precedent) and never touches node/fs
+  // (§16 context isolation). Mirrors the cad:send/cad:render ipcMain.handle
+  // pattern; typed outcomes (canceled / error / loaded) — LOCK-007/008.
+  ipcMain.handle("cad:pickReferenceFile", async (): Promise<ReferenceFilePick> => {
+    const options: Electron.OpenDialogOptions = {
+      title: "Attach external reference — select an offisos snapshot",
+      properties: ["openFile"],
+      filters: [
+        { name: "Offisos snapshots (.offisos, .json)", extensions: ["offisos", "json"] },
+        { name: "All files", extensions: ["*"] },
+      ],
+    };
+    const picked = mainWindow !== null ? await dialog.showOpenDialog(mainWindow, options) : await dialog.showOpenDialog(options);
+    if (picked.canceled || picked.filePaths.length === 0) return { status: "canceled" };
+    const filePath = picked.filePaths[0]!;
+    try {
+      const content: unknown = JSON.parse(readFileSync(filePath, "utf8"));
+      const name = basename(filePath).replace(/\.(offisos|json)$/i, "");
+      return {
+        status: "loaded",
+        fileName: name.length > 0 ? name : "reference",
+        filePath,
+        content,
+      };
+    } catch (e) {
+      return { status: "error", message: `cannot read '${filePath}': ${(e as Error).message}` };
+    }
+  });
+
   return { handler, host };
+}
+
+/** The cad:pickReferenceFile outcome (CAD-PARITY-006) — the parsed snapshot
+ *  crosses the IPC boundary to the renderer as the xref.attach content. */
+export interface ReferenceFilePick {
+  readonly status: "canceled" | "error" | "loaded";
+  readonly fileName?: string;
+  readonly filePath?: string;
+  readonly content?: unknown;
+  readonly message?: string;
 }
 
 interface SmokeStep {

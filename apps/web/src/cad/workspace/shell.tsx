@@ -180,6 +180,11 @@ export function WorkspaceShell(): React.JSX.Element {
       dimStyles: snapshot?.dimStyles ?? [],
       currentTextStyle: snapshot?.draftingSettings?.textStyle ?? "Standard",
       currentDimStyle: snapshot?.draftingSettings?.dimStyle ?? "Standard",
+      // CAD-PARITY-006: the block-definition + external-reference tables
+      // (BLOCK/INSERT/ATTDEF/ATTEDIT/XATTACH/XDETACH/XLIST builders + the
+      // dynamic attribute prompts — the SAME document state both hosts pass).
+      blocks: snapshot?.blockDefs ?? [],
+      xrefs: snapshot?.xrefs ?? [],
     });
   }, [snapshot, selection, activeLayer, activeStoryId]);
 
@@ -276,6 +281,11 @@ export function WorkspaceShell(): React.JSX.Element {
               // CAD-PARITY-004: LAYERSTATE — the states section of the Layers
               // manager.
               setDockTab("layers");
+              setDockVisible(true);
+            } else if (palette === "blocks") {
+              // CAD-PARITY-006: XREF — the Blocks & References manager (the
+              // definitions list + the external-reference manager).
+              setDockTab("blocks");
               setDockVisible(true);
             } else if (palette === "workspace") {
               setPreset((p) => (p === "compact" ? "drafting" : "compact"));
@@ -386,6 +396,27 @@ export function WorkspaceShell(): React.JSX.Element {
       dispatchEngine({ type: "start", commandId });
     },
     [dispatchEngine],
+  );
+
+  // CAD-PARITY-006: start a command with a PRE-TYPED first text answer (the
+  // Blocks palette's Insert button starts INSERT with the definition name —
+  // the dynamic attribute prompts then appear). The typed event composes over
+  // the STARTED engine state (two synchronous dispatchEngine calls would both
+  // read the stale pre-start state), so both events apply through the shared
+  // prompt engine and commit once.
+  const startCommandWithText = React.useCallback(
+    (commandId: string, text: string) => {
+      const started = applyPromptEvent(engineState, { type: "start", commandId }, engineCtx());
+      const typed = applyPromptEvent(started.state, { type: "typed", text }, engineCtx());
+      setEngineState(typed.state);
+      const lines = [...started.output.lines, ...typed.output.lines];
+      if (lines.length > 0) {
+        setHistoryLines((h) => [...h, ...lines]);
+      }
+      if (started.output.plan !== null) void executePlan(started.output.plan);
+      if (typed.output.plan !== null) void executePlan(typed.output.plan);
+    },
+    [engineState, engineCtx, executePlan],
   );
 
   // --- selection -----------------------------------------------------------------
@@ -775,6 +806,10 @@ export function WorkspaceShell(): React.JSX.Element {
           activeStoryId={activeStoryId}
           onActiveStory={setActiveStoryId}
           onSelection={(ids) => void onSelectionChange(ids)}
+          onRunCommand={(commandId, typed) => {
+            if (typed === undefined) startCommand(commandId);
+            else startCommandWithText(commandId, typed);
+          }}
           onCommitEdit={(label, fn) => {
             setBusy(true);
             void (async () => {

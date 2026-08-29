@@ -34,6 +34,26 @@
  * mirroring the Web host model-canvas/palettes/ribbon so both hosts present
  * the SAME annotation surface (LOCK-004 parity by construction).
  *
+ * CAD-PARITY-006 (Issue #84) — blocks, components, references & reuse:
+ * block-ref/xref-ref instance elements render through the ONE shared
+ * expansion (expandInstanceElement) on the CAD-PARITY-005 canvas overlay —
+ * geometry pieces painted from the canonical props with the resolved
+ * display of each piece's own layer, text pieces through the SAME shared
+ * annotation painter (annotationPrimitives + paintAnnotationPrimitives),
+ * unresolved references as the dashed placeholder box + label; instances
+ * pick/window-select by their DERIVED content (returning the INSTANCE
+ * element id) and contribute their expanded bounds to zoom extents. The
+ * Properties inspector gains the Block Instance / Reference Instance
+ * sections (definition readout, placement edits through entity.modify's
+ * instance transforms, per-tag attribute editors through
+ * attribute.update); the Insert menu/ribbon expose the BLOCK/INSERT/ATTDEF/
+ * ATTEDIT/XATTACH/XDETACH/XREF vocabulary and the right dock gains the
+ * Blocks & References manager (definitions with instance counts; the xref
+ * table with Attach/Reload through the REAL main-process file dialog —
+ * dialog.showOpenDialog filtered to .offisos/.json — plus Detach and status
+ * badges) — mirroring the Web host so both hosts present the SAME blocks
+ * surface (LOCK-004 parity by construction).
+ *
  * Adds the professional shell to the Electron host: application menu bar,
  * ribbon/tool palette, command-driven 2D Model canvas (SVG plan viewport
  * with crosshair, snap markers, ortho/polar rubber bands, window/crossing
@@ -54,6 +74,7 @@
 
 import type { Command, CommandQueryResponse, Query } from "@offisos/cad-app-shell/contracts/app-api";
 import type {
+  BlockDefinitionRecord,
   CADDocumentSnapshot,
   DimStyleRecord,
   Element,
@@ -61,6 +82,7 @@ import type {
   LayerStateRecord,
   LtypeRecord,
   TextStyleRecord,
+  XrefRecord,
 } from "@offisos/cad-app-shell/contracts/caddocument";
 import type { Vec2 } from "@offisos/cad-app-shell/drafting/precision";
 import { elementToDraftEntity, isDraftingElement, type DraftEntity } from "@offisos/cad-app-shell/drafting/entities";
@@ -87,7 +109,7 @@ import { arcSweep, bbox as geomBBox, closestOn, sampleSpline } from "@offisos/ca
 import { mirrorGeom, rotateGeom, scaleGeom } from "@offisos/cad-app-shell/workspace/geometry/transform";
 import { offsetGeom } from "@offisos/cad-app-shell/workspace/geometry/offset";
 import { geomFromElement } from "@offisos/cad-app-shell/workspace/geometry/bridge";
-import { GEOM_LABEL, type Geom } from "@offisos/cad-app-shell/workspace/geometry/types";
+import { GEOM_LABEL, propsToGeom, type Geom } from "@offisos/cad-app-shell/workspace/geometry/types";
 import type { Pt } from "@offisos/cad-app-shell/workspace/geometry/math2d";
 import {
   WORKSPACE_COMMANDS,
@@ -147,6 +169,19 @@ import {
   type AnnotationStyleContext,
 } from "@offisos/cad-app-shell/workspace/annotation";
 import { paintAnnotationPrimitives } from "@offisos/cad-app-shell/workspace/annotation/paint";
+// CAD-PARITY-006 (Issue #84): the shared blocks core — the ONE expansion
+// (expandInstanceElement) + the instance views both hosts render/pick through
+// (LOCK-004 parity by construction; engine-free, pure — LOCK-003/018).
+import {
+  attdefTagsOf,
+  blockRefFromElement,
+  expandInstanceElement,
+  expandedBounds,
+  isBlockRefElement,
+  isXrefRefElement,
+  xrefRefFromElement,
+  type BlockTable,
+} from "@offisos/cad-app-shell/workspace/blocks";
 
 export interface ProfessionalOptions {
   /** The app root element (#app). */
@@ -159,7 +194,25 @@ export interface ProfessionalOptions {
   readonly getMode: () => string;
   /** Legacy refresh — called after professional-side mutations. */
   readonly onLegacyRefresh: () => void;
+  /** CAD-PARITY-006 (Issue #84): the external-reference file picker — the
+   *  main-process Electron dialog (showOpenDialog filtered to
+   *  .offisos/.json → read → JSON.parse). The Blocks & References manager's
+   *  Attach/Reload flows resolve xref CONTENT through it (Electron-only
+   *  capability; the command line attaches unresolved by design). */
+  readonly pickReferenceFile: () => Promise<ReferenceFilePick | null>;
 }
+
+/** The reference-file pick outcome (mirrors the main-process
+ *  cad:pickReferenceFile channel shape). */
+export type ReferenceFilePick =
+  | { readonly status: "canceled" }
+  | { readonly status: "error"; readonly message: string }
+  | {
+      readonly status: "loaded";
+      readonly fileName: string;
+      readonly filePath: string;
+      readonly content: unknown;
+    };
 
 interface ProState {
   snapshot: CADDocumentSnapshot | null;
@@ -286,6 +339,17 @@ const MTEXT_ATTACHMENTS: readonly string[] = [
 ];
 
 const CONTENT_TYPES: readonly string[] = ["text", "mtext", "leader", "mleader"];
+
+// CAD-PARITY-006 (Issue #84): the instance type labels — the same vocabulary
+// the Web inspector derives for block-ref/xref-ref selections.
+const BLOCK_INSTANCE_LABEL = "Block Instance";
+const XREF_INSTANCE_LABEL = "Reference Instance";
+
+// The unresolved-reference placeholder rendering constants (the dashed box
+// + label painted on the annotation overlay — the shared expansion's
+// diagnostic surface, drawn gray exactly like the Web host).
+const PLACEHOLDER_STROKE = "#94a3b8";
+const PLACEHOLDER_TEXT = "#64748b";
 
 const PRO_CSS = `
 .pro-menubar { display:flex; align-items:center; gap:2px; border-bottom:1px solid var(--border); padding:4px 10px; background:var(--bg); flex-wrap:wrap; }
@@ -451,6 +515,21 @@ const PRO_CSS = `
 .pro-ribbon-tool { display:inline-flex; align-items:center; gap:4px; }
 .pro-ribbon-tool svg { flex-shrink:0; }
 .pro-style-row.dimrow { flex-wrap:wrap; row-gap:2px; }
+/* CAD-PARITY-006: the Blocks & References manager rows + the xref status
+   badges (the 004 manager-row conventions, extended). */
+.pro-block-row { display:flex; align-items:center; gap:4px; padding:2px 8px; font-size:11px; border-radius:3px; }
+.pro-block-row:hover { background:#f8fafc; }
+.pro-block-row .nm { width:72px; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-weight:600; }
+.pro-block-row .grow { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.pro-block-row .muted { color:var(--muted); font-size:9px; }
+.pro-block-row .tgl { border:0; background:transparent; cursor:pointer; color:#94a3b8; padding:1px 4px; display:inline-flex; align-items:center; justify-content:center; border-radius:3px; font-size:10px; }
+.pro-block-row .tgl:hover:not(:disabled) { background:#e2e8f0; color:var(--fg); }
+.pro-block-row .tgl:disabled { opacity:.3; cursor:default; }
+.pro-block-row button.attach { border:1px solid var(--border); border-radius:4px; background:transparent; cursor:pointer; font-size:10px; padding:3px 6px; }
+.pro-block-row button.attach:hover { background:#f1f5f9; }
+.pro-xref-badge { font-size:9px; font-weight:700; letter-spacing:.03em; border-radius:3px; padding:0 4px; border:1px solid; white-space:nowrap; flex-shrink:0; }
+.pro-xref-badge.loaded { color:#15803d; border-color:#86efac; background:#f0fdf4; }
+.pro-xref-badge.unresolved { color:#b45309; border-color:#fcd34d; background:#fffbeb; }
 `;
 
 /** Public driver surface (used by test/smoke-workspace.mjs — the SAME code
@@ -502,7 +581,7 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
   // panel input drafts. Survives re-renders (the panels rebuild on every
   // refresh; input values restore from these).
   let dockOpen = true;
-  let dockTab: "layers" | "styles" = "layers";
+  let dockTab: "layers" | "styles" | "blocks" = "layers";
   let layerFilterText = "";
   let layerFilterMode: LayerFilterMode = "all";
   let layerStatesOpen = false;
@@ -579,6 +658,12 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
       dimStyles: state.snapshot?.dimStyles ?? [],
       currentTextStyle: state.snapshot?.draftingSettings?.textStyle ?? "Standard",
       currentDimStyle: state.snapshot?.draftingSettings?.dimStyle ?? "Standard",
+      // CAD-PARITY-006: the document block-definition + external-reference
+      // tables — BLOCK/INSERT/ATTDEF/ATTEDIT resolve names and build the
+      // dynamic attribute prompts; XATTACH/XDETACH/XLIST/XREF surface the
+      // reference table (the SAME snapshot fields the Web context passes).
+      blocks: state.snapshot?.blockDefs ?? [],
+      xrefs: state.snapshot?.xrefs ?? [],
     });
   }
 
@@ -672,6 +757,10 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
           } else if (palette === "layers") {
             // CAD-PARITY-004: LAYER — the Layers manager (right dock).
             openDock("layers");
+          } else if (palette === "blocks") {
+            // CAD-PARITY-006: XREF — the Blocks & References manager (the
+            // definitions list + the external-reference table).
+            openDock("blocks");
           } else if (palette === "properties") {
             // CAD-PARITY-004: PROPERTIES — the professional inspector overlay.
             showInspector();
@@ -779,6 +868,23 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
     dimscale: () => icon("M2 10 L7 5 M2 10 v-3 M2 10 h3 M10 2 L5 7 M10 2 v3 M10 2 h-3"),
   };
 
+  // CAD-PARITY-006 (Issue #84): the blocks/references tool glyphs — the same
+  // 12×12 single-path line-icon convention (nested squares = a definition,
+  // the arrow-into-frame = insert, the pencil = attribute editing, the
+  // plus/x-boxes = attach/detach, the overlapping sheets = the references
+  // manager, the list rows = the inventory queries).
+  const BLOCK_ICONS: Readonly<Record<string, () => SVGElement>> = {
+    block: () => icon("M1.8 1.8 h8.4 v8.4 h-8.4 Z M4.4 4.4 h3.2 v3.2 h-3.2 Z"),
+    insert: () => icon("M7.2 1.8 h3 v8.4 h-3 M1.6 6 h4.4 M4.2 4 L1.6 6 L4.2 8"),
+    attdef: () => icon("M2.2 1.8 v8.4 M5 4.2 h4.8 M5 7.8 h3"),
+    attedit: () => icon("M2.2 9.8 L3.1 7.4 L8.4 2.1 L9.9 3.6 L4.6 8.9 Z"),
+    xattach: () => icon("M1.8 3 h8.4 v7.2 h-8.4 Z M6 4.6 v3.6 M4.2 6.4 h3.6"),
+    xdetach: () => icon("M1.8 3 h8.4 v7.2 h-8.4 Z M4.4 4.9 l3.2 3.2 M7.6 4.9 L4.4 8.1"),
+    xref: () => icon("M2.5 3 h5.5 v6.5 h-5.5 Z M4.5 1.5 h5 v6.5"),
+    xlist: () => icon("M2 3 h1.6 M4.8 3 H10 M2 6 h1.6 M4.8 6 H10 M2 9 h1.6 M4.8 9 H10"),
+    blocklist: () => icon("M1.8 2.2 h8.4 v7.6 h-8.4 Z M4 5 h4 M4 7 h2.4"),
+  };
+
   const menus: readonly MenuSpec[] = [
     {
       label: "File",
@@ -811,10 +917,32 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
         // CAD-PARITY-004: the managers (right dock + inspector overlay).
         { label: "Layers manager", run: () => openDock("layers") },
         { label: "Styles manager", run: () => openDock("styles") },
+        // CAD-PARITY-006: the Blocks & References manager (right dock).
+        { label: "Blocks & References manager", run: () => openDock("blocks") },
         { label: "Properties inspector", run: () => showInspector() },
       ],
     },
-    { label: "Insert", items: [{ label: "Door", run: runCmd("door") }, { label: "Window", run: runCmd("window") }, { label: "Slab", run: runCmd("slab") }] },
+    {
+      label: "Insert",
+      // CAD-PARITY-006 (Issue #84): the blocks/attributes/references
+      // vocabulary — every entry resolves to the canonical registry command
+      // (runCmd → startCommand), nothing mutates state directly. The mirror
+      // of the Web Insert menu (BIM items retained below).
+      items: [
+        { label: "Block…", run: runCmd("block") },
+        { label: "Insert Block…", run: runCmd("insert") },
+        { label: "Attribute…", run: runCmd("attdef") },
+        { label: "Edit Attribute…", run: runCmd("attedit") },
+        { sep: true },
+        { label: "Attach Reference…", run: runCmd("xattach") },
+        { label: "Detach Reference…", run: runCmd("xdetach") },
+        { label: "References…", run: runCmd("xref") },
+        { sep: true },
+        { label: "Door", run: runCmd("door") },
+        { label: "Window", run: runCmd("window") },
+        { label: "Slab", run: runCmd("slab") },
+      ],
+    },
     {
       label: "Annotate",
       // CAD-PARITY-005 (Issue #82): the full annotation/text/dimension
@@ -893,6 +1021,15 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
       label: "Draw",
       ids: ["line", "polyline", "circle", "arc", "rectangle", "ellipse", "spline", "point", "ray", "xline", "region"],
     },
+    // CAD-PARITY-006 (Issue #84): the blocks/attributes/references group —
+    // the SAME command set the Web Insert surfaces expose (BLOCK/INSERT/
+    // ATTDEF/ATTEDIT, XATTACH/XDETACH, the References manager + the two
+    // inventory commands; XRELOAD stays a typed decline surfaced through the
+    // command palette only — the ribbon carries no dead buttons).
+    {
+      label: "Insert",
+      ids: ["block", "insert", "attdef", "attedit", "xattach", "xdetach", "xref", "xlist", "blocklist"],
+    },
     // CAD-PARITY-005 (Issue #82): the full interactive annotation vocabulary
     // — the SAME 11-command group the Web Annotate tool palette carries
     // (text/mtext, the dimension family, leaders/multileaders, DIMTEDIT and
@@ -959,9 +1096,9 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
       if (tool === null) continue;
       const b = h("button", "pro-ribbon-tool");
       b.type = "button";
-      // CAD-PARITY-005: the annotation tools carry icon glyphs (the Web
-      // ribbon's lucide icon choices rendered as 12×12 line icons).
-      const glyph = ANNOTATION_ICONS[id];
+      // CAD-PARITY-005/006: the annotation + blocks tools carry icon glyphs
+      // (the Web ribbon's lucide icon choices rendered as 12×12 line icons).
+      const glyph = ANNOTATION_ICONS[id] ?? BLOCK_ICONS[id];
       if (glyph !== undefined) {
         b.append(glyph());
         const lbl = h("span");
@@ -1058,11 +1195,12 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
     });
   });
 
-  // --- CAD-PARITY-004 right dock: the Layers manager + the Styles manager ------
+  // --- CAD-PARITY-004 right dock: the Layers manager + the Styles manager
+  //     (+ the CAD-PARITY-006 Blocks & References manager) ---------------------
 
   const dock = h("div", "pro-dock");
   dock.setAttribute("role", "complementary");
-  dock.setAttribute("aria-label", "layers and styles managers");
+  dock.setAttribute("aria-label", "layers, styles and blocks managers");
   dock.setAttribute("data-testid", "pro-dock");
   const dockTabs = h("div", "pro-dock-tabs");
   dockTabs.setAttribute("role", "tablist");
@@ -1085,22 +1223,33 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
     dockTab = "styles";
     renderDock();
   });
+  // CAD-PARITY-006 (Issue #84): the Blocks & References manager tab.
+  const dockTabBlocks = h("button", "pro-dock-tab");
+  dockTabBlocks.type = "button";
+  dockTabBlocks.textContent = "Blocks";
+  dockTabBlocks.setAttribute("role", "tab");
+  dockTabBlocks.setAttribute("aria-label", "Blocks and References manager");
+  dockTabBlocks.setAttribute("data-testid", "pro-dock-tab-blocks");
+  dockTabBlocks.addEventListener("click", () => {
+    dockTab = "blocks";
+    renderDock();
+  });
   const dockClose = h("button", "pro-dock-close");
   dockClose.type = "button";
   dockClose.textContent = "×";
-  dockClose.title = "Close the manager dock (reopen from the View menu, the status bar, LAYER/LINETYPE/STYLE/DIMSTYLE or the context menu)";
+  dockClose.title = "Close the manager dock (reopen from the View menu, the status bar, LAYER/LINETYPE/STYLE/DIMSTYLE/XREF or the context menu)";
   dockClose.setAttribute("aria-label", "close the manager dock");
   dockClose.addEventListener("click", () => {
     dockOpen = false;
     renderDock();
   });
-  dockTabs.append(dockTabLayers, dockTabStyles, dockClose);
+  dockTabs.append(dockTabLayers, dockTabStyles, dockTabBlocks, dockClose);
   const dockBody = h("div", "pro-dock-body");
   dock.append(dockTabs, dockBody);
   modelBody.append(dock);
 
   /** Open (and focus) a manager dock tab. */
-  function openDock(tab: "layers" | "styles"): void {
+  function openDock(tab: "layers" | "styles" | "blocks"): void {
     dockOpen = true;
     dockTab = tab;
     renderDock();
@@ -1129,17 +1278,26 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
       // CAD-PARITY-003: canonical bounds first (BOTH storage conventions
       // decode through the bridge); BIM footprints next; annotations
       // contribute no bounds (mirrors the Web host).
-      const geom = geomFromElement(el);
-      if (geom !== null) {
-        pts.push(...canonicalBoundsPoints(geom));
+      // CAD-PARITY-006: block/xref instances contribute their EXPANDED
+      // content bounds (the ONE shared expansion — zoom fits the derived
+      // content, placeholders included).
+      const expanded = expandInstanceElement(el, blockTableOf());
+      if (expanded !== null) {
+        const box = expandedBounds(expanded);
+        if (box !== null) pts.push([box.minX, box.minY], [box.maxX, box.maxY]);
       } else {
-        const props = el.props as Record<string, unknown>;
-        if (props.type === "bim.wall" && Array.isArray(props.start) && Array.isArray(props.end)) {
-          pts.push(props.start as unknown as Vec2, props.end as unknown as Vec2);
-        } else if (props.type === "bim.slab" && Array.isArray(props.corner1) && Array.isArray(props.corner2)) {
-          pts.push(props.corner1 as unknown as Vec2, props.corner2 as unknown as Vec2);
+        const geom = geomFromElement(el);
+        if (geom !== null) {
+          pts.push(...canonicalBoundsPoints(geom));
         } else {
-          continue;
+          const props = el.props as Record<string, unknown>;
+          if (props.type === "bim.wall" && Array.isArray(props.start) && Array.isArray(props.end)) {
+            pts.push(props.start as unknown as Vec2, props.end as unknown as Vec2);
+          } else if (props.type === "bim.slab" && Array.isArray(props.corner1) && Array.isArray(props.corner2)) {
+            pts.push(props.corner1 as unknown as Vec2, props.corner2 as unknown as Vec2);
+          } else {
+            continue;
+          }
         }
       }
       for (const p of pts) {
@@ -1178,6 +1336,434 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
       state.snapshot?.dimStyles ?? [],
       state.snapshot?.draftingSettings?.standards?.annotationScale,
     );
+  }
+
+  // --- CAD-PARITY-006 (Issue #84): the blocks/references derived view ------
+  // Block-ref/xref-ref instances render, pick and window-select through the
+  // ONE shared expansion (workspace/blocks — the SAME module the App API
+  // explode/bounds paths run; LOCK-004 parity by construction). The
+  // instance's OWN layer gates visibility exactly like every other element
+  // (drawableElements/visibleElements); each expanded piece then resolves
+  // ITS OWN layer/display through the shared standards chain.
+
+  /** The document block/xref tables as the shared BlockTable lookups. */
+  function blockTableOf(): BlockTable {
+    const blockDefById = new Map<string, BlockDefinitionRecord>(
+      (state.snapshot?.blockDefs ?? []).map((b) => [b.id, b] as const),
+    );
+    const xrefById = new Map<string, XrefRecord>(
+      (state.snapshot?.xrefs ?? []).map((x) => [x.id, x] as const),
+    );
+    return {
+      blockDefById: (id: string): BlockDefinitionRecord | undefined => blockDefById.get(id),
+      xrefById: (id: string): XrefRecord | undefined => xrefById.get(id),
+    };
+  }
+
+  /** Is this element a block/xref instance (the soft vocabulary check)? */
+  function isInstanceElement(el: Element): boolean {
+    return isBlockRefElement(el) || isXrefRefElement(el);
+  }
+
+  /** The resolved display of one expanded piece (its OWN layer + display
+   *  overrides through the shared standards chain — the same resolution
+   *  computeDisplayMap runs for plain entities; unresolvable displays fall
+   *  back to the layer color, solid, hairline; rendering never throws). */
+  function expandedDisplayOf(props: Record<string, unknown>, layerById: ReadonlyMap<string, LayerRecord>): DisplayDraw {
+    const layerId = typeof props.layer === "string" && props.layer.length > 0 ? props.layer : "0";
+    const layer = layerById.get(layerId);
+    if (layer === undefined) {
+      return { dash: null, weightPx: 1, alpha: 1, color: "#111827" };
+    }
+    try {
+      const resolved = resolveDisplay(
+        displayOverridesOf(props),
+        layer,
+        state.snapshot?.draftingSettings?.standards,
+        state.snapshot?.ltypes ?? [],
+      );
+      let alpha = transparencyToAlpha(resolved.transparency);
+      if (layer.locked === true) alpha *= LOCKED_LAYER_FADE_ALPHA;
+      return {
+        dash: resolved.dash.length > 0 ? dashToDevicePx(resolved.dash, state.zoom) : null,
+        weightPx: lineweightToDevicePx(resolved.lineweight, state.zoom, state.snapshot?.draftingSettings?.lineweightDisplay === true),
+        alpha,
+        color: resolved.color,
+      };
+    } catch {
+      return {
+        dash: null,
+        weightPx: 1,
+        alpha: layer.locked === true ? LOCKED_LAYER_FADE_ALPHA : 1,
+        color: layer.color,
+      };
+    }
+  }
+
+  /** The synthetic annotation ELEMENT for one expanded text piece — the
+   *  expanded props ARE the CAD-PARITY-005 text convention, so the SAME
+   *  annotation pipeline (annotationFromElement → annotationPrimitives →
+   *  paintAnnotationPrimitives / pickAnnotationAt / selectAnnotations) runs
+   *  on it unchanged. The synthetic id IS the instance element id, so every
+   *  derived hit resolves to the INSTANCE (definition → instance semantics:
+   *  picking a block's text selects the block). */
+  function textPieceElement(instanceId: string, props: Record<string, unknown>): Element {
+    return {
+      id: instanceId,
+      kind: "annotation",
+      engineId: null,
+      props: { ...props, drafting: true, annotation: true },
+    };
+  }
+
+  /** Paint one canonical geometry piece on the annotation canvas overlay —
+   *  the canvas mirror of drawGeomSvg's conventions (same world→screen
+   *  transform, construction-thin rays/xlines, xline default dash, region
+   *  translucent fill + centroid cross, point crosses, viewport-clipped
+   *  infinite entities). Selected pieces stroke the selection highlight
+   *  (solid, thicker, full alpha) exactly like the SVG geometry path. */
+  function paintGeomCanvas(
+    ctx: CanvasRenderingContext2D,
+    g: Geom,
+    d: { color: string; weightPx: number; dash: readonly number[] | null; alpha: number },
+    selected: boolean,
+  ): void {
+    const s = (p: Pt): [number, number] => toScreen([p.x, p.y]);
+    const isConstruction = g.type === "ray" || g.type === "xline";
+    const stroke = (): void => {
+      ctx.strokeStyle = selected ? SELECTED_STROKE : d.color;
+      ctx.lineWidth = selected ? 2.4 : Math.max(isConstruction ? 0.75 : 1, d.weightPx);
+      const dash = selected ? null : (d.dash ?? (g.type === "xline" ? [6, 4] : null));
+      ctx.setLineDash(dash !== null ? [...dash] : []);
+      ctx.stroke();
+    };
+    ctx.save();
+    if (!selected && d.alpha < 1) ctx.globalAlpha = ctx.globalAlpha * d.alpha;
+    switch (g.type) {
+      case "line": {
+        const a = s({ x: g.x1, y: g.y1 });
+        const b = s({ x: g.x2, y: g.y2 });
+        ctx.beginPath();
+        ctx.moveTo(a[0], a[1]);
+        ctx.lineTo(b[0], b[1]);
+        stroke();
+        break;
+      }
+      case "polyline": {
+        if (g.vertices.length === 0) break;
+        ctx.beginPath();
+        const first = s(g.vertices[0]!);
+        ctx.moveTo(first[0], first[1]);
+        for (const v of g.vertices.slice(1)) {
+          const p = s(v);
+          ctx.lineTo(p[0], p[1]);
+        }
+        if (g.closed) ctx.closePath();
+        stroke();
+        break;
+      }
+      case "circle": {
+        if (g.r * state.zoom < 0.5) break;
+        const c = s({ x: g.cx, y: g.cy });
+        ctx.beginPath();
+        ctx.arc(c[0], c[1], g.r * state.zoom, 0, Math.PI * 2);
+        stroke();
+        break;
+      }
+      case "arc": {
+        const c = s({ x: g.cx, y: g.cy });
+        // Canvas Y is down: world CCW angles map to NEGATED screen angles
+        // traversed counterclockwise (the paintText rotation mirror).
+        ctx.beginPath();
+        ctx.arc(c[0], c[1], g.r * state.zoom, -g.startAngle, -g.endAngle, true);
+        stroke();
+        break;
+      }
+      case "ellipse": {
+        const c = s({ x: g.cx, y: g.cy });
+        ctx.beginPath();
+        ctx.ellipse(c[0], c[1], g.rx * state.zoom, g.ry * state.zoom, -g.rotation, 0, Math.PI * 2);
+        stroke();
+        break;
+      }
+      case "spline": {
+        const pts = sampleSpline(g, 32);
+        if (pts.length < 2) break;
+        ctx.beginPath();
+        const p0 = s(pts[0]!);
+        ctx.moveTo(p0[0], p0[1]);
+        for (const p of pts.slice(1)) {
+          const q = s(p);
+          ctx.lineTo(q[0], q[1]);
+        }
+        stroke();
+        break;
+      }
+      case "point": {
+        const p = s({ x: g.x, y: g.y });
+        const color = selected ? SELECTED_STROKE : d.color;
+        ctx.strokeStyle = color;
+        ctx.lineWidth = Math.max(1, d.weightPx);
+        ctx.setLineDash([]);
+        ctx.beginPath();
+        ctx.moveTo(p[0] - 3, p[1]);
+        ctx.lineTo(p[0] + 3, p[1]);
+        ctx.moveTo(p[0], p[1] - 3);
+        ctx.lineTo(p[0], p[1] + 3);
+        ctx.stroke();
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.arc(p[0], p[1], 1.5, 0, Math.PI * 2);
+        ctx.fill();
+        break;
+      }
+      case "ray":
+      case "xline": {
+        // Viewport-clipped (Liang–Barsky) — never an unbounded draw.
+        const seg = clipInfinite({ x: g.x1, y: g.y1 }, infiniteDir(g), visibleWorldRectOf(state.pan, state.zoom), g.type === "ray");
+        if (seg === null) break;
+        const a = s(seg[0]);
+        const b = s(seg[1]);
+        ctx.beginPath();
+        ctx.moveTo(a[0], a[1]);
+        ctx.lineTo(b[0], b[1]);
+        stroke();
+        break;
+      }
+      case "region": {
+        // Translucent fill + boundary stroke + centroid cross (the SVG
+        // drawGeomSvg region conventions, canvas-mirrored).
+        const b = g.boundary;
+        ctx.save();
+        ctx.beginPath();
+        if (b.kind === "circle") {
+          const c = s({ x: b.cx, y: b.cy });
+          ctx.arc(c[0], c[1], b.r * state.zoom, 0, Math.PI * 2);
+        } else if (b.kind === "ellipse") {
+          const c = s({ x: b.cx, y: b.cy });
+          ctx.ellipse(c[0], c[1], b.rx * state.zoom, b.ry * state.zoom, -b.rotation, 0, Math.PI * 2);
+        } else if (b.vertices.length > 0) {
+          const first = s(b.vertices[0]!);
+          ctx.moveTo(first[0], first[1]);
+          for (const v of b.vertices.slice(1)) {
+            const p = s(v);
+            ctx.lineTo(p[0], p[1]);
+          }
+          ctx.closePath();
+        }
+        ctx.fillStyle = selected ? REGION_FILL_SELECTED : REGION_FILL;
+        if (!selected && d.alpha < 1) ctx.globalAlpha = ctx.globalAlpha * d.alpha;
+        ctx.fill();
+        ctx.restore();
+        const boundary: Geom =
+          b.kind === "circle"
+            ? { type: "circle", cx: b.cx, cy: b.cy, r: b.r }
+            : b.kind === "ellipse"
+              ? { type: "ellipse", cx: b.cx, cy: b.cy, rx: b.rx, ry: b.ry, rotation: b.rotation }
+              : { type: "polyline", vertices: b.vertices, closed: true };
+        paintGeomCanvas(ctx, boundary, d, selected);
+        const c = s(g.centroid);
+        ctx.strokeStyle = selected ? SELECTED_STROKE : d.color;
+        ctx.lineWidth = Math.max(1, d.weightPx);
+        ctx.setLineDash([]);
+        ctx.globalAlpha = ctx.globalAlpha * 0.7;
+        ctx.beginPath();
+        ctx.moveTo(c[0] - 4, c[1]);
+        ctx.lineTo(c[0] + 4, c[1]);
+        ctx.moveTo(c[0], c[1] - 4);
+        ctx.lineTo(c[0], c[1] + 4);
+        ctx.stroke();
+        break;
+      }
+    }
+    ctx.restore();
+    ctx.setLineDash([]);
+  }
+
+  /** Paint the unresolved-reference placeholder: a dashed gray box + label
+   *  (the shared expansion's honest diagnostic rendering — never a blank). */
+  function paintPlaceholderCanvas(
+    ctx: CanvasRenderingContext2D,
+    box: { readonly minX: number; readonly minY: number; readonly maxX: number; readonly maxY: number },
+    label: string,
+    selected: boolean,
+  ): void {
+    const a = toScreen([box.minX, box.maxY]);
+    const b = toScreen([box.maxX, box.minY]);
+    ctx.save();
+    ctx.strokeStyle = selected ? SELECTED_STROKE : PLACEHOLDER_STROKE;
+    ctx.lineWidth = selected ? 2.4 : 1.2;
+    ctx.setLineDash([6, 4]);
+    ctx.strokeRect(Math.min(a[0], b[0]), Math.min(a[1], b[1]), Math.abs(b[0] - a[0]), Math.abs(b[1] - a[1]));
+    ctx.setLineDash([]);
+    ctx.fillStyle = selected ? SELECTED_STROKE : PLACEHOLDER_TEXT;
+    ctx.font = "11px ui-monospace, monospace";
+    ctx.textAlign = "left";
+    ctx.textBaseline = "alphabetic";
+    ctx.fillText(label, Math.min(a[0], b[0]) + 4, Math.min(a[1], b[1]) - 4);
+    ctx.restore();
+  }
+
+  /** Draw one instance element through the ONE shared expansion: geometry
+   *  pieces painted from the canonical props with the resolved display of
+   *  each piece's own layer, text pieces through the SAME shared annotation
+   *  painter, placeholders as the dashed box + label. Selected instances
+   *  paint the highlighted conventions (thicker, full alpha — the annotation
+   *  overlay mirror of the SVG selection emphasis). */
+  function drawInstanceElement(el: Element, selected: boolean, layerById: ReadonlyMap<string, LayerRecord>): void {
+    if (annoCtx === null) return;
+    const entities = expandInstanceElement(el, blockTableOf());
+    if (entities === null) return;
+    const styleCtx = annotationStyleCtxOf();
+    for (const e of entities) {
+      if (e.kind === "geometry") {
+        const geom = propsToGeom(e.props);
+        if (geom === null) continue;
+        paintGeomCanvas(annoCtx, geom, expandedDisplayOf(e.props, layerById), selected);
+        continue;
+      }
+      if (e.kind === "text") {
+        const piece = textPieceElement(el.id, e.props);
+        const anno = annotationFromElement(piece);
+        if (anno === null) continue;
+        const d = expandedDisplayOf(e.props, layerById);
+        paintAnnotationPrimitives(annoCtx, annotationPrimitives(anno, styleCtx), {
+          toScreen: (p: Pt): [number, number] => toScreen([p.x, p.y]),
+          zoom: state.zoom,
+          color: d.color,
+          weightPx: selected ? (d.weightPx ?? 1) * 1.8 : (d.weightPx ?? 1),
+          dash: selected ? null : d.dash,
+          alpha: selected ? 1 : d.alpha,
+        });
+        continue;
+      }
+      paintPlaceholderCanvas(annoCtx, e.box, e.label, selected);
+    }
+  }
+
+  /** Hover emphasis for a picked-instance preview (ATTEDIT object picks,
+   *  entity-step hovers): the expanded content stroked amber + thicker —
+   *  the drawGeomEmphasis mirror for derived content. */
+  function drawInstanceEmphasis(el: Element): void {
+    if (annoCtx === null) return;
+    const entities = expandInstanceElement(el, blockTableOf());
+    if (entities === null) return;
+    const emphasis = { color: PREVIEW_AMBER, weightPx: 3, dash: null as readonly number[] | null, alpha: 1 };
+    for (const e of entities) {
+      if (e.kind === "geometry") {
+        const geom = propsToGeom(e.props);
+        if (geom !== null) paintGeomCanvas(annoCtx, geom, emphasis, false);
+        continue;
+      }
+      if (e.kind === "text") {
+        const piece = textPieceElement(el.id, e.props);
+        const anno = annotationFromElement(piece);
+        if (anno === null) continue;
+        paintAnnotationPrimitives(annoCtx, annotationPrimitives(anno, annotationStyleCtxOf()), {
+          toScreen: (p: Pt): [number, number] => toScreen([p.x, p.y]),
+          zoom: state.zoom,
+          color: PREVIEW_AMBER,
+          weightPx: 3,
+          dash: null,
+          alpha: 1,
+        });
+        continue;
+      }
+      paintPlaceholderCanvas(annoCtx, e.box, e.label, false);
+    }
+  }
+
+  /** Pick the closest instance under the cursor BY ITS DERIVED CONTENT
+   *  (expand → canonical closest-distance for geometry, the shared
+   *  primitive-based text hit box, bbox distance for placeholders). Returns
+   *  the INSTANCE element id + distance — the merged pick surface mirror of
+   *  the Web blocks pick. */
+  function pickInstanceAt(visible: readonly Element[], probe: Pt, aperture: number): { id: string; d: number } | null {
+    const table = blockTableOf();
+    const styleCtx = annotationStyleCtxOf();
+    let best: { id: string; d: number } | null = null;
+    const consider = (id: string, d: number): void => {
+      if (d > aperture) return;
+      if (best === null || d < best.d - 1e-12 || (Math.abs(d - best.d) <= 1e-12 && id < best.id)) best = { id, d };
+    };
+    for (const el of visible) {
+      if (!isInstanceElement(el)) continue;
+      const entities = expandInstanceElement(el, table);
+      if (entities === null) continue;
+      for (const e of entities) {
+        if (e.kind === "geometry") {
+          const geom = propsToGeom(e.props);
+          if (geom === null) continue;
+          consider(el.id, closestOn(geom, probe).d);
+          continue;
+        }
+        if (e.kind === "text") {
+          // The SAME shared primitive-based annotation pick (the pick surface
+          // IS the render surface) over the synthetic text-piece element.
+          const hit = pickAnnotationAt([textPieceElement(el.id, e.props)], probe, aperture, styleCtx);
+          if (hit !== null) consider(hit.id, hit.d);
+          continue;
+        }
+        // Placeholder — the distance to its bounding box.
+        const dx = Math.max(e.box.minX - probe.x, 0, probe.x - e.box.maxX);
+        const dy = Math.max(e.box.minY - probe.y, 0, probe.y - e.box.maxY);
+        consider(el.id, Math.hypot(dx, dy));
+      }
+    }
+    return best;
+  }
+
+  /** Window/crossing selection over instance DERIVED content: window mode
+   *  needs EVERY piece fully inside (the whole block inside the rect);
+   *  crossing needs ANY piece intersecting. Geometry pieces reuse the shared
+   *  precision selectWindow tests; text pieces reuse the shared annotation
+   *  selectAnnotations over the synthetic piece element; placeholders test
+   *  their box. Deterministic — the Web host's instance selection mirror. */
+  function selectInstanceElements(
+    visible: readonly Element[],
+    sel: { readonly mode: "window" | "crossing"; readonly min: Pt; readonly max: Pt },
+  ): string[] {
+    const table = blockTableOf();
+    const styleCtx = annotationStyleCtxOf();
+    const out: string[] = [];
+    for (const el of visible) {
+      if (!isInstanceElement(el)) continue;
+      const entities = expandInstanceElement(el, table);
+      if (entities === null || entities.length === 0) continue;
+      let pieces = 0;
+      let hits = 0;
+      for (const e of entities) {
+        if (e.kind === "geometry") {
+          const geom = propsToGeom(e.props);
+          if (geom === null) continue;
+          pieces++;
+          const hit = selectWindowGeom(
+            [{ id: el.id, geom, layer: "0", color: null, linetype: "Continuous" }],
+            sel,
+          );
+          if (hit.includes(el.id)) hits++;
+          continue;
+        }
+        if (e.kind === "text") {
+          pieces++;
+          const hit = selectAnnotations([textPieceElement(el.id, e.props)], sel, styleCtx);
+          if (hit.includes(el.id)) hits++;
+          continue;
+        }
+        // Placeholder — rect fully inside (window) vs rect intersecting
+        // (crossing), the conservative box tests.
+        pieces++;
+        const inside =
+          e.box.minX >= sel.min.x - 1e-9 && e.box.maxX <= sel.max.x + 1e-9 &&
+          e.box.minY >= sel.min.y - 1e-9 && e.box.maxY <= sel.max.y + 1e-9;
+        const intersects =
+          e.box.minX <= sel.max.x + 1e-9 && e.box.maxX >= sel.min.x - 1e-9 &&
+          e.box.minY <= sel.max.y + 1e-9 && e.box.maxY >= sel.min.y - 1e-9;
+        if (sel.mode === "window" ? inside : intersects) hits++;
+      }
+      if (pieces > 0 && (sel.mode === "window" ? hits === pieces : hits > 0)) out.push(el.id);
+    }
+    return out;
   }
 
   // --- entity views (CAD-PARITY-004: frozen = suppressed; locked = drawn
@@ -1331,6 +1917,10 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
     // CAD-PARITY-005: annotations pick where they paint (primitives).
     const annotationPick = pickAnnotationAt(visible, probe, aperture, annotationStyleCtxOf());
     const annotationBest = annotationPick !== null ? { id: annotationPick.id, d: annotationPick.d } : null;
+    // CAD-PARITY-006: block/xref instances pick by their DERIVED content
+    // (expand → canonical/text/placeholder distances), returning the
+    // INSTANCE element id.
+    const instanceBest = pickInstanceAt(visible, probe, aperture);
     let best: { id: string; d: number } | null = null;
     const consider = (c: { id: string; d: number } | null): void => {
       if (c === null) return;
@@ -1339,6 +1929,7 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
     consider(canonicalBest);
     consider(legacyBest);
     consider(annotationBest);
+    consider(instanceBest);
     return best;
   }
 
@@ -1545,6 +2136,16 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
         annotationStyleCtxOf(),
       );
       for (const id of annotationIds) {
+        if (!merged.includes(id)) merged.push(id);
+      }
+      // CAD-PARITY-006: block/xref instances select through their DERIVED
+      // content (window = every expanded piece inside, crossing = any piece
+      // intersecting) — the instance element id joins the selection.
+      const instanceIds = selectInstanceElements(
+        visible,
+        { mode: rect.mode, min: { x: rect.min[0], y: rect.min[1] }, max: { x: rect.max[0], y: rect.max[1] } },
+      );
+      for (const id of instanceIds) {
         if (!merged.includes(id)) merged.push(id);
       }
       const next = e.shiftKey ? Array.from(new Set([...state.selection, ...merged])) : merged;
@@ -2286,6 +2887,17 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
           continue;
         }
       }
+      // CAD-PARITY-006 (Issue #84): block/xref instances render through the
+      // ONE shared expansion (expandInstanceElement) on the annotation canvas
+      // overlay — geometry pieces from the canonical props with the resolved
+      // display of each piece's own layer, text pieces through the SAME
+      // shared annotation painter, placeholders as the dashed box + label.
+      // The instance's OWN layer visibility gates rendering here (the
+      // drawableElements filter above — the same gate every element passes).
+      if (isInstanceElement(el)) {
+        drawInstanceElement(el, selected, layerById);
+        continue;
+      }
       const entity = parseEntity(el);
       if (entity !== null) {
         const layer = layerById.get(entity.layer);
@@ -2416,6 +3028,12 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
         if (hovered !== null) {
           const g = geomById.get(hovered.id)?.geom;
           if (g !== undefined) drawGeomEmphasis(g);
+          // CAD-PARITY-006: instance targets (ATTEDIT picks, BLOCK object
+          // picks) emphasize their DERIVED content on the overlay.
+          else {
+            const hoverEl = (state.snapshot?.elements ?? []).find((el) => el.id === hovered.id);
+            if (hoverEl !== undefined && isInstanceElement(hoverEl)) drawInstanceEmphasis(hoverEl);
+          }
         }
       }
       drawCommandPreview(cmd, geoms, geomById);
@@ -2956,14 +3574,23 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
       // CAD-PARITY-005: annotations carry the shared type label vocabulary
       // (the ANNOTATION_LABEL mirror of the Web inspector's badge).
       const anno = annotationFromElement(el);
+      // CAD-PARITY-006: block/xref instances carry their own type labels
+      // ("Block Instance" / "Reference Instance" — the Web inspector's
+      // derived-label mirror).
+      const instanceRef = blockRefFromElement(el);
+      const instanceXref = instanceRef === null ? xrefRefFromElement(el) : null;
       title.textContent =
-        anno !== null
-          ? ANNOTATION_LABEL[anno.type]
-          : canonical !== null
-            ? GEOM_LABEL[canonical.type]
-            : typeof p.type === "string"
-              ? p.type
-              : el.kind;
+        instanceRef !== null
+          ? BLOCK_INSTANCE_LABEL
+          : instanceXref !== null
+            ? XREF_INSTANCE_LABEL
+            : anno !== null
+              ? ANNOTATION_LABEL[anno.type]
+              : canonical !== null
+                ? GEOM_LABEL[canonical.type]
+                : typeof p.type === "string"
+                  ? p.type
+                  : el.kind;
       const idSpan = h("span");
       idSpan.textContent = ` · ${el.id}`;
       title.append(idSpan);
@@ -3127,6 +3754,138 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
         propRow(propsPanel, "↳ layer color", layer.color);
         propRow(propsPanel, "↳ layer linetype", layer.linetype ?? "Continuous");
         propRow(propsPanel, "↳ layer lineweight", (layer.lineweight ?? STANDARD_DEFAULT_LINEWEIGHT).toFixed(2));
+      }
+    }
+
+    // CAD-PARITY-006 (Issue #84): the Block Instance / Reference Instance
+    // section — definition readout (read-only, resolved from the document
+    // tables), the placement editors (x/y/scale/rotation through
+    // entity.modify's instance transforms — move/rotate/scale, one atomic
+    // revision per edit exactly like the annotation placement fields) and,
+    // for block instances, the per-tag attribute value editors through
+    // attribute.update (an EMPTY value clears the stored value with null —
+    // the definition default renders).
+    const blockInstanceRef = blockRefFromElement(el);
+    const xrefInstanceRef = blockInstanceRef === null ? xrefRefFromElement(el) : null;
+    if (blockInstanceRef !== null || xrefInstanceRef !== null) {
+      const isBlock = blockInstanceRef !== null;
+      propSection(propsPanel, isBlock ? "Block Instance" : "Reference Instance");
+      if (locked) {
+        const l = h("div", "locked");
+        l.textContent = `layer “${layer?.name ?? layerId}” locked — read-only`;
+        propsPanel.append(l);
+      }
+      let tagSlots: readonly { readonly tag: string; readonly default: string }[] = [];
+      if (isBlock) {
+        const def = (state.snapshot?.blockDefs ?? []).find((b) => b.id === blockInstanceRef!.blockId);
+        propRow(propsPanel, "definition", def !== undefined ? def.name : `unresolved (${blockInstanceRef!.blockId})`);
+        if (def !== undefined) {
+          propRow(propsPanel, "entities", String(def.entities.length));
+          for (const e of def.entities) {
+            if (e.type === "attdef" && typeof e.tag === "string") {
+              tagSlots = [
+                ...tagSlots,
+                { tag: e.tag, default: typeof e.default === "string" ? e.default : "" },
+              ];
+            }
+          }
+        }
+      } else {
+        const rec = (state.snapshot?.xrefs ?? []).find((x) => x.id === xrefInstanceRef!.xrefId);
+        propRow(propsPanel, "name", rec !== undefined ? rec.name : `unresolved (${xrefInstanceRef!.xrefId})`);
+        propRow(propsPanel, "status", rec?.status ?? "unresolved");
+        if (rec !== undefined) {
+          propRow(propsPanel, "path", rec.path);
+          propRow(propsPanel, "source", rec.sourceHash !== null ? `${rec.sourceHash.slice(0, 12)}…` : "none");
+          propRow(propsPanel, "entities", String(rec.entities.length));
+        }
+      }
+      // Placement editors — the current placement of the instance (the
+      // fallbacks mirror the core's instancePlacement).
+      const at = isBlock ? blockInstanceRef! : xrefInstanceRef!;
+      const placement = (key: "x" | "y" | "scale" | "rotation"): HTMLInputElement => {
+        const input = h("input");
+        input.type = "number";
+        input.step = "any";
+        input.title = `Instance ${key === "rotation" ? "rotation (°)" : key}`;
+        input.setAttribute("aria-label", `instance ${key}`);
+        input.value =
+          key === "x" ? String(Number(at.x.toFixed(3))) :
+          key === "y" ? String(Number(at.y.toFixed(3))) :
+          key === "scale" ? String(Number(at.scale.toFixed(4))) :
+          String(Number((at.rotation / DEG).toFixed(4)));
+        input.disabled = locked;
+        input.addEventListener("change", () => {
+          const v = Number(input.value);
+          if (!Number.isFinite(v)) return;
+          if (key === "x") {
+            const dx = v - at.x;
+            if (dx !== 0) commitCommand("entity.modify", { op: "move", ids: [el.id], dx, dy: 0 });
+            return;
+          }
+          if (key === "y") {
+            const dy = v - at.y;
+            if (dy !== 0) commitCommand("entity.modify", { op: "move", ids: [el.id], dx: 0, dy });
+            return;
+          }
+          if (key === "scale") {
+            if (!(v > 0) || v === at.scale) return;
+            // Scale about the insertion point: the point stays, the uniform
+            // instance scale becomes v (the core's instance scaling).
+            commitCommand("entity.modify", { op: "scale", ids: [el.id], base: { x: at.x, y: at.y }, factor: v / at.scale });
+            return;
+          }
+          // Rotation edited in degrees → rotate about the insertion point by
+          // the delta (the core's instance rotation composes the angle).
+          const angle = v * DEG - at.rotation;
+          if (angle !== 0) {
+            commitCommand("entity.modify", { op: "rotate", ids: [el.id], base: { x: at.x, y: at.y }, angle });
+          }
+        });
+        return input;
+      };
+      const prow = (key: "x" | "y" | "scale" | "rotation", label: string): void => {
+        const r = h("div", "prow");
+        const k = h("span", "k");
+        k.textContent = label;
+        r.append(k, placement(key));
+        propsPanel.append(r);
+      };
+      prow("x", "insertion x");
+      prow("y", "insertion y");
+      prow("scale", "scale");
+      prow("rotation", "rotation (°)");
+      // Per-tag attribute value editors (block instances only).
+      if (isBlock && tagSlots.length > 0) {
+        propSection(propsPanel, "Attributes");
+        for (const slot of tagSlots) {
+          const stored = (blockInstanceRef!.attributes ?? []).find((a) => a.tag === slot.tag)?.value ?? null;
+          const r = h("div", "prow");
+          const k = h("span", "k");
+          k.textContent = slot.tag;
+          const input = h("input");
+          input.type = "text";
+          input.title =
+            slot.default.length > 0
+              ? `Value for attribute '${slot.tag}' (empty = the definition default '${slot.default}')`
+              : `Value for attribute '${slot.tag}' (empty = no rendered value)`;
+          input.setAttribute("aria-label", `attribute value ${slot.tag}`);
+          // The editor shows the EFFECTIVE value (the stored value, else the
+          // definition default); committing an EMPTY input clears the stored
+          // value (value: null → the default renders, an empty slot hides).
+          input.value = stored !== null ? stored : slot.default;
+          input.disabled = locked;
+          input.addEventListener("change", () => {
+            const v = input.value;
+            if (v === (stored ?? slot.default)) return;
+            commitCommand("attribute.update", { id: el.id, tag: slot.tag, ...(v.length > 0 ? { value: v } : { value: null }) });
+          });
+          r.append(k, input);
+          propsPanel.append(r);
+        }
+        const hint = h("div", "hint");
+        hint.textContent = "Attribute values render through the definition's ATTDEF slots (ATTEDIT edits the same values; an empty input clears the stored value — the definition default renders).";
+        propsPanel.append(hint);
       }
     }
 
@@ -3356,10 +4115,13 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
     dock.classList.toggle("closed", !dockOpen);
     dockTabLayers.classList.toggle("active", dockTab === "layers");
     dockTabStyles.classList.toggle("active", dockTab === "styles");
+    dockTabBlocks.classList.toggle("active", dockTab === "blocks");
     dockTabLayers.setAttribute("aria-selected", String(dockTab === "layers"));
     dockTabStyles.setAttribute("aria-selected", String(dockTab === "styles"));
+    dockTabBlocks.setAttribute("aria-selected", String(dockTab === "blocks"));
     while (dockBody.firstChild) dockBody.removeChild(dockBody.firstChild);
     if (dockTab === "layers") renderLayersPanel(dockBody);
+    else if (dockTab === "blocks") renderBlocksPanel(dockBody);
     else renderStylesPanel(dockBody);
   }
 
@@ -3725,6 +4487,227 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
       statesSec.append(body);
     }
     container.append(statesSec);
+  }
+
+  /** CAD-PARITY-006 (Issue #84): the Blocks & References manager (mirrors the
+   *  Web palettes pattern — the 004 managers' DOM conventions). Two sections:
+   *  the block-definition table (name, inline entity count, INSTANCE count,
+   *  attribute tags; per-definition Insert + reference-checked remove) and
+   *  the external-reference table (Attach through the REAL main-process file
+   *  dialog → xref.attach with the parsed content, Reload through the same
+   *  dialog → xref.reload, Detach → xref.detach, status badges + provenance).
+   *  Every write goes through the App API command() helper + refresh. */
+  function renderBlocksPanel(container: HTMLElement): void {
+    const snapshot = state.snapshot;
+    const defs = snapshot?.blockDefs ?? [];
+    const xrefs = snapshot?.xrefs ?? [];
+    const elements = snapshot?.elements ?? [];
+    // Instance counts derived from the elements (the same count the
+    // blocks.list / xrefs.list queries report).
+    const blockInstances = new Map<string, number>();
+    const xrefInstances = new Map<string, number>();
+    for (const el of elements) {
+      const props = el.props as Record<string, unknown>;
+      if (props.drafting !== true) continue;
+      if (props.type === "block-ref" && typeof props.blockId === "string") {
+        blockInstances.set(props.blockId, (blockInstances.get(props.blockId) ?? 0) + 1);
+      } else if (props.type === "xref-ref" && typeof props.xrefId === "string") {
+        xrefInstances.set(props.xrefId, (xrefInstances.get(props.xrefId) ?? 0) + 1);
+      }
+    }
+
+    const scroll = h("div", "pro-dock-scroll");
+    scroll.style.flex = "1";
+    const sec = (title: string): void => {
+      const s = h("div", "sec");
+      s.textContent = title;
+      scroll.append(s);
+    };
+    const desc = (text: string): void => {
+      const d = h("div", "desc");
+      d.textContent = text;
+      scroll.append(d);
+    };
+
+    // --- Block definitions ---
+    sec("Block definitions");
+    const defBar = h("div", "bar");
+    const createBtn = h("button");
+    createBtn.type = "button";
+    createBtn.className = "mini";
+    createBtn.style.width = "auto";
+    createBtn.style.fontSize = "10px";
+    createBtn.textContent = "Create from selection…";
+    createBtn.title = "BLOCK — convert the selected entities into a reusable definition (name, base point, objects)";
+    createBtn.setAttribute("aria-label", "create block definition from selection");
+    createBtn.addEventListener("click", () => void startCommand("block"));
+    defBar.append(createBtn);
+    scroll.append(defBar);
+    desc(
+      defs.length === 0
+        ? "No definitions. BLOCK converts selected entities into a reusable definition (the sources are removed — one revision; INSERT places instances)."
+        : "Definitions are the single source of content truth — every instance re-derives on each render (definition → instance propagation).",
+    );
+    for (const def of defs) {
+      const row = h("div", "pro-block-row");
+      const nm = h("span", "nm");
+      nm.textContent = def.name;
+      nm.title = def.description ?? def.name;
+      const meta = h("span", "grow muted");
+      const instances = blockInstances.get(def.id) ?? 0;
+      const tags = attdefTagsOf(def.entities);
+      meta.textContent =
+        `${def.entities.length} ${def.entities.length === 1 ? "entity" : "entities"} · ` +
+        `${instances} ${instances === 1 ? "instance" : "instances"}` +
+        (tags.length > 0 ? ` · ${tags.join(", ")}` : "");
+      const insertBtn = h("button", "tgl");
+      insertBtn.type = "button";
+      insertBtn.title = `INSERT — place an instance of '${def.name}'`;
+      insertBtn.setAttribute("aria-label", `insert block ${def.name}`);
+      insertBtn.textContent = "Insert";
+      insertBtn.style.fontSize = "9px";
+      insertBtn.addEventListener("click", () => {
+        // Start INSERT and answer the name prompt with the definition name
+        // (the SAME typed flow the command line runs; the placement prompts
+        // continue interactively).
+        void (async () => {
+          await startCommand("insert");
+          await dispatchEngine({ type: "typed", text: def.name, cursor: state.cursor });
+        })();
+      });
+      const del = h("button", "tgl");
+      del.type = "button";
+      del.title = "Delete definition (blocked while instances or other definitions reference it)";
+      del.setAttribute("aria-label", `delete block definition ${def.name}`);
+      del.append(ICON.trash());
+      del.disabled = instances > 0;
+      del.addEventListener("click", () => commitCommand("block.remove", { name: def.name }));
+      row.append(nm, meta, insertBtn, del);
+      scroll.append(row);
+    }
+
+    // --- External references ---
+    sec("External references");
+    const xrefBar = h("div", "bar");
+    const attachBtn = h("button");
+    attachBtn.type = "button";
+    attachBtn.style.flex = "1";
+    attachBtn.style.fontSize = "10px";
+    attachBtn.title = "XATTACH — attach an external reference with resolved content (the Electron file dialog reads the snapshot)";
+    attachBtn.setAttribute("aria-label", "attach external reference from file");
+    attachBtn.setAttribute("data-testid", "pro-xref-attach");
+    attachBtn.textContent = "Attach reference…";
+    attachBtn.addEventListener("click", () => void attachReferenceFlow());
+    xrefBar.append(attachBtn);
+    scroll.append(xrefBar);
+    desc(
+      xrefs.length === 0
+        ? "No references attached. Attach resolves the snapshot content through the file dialog (.offisos/.json); XATTACH from the command line attaches unresolved (placeholder box)."
+        : "Loaded references render their resolved content; unresolved references render the placeholder box. Reload re-reads the file; Detach removes the record AND its instances (one atomic revision).",
+    );
+    for (const rec of xrefs) {
+      const row = h("div", "pro-block-row");
+      const nm = h("span", "nm");
+      nm.textContent = rec.name;
+      nm.title = `${rec.name} — ${rec.path}`;
+      const badge = h("span", `pro-xref-badge ${rec.status}`);
+      badge.textContent = rec.status;
+      badge.title =
+        rec.status === "loaded"
+          ? `Loaded — source ${rec.sourceHash !== null ? rec.sourceHash.slice(0, 12) + "…" : "none"}`
+          : "Unresolved — the placeholder box renders (reload with the file)";
+      const meta = h("span", "grow muted");
+      const instances = xrefInstances.get(rec.id) ?? 0;
+      meta.textContent =
+        `${instances} ${instances === 1 ? "instance" : "instances"} · ` +
+        `${rec.entities.length} ${rec.entities.length === 1 ? "entity" : "entities"}`;
+      const reload = h("button", "tgl");
+      reload.type = "button";
+      reload.title = "Reload — re-read the external file and re-resolve the content";
+      reload.setAttribute("aria-label", `reload reference ${rec.name}`);
+      reload.setAttribute("data-testid", `pro-xref-reload-${rec.name}`);
+      reload.textContent = "↺";
+      reload.addEventListener("click", () => void reloadReferenceFlow(rec.name));
+      const detach = h("button", "tgl");
+      detach.type = "button";
+      detach.title = "Detach — remove the record and all its instances (one atomic revision)";
+      detach.setAttribute("aria-label", `detach reference ${rec.name}`);
+      detach.setAttribute("data-testid", `pro-xref-detach-${rec.name}`);
+      detach.append(ICON.trash());
+      detach.addEventListener("click", () => commitCommand("xref.detach", { name: rec.name }));
+      row.append(nm, badge, meta, reload, detach);
+      scroll.append(row);
+    }
+    container.append(scroll);
+  }
+
+  /** The References-palette Attach flow: the main-process file dialog picks
+   *  an .offisos/.json snapshot → xref.attach WITH the parsed content (the
+   *  reference attaches LOADED, with an instance at the origin on the active
+   *  layer). Typed failures surface in the command-line history. */
+  async function attachReferenceFlow(): Promise<void> {
+    let picked: ReferenceFilePick | null = null;
+    try {
+      picked = await opts.pickReferenceFile();
+    } catch (e) {
+      pushLines([`*ERROR* reference file dialog: ${(e as Error).message}`]);
+      return;
+    }
+    if (picked === null || picked.status === "canceled") return;
+    if (picked.status === "error") {
+      pushLines([`*ERROR* reference file: ${picked.message}`]);
+      return;
+    }
+    const res = await command("xref.attach", {
+      name: picked.fileName,
+      path: picked.filePath,
+      x: 0,
+      y: 0,
+      scale: 1,
+      rotation: 0,
+      layer: state.activeLayer,
+      content: picked.content,
+    });
+    if (!res.ok) {
+      pushLines([`*ERROR* xref.attach: ${res.code} — ${res.message}`]);
+    } else {
+      const value = res.value as { resolved?: number; skipped?: number } | null;
+      pushLines([
+        `XREF: '${picked.fileName}' attached loaded from '${picked.filePath}' — ` +
+          `${value?.resolved ?? 0} entit${(value?.resolved ?? 0) === 1 ? "y" : "ies"} resolved` +
+          `${(value?.skipped ?? 0) > 0 ? `, ${value?.skipped} skipped (non-convertible)` : ""}; instance placed at (0, 0).`,
+      ]);
+    }
+    await refresh();
+  }
+
+  /** The References-palette Reload flow: the same dialog re-reads the file →
+   *  xref.reload with the fresh content (the status/provenance update). */
+  async function reloadReferenceFlow(name: string): Promise<void> {
+    let picked: ReferenceFilePick | null = null;
+    try {
+      picked = await opts.pickReferenceFile();
+    } catch (e) {
+      pushLines([`*ERROR* reference file dialog: ${(e as Error).message}`]);
+      return;
+    }
+    if (picked === null || picked.status === "canceled") return;
+    if (picked.status === "error") {
+      pushLines([`*ERROR* reference file: ${picked.message}`]);
+      return;
+    }
+    const res = await command("xref.reload", { name, content: picked.content });
+    if (!res.ok) {
+      pushLines([`*ERROR* xref.reload: ${res.code} — ${res.message}`]);
+    } else {
+      const value = res.value as { resolved?: number; skipped?: number } | null;
+      pushLines([
+        `XRELOAD: '${name}' re-resolved from '${picked.filePath}' — ` +
+          `${value?.resolved ?? 0} entit${(value?.resolved ?? 0) === 1 ? "y" : "ies"} resolved` +
+          `${(value?.skipped ?? 0) > 0 ? `, ${value?.skipped} skipped (non-convertible)` : ""}.`,
+      ]);
+    }
+    await refresh();
   }
 
   /** The Styles manager (mirrors the Web StylesPanel): current styles +

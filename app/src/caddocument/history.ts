@@ -122,10 +122,22 @@ export interface RecordRevisionInput {
   readonly nextSheetSequence: number;
   /** COMPAT-IFC-001: the import-record mint counter after this revision. */
   readonly nextIfcImportSequence?: number;
+  /** CAD-PARITY-006: the block-definition mint counter after this revision
+   *  (never-reused `blk-NNNNNN` identities). */
+  readonly nextBlockSequence?: number;
+  /** CAD-PARITY-006: the external-reference mint counter after this
+   *  revision (never-reused `xr-NNNNNN` identities). */
+  readonly nextXrefSequence?: number;
 }
 
 /** Append one immutable revision to a history (returns a NEW frozen
- *  history; the input history is never mutated — append-only integrity). */
+ *  history; the input history is never mutated — append-only integrity).
+ *  CAD-PARITY-006: the block/xref mint counters are CANONICAL-MINIMAL —
+ *  emitted only once a block/xref identity has actually been minted
+ *  (counter > 1) so histories (and saves) of documents that never touch
+ *  blocks stay BYTE-IDENTICAL to the pre-006 form (the pinned parity
+ *  fixtures; the counters only ever grow — never-reuse — so a materialized
+ *  counter never drops back out). */
 export function appendRevision(input: RecordRevisionInput): ModelHistory {
   const { history } = input;
   const revisionNumber = history.revisions.length + 1;
@@ -142,6 +154,8 @@ export function appendRevision(input: RecordRevisionInput): ModelHistory {
     created_at: HISTORY_NOW,
     created_by: input.createdBy,
   });
+  const nextBlock = Math.max(history.next_block_sequence ?? 1, input.nextBlockSequence ?? 1);
+  const nextXref = Math.max(history.next_xref_sequence ?? 1, input.nextXrefSequence ?? 1);
   return deepFreeze({
     entity_id: history.entity_id,
     format: history.format,
@@ -152,6 +166,8 @@ export function appendRevision(input: RecordRevisionInput): ModelHistory {
     next_view_sequence: Math.max(history.next_view_sequence ?? 1, input.nextViewSequence),
     next_sheet_sequence: Math.max(history.next_sheet_sequence ?? 1, input.nextSheetSequence),
     next_ifc_import_sequence: Math.max(history.next_ifc_import_sequence ?? 1, input.nextIfcImportSequence ?? 1),
+    ...(nextBlock > 1 ? { next_block_sequence: nextBlock } : {}),
+    ...(nextXref > 1 ? { next_xref_sequence: nextXref } : {}),
     revisions: deepFreeze([...history.revisions, revision]),
   });
 }
@@ -178,7 +194,9 @@ export function createdHistory(entityId: string, format: string, formatVersion: 
 }
 
 /** Seeded history for an opened snapshot WITHOUT a persisted history
- *  (legacy artifact): the opened state becomes the base (origin "opened"). */
+ *  (legacy artifact): the opened state becomes the base (origin "opened").
+ *  CAD-PARITY-006: the block/xref counters stay ABSENT until the first
+ *  mint (canonical-minimal — legacy-fixture byte-identity). */
 export function openedHistory(
   entityId: string,
   format: string,
@@ -359,10 +377,45 @@ export function applyEditToElements(map: Map<string, Element>, edit: DocumentEdi
     }
     case "addLayerState": {
       if (edit.state === undefined) throw new Error("replay: addLayerState requires state");
-      break;
+      break; // layer-state-table edit: element-set no-op
     }
     case "removeLayerState": {
       if (edit.stateName === undefined) throw new Error("replay: removeLayerState requires stateName");
+      break; // layer-state-table edit: element-set no-op
+    }
+    // CAD-PARITY-006: block-definition + xref table edits are element-set
+    // no-ops (the tables replay through the recorded applied edits; the
+    // element delta stays empty — the layer/ltype precedent).
+    case "addBlockDef": {
+      if (edit.block === undefined) throw new Error("replay: addBlockDef requires block");
+      break;
+    }
+    case "updateBlockDef": {
+      if (edit.blockId === undefined) throw new Error("replay: updateBlockDef requires blockId");
+      break;
+    }
+    case "setBlockDefRecord": {
+      if (edit.blockId === undefined || edit.block === undefined) throw new Error("replay: setBlockDefRecord requires blockId + block");
+      break;
+    }
+    case "removeBlockDef": {
+      if (edit.blockId === undefined) throw new Error("replay: removeBlockDef requires blockId");
+      break;
+    }
+    case "addXref": {
+      if (edit.xref === undefined) throw new Error("replay: addXref requires xref");
+      break;
+    }
+    case "updateXref": {
+      if (edit.xrefId === undefined) throw new Error("replay: updateXref requires xrefId");
+      break;
+    }
+    case "setXrefRecord": {
+      if (edit.xrefId === undefined || edit.xref === undefined) throw new Error("replay: setXrefRecord requires xrefId + xref");
+      break;
+    }
+    case "removeXref": {
+      if (edit.xrefId === undefined) throw new Error("replay: removeXref requires xrefId");
       break;
     }
     default: {
@@ -451,7 +504,12 @@ function isValidDocumentEdit(v: unknown): boolean {
     v.type !== "addLtype" && v.type !== "updateLtype" && v.type !== "removeLtype" &&
     v.type !== "addTextStyle" && v.type !== "updateTextStyle" && v.type !== "removeTextStyle" &&
     v.type !== "addDimStyle" && v.type !== "updateDimStyle" && v.type !== "removeDimStyle" &&
-    v.type !== "addLayerState" && v.type !== "removeLayerState"
+    v.type !== "addLayerState" && v.type !== "removeLayerState" &&
+    // CAD-PARITY-006 additive edit types (block definitions + xrefs).
+    v.type !== "addBlockDef" && v.type !== "updateBlockDef" && v.type !== "removeBlockDef" &&
+    v.type !== "setBlockDefRecord" &&
+    v.type !== "addXref" && v.type !== "updateXref" && v.type !== "removeXref" &&
+    v.type !== "setXrefRecord"
   ) {
     return false;
   }
@@ -522,6 +580,23 @@ function isValidDocumentEdit(v: unknown): boolean {
     const sh = v.sheet as Record<string, unknown>;
     return typeof v.sheetId === "string" && v.sheetId.length > 0 &&
       typeof sh.id === "string" && sh.id.length > 0 && typeof sh.title === "string" && Array.isArray(sh.viewPlacements);
+  }
+  // CAD-PARITY-006: the block-definition + xref record shapes.
+  if (v.type === "addBlockDef" || v.type === "setBlockDefRecord") {
+    if (!isPlainObject(v.block)) return false;
+    const b = v.block as Record<string, unknown>;
+    return typeof b.id === "string" && b.id.length > 0 && typeof b.name === "string" && Array.isArray(b.entities);
+  }
+  if (v.type === "updateBlockDef" || v.type === "removeBlockDef") {
+    return typeof v.blockId === "string" && v.blockId.length > 0;
+  }
+  if (v.type === "addXref" || v.type === "setXrefRecord") {
+    if (!isPlainObject(v.xref)) return false;
+    const x = v.xref as Record<string, unknown>;
+    return typeof x.id === "string" && x.id.length > 0 && typeof x.name === "string" && typeof x.path === "string";
+  }
+  if (v.type === "updateXref" || v.type === "removeXref") {
+    return typeof v.xrefId === "string" && v.xrefId.length > 0;
   }
   return true;
 }
@@ -595,6 +670,22 @@ export function validateModelHistory(history: unknown): asserts history is Model
       history.next_ifc_import_sequence < 1)
   ) {
     throw new Error("modelHistory.next_ifc_import_sequence must be a positive integer when present");
+  }
+  if (
+    history.next_block_sequence !== undefined &&
+    (typeof history.next_block_sequence !== "number" ||
+      !Number.isInteger(history.next_block_sequence) ||
+      history.next_block_sequence < 1)
+  ) {
+    throw new Error("modelHistory.next_block_sequence must be a positive integer when present");
+  }
+  if (
+    history.next_xref_sequence !== undefined &&
+    (typeof history.next_xref_sequence !== "number" ||
+      !Number.isInteger(history.next_xref_sequence) ||
+      history.next_xref_sequence < 1)
+  ) {
+    throw new Error("modelHistory.next_xref_sequence must be a positive integer when present");
   }
   if (!Array.isArray(history.revisions)) throw new Error("modelHistory.revisions must be an array");
   for (const [i, rev] of history.revisions.entries()) {

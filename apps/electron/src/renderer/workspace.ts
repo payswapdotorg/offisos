@@ -2896,6 +2896,10 @@ function main(): void {
       onLegacyRefresh: () => {
         void refresh();
       },
+      // CAD-PARITY-006 (Issue #84): the external-reference file picker — the
+      // main-process Electron dialog through the preload bridge (the Blocks &
+      // References manager's Attach/Reload flows resolve xref content with it).
+      pickReferenceFile: () => window.cad.pickReferenceFile(),
     });
   }
   void (async () => {

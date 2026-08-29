@@ -104,7 +104,26 @@ export type CommandName =
   // associative measurement for the given annotations (or every dimension).
   | "annotation.create"
   | "annotation.update"
-  | "annotation.remeasure";
+  | "annotation.remeasure"
+  // --- CAD-PARITY-006 (additive, Issue #84): blocks/attributes/xrefs ---
+  // block.create validates + converts the source elements into canonical
+  // inline content and removes them — ONE atomic conversion revision;
+  // block.insert places an instance (uniform scale + rotation + attribute
+  // values validated against the definition slots); block.update patches a
+  // definition (name/basePoint/description/entities — instances propagate
+  // through the shared expansion); block.remove is reference-checked;
+  // attribute.update rewrites one per-instance attribute value; xref.attach
+  // /detach/reload implement the bounded external-reference lifecycle
+  // (detach removes record + instances as ONE atomic batch; reload requires
+  // the re-supplied external content).
+  | "block.create"
+  | "block.insert"
+  | "block.update"
+  | "block.remove"
+  | "attribute.update"
+  | "xref.attach"
+  | "xref.detach"
+  | "xref.reload";
 
 // --- Query names (non-mutating) ---
 // `document.getSelection` returns the ephemeral editor selection (orthogonal
@@ -161,7 +180,11 @@ export type QueryName =
   | "ifc.compare"
   | "ifc.idsValidate"
   | "ifc.bcfParse"
-  | "ifc.listImports";
+  | "ifc.listImports"
+  // CAD-PARITY-006 (additive): the blocks/xrefs inventory with instance
+  // counts + attribute tags / status diagnostics (non-mutating).
+  | "blocks.list"
+  | "xrefs.list";
 
 export interface Command {
   readonly type: "command";

@@ -12,6 +12,7 @@ import {
   ArrowRightToLine,
   ArrowUpRight,
   Box,
+  Boxes,
   Circle,
   CircleDashed,
   CircleDot,
@@ -28,6 +29,8 @@ import {
   HelpCircle,
   Layers,
   Link2,
+  List,
+  ListTree,
   Bomb,
   MessageSquareText,
   Minus,
@@ -35,10 +38,13 @@ import {
   MoveHorizontal,
   Navigation,
   Package,
+  PackagePlus,
   PanelRight,
+  Paperclip,
   Pentagon,
   PencilRuler,
   Redo2,
+  RefreshCw,
   RotateCw,
   Ruler,
   Save,
@@ -48,11 +54,14 @@ import {
   Spline,
   Split,
   Square,
+  SquarePen,
   Squircle,
+  Tag,
   Text,
   TextCursorInput,
   Trash2,
   Type,
+  Unlink,
   Undo2,
 } from "lucide-react";
 
@@ -178,6 +187,17 @@ export function MenuBar(props: MenuBarProps): React.JSX.Element {
         <MenuItem label="Properties (PR)" onClick={() => props.onCommand("properties")} />
       </Menu>
       <Menu label="Insert">
+        {/* CAD-PARITY-006 (Issue #84): the blocks & references vocabulary —
+            every item resolves to the canonical registry command. */}
+        <MenuItem label="Create Block (B)" onClick={() => props.onCommand("block")} />
+        <MenuItem label="Insert Block (I)" onClick={() => props.onCommand("insert")} />
+        <MenuItem label="Attribute Definition (ATD)" onClick={() => props.onCommand("attdef")} />
+        <MenuItem label="Edit Attribute (ATE)" onClick={() => props.onCommand("attedit")} />
+        <div className="my-1 border-t" />
+        <MenuItem label="Attach Reference (XA)" onClick={() => props.onCommand("xattach")} />
+        <MenuItem label="Detach Reference (XD)" onClick={() => props.onCommand("xdetach")} />
+        <MenuItem label="References palette (XR)" onClick={() => props.onCommand("xref")} />
+        <div className="my-1 border-t" />
         <MenuItem label="Door (DR)" onClick={() => props.onCommand("door")} />
         <MenuItem label="Window (WN)" onClick={() => props.onCommand("window")} />
         <MenuItem label="Slab (SL)" onClick={() => props.onCommand("slab")} />
@@ -207,6 +227,9 @@ export function MenuBar(props: MenuBarProps): React.JSX.Element {
         <MenuItem label="Layers… (LA)" onClick={() => props.onCommand("layer")} />
         <MenuItem label="Properties… (PR)" onClick={() => props.onCommand("properties")} />
         <MenuItem label="Navigator… (NAV)" onClick={() => props.onCommand("navigator")} />
+        {/* CAD-PARITY-006: the Blocks & References manager (BLOCKLIST + XREF
+            surfaces). */}
+        <MenuItem label="Blocks & References… (XR)" onClick={() => props.onCommand("xref")} />
         <div className="my-1 border-t" />
         <MenuItem label="Components & materials…" onClick={() => props.onSwitchView("components")} />
         <MenuItem label="IFC interoperability…" onClick={() => props.onSwitchView("ifc")} />
@@ -294,6 +317,19 @@ const TAB_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
   mleader: MessageSquareText,
   dimtedit: TextCursorInput,
   dimscale: Scaling,
+  // CAD-PARITY-006 blocks/reuse vocabulary (Issue #84): BLOCK/INSERT/
+  // ATTDEF/ATTEDIT, the XATTACH/XDETACH/XRELOAD lifecycle, XLIST/XREF/
+  // BLOCKLIST (the auto-mapped Insert ribbon tab + the tool palette).
+  block: Box,
+  insert: PackagePlus,
+  attdef: Tag,
+  attedit: SquarePen,
+  xattach: Paperclip,
+  xdetach: Unlink,
+  xreload: RefreshCw,
+  xlist: List,
+  xref: Boxes,
+  blocklist: ListTree,
   // CAD-PARITY-003 modify vocabulary.
   rotate: RotateCw,
   scale: Scaling,
@@ -449,6 +485,12 @@ export function Ribbon(props: RibbonProps): React.JSX.Element {
               <PanelRight className="h-4 w-4" aria-hidden />
               <span className="text-[10px] leading-3">Properties</span>
             </Button>
+            {/* CAD-PARITY-006: the Blocks & References manager (the XREF
+                command opens it through its palette.show ui action). */}
+            <Button size="sm" variant="ghost" className="h-9 flex-col gap-0 px-3" title="Blocks & References (XR)" onClick={() => props.onCommand("xref")}>
+              <Boxes className="h-4 w-4" aria-hidden />
+              <span className="text-[10px] leading-3">Blocks</span>
+            </Button>
             <Button size="sm" variant="ghost" className="h-9 flex-col gap-0 px-3" title="Navigator (NAV)" onClick={() => props.onCommand("navigator")}>
               <Navigation className="h-4 w-4" aria-hidden />
               <span className="text-[10px] leading-3">Navigator</span>
@@ -505,6 +547,12 @@ export function ToolPalette(props: ToolPaletteProps): React.JSX.Element | null {
     {
       label: "Annotate",
       ids: ["text", "mtext", "dimlinear", "dimaligned", "dimradius", "dimdiameter", "dimangular", "leader", "mleader", "dimtedit", "dimscale"],
+    },
+    // CAD-PARITY-006 (Issue #84): the blocks/reuse vocabulary — ids resolve
+    // through the registry (icons through TAB_ICONS).
+    {
+      label: "Blocks",
+      ids: ["block", "insert", "attdef", "attedit", "xattach", "xdetach", "xref", "blocklist"],
     },
     { label: "BIM", ids: ["story", "wall", "slab", "door", "window"] },
     {

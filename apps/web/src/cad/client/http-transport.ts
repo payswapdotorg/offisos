@@ -107,6 +107,112 @@ export async function applyEdit(edit: DocumentEdit): Promise<CommandQueryRespons
   return command("document.applyEdit", { edit });
 }
 
+// --- CAD-PARITY-006: blocks/attributes/xrefs through the shared App API ---
+
+/** One per-instance attribute value (`block.insert` / `attribute.update`). */
+export interface BlockAttributeValue {
+  tag: string;
+  value: string;
+}
+
+/** `block.create` payload: convert the source elements into a reusable
+ * definition and REMOVE them, in ONE atomic revision (undo restores both). */
+export interface BlockCreatePayload {
+  name: string;
+  basePoint: { x: number; y: number };
+  /** Element ids to convert into inline content (either this or `entities`). */
+  fromElementIds?: string[];
+  /** Pre-normalized inline entities (the ATTDEF command path patches the
+   *  definition table directly through block.update instead). */
+  entities?: unknown[];
+  layer?: string;
+  description?: string;
+}
+
+export async function blockCreate(payload: BlockCreatePayload): Promise<CommandQueryResponse> {
+  return command("block.create", payload);
+}
+
+/** `block.insert` — place a block instance (uniform scale + rotation +
+ *  attribute values validated against the definition slots). */
+export async function blockInsert(payload: {
+  name: string;
+  x: number;
+  y: number;
+  scale?: number;
+  rotation?: number;
+  layer?: string;
+  attributes?: readonly BlockAttributeValue[];
+}): Promise<CommandQueryResponse> {
+  return command("block.insert", payload);
+}
+
+/** `block.update` — patch a definition (name/basePoint/description/
+ *  entities); instances propagate through the shared expansion. */
+export async function blockUpdate(
+  name: string,
+  patch: Record<string, unknown>,
+): Promise<CommandQueryResponse> {
+  return command("block.update", { name, patch });
+}
+
+/** `block.remove` — delete a definition (reference-checked: instances and
+ *  other definitions' content block removal — no silent cascade). */
+export async function blockRemove(name: string): Promise<CommandQueryResponse> {
+  return command("block.remove", { name });
+}
+
+/** `attribute.update` — rewrite ONE per-instance attribute value (value
+ *  null clears the stored value → the definition default renders). */
+export async function attributeUpdate(
+  id: string,
+  tag: string,
+  value: string | null,
+): Promise<CommandQueryResponse> {
+  return command("attribute.update", { id, tag, value });
+}
+
+/** `xref.attach` — attach an external reference. With `content` (an offisos
+ *  snapshot object re-read by the host): loaded (inline entities + provenance
+ *  hash + placement instance in ONE atomic revision). Without: unresolved
+ *  (the placeholder rendering — the command line cannot read files). */
+export async function xrefAttach(payload: {
+  name: string;
+  path: string;
+  x?: number;
+  y?: number;
+  scale?: number;
+  rotation?: number;
+  layer?: string;
+  content?: unknown;
+}): Promise<CommandQueryResponse> {
+  return command("xref.attach", payload);
+}
+
+/** `xref.detach` — remove the record AND its instances as ONE atomic batch
+ *  (the explicit detach cascade — never silent). */
+export async function xrefDetach(name: string): Promise<CommandQueryResponse> {
+  return command("xref.detach", { name });
+}
+
+/** `xref.reload` — re-resolve an attached reference with FRESH content (the
+ *  host re-reads the external file; the References palette drives this). */
+export async function xrefReload(name: string, content: unknown): Promise<CommandQueryResponse> {
+  return command("xref.reload", { name, content });
+}
+
+/** `blocks.list` (query) — the definition inventory with instance counts
+ *  and attribute tags (the BLOCKLIST surface). */
+export async function blocksList(): Promise<CommandQueryResponse> {
+  return query("blocks.list", {});
+}
+
+/** `xrefs.list` (query) — the reference inventory with statuses, instance
+ *  counts and provenance hashes (the XLIST surface). */
+export async function xrefsList(): Promise<CommandQueryResponse> {
+  return query("xrefs.list", {});
+}
+
 // --- CAD-IMPLEMENT-002: real geometry through the shared App API ----------
 
 /** Response value of a successful `geometry.prepare` (mirror of the wire). */

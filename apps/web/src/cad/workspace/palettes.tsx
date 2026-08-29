@@ -21,19 +21,32 @@
  * alignment/attachment/measured readout/text override/style through
  * annotation.update), the dim-style editor gained arrowStyle + unitSuffix and
  * the standards section gained the document annotation scale (DIMSCALE-class).
+ *
+ * CAD-PARITY-006 (Issue #84): the per-type BLOCK INSTANCE / REFERENCE
+ * INSTANCE inspector sections (definition read-only + editable placement
+ * through the updateElement transport + attribute slots through
+ * attribute.update) and the Blocks dock tab — the definition inventory with
+ * per-definition Insert (the INSERT command pre-filled with the name) and
+ * the external-reference manager (attach with resolved content, reload,
+ * detach — the XREF command's palette target).
  */
 
 import * as React from "react";
 import {
+  Boxes,
   Eye,
   EyeOff,
   Layers as LayersIcon,
   Lock,
   LockOpen,
   Navigation,
+  PackagePlus,
+  Paperclip,
   Plus,
+  RefreshCw,
   Snowflake,
   Trash2,
+  Unlink,
   Wrench,
   Save,
   RotateCcw,
@@ -47,6 +60,7 @@ import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import type {
+  BlockDefinitionRecord,
   CADDocumentSnapshot,
   DimStyleRecord,
   Element,
@@ -54,10 +68,20 @@ import type {
   LayerStateRecord,
   LtypeRecord,
   TextStyleRecord,
+  XrefRecord,
 } from "@offisos/cad-app-shell/contracts/caddocument";
 import type { CommandQueryResponse } from "@offisos/cad-app-shell/contracts/app-api";
+import { err as apiErr } from "@offisos/cad-app-shell/contracts/app-api";
 import { geomFromElement } from "@offisos/cad-app-shell/workspace/geometry/bridge";
 import { GEOM_LABEL } from "@offisos/cad-app-shell/workspace/geometry/types";
+// CAD-PARITY-006: the shared blocks core (Issue #84) — the soft instance
+// loaders + the attribute-slot resolution (the SAME vocabulary the canvas
+// expansion and the App API run; LOCK-004 parity by construction).
+import {
+  attributeValue,
+  blockRefFromElement,
+  xrefRefFromElement,
+} from "@offisos/cad-app-shell/workspace/blocks";
 // CAD-PARITY-005: the shared annotation core (Issue #82) — the type label
 // vocabulary, the soft element loader and the SAME style-driven label
 // formatting the canvas runs (LOCK-004 parity by construction).
@@ -85,7 +109,7 @@ import {
 } from "@offisos/cad-app-shell/workspace/standards";
 import { setSelection } from "@/cad/client/http-transport";
 
-export type DockTab = "properties" | "layers" | "styles" | "navigator";
+export type DockTab = "properties" | "layers" | "styles" | "blocks" | "navigator";
 
 export interface PalettesProps {
   readonly snapshot: CADDocumentSnapshot | null;
@@ -98,6 +122,11 @@ export interface PalettesProps {
   readonly onActiveStory: (id: string) => void;
   readonly onSelection: (ids: readonly string[]) => void;
   readonly onCommitEdit: (label: string, fn: () => Promise<CommandQueryResponse>) => void;
+  /** CAD-PARITY-006: start a command from a palette, optionally with a
+   *  PRE-TYPED first text answer (the Blocks tab's Insert button starts
+   *  INSERT with the definition name — the same prompt-engine path the
+   *  command line runs, so the dynamic attribute prompts appear). */
+  readonly onRunCommand: (commandId: string, typed?: string) => void;
   readonly visible: boolean;
 }
 
@@ -117,6 +146,16 @@ async function api(name: string, payload: unknown): Promise<CommandQueryResponse
  *  wrappers; display/layer edits keep flowing through entity.setDisplay. */
 function annotationUpdate(ids: readonly string[], patch: Record<string, unknown>): Promise<CommandQueryResponse> {
   return api("annotation.update", { ids: [...ids], patch });
+}
+
+// ---------------------------------------------------------------------------
+// CAD-PARITY-006 (Issue #84): blocks/reuse helpers.
+// ---------------------------------------------------------------------------
+
+/** The attribute-definition slots of a block definition (inline attdef
+ *  entities — the per-instance editable value fields). */
+function attdefRecordsOf(def: BlockDefinitionRecord): readonly Record<string, unknown>[] {
+  return def.entities.filter((e) => e.type === "attdef");
 }
 
 // ---------------------------------------------------------------------------
@@ -744,6 +783,15 @@ function PropertiesPanel(props: PalettesProps): React.JSX.Element {
   // CAD-PARITY-005: the annotation view of the selected element (soft load —
   // the 8-type canonical vocabulary AND the legacy COMPAT-CAD-001 dims).
   const anno = annotationFromElement(el);
+  // CAD-PARITY-006: the block/xref instance views (soft load — malformed
+  // props read as null) + the definition/reference records the snapshot
+  // tables resolve (the read-only names + the attribute slots).
+  const blockRef = blockRefFromElement(el);
+  const xrefRef = xrefRefFromElement(el);
+  const blockDef =
+    blockRef !== null ? (props.snapshot?.blockDefs ?? []).find((b) => b.id === blockRef.blockId) : undefined;
+  const xrefRecord =
+    xrefRef !== null ? (props.snapshot?.xrefs ?? []).find((x) => x.id === xrefRef.xrefId) : undefined;
   const layerId = typeof p.layer === "string" ? p.layer : null;
   const layer = layerId !== null ? layerById.get(layerId) : undefined;
   const locked = layer?.locked === true && p.drafting === true;
@@ -769,6 +817,16 @@ function PropertiesPanel(props: PalettesProps): React.JSX.Element {
     canonicalGeom !== null ? (
       <PropRow key="type" label="type">
         <Badge variant="secondary">{GEOM_LABEL[canonicalGeom.type]}</Badge>
+      </PropRow>
+    ) : p.type === "block-ref" ? (
+      // CAD-PARITY-006: the professional type label of a block instance.
+      <PropRow key="type" label="type">
+        <Badge variant="secondary">Block Instance</Badge>
+      </PropRow>
+    ) : p.type === "xref-ref" ? (
+      // CAD-PARITY-006: the professional type label of a reference instance.
+      <PropRow key="type" label="type">
+        <Badge variant="secondary">Reference Instance</Badge>
       </PropRow>
     ) : typeof p.type === "string" ? (
       <PropRow key="type" label="type">
@@ -808,7 +866,7 @@ function PropertiesPanel(props: PalettesProps): React.JSX.Element {
           </PropSection>
         )}
 
-        {p.drafting === true && anno === null && (
+        {p.drafting === true && anno === null && blockRef === null && xrefRef === null && (
           <PropSection title="Geometry">
             {p.type === "circle" && Array.isArray(p.center) && (
               <PropRow label="radius">
@@ -831,6 +889,161 @@ function PropertiesPanel(props: PalettesProps): React.JSX.Element {
               <PropRow label="vertices"><span>{(p.points as unknown[]).length}</span></PropRow>
             )}
             {canonicalGeom !== null && <CanonicalGeometryRows geom={canonicalGeom} p={p} setDraft={setDraft} />}
+          </PropSection>
+        )}
+
+        {/* CAD-PARITY-006 (Issue #84): the BLOCK INSTANCE section — the
+            definition resolves read-only from the snapshot table; the
+            placement fields edit through the SAME updateElement transport
+            the classic geometry editors use (one atomic revision per field;
+            the locked-layer gate applies server-side); the attribute slots
+            edit through attribute.update (an empty value clears the stored
+            value — the definition default renders again). */}
+        {blockRef !== null && (
+          <PropSection title="Block Instance">
+            {locked && (
+              <PropRow label="state">
+                <Badge variant="destructive" className="h-4 px-1 text-[9px]">layer “{layer?.name}” locked — read-only</Badge>
+              </PropRow>
+            )}
+            <PropRow label="definition">
+              <code className="font-mono text-[11px]">{blockDef?.name ?? blockRef.blockId}</code>
+            </PropRow>
+            {blockDef !== undefined && (
+              <PropRow label="base point">
+                <code className="font-mono text-[11px]">
+                  {Number(blockDef.basePoint.x.toFixed(3))}, {Number(blockDef.basePoint.y.toFixed(3))}
+                </code>
+              </PropRow>
+            )}
+            <PropRow label="insertion x,y">
+              <NumberField ariaLabel="instance insertion x" value={blockRef.x} disabled={locked} onCommit={(v) => setDraft({ x: v })} />
+              <NumberField ariaLabel="instance insertion y" value={blockRef.y} disabled={locked} onCommit={(v) => setDraft({ y: v })} />
+            </PropRow>
+            <PropRow label="scale">
+              <NumberField
+                ariaLabel="instance scale"
+                step={0.1}
+                value={blockRef.scale}
+                disabled={locked}
+                onCommit={(v) => {
+                  // LOCK-007 honesty: uniform positive scales only — the
+                  // typed decline happens here, never a silent write.
+                  if (v > 0) setDraft({ scale: v });
+                }}
+              />
+            </PropRow>
+            <PropRow label="rotation (°)">
+              <NumberField
+                ariaLabel="instance rotation degrees"
+                value={Number((blockRef.rotation / DEG).toFixed(4))}
+                disabled={locked}
+                onCommit={(v) => setDraft({ rotation: v * DEG })}
+              />
+            </PropRow>
+            {blockDef !== undefined && (
+              <>
+                <div className="mb-0.5 mt-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                  Attributes
+                </div>
+                {attdefRecordsOf(blockDef).map((attdef) => {
+                  const tag = String(attdef.tag);
+                  const current = attributeValue(
+                    blockRef.attributes ?? [],
+                    tag,
+                    typeof attdef.default === "string" ? attdef.default : undefined,
+                  );
+                  return (
+                    <PropRow key={`attr-${tag}`} label={tag}>
+                      <input
+                        aria-label={`attribute ${tag} value`}
+                        className={TEXT_INPUT}
+                        defaultValue={current ?? ""}
+                        placeholder="(empty)"
+                        disabled={locked}
+                        title={
+                          typeof attdef.prompt === "string" && attdef.prompt.length > 0
+                            ? attdef.prompt
+                            : `Attribute ‘${tag}’ — empty clears to the definition default`
+                        }
+                        onBlur={(e) => {
+                          const v = e.target.value;
+                          if (v === (current ?? "")) return;
+                          props.onCommitEdit(`set attribute ${tag}`, async () => {
+                            const { attributeUpdate } = await import("@/cad/client/http-transport");
+                            return attributeUpdate(el.id, tag, v.length === 0 ? null : v);
+                          });
+                        }}
+                      />
+                    </PropRow>
+                  );
+                })}
+                {attdefRecordsOf(blockDef).length === 0 && (
+                  <p className="text-[10px] text-muted-foreground">No attribute definitions — ATTDEF (ATD) adds them.</p>
+                )}
+              </>
+            )}
+          </PropSection>
+        )}
+
+        {/* CAD-PARITY-006 (Issue #84): the REFERENCE INSTANCE section — the
+            reference name + status resolve read-only from the snapshot
+            table; placement edits go through the same updateElement
+            transport. */}
+        {xrefRef !== null && (
+          <PropSection title="Reference Instance">
+            {locked && (
+              <PropRow label="state">
+                <Badge variant="destructive" className="h-4 px-1 text-[9px]">layer “{layer?.name}” locked — read-only</Badge>
+              </PropRow>
+            )}
+            <PropRow label="reference">
+              <code className="font-mono text-[11px]">{xrefRecord?.name ?? xrefRef.xrefId}</code>
+            </PropRow>
+            <PropRow label="status">
+              {xrefRecord === undefined ? (
+                <Badge variant="destructive" className="h-4 px-1 text-[9px]">missing record</Badge>
+              ) : xrefRecord.status === "loaded" ? (
+                <Badge variant="secondary" className="h-4 gap-1 px-1 text-[9px]">
+                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" aria-hidden /> loaded
+                </Badge>
+              ) : (
+                <Badge variant="outline" className="h-4 border-amber-400 bg-amber-50 px-1 text-[9px] text-amber-700">unresolved</Badge>
+              )}
+            </PropRow>
+            {xrefRecord !== undefined && xrefRecord.sourceHash !== null && (
+              <PropRow label="source hash">
+                <code className="font-mono text-[11px]">{xrefRecord.sourceHash.slice(0, 12)}…</code>
+              </PropRow>
+            )}
+            {xrefRecord?.status !== "loaded" && (
+              <p className="text-[10px] text-amber-700">
+                Unresolved — the canvas renders the dashed placeholder box. Reload through the Blocks tab (XREF) with the refreshed file.
+              </p>
+            )}
+            <PropRow label="insertion x,y">
+              <NumberField ariaLabel="reference insertion x" value={xrefRef.x} disabled={locked} onCommit={(v) => setDraft({ x: v })} />
+              <NumberField ariaLabel="reference insertion y" value={xrefRef.y} disabled={locked} onCommit={(v) => setDraft({ y: v })} />
+            </PropRow>
+            <PropRow label="scale">
+              <NumberField
+                ariaLabel="reference scale"
+                step={0.1}
+                value={xrefRef.scale}
+                disabled={locked}
+                onCommit={(v) => {
+                  if (v > 0) setDraft({ scale: v });
+                }}
+              />
+            </PropRow>
+            <PropRow label="rotation (°)">
+              <NumberField
+                ariaLabel="reference rotation degrees"
+                value={Number((xrefRef.rotation / DEG).toFixed(4))}
+                disabled={locked}
+                onCommit={(v) => setDraft({ rotation: v * DEG })}
+              />
+            </PropRow>
           </PropSection>
         )}
 
@@ -1675,6 +1888,233 @@ function StylesPanel(props: PalettesProps): React.JSX.Element {
 }
 
 // ---------------------------------------------------------------------------
+// CAD-PARITY-006 (Issue #84): the Blocks & References manager.
+// ---------------------------------------------------------------------------
+
+function BlocksPanel(props: PalettesProps): React.JSX.Element {
+  const blockDefs = props.snapshot?.blockDefs ?? [];
+  const xrefs = props.snapshot?.xrefs ?? [];
+  const elements = props.snapshot?.elements ?? [];
+  const commit = props.onCommitEdit;
+
+  const instanceCountOf = React.useCallback(
+    (defId: string): number =>
+      elements.filter((el) => {
+        const p = el.props as Record<string, unknown>;
+        return p.drafting === true && p.type === "block-ref" && p.blockId === defId;
+      }).length,
+    [elements],
+  );
+  const xrefInstanceCountOf = React.useCallback(
+    (xrefId: string): number =>
+      elements.filter((el) => {
+        const p = el.props as Record<string, unknown>;
+        return p.drafting === true && p.type === "xref-ref" && p.xrefId === xrefId;
+      }).length,
+    [elements],
+  );
+
+  // The hidden file inputs (Attach/Reload read offisos snapshots — the host
+  // re-reads the external file and supplies the content, exactly the
+  // ifc.import payload precedent; the command line cannot read files).
+  const attachInputRef = React.useRef<HTMLInputElement | null>(null);
+  const reloadInputRef = React.useRef<HTMLInputElement | null>(null);
+  const reloadTargetRef = React.useRef<string | null>(null);
+
+  /** Read + parse one offisos snapshot file inside the commit (parse failures
+   *  surface through the shell's error channel as typed bad_payload
+   *  responses — the commit wrapper never sees a rejection). */
+  const parseSnapshotFile = async (
+    file: File,
+  ): Promise<{ ok: true; value: unknown } | { ok: false; response: CommandQueryResponse }> => {
+    const text = await file.text();
+    try {
+      return { ok: true, value: JSON.parse(text) as unknown };
+    } catch (e) {
+      return { ok: false, response: apiErr("bad_payload", `could not parse '${file.name}' as JSON: ${(e as Error).message}`) };
+    }
+  };
+
+  const onAttachFile = (e: React.ChangeEvent<HTMLInputElement>): void => {
+    const file = e.target.files?.[0];
+    if (attachInputRef.current !== null) attachInputRef.current.value = "";
+    if (file === undefined) return;
+    const base = file.name.replace(/\.[^.]*$/, "");
+    void commit("attach reference", async () => {
+      const parsed = await parseSnapshotFile(file);
+      if (!parsed.ok) return parsed.response;
+      const { xrefAttach } = await import("@/cad/client/http-transport");
+      return xrefAttach({ name: base, path: file.name, content: parsed.value, x: 0, y: 0 });
+    });
+  };
+
+  const onReloadFile = (e: React.ChangeEvent<HTMLInputElement>): void => {
+    const file = e.target.files?.[0];
+    const name = reloadTargetRef.current;
+    reloadTargetRef.current = null;
+    if (reloadInputRef.current !== null) reloadInputRef.current.value = "";
+    if (file === undefined || name === null) return;
+    void commit("reload reference", async () => {
+      const parsed = await parseSnapshotFile(file);
+      if (!parsed.ok) return parsed.response;
+      const { xrefReload } = await import("@/cad/client/http-transport");
+      return xrefReload(name, parsed.value);
+    });
+  };
+
+  return (
+    <div className="flex h-full flex-col">
+      <input
+        ref={attachInputRef}
+        type="file"
+        accept=".offisos,.json"
+        className="hidden"
+        aria-hidden
+        data-testid="xref-attach-input"
+        onChange={onAttachFile}
+      />
+      <input
+        ref={reloadInputRef}
+        type="file"
+        accept=".offisos,.json"
+        className="hidden"
+        aria-hidden
+        aria-label="reload reference file"
+        data-testid="xref-reload-input"
+        onChange={onReloadFile}
+      />
+
+      {/* Attach action */}
+      <div className="flex items-center gap-1 border-b p-2">
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-7 gap-1 px-2 text-[11px]"
+          title="Attach an external reference from an offisos snapshot (loaded, with a placement instance at the origin)"
+          onClick={() => attachInputRef.current?.click()}
+        >
+          <Paperclip className="h-3.5 w-3.5" aria-hidden /> Attach…
+        </Button>
+        <span className="truncate text-[10px] text-muted-foreground">snapshot → loaded reference</span>
+      </div>
+
+      <ScrollArea className="min-h-0 flex-1">
+        <div className="p-1">
+          {/* Definitions */}
+          <div className="px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+            Block definitions ({blockDefs.length})
+          </div>
+          <ul aria-label="block definitions">
+            {blockDefs.map((def) => {
+              const tags = attdefRecordsOf(def);
+              const instances = instanceCountOf(def.id);
+              return (
+                <li key={def.id} className="flex items-center gap-1 rounded px-2 py-1 text-[11px] hover:bg-muted/50">
+                  <Boxes className="h-3 w-3 shrink-0 text-muted-foreground" aria-hidden />
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate font-medium">{def.name}</span>
+                    <span className="block truncate text-[10px] text-muted-foreground" title={def.id}>
+                      {def.entities.length} entit{def.entities.length === 1 ? "y" : "ies"} · {instances} instance{instances === 1 ? "" : "s"}
+                      {tags.length > 0 ? ` · attrs: ${tags.map((t) => String(t.tag)).join(", ")}` : ""}
+                    </span>
+                  </span>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-6 px-1.5 text-[10px]"
+                    aria-label={`insert block ${def.name}`}
+                    title={`INSERT ‘${def.name}’ (I) — the command line continues with the insertion point, then the attribute prompts`}
+                    onClick={() => props.onRunCommand("insert", def.name)}
+                  >
+                    <PackagePlus className="h-3 w-3" aria-hidden /> Insert
+                  </Button>
+                </li>
+              );
+            })}
+            {blockDefs.length === 0 && (
+              <li className="px-2 py-1 text-xs text-muted-foreground">No block definitions — BLOCK (B) creates one from selected entities.</li>
+            )}
+          </ul>
+
+          <Separator className="my-1" />
+
+          {/* References */}
+          <div className="px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+            External references ({xrefs.length})
+          </div>
+          <ul aria-label="external references">
+            {xrefs.map((x: XrefRecord) => {
+              const instances = xrefInstanceCountOf(x.id);
+              const loaded = x.status === "loaded";
+              return (
+                <li key={x.id} className="rounded px-2 py-1 text-[11px] hover:bg-muted/50" data-testid={`xref-row-${x.name}`}>
+                  <div className="flex items-center gap-1">
+                    {loaded ? (
+                      <Badge variant="secondary" className="h-4 gap-1 px-1 text-[9px]">
+                        <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" aria-hidden /> loaded
+                      </Badge>
+                    ) : (
+                      <Badge variant="outline" className="h-4 border-amber-400 bg-amber-50 px-1 text-[9px] text-amber-700">unresolved</Badge>
+                    )}
+                    <span className="min-w-0 flex-1 truncate font-medium">{x.name}</span>
+                    <span className="shrink-0 text-[10px] text-muted-foreground" title="Instances of this reference">{instances}×</span>
+                  </div>
+                  <div className="truncate text-[10px] text-muted-foreground" title={x.path}>
+                    {x.path}
+                  </div>
+                  <div className="truncate text-[10px] text-muted-foreground">
+                    {x.entities.length} resolved entit{x.entities.length === 1 ? "y" : "ies"}
+                    {x.sourceHash !== null ? ` · source ${x.sourceHash.slice(0, 12)}…` : " · no source hash"}
+                  </div>
+                  {!loaded && (
+                    <p className="text-[10px] text-amber-700">
+                      Unresolved — the canvas renders the dashed placeholder box. Reload with the refreshed file to load content.
+                    </p>
+                  )}
+                  <div className="mt-0.5 flex items-center gap-1">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-5 px-1.5 text-[10px]"
+                      aria-label={`reload reference ${x.name}`}
+                      title="Re-read the external file (XRELOAD) — the reference + every instance pick up the fresh content"
+                      onClick={() => {
+                        reloadTargetRef.current = x.name;
+                        reloadInputRef.current?.click();
+                      }}
+                    >
+                      <RefreshCw className="h-3 w-3" aria-hidden /> Reload
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-5 px-1.5 text-[10px]"
+                      aria-label={`detach reference ${x.name}`}
+                      title="Detach (XD) — removes the record AND its instances in ONE atomic revision"
+                      onClick={() =>
+                        commit("detach reference", async () => {
+                          const { xrefDetach } = await import("@/cad/client/http-transport");
+                          return xrefDetach(x.name);
+                        })
+                      }
+                    >
+                      <Unlink className="h-3 w-3" aria-hidden /> Detach
+                    </Button>
+                  </div>
+                </li>
+              );
+            })}
+            {xrefs.length === 0 && (
+              <li className="px-2 py-1 text-xs text-muted-foreground">No external references — XATTACH (XA) or Attach… adds one.</li>
+            )}
+          </ul>
+        </div>
+      </ScrollArea>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Navigator / project browser.
 // ---------------------------------------------------------------------------
 
@@ -1687,6 +2127,9 @@ function NavigatorPanel(props: PalettesProps): React.JSX.Element {
   const elementLabel = (el: Element): string => {
     const p = el.props as Record<string, unknown>;
     if (typeof p.name === "string") return p.name;
+    // CAD-PARITY-006: the professional type labels of the instance entities.
+    if (p.type === "block-ref") return "Block Instance";
+    if (p.type === "xref-ref") return "Reference Instance";
     if (typeof p.type === "string") return p.type;
     return el.kind;
   };
@@ -1767,6 +2210,9 @@ export function RightDock(props: PalettesProps): React.JSX.Element | null {
     { id: "properties", label: "Props", icon: Wrench },
     { id: "layers", label: "Layers", icon: LayersIcon },
     { id: "styles", label: "Styles", icon: Type },
+    // CAD-PARITY-006: the Blocks & References manager (BLOCKLIST + XREF
+    // surfaces — the XREF command's palette.show target).
+    { id: "blocks", label: "Blocks", icon: Boxes },
     { id: "navigator", label: "Nav", icon: Navigation },
   ];
   return (
@@ -1795,6 +2241,7 @@ export function RightDock(props: PalettesProps): React.JSX.Element | null {
         {props.activeTab === "properties" && <PropertiesPanel {...props} />}
         {props.activeTab === "layers" && <LayersPanel {...props} />}
         {props.activeTab === "styles" && <StylesPanel {...props} />}
+        {props.activeTab === "blocks" && <BlocksPanel {...props} />}
         {props.activeTab === "navigator" && <NavigatorPanel {...props} />}
       </div>
       <div className="border-t p-2 text-[10px] text-muted-foreground">

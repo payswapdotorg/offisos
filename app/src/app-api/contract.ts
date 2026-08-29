@@ -94,6 +94,19 @@ import {
 } from "../workspace/annotation/assoc.js";
 import { resolveTextStyle, resolveDimStyle } from "../workspace/standards/index.js";
 import type { DimStyleRecord, LayerRecord, LtypeRecord, TextStyleRecord } from "../contracts/caddocument.js";
+// CAD-PARITY-006 (additive): the blocks core (engine-free — the canonical
+// blocks/attributes/xrefs vocabulary, expansion + explode materialization).
+import {
+  attdefTagsOf,
+  blockRefFromElement,
+  blockRefToProps,
+  BlockError,
+  makeBlockRef,
+  normalizeBlockEntities,
+} from "../workspace/blocks/index.js";
+import { geomFromElement } from "../workspace/geometry/bridge.js";
+import { canonicalStringify } from "../caddocument/serialization.js";
+import type { BlockDefinitionRecord, BlockEntityRecord, XrefRecord } from "../contracts/caddocument.js";
 // COMPAT-CAD-002: the pure BIM authoring core (LOCK-018 scanned).
 import {
   buildBimCreate,
@@ -283,6 +296,23 @@ export class AppApiHandler {
         return this.cmdAnnotationUpdate(command.payload);
       case "annotation.remeasure":
         return this.cmdAnnotationRemeasure(command.payload);
+      // --- CAD-PARITY-006 (additive): blocks/attributes/xrefs commands ----
+      case "block.create":
+        return this.cmdBlockCreate(command.payload);
+      case "block.insert":
+        return this.cmdBlockInsert(command.payload);
+      case "block.update":
+        return this.cmdBlockUpdate(command.payload);
+      case "block.remove":
+        return this.cmdBlockRemove(command.payload);
+      case "attribute.update":
+        return this.cmdAttributeUpdate(command.payload);
+      case "xref.attach":
+        return this.cmdXrefAttach(command.payload);
+      case "xref.detach":
+        return this.cmdXrefDetach(command.payload);
+      case "xref.reload":
+        return this.cmdXrefReload(command.payload);
       // --- COMPAT-CAD-002 (additive): 3D/BIM authoring commands ---
       case "bim.createElements":
         return this.cmdBimCreate(command.payload);
@@ -628,6 +658,11 @@ export class AppApiHandler {
         return this.qIfcBcfParse(query.payload);
       case "ifc.listImports":
         return this.qIfcListImports();
+      // CAD-PARITY-006 (additive): the blocks/xrefs inventory queries.
+      case "blocks.list":
+        return this.qBlocksList();
+      case "xrefs.list":
+        return this.qXrefsList();
       default: {
         const _exhaustive: never = query.name;
         return err("unknown_query", `unknown query: ${JSON.stringify(_exhaustive)}`);
@@ -1292,6 +1327,597 @@ export class AppApiHandler {
     }
   }
 
+  // ---------------------------------------------------------------------
+  // CAD-PARITY-006: blocks, attributes & external-reference commands.
+  // ---------------------------------------------------------------------
+
+  /** The fixed deterministic timestamp for record provenance (mirrors the
+   *  document FIXED_NOW convention). */
+  private static readonly BLOCKS_NOW = "2026-01-01T00:00:00.000Z";
+
+  /** Resolve a block definition by name OR canonical id (typed failure). */
+  private resolveBlockDef(p: { name?: unknown; blockId?: unknown }): BlockDefinitionRecord {
+    if (typeof p.blockId === "string" && p.blockId.length > 0) {
+      const def = this.doc.blockDefById(p.blockId);
+      if (def === undefined) throw new BlockError(`no block definition '${p.blockId}'`, "bad_id");
+      return def;
+    }
+    if (typeof p.name === "string" && p.name.length > 0) {
+      const def = this.doc.blockDefByName(p.name);
+      if (def === undefined) throw new BlockError(`no block definition '${p.name}'`, "bad_id");
+      return def;
+    }
+    throw new BlockError("block name or blockId is required", "bad_input");
+  }
+
+  /** Resolve an external reference by name OR id (typed failure). */
+  private resolveXref(p: { name?: unknown; xrefId?: unknown }): XrefRecord {
+    if (typeof p.xrefId === "string" && p.xrefId.length > 0) {
+      const rec = this.doc.xrefById(p.xrefId);
+      if (rec === undefined) throw new BlockError(`no external reference '${p.xrefId}'`, "bad_id");
+      return rec;
+    }
+    if (typeof p.name === "string" && p.name.length > 0) {
+      const rec = this.doc.xrefByName(p.name);
+      if (rec === undefined) throw new BlockError(`no external reference '${p.name}'`, "bad_id");
+      return rec;
+    }
+    throw new BlockError("reference name or xrefId is required", "bad_input");
+  }
+
+  /** Convert ONE document element into canonical inline block content
+   *  (the BLOCK conversion + the xref content resolver share this). Returns
+   *  null when the element is outside the convertible vocabulary — the
+   *  caller reports the skip honestly. */
+  private elementToBlockEntity(el: Element): Record<string, unknown> | null {
+    const props = el.props as Record<string, unknown>;
+    if (props.drafting === true) {
+      if (props.type === "block-ref") {
+        // A nested reference: keep the placement + attribute values, drop
+        // the element identity (the definition reference stays canonical).
+        const ref = blockRefFromElement(el);
+        if (ref === null) return null;
+        const out: Record<string, unknown> = {
+          type: "block-ref",
+          layer: ref.layer,
+          blockId: ref.blockId,
+          x: ref.x,
+          y: ref.y,
+          scale: ref.scale,
+          rotation: ref.rotation,
+        };
+        if (ref.attributes !== undefined) out.attributes = ref.attributes.map((a) => ({ tag: a.tag, value: a.value }));
+        return out;
+      }
+      if (props.type === "text") {
+        const text = annotationFromElement(el);
+        if (text !== null && text.type === "text") {
+          const out: Record<string, unknown> = {
+            type: "text",
+            layer: text.layer,
+            x: text.x,
+            y: text.y,
+            height: text.height,
+            rotation: text.rotation,
+            value: text.value,
+          };
+          if (text.style !== undefined) out.style = text.style;
+          if (text.hAlign !== undefined) out.hAlign = text.hAlign;
+          if (text.vAlign !== undefined) out.vAlign = text.vAlign;
+          return out;
+        }
+        return null;
+      }
+      // Drafting geometry (BOTH storage conventions — the canonical view;
+      // rectangles materialize as the closed polyline they are).
+      const geom = geomFromElement(el);
+      if (geom === null) return null;
+      const layer = typeof props.layer === "string" && props.layer.length > 0 ? props.layer : "0";
+      const out: Record<string, unknown> = { ...(geom as unknown as Record<string, unknown>), layer };
+      for (const key of ["color", "linetype", "lineweight", "transparency"] as const) {
+        if (props[key] !== undefined) out[key] = props[key];
+      }
+      return out;
+    }
+    // Canonical annotation text elements.
+    if (el.kind === "annotation" && props.annotation === true && props.type === "text") {
+      const text = annotationFromElement(el);
+      if (text !== null && text.type === "text") {
+        const out: Record<string, unknown> = {
+          type: "text",
+          layer: text.layer,
+          x: text.x,
+          y: text.y,
+          height: text.height,
+          rotation: text.rotation,
+          value: text.value,
+        };
+        if (text.style !== undefined) out.style = text.style;
+        if (text.hAlign !== undefined) out.hAlign = text.hAlign;
+        if (text.vAlign !== undefined) out.vAlign = text.vAlign;
+        return out;
+      }
+    }
+    return null;
+  }
+
+  /** block.create — convert the source elements into a reusable definition
+   *  and REMOVE them, all in ONE atomic revision (undo restores both). */
+  private cmdBlockCreate(payload: unknown): CommandQueryResponse {
+    const p = payload as {
+      name?: unknown;
+      basePoint?: unknown;
+      fromElementIds?: unknown;
+      entities?: unknown;
+      description?: unknown;
+    } | null;
+    if (p === null || typeof p !== "object" || typeof p.name !== "string" || p.name.length === 0) {
+      return err("bad_payload", "block.create requires a non-empty name", true);
+    }
+    const bp = p.basePoint as { x?: unknown; y?: unknown } | undefined;
+    if (
+      typeof bp !== "object" || bp === null ||
+      typeof bp.x !== "number" || !Number.isFinite(bp.x) ||
+      typeof bp.y !== "number" || !Number.isFinite(bp.y)
+    ) {
+      return err("bad_payload", "block.create requires basePoint {x, y}", true);
+    }
+    try {
+      let entities: Record<string, unknown>[];
+      let sourceIds: string[] = [];
+      if (Array.isArray(p.entities)) {
+        entities = normalizeBlockEntities(p.entities);
+      } else if (Array.isArray(p.fromElementIds) && p.fromElementIds.length > 0) {
+        const converted: Record<string, unknown>[] = [];
+        for (const id of p.fromElementIds) {
+          if (typeof id !== "string") {
+            throw new BlockError("fromElementIds must be element id strings", "bad_input");
+          }
+          const el = this.doc.elementById(id);
+          if (el === undefined) {
+            throw new BlockError(`source element '${id}' does not exist`, "bad_id");
+          }
+          const inline = this.elementToBlockEntity(el);
+          if (inline === null) {
+            throw new BlockError(
+              `source element '${id}' is not convertible block content (2D geometry, text or block instances; dimensions/leaders/BIM are excluded)`,
+              "bad_entity",
+            );
+          }
+          converted.push(inline);
+        }
+        entities = converted;
+        sourceIds = p.fromElementIds as string[];
+      } else {
+        return err("bad_payload", "block.create requires fromElementIds (or an entities array)", true);
+      }
+      const record: BlockDefinitionRecord = {
+        id: "",
+        name: p.name,
+        basePoint: { x: bp.x, y: bp.y },
+        entities,
+        createdAt: AppApiHandler.BLOCKS_NOW,
+        ...(typeof p.description === "string" && p.description.length > 0 ? { description: p.description } : {}),
+      };
+      const edits: DocumentEdit[] = [{ type: "addBlockDef", block: record }];
+      for (const id of sourceIds) edits.push({ type: "removeElement", elementId: id });
+      this.doc.execute({ type: "applyEdits", edits });
+      const created = this.doc.blockDefByName(p.name);
+      return ok({
+        blockId: created?.id ?? null,
+        name: p.name,
+        entityCount: entities.length,
+        removedSources: sourceIds.length,
+        snapshot: this.doc.snapshot(),
+      });
+    } catch (e) {
+      if (e instanceof BlockError) return err(e.code, e.message, false);
+      return err("block_invalid", (e as Error).message, false);
+    }
+  }
+
+  /** block.insert — place a block instance (uniform scale + rotation +
+   *  attribute values validated against the definition slots). */
+  private cmdBlockInsert(payload: unknown): CommandQueryResponse {
+    const p = payload as {
+      name?: unknown;
+      blockId?: unknown;
+      x?: unknown;
+      y?: unknown;
+      scale?: unknown;
+      rotation?: unknown;
+      layer?: unknown;
+      attributes?: unknown;
+    } | null;
+    if (p === null || typeof p !== "object") {
+      return err("bad_payload", "block.insert requires a payload object", true);
+    }
+    if (typeof p.x !== "number" || !Number.isFinite(p.x) || typeof p.y !== "number" || !Number.isFinite(p.y)) {
+      return err("bad_payload", "block.insert requires x/y finite numbers", true);
+    }
+    // LOCK-007: a supplied scale must be a positive finite number — never
+    // silently coerced (non-uniform/negative scales are unsupported).
+    if (p.scale !== undefined && !(typeof p.scale === "number" && Number.isFinite(p.scale) && p.scale > 0)) {
+      return err("bad_payload", "block.insert scale must be a positive finite number (non-uniform scaling is unsupported)", true);
+    }
+    if (p.rotation !== undefined && !(typeof p.rotation === "number" && Number.isFinite(p.rotation))) {
+      return err("bad_payload", "block.insert rotation must be a finite number", true);
+    }
+    try {
+      const def = this.resolveBlockDef(p);
+      const scale = typeof p.scale === "number" && p.scale > 0 ? p.scale : 1;
+      const rotation = typeof p.rotation === "number" && Number.isFinite(p.rotation) ? p.rotation : 0;
+      const layer = typeof p.layer === "string" && p.layer.length > 0 ? p.layer : "0";
+      if (!this.doc.layerTable.some((l) => l.id === layer)) {
+        throw new BlockError(`layer '${layer}' does not exist`, "bad_layer");
+      }
+      const slots = attdefTagsOf(def.entities);
+      const attributes: { tag: string; value: string }[] = [];
+      if (Array.isArray(p.attributes)) {
+        const seen = new Set<string>();
+        for (const raw of p.attributes) {
+          if (typeof raw !== "object" || raw === null) {
+            throw new BlockError("attributes entries must be {tag, value}", "bad_input");
+          }
+          const a = raw as Record<string, unknown>;
+          const tag = typeof a.tag === "string" ? a.tag.toUpperCase() : "";
+          if (tag.length === 0) throw new BlockError("attribute tag must be a non-empty string", "bad_input");
+          if (seen.has(tag)) throw new BlockError(`attribute tag '${tag}' is duplicated`, "bad_input");
+          seen.add(tag);
+          if (!slots.includes(tag)) {
+            throw new BlockError(
+              `attribute tag '${tag}' is not a slot of block '${def.name}'${slots.length > 0 ? ` — slots: ${slots.join(", ")}` : " (the definition has no attribute definitions)"}`,
+              "bad_attribute",
+            );
+          }
+          if (typeof a.value !== "string") throw new BlockError(`attribute '${tag}' value must be a string`, "bad_input");
+          if (a.value.length > 0) attributes.push({ tag, value: a.value });
+        }
+      }
+      const elementId = this.doc.mintElementId();
+      const ref = makeBlockRef({
+        layer,
+        blockId: def.id,
+        x: p.x,
+        y: p.y,
+        scale,
+        rotation,
+        ...(attributes.length > 0 ? { attributes } : {}),
+      });
+      this.doc.execute({
+        type: "addElement",
+        element: { id: elementId, kind: "geometry", engineId: null, props: blockRefToProps(ref) },
+      });
+      return ok({
+        elementId,
+        blockId: def.id,
+        name: def.name,
+        attributes: attributes.length,
+        snapshot: this.doc.snapshot(),
+      });
+    } catch (e) {
+      if (e instanceof BlockError) return err(e.code, e.message, false);
+      return err("block_invalid", (e as Error).message, false);
+    }
+  }
+
+  /** block.update — patch a definition (name/basePoint/description/
+   *  entities); instances propagate through the shared expansion. */
+  private cmdBlockUpdate(payload: unknown): CommandQueryResponse {
+    const p = payload as { name?: unknown; blockId?: unknown; patch?: unknown } | null;
+    if (
+      p === null || typeof p !== "object" ||
+      typeof p.patch !== "object" || p.patch === null
+    ) {
+      return err("bad_payload", "block.update requires name|blockId + patch", true);
+    }
+    try {
+      const def = this.resolveBlockDef(p);
+      this.doc.execute({ type: "updateBlockDef", blockId: def.id, patch: p.patch as Record<string, unknown> });
+      return ok({ blockId: def.id, snapshot: this.doc.snapshot() });
+    } catch (e) {
+      if (e instanceof BlockError) return err(e.code, e.message, false);
+      return err("block_invalid", (e as Error).message, false);
+    }
+  }
+
+  /** block.remove — delete a definition (reference-checked: instances and
+   *  other definitions' content block removal — no silent cascade). */
+  private cmdBlockRemove(payload: unknown): CommandQueryResponse {
+    const p = payload as { name?: unknown; blockId?: unknown } | null;
+    if (p === null || typeof p !== "object") {
+      return err("bad_payload", "block.remove requires name or blockId", true);
+    }
+    try {
+      const def = this.resolveBlockDef(p);
+      this.doc.execute({ type: "removeBlockDef", blockId: def.id });
+      return ok({ removed: def.id, name: def.name, snapshot: this.doc.snapshot() });
+    } catch (e) {
+      if (e instanceof BlockError) return err(e.code, e.message, false);
+      return err("block_invalid", (e as Error).message, false);
+    }
+  }
+
+  /** attribute.update — rewrite ONE per-instance attribute value (value
+   *  null/empty clears the stored value → the definition default renders). */
+  private cmdAttributeUpdate(payload: unknown): CommandQueryResponse {
+    const p = payload as { id?: unknown; tag?: unknown; value?: unknown } | null;
+    if (
+      p === null || typeof p !== "object" ||
+      typeof p.id !== "string" || p.id.length === 0 ||
+      typeof p.tag !== "string" || p.tag.length === 0
+    ) {
+      return err("bad_payload", "attribute.update requires id + tag (value: string | null)", true);
+    }
+    try {
+      const el = this.doc.elementById(p.id);
+      if (el === undefined) throw new BlockError(`element '${p.id}' does not exist`, "bad_id");
+      const ref = blockRefFromElement(el);
+      if (ref === null) throw new BlockError(`element '${p.id}' is not a block instance`, "bad_entity");
+      const def = this.doc.blockDefById(ref.blockId);
+      if (def === undefined) throw new BlockError(`block definition '${ref.blockId}' no longer exists`, "bad_id");
+      const tag = p.tag.toUpperCase();
+      const slots = attdefTagsOf(def.entities);
+      if (!slots.includes(tag)) {
+        throw new BlockError(
+          `attribute tag '${tag}' is not a slot of block '${def.name}'${slots.length > 0 ? ` — slots: ${slots.join(", ")}` : " (the definition has no attribute definitions)"}`,
+          "bad_attribute",
+        );
+      }
+      const clear = p.value === null || p.value === undefined || (typeof p.value === "string" && p.value.length === 0);
+      if (!clear && typeof p.value !== "string") {
+        throw new BlockError("attribute value must be a string (or null to clear)", "bad_input");
+      }
+      const kept = (ref.attributes ?? []).filter((a) => a.tag !== tag);
+      const nextAttributes = clear ? kept : [...kept, { tag, value: p.value as string }];
+      // Strip-then-reattach: the spread of `ref` would otherwise carry the
+      // OLD attributes array when the new one is empty (an emptied value
+      // list must leave NO key — the canonical-minimal record form).
+      const { attributes: _stale, ...rest } = ref;
+      void _stale;
+      const props: Record<string, unknown> = blockRefToProps(
+        nextAttributes.length > 0 ? { ...rest, attributes: nextAttributes } : rest,
+      );
+      // Full-record setProps: a cleared value must REMOVE the key (the
+      // updateElement merge could not represent absence).
+      this.doc.execute({ type: "setProps", elementId: el.id, patch: props });
+      return ok({ id: el.id, tag, value: clear ? null : (p.value as string), snapshot: this.doc.snapshot() });
+    } catch (e) {
+      if (e instanceof BlockError) return err(e.code, e.message, false);
+      return err("block_invalid", (e as Error).message, false);
+    }
+  }
+
+  /** Resolve external content into inline entities + the provenance hash.
+   *  CAD-PARITY-006 bounded slice: the payload carries the external snapshot
+   *  object (the ifc.import payload precedent — hosts with file dialogs
+   *  supply it; geometry + text convert, other elements are SKIPPED and
+   *  reported honestly). */
+  private resolveXrefContent(content: unknown): { entities: Record<string, unknown>[]; skipped: number; sourceHash: string } {
+    if (typeof content !== "object" || content === null || Array.isArray(content)) {
+      throw new BlockError("content must be the external document snapshot object", "bad_input");
+    }
+    const snapshot = content as { elements?: unknown };
+    if (!Array.isArray(snapshot.elements)) {
+      throw new BlockError("content.elements must be an array (an offisos snapshot)", "bad_input");
+    }
+    const entities: Record<string, unknown>[] = [];
+    let skipped = 0;
+    for (const raw of snapshot.elements) {
+      if (typeof raw !== "object" || raw === null) {
+        skipped++;
+        continue;
+      }
+      const inline = this.elementToBlockEntity(raw as Element);
+      if (inline === null) {
+        skipped++;
+        continue;
+      }
+      entities.push(inline);
+    }
+    const sourceHash = createHash("sha256").update(canonicalStringify(content)).digest("hex");
+    return { entities, skipped, sourceHash };
+  }
+
+  /** xref.attach — attach an external reference. With content: loaded
+   *  (inline entities + provenance hash + placement instance in ONE atomic
+   *  revision). Without: unresolved (the placeholder rendering — the command
+   *  line cannot read files; the References palette supplies content). */
+  private cmdXrefAttach(payload: unknown): CommandQueryResponse {
+    const p = payload as {
+      name?: unknown;
+      path?: unknown;
+      x?: unknown;
+      y?: unknown;
+      scale?: unknown;
+      rotation?: unknown;
+      layer?: unknown;
+      content?: unknown;
+    } | null;
+    if (
+      p === null || typeof p !== "object" ||
+      typeof p.name !== "string" || p.name.length === 0 ||
+      typeof p.path !== "string" || p.path.length === 0
+    ) {
+      return err("bad_payload", "xref.attach requires a non-empty name + path", true);
+    }
+    try {
+      let entities: Record<string, unknown>[] = [];
+      let skipped = 0;
+      let sourceHash: string | null = null;
+      if (p.content !== undefined && p.content !== null) {
+        const resolved = this.resolveXrefContent(p.content);
+        entities = resolved.entities;
+        skipped = resolved.skipped;
+        sourceHash = resolved.sourceHash;
+      }
+      // Mint the record identity UP FRONT so the instance element inside
+      // the SAME atomic batch references the final id (one revision; a
+      // failed execute burns the minted id — never reused, the mint
+      // contract).
+      const xrefId = this.doc.mintXrefId();
+      const record: XrefRecord = {
+        id: xrefId,
+        name: p.name,
+        path: p.path,
+        status: sourceHash !== null ? "loaded" : "unresolved",
+        sourceHash,
+        attachedAt: AppApiHandler.BLOCKS_NOW,
+        entities,
+      };
+      const edits: DocumentEdit[] = [{ type: "addXref", xref: record }];
+      let elementId: string | null = null;
+      if (typeof p.x === "number" && Number.isFinite(p.x) && typeof p.y === "number" && Number.isFinite(p.y)) {
+        if (p.scale !== undefined && !(typeof p.scale === "number" && Number.isFinite(p.scale) && p.scale > 0)) {
+          throw new BlockError("scale must be a positive finite number (non-uniform scaling is unsupported)", "bad_input");
+        }
+        if (p.rotation !== undefined && !(typeof p.rotation === "number" && Number.isFinite(p.rotation))) {
+          throw new BlockError("rotation must be a finite number", "bad_input");
+        }
+        const scale = typeof p.scale === "number" ? p.scale : 1;
+        const rotation = typeof p.rotation === "number" ? p.rotation : 0;
+        const layer = typeof p.layer === "string" && p.layer.length > 0 ? p.layer : "0";
+        if (!this.doc.layerTable.some((l) => l.id === layer)) {
+          throw new BlockError(`layer '${layer}' does not exist`, "bad_layer");
+        }
+        elementId = this.doc.mintElementId();
+        edits.push({
+          type: "addElement",
+          element: {
+            id: elementId,
+            kind: "geometry",
+            engineId: null,
+            props: { drafting: true, type: "xref-ref", layer, xrefId, x: p.x, y: p.y, scale, rotation },
+          },
+        });
+      }
+      this.doc.execute({ type: "applyEdits", edits });
+      return ok({
+        xrefId,
+        name: record.name,
+        status: record.status,
+        sourceHash: record.sourceHash,
+        resolved: entities.length,
+        skipped,
+        elementId,
+        snapshot: this.doc.snapshot(),
+      });
+    } catch (e) {
+      if (e instanceof BlockError) return err(e.code, e.message, false);
+      return err("xref_invalid", (e as Error).message, false);
+    }
+  }
+
+  /** xref.detach — remove the record AND its instances as ONE atomic batch
+   *  (the explicit detach cascade — the removeXref edit alone is
+   *  reference-checked, so the cascade is always explicit). */
+  private cmdXrefDetach(payload: unknown): CommandQueryResponse {
+    const p = payload as { name?: unknown; xrefId?: unknown } | null;
+    if (p === null || typeof p !== "object") {
+      return err("bad_payload", "xref.detach requires name or xrefId", true);
+    }
+    try {
+      const record = this.resolveXref(p);
+      const instanceIds = this.doc
+        .allElements()
+        .filter((el) => {
+          const props = el.props as Record<string, unknown>;
+          return props.drafting === true && props.type === "xref-ref" && props.xrefId === record.id;
+        })
+        .map((el) => el.id);
+      const edits: DocumentEdit[] = instanceIds.map((id) => ({ type: "removeElement", elementId: id }) as DocumentEdit);
+      edits.push({ type: "removeXref", xrefId: record.id });
+      this.doc.execute({ type: "applyEdits", edits });
+      return ok({ detached: record.name, removedInstances: instanceIds.length, snapshot: this.doc.snapshot() });
+    } catch (e) {
+      if (e instanceof BlockError) return err(e.code, e.message, false);
+      return err("xref_invalid", (e as Error).message, false);
+    }
+  }
+
+  /** xref.reload — re-resolve an attached reference with FRESH content
+   *  (required in the payload: the host re-reads the external file — the
+   *  command line cannot; the References palette drives this path). */
+  private cmdXrefReload(payload: unknown): CommandQueryResponse {
+    const p = payload as { name?: unknown; xrefId?: unknown; content?: unknown } | null;
+    if (p === null || typeof p !== "object") {
+      return err("bad_payload", "xref.reload requires name|xrefId + content (the re-read snapshot)", true);
+    }
+    if (p.content === undefined || p.content === null) {
+      return err(
+        "bad_payload",
+        "xref.reload requires the external content (re-read through the References palette — the command line cannot read files)",
+        true,
+      );
+    }
+    try {
+      const record = this.resolveXref(p);
+      const resolved = this.resolveXrefContent(p.content);
+      this.doc.execute({
+        type: "updateXref",
+        xrefId: record.id,
+        patch: { status: "loaded", sourceHash: resolved.sourceHash, entities: resolved.entities },
+      });
+      return ok({
+        xrefId: record.id,
+        name: record.name,
+        status: "loaded",
+        sourceHash: resolved.sourceHash,
+        resolved: resolved.entities.length,
+        skipped: resolved.skipped,
+        snapshot: this.doc.snapshot(),
+      });
+    } catch (e) {
+      if (e instanceof BlockError) return err(e.code, e.message, false);
+      return err("xref_invalid", (e as Error).message, false);
+    }
+  }
+
+  /** blocks.list (query) — the definition inventory with instance counts
+   *  and attribute tags (the BLOCKLIST surface). */
+  private qBlocksList(): CommandQueryResponse {
+    const elements = this.doc.allElements();
+    const out = this.doc.blockDefTable.map((def) => {
+      let instances = 0;
+      for (const el of elements) {
+        const props = el.props as Record<string, unknown>;
+        if (props.drafting === true && props.type === "block-ref" && props.blockId === def.id) instances++;
+      }
+      return {
+        id: def.id,
+        name: def.name,
+        entityCount: def.entities.length,
+        instances,
+        attributeTags: attdefTagsOf(def.entities),
+        ...(def.description !== undefined ? { description: def.description } : {}),
+      };
+    });
+    return ok({ blocks: out });
+  }
+
+  /** xrefs.list (query) — the reference inventory with statuses, instance
+   *  counts and provenance hashes (the XLIST / status-diagnostics surface). */
+  private qXrefsList(): CommandQueryResponse {
+    const elements = this.doc.allElements();
+    const out = this.doc.xrefTable.map((rec) => {
+      let instances = 0;
+      for (const el of elements) {
+        const props = el.props as Record<string, unknown>;
+        if (props.drafting === true && props.type === "xref-ref" && props.xrefId === rec.id) instances++;
+      }
+      return {
+        id: rec.id,
+        name: rec.name,
+        path: rec.path,
+        status: rec.status,
+        sourceHash: rec.sourceHash,
+        entityCount: rec.entities.length,
+        instances,
+      };
+    });
+    return ok({ xrefs: out });
+  }
+
   /** drafting.snap (query) — deterministic snap resolution against the
    *  current document. Hidden layers are not snappable (visibility is
    *  pickability); defaults come from the document drafting settings. */
@@ -1711,14 +2337,23 @@ export class AppApiHandler {
   /** entity.modify — apply ONE canonical-geometry modify operation (the
    *  CAD-2D-002 vocabulary: move/copy/rotate/scale/mirror/offset/trim/
    *  extend/stretch/fillet/chamfer/break/join/explode/setGeometry) as a
-   *  single atomic revision. */
+   *  single atomic revision. CAD-PARITY-006: explode resolves block
+   *  instances through the document's block table (the one-level
+   *  materialization); move/copy/rotate/scale transform instance
+   *  PLACEMENTS inside the same shared op. */
   private cmdEntityModify(payload: unknown): CommandQueryResponse {
     const p = payload as { op?: unknown } | null;
     if (p === null || typeof p !== "object" || typeof p.op !== "string") {
       return err("bad_payload", "entity.modify requires an op string", true);
     }
     try {
-      const outcome = modifyEntities(this.doc.allElements(), p as never);
+      // CAD-PARITY-006: thread the block-definition table into explode so
+      // block instances materialize through the shared expansion.
+      const op =
+        p.op === "explode"
+          ? { ...p, blockDefById: (id: string) => this.doc.blockDefById(id) }
+          : p;
+      const outcome = modifyEntities(this.doc.allElements(), op as never);
       if (outcome.edit === null) {
         return ok({ applied: false, reason: outcome.summary, snapshot: this.doc.snapshot() });
       }

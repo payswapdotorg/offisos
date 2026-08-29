@@ -106,6 +106,13 @@ export interface ModelHistory {
   /** COMPAT-IFC-001: monotonic mint counter for `if-NNNNNN` import-record
    *  identities (additive-optional; absent on legacy histories). */
   readonly next_ifc_import_sequence?: number;
+  /** CAD-PARITY-006: monotonic mint counter for `blk-NNNNNN` block-definition
+   *  identities (additive-optional; absent on legacy histories — never
+   *  reused, mirrors `next_element_sequence`). */
+  readonly next_block_sequence?: number;
+  /** CAD-PARITY-006: monotonic mint counter for `xr-NNNNNN` external-reference
+   *  identities (additive-optional; absent on legacy histories). */
+  readonly next_xref_sequence?: number;
   /** Append-only revision log (revisions[i].revision_number === i + 1). */
   readonly revisions: readonly ModelRevision[];
 }

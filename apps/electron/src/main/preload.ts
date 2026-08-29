@@ -15,6 +15,11 @@ const api = {
   send: (req: unknown): Promise<unknown> => ipcRenderer.invoke("cad:send", req),
   render: (snapshot: unknown): Promise<unknown> => ipcRenderer.invoke("cad:render", snapshot),
   contentHash: (): Promise<string> => ipcRenderer.invoke("cad:contentHash"),
+  // CAD-PARITY-006 (Issue #84): the external-reference file picker — the
+  // main-process showOpenDialog (.offisos/.json) + read + parse. Returns the
+  // typed pick outcome; the parsed snapshot object is the xref.attach
+  // `content` payload (the renderer never touches node/fs).
+  pickReferenceFile: (): Promise<unknown> => ipcRenderer.invoke("cad:pickReferenceFile"),
 };
 
 contextBridge.exposeInMainWorld("cad", api);

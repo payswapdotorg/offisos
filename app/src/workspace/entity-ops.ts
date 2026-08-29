@@ -44,7 +44,7 @@ import {
 } from "./geometry/editops.js";
 import { mirrorGeom, moveGeom, rotateGeom, scaleGeom } from "./geometry/transform.js";
 import { closestOn } from "./geometry/entities.js";
-import { dist, Pt, sub } from "./geometry/math2d.js";
+import { dist, Pt, rotatePt, scalePt, sub } from "./geometry/math2d.js";
 // CAD-PARITY-004: display overrides + the standards constants (engine-free
 // shared module — the SAME resolution on both hosts, LOCK-004).
 import {
@@ -59,6 +59,18 @@ import {
   annotationsReferencing,
   remeasureCascade,
 } from "./annotation/assoc.js";
+// CAD-PARITY-006: the blocks core (engine-free — instance placement edits,
+// the one-level explode materialization).
+import {
+  BlockError,
+  blockRefFromElement,
+  explodeBlockInstance,
+  isBlockRefElement,
+  isXrefRefElement,
+  normalizedRotation,
+  xrefRefFromElement,
+} from "./blocks/index.js";
+import type { BlockDefinitionRecord } from "../contracts/caddocument.js";
 
 // ---------------------------------------------------------------------------
 // Typed failures (stable codes across hosts; LOCK-007/008).
@@ -422,7 +434,7 @@ export type EntityModifyOp =
     }
   | { readonly op: "break"; readonly targetId: string; readonly p1: Pt; readonly p2: Pt | null }
   | { readonly op: "join"; readonly ids: readonly string[] }
-  | { readonly op: "explode"; readonly ids: readonly string[] }
+  | { readonly op: "explode"; readonly ids: readonly string[]; readonly blockDefById?: (id: string) => BlockDefinitionRecord | undefined }
   | { readonly op: "setGeometry"; readonly id: string; readonly geom: Geom }
   | {
       /** CAD-PARITY-004: set display overrides + optional layer reassignment
@@ -548,7 +560,7 @@ function modifyEntitiesBase(elements: readonly Element[], op: EntityModifyOp): E
     case "join":
       return opJoin(elements, op.ids);
     case "explode":
-      return opExplode(elements, op.ids);
+      return opExplode(elements, op.ids, op.blockDefById);
     case "setGeometry":
       return opSetGeometry(elements, op.id, op.geom);
     case "setDisplay":
@@ -671,30 +683,101 @@ function opSetDisplay(
   });
 }
 
+// ---------------------------------------------------------------------------
+// CAD-PARITY-006: instance-aware modify — block-ref/xref-ref elements are
+// transformed through their PLACEMENT (x/y/scale/rotation); content is
+// derived from the definition at expansion time and never duplicated here.
+// ---------------------------------------------------------------------------
+
+/** Is this element a CAD-PARITY-006 block/xref instance? */
+function isInstanceElement(el: Element | undefined): boolean {
+  if (el === undefined) return false;
+  return isBlockRefElement(el) || isXrefRefElement(el);
+}
+
+/** Partition ids into instance elements and canonical-geometry ids (missing
+ *  ids stay in geomIds so loadEntities reports bad_id — LOCK-007). */
+function partitionInstances(
+  elements: readonly Element[],
+  ids: readonly string[],
+): { byId: Map<string, Element>; instanceEls: readonly Element[]; geomIds: readonly string[] } {
+  const byId = new Map(elements.map((el) => [el.id, el] as const));
+  const instanceEls: Element[] = [];
+  const geomIds: string[] = [];
+  for (const id of ids) {
+    const el = byId.get(id);
+    if (el === undefined) {
+      geomIds.push(id); // loadEntities reports the typed bad_id failure
+      continue;
+    }
+    if (isInstanceElement(el)) instanceEls.push(el);
+    else geomIds.push(id);
+  }
+  return { byId, instanceEls, geomIds };
+}
+
+/** The placed instance fields of an element (x/y/scale/rotation). */
+function instancePlacement(el: Element): { x: number; y: number; scale: number; rotation: number } {
+  const p = el.props as Record<string, unknown>;
+  return {
+    x: typeof p.x === "number" ? p.x : 0,
+    y: typeof p.y === "number" ? p.y : 0,
+    scale: typeof p.scale === "number" ? p.scale : 1,
+    rotation: typeof p.rotation === "number" ? p.rotation : 0,
+  };
+}
+
 function opMove(elements: readonly Element[], ids: readonly string[], dx: number, dy: number): EntityOpOutcome {
   if (!Number.isFinite(dx) || !Number.isFinite(dy)) throw new EntityOpError("displacement must be finite", "bad_input");
-  const views = loadEntities(elements, ids);
+  const { instanceEls, geomIds } = partitionInstances(elements, ids);
   const edits: DocumentEdit[] = [];
-  const converted: string[] = [];
-  for (const view of views.values()) {
-    if (isRectangleElement(view.element)) converted.push(view.element.id);
-    edits.push(replaceGeomEdit(view, moveGeom(view.geom, dx, dy)));
+  for (const el of instanceEls) {
+    const at = instancePlacement(el);
+    edits.push({ type: "updateElement", elementId: el.id, patch: { x: at.x + dx, y: at.y + dy } });
   }
-  const convNote = converted.length > 0 ? ` (rectangle${converted.length === 1 ? "" : "s"} materialized as closed polyline)` : "";
-  return outcome(edits, `${plurality(ids.length, "entity", "entities")} moved by (${dx}, ${dy})${convNote}`, {
+  let convertedNote = "";
+  if (geomIds.length > 0) {
+    const views = loadEntities(elements, geomIds);
+    const converted: string[] = [];
+    for (const view of views.values()) {
+      if (isRectangleElement(view.element)) converted.push(view.element.id);
+      edits.push(replaceGeomEdit(view, moveGeom(view.geom, dx, dy)));
+    }
+    if (converted.length > 0) {
+      convertedNote = ` (rectangle${converted.length === 1 ? "" : "s"} materialized as closed polyline)`;
+    }
+  }
+  return outcome(edits, `${plurality(ids.length, "entity", "entities")} moved by (${dx}, ${dy})${convertedNote}`, {
     modified: ids.length,
   });
 }
 
 function opCopy(elements: readonly Element[], ids: readonly string[], dx: number, dy: number): EntityOpOutcome {
   if (!Number.isFinite(dx) || !Number.isFinite(dy)) throw new EntityOpError("displacement must be finite", "bad_input");
-  const views = loadEntities(elements, ids);
+  const { instanceEls, geomIds } = partitionInstances(elements, ids);
   const edits: DocumentEdit[] = [];
-  for (const view of views.values()) {
-    // CAD-PARITY-004: copies inherit the source's display overrides
-    // (AutoCAD-class COPY semantics — display properties travel with the
-    // copy; the layer assignment travels too via layerOfElement).
-    edits.push(addGeomEdit(moveGeom(view.geom, dx, dy), layerOfElement(view.element), displayOverridesOf(view.element.props as Record<string, unknown>)));
+  // CAD-PARITY-006: instance copies keep the full placement + attribute
+  // values + display overrides (the layer travels via the props copy).
+  for (const el of instanceEls) {
+    const at = instancePlacement(el);
+    edits.push({
+      type: "addElement",
+      element: {
+        id: "",
+        kind: "geometry",
+        engineId: null,
+        props: { ...el.props, x: at.x + dx, y: at.y + dy },
+      },
+    });
+  }
+  if (geomIds.length > 0) {
+    const views = loadEntities(elements, geomIds);
+    for (const view of views.values()) {
+      // CAD-PARITY-004: copies inherit the source's display overrides
+      // (AutoCAD-class COPY semantics — display properties travel with the
+      // copy; the layer assignment travels too via layerOfElement).
+      edits.push(addGeomEdit(moveGeom(view.geom, dx, dy), layerOfElement(view.element), displayOverridesOf(view.element.props as Record<string, unknown>)));
+    }
   }
   return outcome(edits, `${plurality(ids.length, "copy", "copies")} created`, { created: ids.length });
 }
@@ -720,15 +803,33 @@ function requireFinitePt(p: Pt, what: string): void {
 function opRotate(elements: readonly Element[], ids: readonly string[], base: Pt, angle: number): EntityOpOutcome {
   if (!Number.isFinite(angle)) throw new EntityOpError("angle must be finite", "bad_input");
   requireFinitePt(base, "base point");
-  const views = loadEntities(elements, ids);
+  const { instanceEls, geomIds } = partitionInstances(elements, ids);
   const edits: DocumentEdit[] = [];
-  const converted: string[] = [];
-  for (const view of views.values()) {
-    if (isRectangleElement(view.element)) converted.push(view.element.id);
-    edits.push(replaceGeomEdit(view, rotateGeom(view.geom, base, angle)));
+  // CAD-PARITY-006: instance rotation = rotate the insertion point about
+  // the base + add the angle to the instance rotation (exact similarity
+  // composition — the content transform derives from the definition).
+  for (const el of instanceEls) {
+    const at = instancePlacement(el);
+    const rotated = rotatePt({ x: at.x, y: at.y }, base, angle);
+    edits.push({
+      type: "updateElement",
+      elementId: el.id,
+      patch: { x: rotated.x, y: rotated.y, rotation: normalizedRotation(at.rotation + angle) },
+    });
+  }
+  let convNote = "";
+  if (geomIds.length > 0) {
+    const views = loadEntities(elements, geomIds);
+    const converted: string[] = [];
+    for (const view of views.values()) {
+      if (isRectangleElement(view.element)) converted.push(view.element.id);
+      edits.push(replaceGeomEdit(view, rotateGeom(view.geom, base, angle)));
+    }
+    if (converted.length > 0) {
+      convNote = ` (rectangle${converted.length === 1 ? "" : "s"} materialized as closed polyline)`;
+    }
   }
   const deg = (angle * 180) / Math.PI;
-  const convNote = converted.length > 0 ? ` (rectangle${converted.length === 1 ? "" : "s"} materialized as closed polyline)` : "";
   return outcome(edits, `${plurality(ids.length, "entity", "entities")} rotated ${deg.toFixed(2)}°${convNote}`, {
     modified: ids.length,
   });
@@ -737,14 +838,31 @@ function opRotate(elements: readonly Element[], ids: readonly string[], base: Pt
 function opScale(elements: readonly Element[], ids: readonly string[], base: Pt, factor: number): EntityOpOutcome {
   if (!(factor > 0)) throw new EntityOpError("scale factor must be positive", "bad_factor");
   requireFinitePt(base, "base point");
-  const views = loadEntities(elements, ids);
+  const { instanceEls, geomIds } = partitionInstances(elements, ids);
   const edits: DocumentEdit[] = [];
-  const converted: string[] = [];
-  for (const view of views.values()) {
-    if (isRectangleElement(view.element)) converted.push(view.element.id);
-    edits.push(replaceGeomEdit(view, scaleGeom(view.geom, base, factor)));
+  // CAD-PARITY-006: instance scaling = scale the insertion point distance
+  // from the base + multiply the uniform instance scale.
+  for (const el of instanceEls) {
+    const at = instancePlacement(el);
+    const scaled = scalePt({ x: at.x, y: at.y }, base, factor);
+    edits.push({
+      type: "updateElement",
+      elementId: el.id,
+      patch: { x: scaled.x, y: scaled.y, scale: at.scale * factor },
+    });
   }
-  const convNote = converted.length > 0 ? ` (rectangle${converted.length === 1 ? "" : "s"} materialized as closed polyline)` : "";
+  let convNote = "";
+  if (geomIds.length > 0) {
+    const views = loadEntities(elements, geomIds);
+    const converted: string[] = [];
+    for (const view of views.values()) {
+      if (isRectangleElement(view.element)) converted.push(view.element.id);
+      edits.push(replaceGeomEdit(view, scaleGeom(view.geom, base, factor)));
+    }
+    if (converted.length > 0) {
+      convNote = ` (rectangle${converted.length === 1 ? "" : "s"} materialized as closed polyline)`;
+    }
+  }
   return outcome(edits, `${plurality(ids.length, "entity", "entities")} scaled ×${factor.toFixed(4)}${convNote}`, {
     modified: ids.length,
   });
@@ -760,7 +878,18 @@ function opMirror(
   requireFinitePt(p1, "axis point 1");
   requireFinitePt(p2, "axis point 2");
   if (dist(p1, p2) <= 1e-9) throw new EntityOpError("mirror axis needs two distinct points", "degenerate");
-  const views = loadEntities(elements, ids);
+  // CAD-PARITY-006: mirroring a block/xref instance requires mirroring the
+  // CONTENT (a negative/uniform-anisotropic scale), which this bounded slice
+  // does not support — a typed failure naming the limitation (LOCK-007/008:
+  // explicit unsupported, never a silent approximation).
+  const { instanceEls, geomIds } = partitionInstances(elements, ids);
+  if (instanceEls.length > 0) {
+    throw new EntityOpError(
+      `mirroring block/reference instances is unsupported in this build (mirrored content needs negative or non-uniform scales) — instance${instanceEls.length === 1 ? "" : "s"} '${instanceEls.map((el) => el.id).join("', '")}' declined`,
+      "mirror_unsupported",
+    );
+  }
+  const views = loadEntities(elements, geomIds);
   const edits: DocumentEdit[] = [];
   const converted: string[] = [];
   for (const view of views.values()) {
@@ -1060,11 +1189,69 @@ function opJoin(elements: readonly Element[], ids: readonly string[]): EntityOpO
   return outcome(edits, `joined into one ${joined.type}`, { modified: 1, removed: ids.length - 1 });
 }
 
-function opExplode(elements: readonly Element[], ids: readonly string[]): EntityOpOutcome {
+function opExplode(
+  elements: readonly Element[],
+  ids: readonly string[],
+  blockDefById?: (id: string) => BlockDefinitionRecord | undefined,
+): EntityOpOutcome {
   const edits: DocumentEdit[] = [];
   const messages: string[] = [];
   let n = 0;
+  let materialized = 0;
   for (const id of ids) {
+    const el = elements.find((e) => e.id === id);
+    // CAD-PARITY-006: block instances explode through the ONE shared
+    // materialization (definition content at the instance transform;
+    // attributes become text entities; nested references stay references —
+    // one level per explode, AutoCAD semantics).
+    if (el !== undefined && isBlockRefElement(el)) {
+      const ref = blockRefFromElement(el);
+      if (ref === null) {
+        messages.push(`${id}: malformed block instance props`);
+        continue;
+      }
+      if (blockDefById === undefined) {
+        messages.push(`${id}: explode requires the block-definition table`);
+        continue;
+      }
+      try {
+        const pieces = explodeBlockInstance(ref, { blockDefById, xrefById: () => undefined });
+        edits.push(removeEdit(el.id));
+        for (const piece of pieces) {
+          if (piece.kind === "text") {
+            edits.push({
+              type: "addElement",
+              element: {
+                id: "",
+                kind: "annotation",
+                engineId: null,
+                props: { drafting: true, annotation: true, ...piece.props },
+              },
+            });
+          } else {
+            edits.push({
+              type: "addElement",
+              element: { id: "", kind: "geometry", engineId: null, props: piece.props },
+            });
+          }
+          materialized++;
+        }
+        n++;
+      } catch (err) {
+        if (err instanceof BlockError) {
+          messages.push(`${id}: ${err.message}`);
+        } else {
+          throw err;
+        }
+      }
+      continue;
+    }
+    if (el !== undefined && isXrefRefElement(el)) {
+      // Bounded slice: exploding an xref instance would BIND its content —
+      // explicitly unsupported (typed skip, never a silent approximation).
+      messages.push(`${id}: exploding external references is unsupported in this build (binding is a non-goal of the bounded xref slice)`);
+      continue;
+    }
     const view = loadEntities(elements, [id]).get(id)!;
     try {
       const parts = explodeGeom(view.geom);
@@ -1082,8 +1269,9 @@ function opExplode(elements: readonly Element[], ids: readonly string[]): Entity
   if (n === 0 && messages.length > 0) {
     throw new EntityOpError(messages[0]!, "explode_failed");
   }
+  const note = materialized > 0 ? ` (${materialized} content entit${materialized === 1 ? "y" : "ies"} materialized)` : "";
   return outcome(
     edits,
-    `${plurality(n, "entity", "entities")} exploded${messages.length > 0 ? `; skipped: ${messages.join("; ")}` : ""}`,
+    `${plurality(n, "entity", "entities")} exploded${note}${messages.length > 0 ? `; skipped: ${messages.join("; ")}` : ""}`,
   );
 }

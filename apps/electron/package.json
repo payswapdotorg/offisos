@@ -19,7 +19,8 @@
     "smoke:ifc": "node test/smoke-ifc.mjs",
     "smoke:components": "node test/smoke-components.mjs",
     "smoke:workspace": "node test/smoke-workspace.mjs",
-    "smoke:annotation": "node test/smoke-annotation.mjs"
+    "smoke:annotation": "node test/smoke-annotation.mjs",
+    "smoke:blocks": "node test/smoke-blocks.mjs"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",
