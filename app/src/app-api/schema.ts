@@ -451,6 +451,99 @@ export const COMMAND_PAYLOAD_SCHEMAS: Readonly<Record<CommandName, object>> = {
       ids: { type: "array", items: { type: "string" } },
     },
   },
+  // --- CAD-PARITY-006 (additive, Issue #84): blocks/attributes/xrefs ---
+  // Coarse wire shapes; the shared blocks core validates strictly.
+  "block.create": {
+    type: "object",
+    properties: {
+      name: { type: "string", minLength: 1 },
+      basePoint: {
+        type: "object",
+        properties: { x: { type: "number" }, y: { type: "number" } },
+        required: ["x", "y"],
+      },
+      fromElementIds: { type: "array", minItems: 1, items: { type: "string" } },
+      entities: { type: "array", items: { type: "object" } },
+      description: { type: "string" },
+    },
+    required: ["name", "basePoint"],
+  },
+  "block.insert": {
+    type: "object",
+    properties: {
+      name: { type: "string" },
+      blockId: { type: "string" },
+      x: { type: "number" },
+      y: { type: "number" },
+      scale: { type: "number", exclusiveMinimum: 0 },
+      rotation: { type: "number" },
+      layer: { type: "string" },
+      attributes: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: { tag: { type: "string" }, value: { type: "string" } },
+          required: ["tag", "value"],
+        },
+      },
+    },
+    required: ["x", "y"],
+  },
+  "block.update": {
+    type: "object",
+    properties: {
+      name: { type: "string" },
+      blockId: { type: "string" },
+      patch: { type: "object", minProperties: 1 },
+    },
+    required: ["patch"],
+  },
+  "block.remove": {
+    type: "object",
+    properties: {
+      name: { type: "string" },
+      blockId: { type: "string" },
+    },
+  },
+  "attribute.update": {
+    type: "object",
+    properties: {
+      id: { type: "string", minLength: 1 },
+      tag: { type: "string", minLength: 1 },
+      value: { type: ["string", "null"] },
+    },
+    required: ["id", "tag"],
+  },
+  "xref.attach": {
+    type: "object",
+    properties: {
+      name: { type: "string", minLength: 1 },
+      path: { type: "string", minLength: 1 },
+      x: { type: "number" },
+      y: { type: "number" },
+      scale: { type: "number", exclusiveMinimum: 0 },
+      rotation: { type: "number" },
+      layer: { type: "string" },
+      content: { type: "object" },
+    },
+    required: ["name", "path"],
+  },
+  "xref.detach": {
+    type: "object",
+    properties: {
+      name: { type: "string" },
+      xrefId: { type: "string" },
+    },
+  },
+  "xref.reload": {
+    type: "object",
+    properties: {
+      name: { type: "string" },
+      xrefId: { type: "string" },
+      content: { type: "object" },
+    },
+    required: ["content"],
+  },
   "layerState.save": {
     type: "object",
     properties: {
@@ -1040,6 +1133,9 @@ export const QUERY_PAYLOAD_SCHEMAS: Readonly<Record<QueryName, object>> = {
     required: ["bcf"],
   },
   "ifc.listImports": { type: "object", properties: {} },
+  // CAD-PARITY-006 (additive): the inventory queries take no payload.
+  "blocks.list": { type: "object", properties: {} },
+  "xrefs.list": { type: "object", properties: {} },
 };
 
 export const WIRE_ENVELOPE_SCHEMA = {

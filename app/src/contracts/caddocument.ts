@@ -158,6 +158,75 @@ export interface LayerStateEntry {
   readonly plot: boolean;
 }
 
+// --- CAD-PARITY-006 (additive): blocks, components & external references ----
+
+/** One inline entity inside a block definition or a resolved external
+ *  reference (CAD-PARITY-006, CAD-2D-007/008 bounded). The record is the
+ *  entity's canonical props WITHOUT element identity: the CAD-PARITY-003
+ *  flat geometry convention ({type:"line", x1, y1, x2, y2, layer?…}), the
+ *  CAD-PARITY-005 text convention ({type:"text", x, y, height, rotation,
+ *  value, style?…}), an attribute definition ({type:"attdef", tag, default,
+ *  x, y, height…}) or a nested block reference ({type:"block-ref",
+ *  blockId, x, y, scale, rotation, attributes?…}). Structural validation
+ *  lives in the shared blocks core (workspace/blocks/types.ts) and is
+ *  enforced at every DocumentEdit write path (LOCK-007 — reject, never
+ *  guess). Inline content carries its own layer/display fields; it has NO
+ *  document element identity (identity is the definition's/xref's). */
+export type BlockEntityRecord = Readonly<Record<string, unknown>>;
+
+/** A reusable block/component definition (CAD-PARITY-006, CAD-2D-007).
+ *  Canonical identity `blk-NNNNNN` is minted by the document (monotonic,
+ *  never reused — deletion never permits identity reuse); the NAME is the
+ *  user-facing address (unique among definitions; rename is safe —
+ *  instances reference the immutable id). Definitions are versioned
+ *  document STRUCTURE edited through the DocumentEdit command model
+ *  (addBlockDef/updateBlockDef/setBlockDefRecord/removeBlockDef): one
+ *  edit = one revision = one undo entry, with reference-checked removal
+ *  (a definition referenced by instances OR by another definition's inline
+ *  content cannot be removed — no silent cascade). Instance content is
+ *  DERIVED at render/pick/explode time from `entities` + `basePoint`
+ *  through the ONE shared expansion core (definition → instance
+ *  propagation without duplication). */
+export interface BlockDefinitionRecord {
+  readonly id: string;
+  readonly name: string;
+  /** The definition's insertion base point in definition coordinates: an
+   *  instance at insertion point (x, y) maps p ↦ (x, y) +
+   *  R(rotation)·(scale·(p − basePoint)). */
+  readonly basePoint: { readonly x: number; readonly y: number };
+  /** The definition's inline entity content (see BlockEntityRecord). */
+  readonly entities: readonly BlockEntityRecord[];
+  /** Free-form description. Absent = none. */
+  readonly description?: string;
+  /** Fixed deterministic timestamp (provenance; mirrors the IFC records). */
+  readonly createdAt: string;
+}
+
+/** An attached external reference (CAD-PARITY-006, CAD-2D-008 bounded
+ *  first slice). Canonical identity `xr-NNNNNN` is minted by the document.
+ *  The bounded lifecycle: attach (with resolved content → "loaded", or
+ *  without → "unresolved"), reload (re-resolve with fresh content),
+ *  detach (an explicit cascade that removes the record AND its instances
+ *  as ONE atomic batch — never a silent cascade). `sourceHash` is the
+ *  SHA-256 over the canonical serialization of the external snapshot when
+ *  loaded (provenance; null while unresolved). Resolved content is stored
+ *  INLINE (`entities`, base point fixed at the origin — external snapshot
+ *  coordinates map directly) so save/open stays loaded; `path` is the
+ *  user-facing provenance address. No binding/overlay/underlay semantics
+ *  in this slice (honest bounds — the workspace commands surface typed
+ *  declines). */
+export interface XrefRecord {
+  readonly id: string;
+  readonly name: string;
+  readonly path: string;
+  readonly status: "loaded" | "unresolved";
+  readonly sourceHash: string | null;
+  /** Fixed deterministic attach timestamp. */
+  readonly attachedAt: string;
+  /** The resolved inline content (empty while unresolved). */
+  readonly entities: readonly BlockEntityRecord[];
+}
+
 /** COMPAT-CAD-001 (additive): non-versioned drafting workspace settings
  *  (grid/snap configuration, units, view state). Persisted with the snapshot
  *  so save/open restores the drafting environment; NOT part of the version
@@ -403,6 +472,14 @@ export interface CADDocumentSnapshot {
   /** CAD-PARITY-004: named layer states (absent while empty; versioned
  *   *  through the addLayerState/removeLayerState command model). */
   readonly layerStates?: readonly LayerStateRecord[];
+  /** CAD-PARITY-006: reusable block/component definitions (absent while
+ *   *  empty so legacy snapshots and the pinned CAD-PARITY-002/004/005
+ *   *  fixtures stay byte-identical; versioned through the addBlockDef/
+ *   *  updateBlockDef/removeBlockDef command model). */
+  readonly blockDefs?: readonly BlockDefinitionRecord[];
+  /** CAD-PARITY-006: attached external references (absent while empty;
+ *   *  same additive-optional + versioned-command-model contract). */
+  readonly xrefs?: readonly XrefRecord[];
 }
 
 /** One canonical↔GlobalId provenance mapping entry of an IFC import
@@ -673,4 +750,88 @@ export type DocumentEdit =
       readonly element?: undefined;
       readonly patch?: undefined;
       readonly stateName: string;
+    }
+  // --- CAD-PARITY-006 (additive): block definitions + external references ---
+  | {
+      /** Add a block definition. A missing/empty id mints a canonical
+       *  `blk-NNNNNN` identity (the addElement/addLayer pattern); a
+       *  duplicate name or id is rejected. Inline entities are validated
+       *  against the block-content vocabulary; cyclic references and
+       *  over-depth nesting are rejected at this gate. */
+      readonly type: "addBlockDef";
+      readonly elementId?: undefined;
+      readonly element?: undefined;
+      readonly patch?: undefined;
+      readonly block: BlockDefinitionRecord;
+    }
+  | {
+      /** Patch a block definition (name/basePoint/description/entities —
+       *  entities replaces the whole inline array). */
+      readonly type: "updateBlockDef";
+      readonly elementId?: undefined;
+      readonly element?: undefined;
+      readonly patch: Readonly<Record<string, unknown>>;
+      readonly blockId: string;
+    }
+  | {
+      /** Full-record definition restore (exact inverse semantics — mirrors
+       *  setProps/setViewRecord: used as the updateBlockDef inverse when a
+       *  patch added a key, so absence of keys is representable on
+       *  undo/replay). */
+      readonly type: "setBlockDefRecord";
+      readonly elementId?: undefined;
+      readonly element?: undefined;
+      readonly patch?: undefined;
+      readonly blockId: string;
+      readonly block: BlockDefinitionRecord;
+    }
+  | {
+      /** Remove a block definition. Rejected while instances or other
+       *  definitions' inline content still reference it (no silent
+       *  cascade). */
+      readonly type: "removeBlockDef";
+      readonly elementId?: undefined;
+      readonly element?: undefined;
+      readonly patch?: undefined;
+      readonly blockId: string;
+    }
+  | {
+      /** Attach an external reference (minting `xr-NNNNNN` when the id is
+       *  missing). status "loaded" requires inline entities + sourceHash;
+       * "unresolved" carries empty entities + null hash. */
+      readonly type: "addXref";
+      readonly elementId?: undefined;
+      readonly element?: undefined;
+      readonly patch?: undefined;
+      readonly xref: XrefRecord;
+    }
+  | {
+      /** Patch an external reference (name/path/status/sourceHash/
+       *  entities — reload rewrites status + sourceHash + entities
+       *  together). */
+      readonly type: "updateXref";
+      readonly elementId?: undefined;
+      readonly element?: undefined;
+      readonly patch: Readonly<Record<string, unknown>>;
+      readonly xrefId: string;
+    }
+  | {
+      /** Full-record xref restore (setBlockDefRecord semantics for xrefs). */
+      readonly type: "setXrefRecord";
+      readonly elementId?: undefined;
+      readonly element?: undefined;
+      readonly patch?: undefined;
+      readonly xrefId: string;
+      readonly xref: XrefRecord;
+    }
+  | {
+      /** Remove an external reference record. Rejected while instance
+       *  elements still reference it — the DETACH command removes the
+       *  instances and the record as ONE atomic batch (the explicit
+       *  cascade lives at the command layer, never silently here). */
+      readonly type: "removeXref";
+      readonly elementId?: undefined;
+      readonly element?: undefined;
+      readonly patch?: undefined;
+      readonly xrefId: string;
     };

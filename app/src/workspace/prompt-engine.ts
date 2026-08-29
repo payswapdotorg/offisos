@@ -53,6 +53,12 @@ export interface PromptEngineState {
    *  D1/D2 — the keyword opens its own input, then the flow returns to the
    *  step). Null when no option is being collected. */
   readonly optionCapture: OptionCapture | null;
+  /** CAD-PARITY-006: the MATERIALIZED steps of the running command —
+   *  dynamicSteps(ctx) resolved once at start (deterministic: the same
+   *  context yields the same steps). Absent for states built before the
+   *  field existed / for commands without dynamicSteps → the registry's
+   *  static steps. */
+  readonly steps?: readonly PromptStep[];
 }
 
 /** An option currently collecting its own value. */
@@ -122,6 +128,12 @@ function command(state: PromptEngineState): WorkspaceCommand | null {
   return state.commandId === null ? null : commandById(state.commandId);
 }
 
+/** The steps of the RUNNING command (materialized at start — dynamic steps
+ *  resolved once; static steps otherwise). CAD-PARITY-006. */
+function stepsOf(state: PromptEngineState, cmd: WorkspaceCommand): readonly PromptStep[] {
+  return state.steps ?? cmd.steps;
+}
+
 function currentStep(state: PromptEngineState): PromptStep | null {
   const cmd = command(state);
   if (cmd === null) return null;
@@ -143,7 +155,7 @@ function currentStep(state: PromptEngineState): PromptStep | null {
           prompt: capture.prompt,
         };
   }
-  return cmd.steps[state.stepIndex] ?? null;
+  return stepsOf(state, cmd)[state.stepIndex] ?? null;
 }
 
 /** The step the HOST should interact with (option sub-prompt aware).
@@ -199,7 +211,7 @@ function startCommand(state: PromptEngineState, cmd: WorkspaceCommand, ctx: Comm
       output: { lines: [cmd.name, ...plan.echo], prompt: null, commandName: null, plan },
     };
   }
-  if (cmd.steps.length === 0) {
+  if (stepsOf(state, cmd).length === 0) {
     return {
       state,
       output: idleOutput([`${cmd.name}: no interactive steps defined — nothing to do.`]),
@@ -222,6 +234,12 @@ function startCommand(state: PromptEngineState, cmd: WorkspaceCommand, ctx: Comm
     lastCommandId: cmd.id,
     stepIndex: 0,
     values: {},
+    // CAD-PARITY-006: materialize the steps at start — dynamic steps
+    // (INSERT's per-attribute prompts, ATTEDIT's tag options) resolve
+    // against the start context and re-materialize when a
+    // `rematerialize` step completes (deterministic: the same ctx +
+    // values → the same steps, every host).
+    ...(cmd.dynamicSteps !== undefined ? { steps: cmd.dynamicSteps(ctx, {}) } : {}),
   };
   return { state: next, output: activeOutput(next, [cmd.name]) };
 }
@@ -275,18 +293,30 @@ function collectValue(
     if (value.kind === "point") lastPoint = value.point;
   }
 
+  // CAD-PARITY-006: a REMATERIALIZING step extends the prompt sequence with
+  // the context of everything collected so far — dynamicSteps(ctx, values)
+  // rebuilds the steps with the new knowledge (INSERT appends one value
+  // prompt per attribute of the just-named definition; ATTEDIT builds the
+  // picked instance's tag options). The builder contract is PREFIX-STABLE:
+  // the rebuilt steps keep every already-completed step at its index, so
+  // advancing continues inside the extended tail. Deterministic: the same
+  // ctx + the same collected values → the same steps, every host.
+  const baseState: PromptEngineState =
+    step.rematerialize === true && cmd.dynamicSteps !== undefined
+      ? { ...state, steps: cmd.dynamicSteps(ctx, values) }
+      : state;
   // CAD-PARITY-005: a multiple POINT step collects until Enter whether or
   // not it is the last step (LEADER's spine + trailing annotation text).
   // (Entity/entityPoint multiple steps keep the shipped advance-after-first
   // behavior — the pinned CAD-PARITY-002/003 parity streams rely on it.)
   if (step.multiple === true && step.kind === "point" && cmd.chained !== true) {
-    const next: PromptEngineState = { ...state, values, lastPoint };
+    const next: PromptEngineState = { ...baseState, values, lastPoint };
     return { state: next, output: activeOutput(next, echo) };
   }
 
   // LINE chaining: completing the final step of a chained command emits a
   // plan and re-prompts the final step with the carried base.
-  const isLastStep = state.stepIndex === cmd.steps.length - 1;
+  const isLastStep = baseState.stepIndex === stepsOf(baseState, cmd).length - 1;
   if (isLastStep && (cmd.chained === true || step.multiple === true)) {
     if (cmd.chained === true) {
       // Chained point command (LINE): emit one plan per collected point.
@@ -300,36 +330,36 @@ function collectValue(
         // Validation failure cancels the command with an actionable message.
         return { state: { ...IDLE_PROMPT_STATE, lastCommandId: cmd.id }, output: idleOutput([...echo, (e as Error).message]) };
       }
-      const prevFrom = state.values.from !== undefined && state.values.from.kind === "point" ? (state.values.from as { kind: "point"; point: Vec2 }).point : null;
+      const prevFrom = baseState.values.from !== undefined && baseState.values.from.kind === "point" ? (baseState.values.from as { kind: "point"; point: Vec2 }).point : null;
       chainStack = prevFrom === null ? chainStack : [...chainStack, prevFrom];
       // Carry the just-collected point as the new chain base — or, for
       // chainKeep commands (RAY/XLINE), retain the FIRST step's value so
       // one base point serves many directions.
-      const firstStep = cmd.steps[0];
+      const firstStep = stepsOf(baseState, cmd)[0];
       const carry: Record<string, PromptValue> =
         cmd.chainKeep === true && firstStep !== undefined && values[firstStep.id] !== undefined
           ? { [firstStep.id]: values[firstStep.id]! }
           : { from: value };
       const next: PromptEngineState = {
-        ...state,
+        ...baseState,
         values: carry,
         lastPoint: value.point,
         chainStack,
-        stepIndex: cmd.steps.length - 1,
+        stepIndex: stepsOf(baseState, cmd).length - 1,
       };
       return { state: next, output: activeOutput(next, [...echo, ...plan.echo], plan) };
     }
     // Multiple non-chained step (POLYLINE vertices, object picks): stay on
     // the same step collecting more input.
-    const next: PromptEngineState = { ...state, values, lastPoint };
+    const next: PromptEngineState = { ...baseState, values, lastPoint };
     return { state: next, output: activeOutput(next, echo) };
   }
 
   if (isLastStep) {
-    return completeCommand({ ...state, values, lastPoint, chainStack }, cmd, echo, ctx);
+    return completeCommand({ ...baseState, values, lastPoint, chainStack }, cmd, echo, ctx);
   }
 
-  const next: PromptEngineState = { ...state, values, lastPoint, chainStack, stepIndex: state.stepIndex + 1 };
+  const next: PromptEngineState = { ...baseState, values, lastPoint, chainStack, stepIndex: baseState.stepIndex + 1 };
   return { state: next, output: activeOutput(next, echo) };
 }
 
@@ -527,7 +557,7 @@ export function applyPromptEvent(
               const picked: PromptValue = { kind: "entities", entities: [...ctx.currentSelection] };
               const values = { ...state.values, [step.id]: picked };
               const withSelection: PromptEngineState = { ...state, values };
-              const isLast = state.stepIndex === cmd.steps.length - 1;
+              const isLast = state.stepIndex === stepsOf(state, cmd).length - 1;
               if (isLast) return completeCommand(withSelection, cmd, [`${ctx.currentSelection.length} found (current selection).`], ctx);
               const next: PromptEngineState = { ...withSelection, stepIndex: state.stepIndex + 1 };
               return { state: next, output: activeOutput(next, [`${ctx.currentSelection.length} found (current selection).`]) };
@@ -538,7 +568,7 @@ export function applyPromptEvent(
             if (step.emptyEnterCompletes === true) {
               const values = { ...state.values, [step.id]: { kind: "entities", entities: [] } as PromptValue };
               const withEmpty: PromptEngineState = { ...state, values };
-              const isLast = state.stepIndex === cmd.steps.length - 1;
+              const isLast = state.stepIndex === stepsOf(state, cmd).length - 1;
               const echo = ["all objects implied."];
               if (isLast) return completeCommand(withEmpty, cmd, echo, ctx);
               const next: PromptEngineState = { ...withEmpty, stepIndex: state.stepIndex + 1 };
@@ -550,7 +580,7 @@ export function applyPromptEvent(
           if (picked.length < min) {
             return { state, output: activeOutput(state, [`Need at least ${min} object(s) — ${picked.length} selected.`]) };
           }
-          const isLast = state.stepIndex === cmd.steps.length - 1;
+          const isLast = state.stepIndex === stepsOf(state, cmd).length - 1;
           if (isLast) return completeCommand(state, cmd, [], ctx);
           const next: PromptEngineState = { ...state, stepIndex: state.stepIndex + 1 };
           return { state: next, output: activeOutput(next, []) };
@@ -564,7 +594,7 @@ export function applyPromptEvent(
         if (points.length < min) {
           return { state, output: activeOutput(state, [`Need at least ${min} more point(s) — press Esc to cancel.`]) };
         }
-        if (state.stepIndex === cmd.steps.length - 1) {
+        if (state.stepIndex === stepsOf(state, cmd).length - 1) {
           return completeCommand(state, cmd, [], ctx);
         }
         const next: PromptEngineState = { ...state, stepIndex: state.stepIndex + 1 };
@@ -584,14 +614,14 @@ export function applyPromptEvent(
       // prompts) completes on Enter — with whatever option values were
       // collected (none → the builder echoes the honest no-op).
       if (step.optional === true) {
-        const isLast = state.stepIndex === cmd.steps.length - 1;
+        const isLast = state.stepIndex === stepsOf(state, cmd).length - 1;
         if (isLast) return completeCommand(state, cmd, [], ctx);
         const next: PromptEngineState = { ...state, stepIndex: state.stepIndex + 1 };
         return { state: next, output: activeOutput(next, []) };
       }
 
       // Enter on a chained final point step ends the command.
-      if (cmd.chained === true && state.stepIndex === cmd.steps.length - 1) {
+      if (cmd.chained === true && state.stepIndex === stepsOf(state, cmd).length - 1) {
         return { state: { ...IDLE_PROMPT_STATE, lastCommandId: cmd.id }, output: idleOutput([`${cmd.name} finished.`]) };
       }
 

@@ -961,3 +961,210 @@ export function layerStateRestoreEdits(
   }
   return edits;
 }
+
+// --- CAD-PARITY-006: block definitions + external references ---------------
+
+// The inline-entity vocabulary lives in the shared blocks core (engine-free
+// — the SAME validation for the document model, the App API write paths and
+// both hosts; type-only contracts import — no runtime cycle, mirroring the
+// standards import above).
+import {
+  assertDefinitionGraph,
+  normalizeBlockEntities,
+} from "../workspace/blocks/types.js";
+import type { BlockDefinitionRecord, BlockEntityRecord, XrefRecord } from "../contracts/caddocument.js";
+
+const SHA256_RE = /^[0-9a-f]{64}$/;
+
+/** Structural validation + canonicalization of a block-definition record
+ *  (LOCK-007: strict — the inline entities are validated and NORMALIZED
+ *  through the shared blocks vocabulary so every stored definition is the
+ *  canonical form). `defEntitiesById` supplies the OTHER definitions' inline
+ *  entities in the post-write world (cycle + depth gates); pass a resolver
+ *  over the would-be table including the record being written. */
+export function validateBlockDefinitionRecord(
+  block: unknown,
+  defEntitiesById?: (id: string) => readonly BlockEntityRecord[] | undefined,
+): BlockDefinitionRecord {
+  if (typeof block !== "object" || block === null || Array.isArray(block)) {
+    throw new Error("block definition record must be an object");
+  }
+  const b = block as Record<string, unknown>;
+  if (typeof b.id !== "string" || b.id.length === 0) {
+    throw new Error("blockDef.id must be a non-empty string (the document mints 'blk-NNNNNN')");
+  }
+  if (typeof b.name !== "string" || b.name.length === 0) {
+    throw new Error(`blockDef '${b.id}': name must be a non-empty string`);
+  }
+  if (typeof b.createdAt !== "string" || b.createdAt.length === 0) {
+    throw new Error(`blockDef '${b.id}': createdAt must be a non-empty string`);
+  }
+  if (b.basePoint === undefined || b.basePoint === null || typeof b.basePoint !== "object" || Array.isArray(b.basePoint)) {
+    throw new Error(`blockDef '${b.name}': basePoint must be {x, y}`);
+  }
+  const bp = b.basePoint as Record<string, unknown>;
+  if (!isFiniteNumber(bp.x) || !isFiniteNumber(bp.y)) {
+    throw new Error(`blockDef '${b.name}': basePoint.x/y must be finite numbers`);
+  }
+  if (b.description !== undefined && b.description !== null && typeof b.description !== "string") {
+    throw new Error(`blockDef '${b.name}': description must be a string when present`);
+  }
+  if (!Array.isArray(b.entities)) {
+    throw new Error(`blockDef '${b.name}': entities must be an array`);
+  }
+  let entities: Record<string, unknown>[];
+  try {
+    entities = normalizeBlockEntities(b.entities);
+  } catch (e) {
+    throw new Error(`blockDef '${b.name}': ${(e as Error).message}`);
+  }
+  // The definition graph gates (cycles + bounded nesting) run against the
+  // post-write table view when a resolver is supplied (document paths);
+  // snapshot-open validation supplies it too so corrupt saves reject.
+  if (defEntitiesById !== undefined) {
+    try {
+      assertDefinitionGraph(b.id, entities, defEntitiesById);
+    } catch (e) {
+      throw new Error(`blockDef '${b.name}': ${(e as Error).message}`);
+    }
+  }
+  const out: Record<string, unknown> = {
+    id: b.id,
+    name: b.name,
+    basePoint: { x: bp.x, y: bp.y },
+    entities,
+  };
+  if (typeof b.description === "string" && b.description.length > 0) out.description = b.description;
+  return out as unknown as BlockDefinitionRecord;
+}
+
+/** Keys a block-definition patch may carry (id/createdAt are immutable). */
+const BLOCK_DEF_PATCH_KEYS = ["name", "basePoint", "description", "entities"] as const;
+
+/** Validate + merge an updateBlockDef patch (entities replaces the whole
+ *  inline array — the canonical full-array-replace convention). */
+export function applyBlockDefPatch(
+  current: BlockDefinitionRecord,
+  patch: Readonly<Record<string, unknown>>,
+  defEntitiesById?: (id: string) => readonly BlockEntityRecord[] | undefined,
+): BlockDefinitionRecord {
+  for (const key of Object.keys(patch)) {
+    if (key === "id" || key === "createdAt") {
+      throw new Error("updateBlockDef: id/createdAt are the definition identity — immutable");
+    }
+    if (!(BLOCK_DEF_PATCH_KEYS as readonly string[]).includes(key)) {
+      throw new Error(`updateBlockDef: unknown field '${key}' (allowed: ${BLOCK_DEF_PATCH_KEYS.join(", ")})`);
+    }
+  }
+  const cleaned: Record<string, unknown> = { ...current };
+  for (const [key, value] of Object.entries(patch)) {
+    if (value === undefined) continue;
+    // null RESETS the optional description to absent.
+    if (value === null && key === "description") {
+      delete cleaned[key];
+      continue;
+    }
+    cleaned[key] = value;
+  }
+  return validateBlockDefinitionRecord(cleaned, defEntitiesById);
+}
+
+/** Structural validation + canonicalization of an external-reference record
+ *  (LOCK-007: a "loaded" record must carry a sha-256 source hash and its
+ *  inline entities; an "unresolved" record carries neither). */
+export function validateXrefRecord(xref: unknown): XrefRecord {
+  if (typeof xref !== "object" || xref === null || Array.isArray(xref)) {
+    throw new Error("xref record must be an object");
+  }
+  const x = xref as Record<string, unknown>;
+  if (typeof x.id !== "string" || x.id.length === 0) {
+    throw new Error("xref.id must be a non-empty string (the document mints 'xr-NNNNNN')");
+  }
+  if (typeof x.name !== "string" || x.name.length === 0) {
+    throw new Error(`xref '${x.id}': name must be a non-empty string`);
+  }
+  if (typeof x.path !== "string" || x.path.length === 0) {
+    throw new Error(`xref '${x.name}': path must be a non-empty string`);
+  }
+  if (typeof x.attachedAt !== "string" || x.attachedAt.length === 0) {
+    throw new Error(`xref '${x.name}': attachedAt must be a non-empty string`);
+  }
+  if (x.status !== "loaded" && x.status !== "unresolved") {
+    throw new Error(`xref '${x.name}': status must be loaded|unresolved`);
+  }
+  if (!Array.isArray(x.entities)) {
+    throw new Error(`xref '${x.name}': entities must be an array`);
+  }
+  let entities: Record<string, unknown>[];
+  try {
+    entities = normalizeBlockEntities(x.entities);
+  } catch (e) {
+    throw new Error(`xref '${x.name}': ${(e as Error).message}`);
+  }
+  if (x.status === "loaded") {
+    if (typeof x.sourceHash !== "string" || !SHA256_RE.test(x.sourceHash)) {
+      throw new Error(`xref '${x.name}': a loaded reference must carry a sha-256 sourceHash`);
+    }
+  } else {
+    if (x.sourceHash !== null && x.sourceHash !== undefined) {
+      throw new Error(`xref '${x.name}': an unresolved reference must not carry a sourceHash`);
+    }
+    if (entities.length > 0) {
+      throw new Error(`xref '${x.name}': an unresolved reference must not carry resolved entities`);
+    }
+  }
+  const out: Record<string, unknown> = {
+    id: x.id,
+    name: x.name,
+    path: x.path,
+    status: x.status,
+    sourceHash: x.status === "loaded" ? x.sourceHash : null,
+    attachedAt: x.attachedAt,
+    entities,
+  };
+  return out as unknown as XrefRecord;
+}
+
+/** Keys an xref patch may carry (id/attachedAt are immutable). */
+const XREF_PATCH_KEYS = ["name", "path", "status", "sourceHash", "entities"] as const;
+
+/** Validate + merge an updateXref patch (reload rewrites status + sourceHash
+ *  + entities together — the merged record re-validates as a whole). */
+export function applyXrefPatch(current: XrefRecord, patch: Readonly<Record<string, unknown>>): XrefRecord {
+  for (const key of Object.keys(patch)) {
+    if (key === "id" || key === "attachedAt") {
+      throw new Error("updateXref: id/attachedAt are the reference identity — immutable");
+    }
+    if (!(XREF_PATCH_KEYS as readonly string[]).includes(key)) {
+      throw new Error(`updateXref: unknown field '${key}' (allowed: ${XREF_PATCH_KEYS.join(", ")})`);
+    }
+  }
+  const cleaned: Record<string, unknown> = { ...current };
+  for (const [key, value] of Object.entries(patch)) {
+    if (value === undefined) continue;
+    cleaned[key] = value;
+  }
+  return validateXrefRecord(cleaned);
+}
+
+/** CAD-PARITY-006: derive the block-definition mint-sequence counter from
+ *  existing minted ids (`blk-NNNNNN`) — the deriveLayerSequence contract. */
+export function deriveBlockSequence(blocks: readonly BlockDefinitionRecord[]): number {
+  let max = 0;
+  for (const b of blocks) {
+    const m = /^blk-(\d{6,})$/.exec(b.id);
+    if (m !== null && m[1] !== undefined) max = Math.max(max, Number.parseInt(m[1], 10));
+  }
+  return max + 1;
+}
+
+/** CAD-PARITY-006: derive the external-reference mint-sequence counter from
+ *  existing minted ids (`xr-NNNNNN`). */
+export function deriveXrefSequence(xrefs: readonly XrefRecord[]): number {
+  let max = 0;
+  for (const x of xrefs) {
+    const m = /^xr-(\d{6,})$/.exec(x.id);
+    if (m !== null && m[1] !== undefined) max = Math.max(max, Number.parseInt(m[1], 10));
+  }
+  return max + 1;
+}

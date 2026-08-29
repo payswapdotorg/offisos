@@ -26,7 +26,7 @@
  */
 
 import type { Vec2 } from "../drafting/precision.js";
-import type { DimStyleRecord, LayerRecord, TextStyleRecord } from "../contracts/caddocument.js";
+import type { BlockDefinitionRecord, DimStyleRecord, LayerRecord, TextStyleRecord, XrefRecord } from "../contracts/caddocument.js";
 
 // ---------------------------------------------------------------------------
 // Command categories (mirrors the ribbon/menu information architecture of
@@ -123,6 +123,15 @@ export interface PromptStep {
   readonly validate?: (pick: EntityPick) => string | null;
   /** Default value accepted on Enter (number/text steps). */
   readonly defaultValue?: number | string;
+  /**
+   * CAD-PARITY-006: completing this step REMATERIALIZES the command's
+   * dynamic steps with everything collected so far (the dynamicSteps
+   * builder contract is prefix-stable). INSERT marks its name step so the
+   * per-attribute value prompts appear once the definition is known;
+   * ATTEDIT marks its instance pick so the tag options list the picked
+   * instance's attribute slots.
+   */
+  readonly rematerialize?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -239,6 +248,13 @@ export interface CommandContext {
   readonly currentTextStyle: string;
   /** CAD-PARITY-005: the current dim style name ("Standard" default). */
   readonly currentDimStyle: string;
+  /** CAD-PARITY-006: the document block-definition table (name resolution
+   *  for BLOCK/INSERT/ATTDEF builders + the dynamic attribute prompts;
+   *  empty on contexts that predate the field). */
+  readonly blocks: readonly BlockDefinitionRecord[];
+  /** CAD-PARITY-006: the attached external references (XATTACH/XDETACH/
+   *  XLIST builders; empty on legacy contexts). */
+  readonly xrefs: readonly XrefRecord[];
 }
 
 export function defaultCommandContext(overrides?: Partial<CommandContext>): CommandContext {
@@ -254,6 +270,8 @@ export function defaultCommandContext(overrides?: Partial<CommandContext>): Comm
     dimStyles: [],
     currentTextStyle: "Standard",
     currentDimStyle: "Standard",
+    blocks: [],
+    xrefs: [],
     ...overrides,
   };
 }

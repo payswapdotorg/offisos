@@ -42,27 +42,34 @@ import type {
   TextStyleRecord,
   VersionMeta,
   IfcImportRecordView,
+  BlockDefinitionRecord,
+  XrefRecord,
 } from "../contracts/caddocument.js";
 import type { ModelHistory } from "../contracts/model.js";
 import { childVersion, rootVersion } from "./versioning.js";
 import { canonicalStringify } from "./serialization.js";
 import {
   DEFAULT_LAYER,
+  applyBlockDefPatch,
   applyDimStylePatch,
   applyLayerPatch,
   applyLtypePatch,
   applySheetPatch,
   applyTextStylePatch,
   applyViewPatch,
+  applyXrefPatch,
   captureLayerState,
   defaultBimSettings,
   defaultDraftingSettings,
+  deriveBlockSequence,
   deriveIfcImportSequence,
   deriveLayerSequence,
   deriveSheetSequence,
   deriveViewSequence,
+  deriveXrefSequence,
   elementLayerReference,
   validateBimSettings,
+  validateBlockDefinitionRecord,
   validateDimStyleRecord,
   validateDocsSheetRecord,
   validateIfcImportRecord,
@@ -72,7 +79,9 @@ import {
   validateLayerStateRecord,
   validateLtypeRecord,
   validateTextStyleRecord,
+  validateXrefRecord,
 } from "./workspace.js";
+import { assertDefinitionGraph, normalizeBlockEntities, referencedBlockIds } from "../workspace/blocks/types.js";
 import {
   appendRevision,
   canonicalHashOf,
@@ -94,6 +103,16 @@ interface UndoEntry {
 }
 
 const FIXED_NOW = () => new Date("2026-01-01T00:00:00.000Z").toISOString();
+
+/** CAD-PARITY-006: the definition-graph gate over an adopted table view
+ *  (the Map-backed resolver for assertDefinitionGraph). */
+function assertDefinitionGraphSafe(
+  id: string,
+  entities: readonly Record<string, unknown>[],
+  entitiesById: ReadonlyMap<string, readonly Record<string, unknown>[]>,
+): void {
+  assertDefinitionGraph(id, entities, (other) => entitiesById.get(other));
+}
 
 export class CADDocument {
   private version: VersionMeta;
@@ -145,6 +164,18 @@ export class CADDocument {
   /** CAD-PARITY-004: named layer states (name-keyed; addLayerState on an
    *  existing name replaces — LAYERSTATE re-save semantics). */
   private readonly layerStates: Map<string, LayerStateRecord> = new Map();
+  /** CAD-PARITY-006: reusable block/component definitions (id-keyed,
+   *  insertion-ordered; edited ONLY through the DocumentEdit command model
+   *  — one edit = one revision = one undo entry; removal is
+   *  reference-checked against instances AND other definitions' content). */
+  private readonly blockDefs: Map<string, BlockDefinitionRecord> = new Map();
+  /** CAD-PARITY-006: monotonic mint counter for `blk-NNNNNN` identities. */
+  private nextBlockSequence: number;
+  /** CAD-PARITY-006: attached external references (id-keyed,
+   *  insertion-ordered; the bounded attach/reload/detach lifecycle). */
+  private readonly xrefs: Map<string, XrefRecord> = new Map();
+  /** CAD-PARITY-006: monotonic mint counter for `xr-NNNNNN` identities. */
+  private nextXrefSequence: number;
   /** Ephemeral editor selection (§5.4 editor state). Orthogonal to the
    *  versioned document content: it is NOT in the version-id derivation and
    *  NOT in the parity content hash (§5.5). Since COMPAT-CAD-001 it IS
@@ -176,6 +207,10 @@ export class CADDocument {
     textStyles: Iterable<TextStyleRecord>,
     dimStyles: Iterable<DimStyleRecord>,
     layerStates: Iterable<LayerStateRecord>,
+    blockDefs: Iterable<BlockDefinitionRecord>,
+    nextBlockSequence: number,
+    xrefs: Iterable<XrefRecord>,
+    nextXrefSequence: number,
   ) {
     this.version = version;
     for (const e of elements) this.elements.set(e.id, e);
@@ -201,6 +236,11 @@ export class CADDocument {
     for (const s of textStyles) this.textStyles.set(s.name, s);
     for (const d of dimStyles) this.dimStyles.set(d.name, d);
     for (const st of layerStates) this.layerStates.set(st.name, st);
+    // CAD-PARITY-006: the id-keyed block-definition + xref tables.
+    for (const b of blockDefs) this.blockDefs.set(b.id, b);
+    this.nextBlockSequence = nextBlockSequence;
+    for (const x of xrefs) this.xrefs.set(x.id, x);
+    this.nextXrefSequence = nextXrefSequence;
   }
 
   /** Open a snapshot: load state, set version, clear undo/redo, adopt the
@@ -262,6 +302,55 @@ export class CADDocument {
     for (const d of dimStyles) validateDimStyleRecord(d);
     const layerStates = [...(snapshot.layerStates ?? [])];
     for (const st of layerStates) validateLayerStateRecord(st);
+    // CAD-PARITY-006: adopt the block-definition + xref tables when present
+    // (validated structurally — including the definition GRAPH checks over
+    // the adopted table and the instance-reference integrity, LOCK-007); a
+    // legacy snapshot opens with empty tables (the additive-feature
+    // default, not a repair).
+    const rawBlockDefs = [...(snapshot.blockDefs ?? [])];
+    const adoptedBlockDefs: BlockDefinitionRecord[] = [];
+    const blockEntitiesById = new Map<string, readonly Record<string, unknown>[]>();
+    const blockNames = new Set<string>();
+    for (const b of rawBlockDefs) {
+      const validated = validateBlockDefinitionRecord(b);
+      if (blockNames.has(validated.name)) {
+        throw new Error(`open: duplicate block definition name '${validated.name}'`);
+      }
+      blockNames.add(validated.name);
+      adoptedBlockDefs.push(validated);
+      blockEntitiesById.set(validated.id, validated.entities);
+    }
+    for (const b of adoptedBlockDefs) {
+      assertDefinitionGraphSafe(b.id, b.entities, blockEntitiesById);
+    }
+    const xrefs: XrefRecord[] = [];
+    const xrefNames = new Set<string>();
+    for (const x of [...(snapshot.xrefs ?? [])]) {
+      const validated = validateXrefRecord(x);
+      if (xrefNames.has(validated.name)) {
+        throw new Error(`open: duplicate external reference name '${validated.name}'`);
+      }
+      xrefNames.add(validated.name);
+      xrefs.push(validated);
+    }
+    const xrefIds = new Set(xrefs.map((x) => x.id));
+    // Instance-reference integrity: every block-ref/xref-ref element must
+    // reference an adopted record (a dangling reference is corrupt, not
+    // repairable — LOCK-007).
+    for (const el of snapshot.elements) {
+      const p = el.props as Record<string, unknown>;
+      if (p.drafting === true && p.type === "block-ref") {
+        if (typeof p.blockId !== "string" || !blockEntitiesById.has(p.blockId)) {
+          throw new Error(`open: element '${el.id}' references an unknown block definition`);
+        }
+      }
+      if (p.drafting === true && p.type === "xref-ref") {
+        if (typeof p.xrefId !== "string" || !xrefIds.has(p.xrefId)) {
+          throw new Error(`open: element '${el.id}' references an unknown external reference`);
+        }
+      }
+    }
+    const blockDefs = adoptedBlockDefs;
     return new CADDocument(
       snapshot.version,
       snapshot.elements,
@@ -286,6 +375,10 @@ export class CADDocument {
       textStyles,
       dimStyles,
       layerStates,
+      blockDefs,
+      Math.max(deriveBlockSequence(blockDefs), history.next_block_sequence ?? 1),
+      xrefs,
+      Math.max(deriveXrefSequence(xrefs), history.next_xref_sequence ?? 1),
     );
   }
 
@@ -320,6 +413,11 @@ export class CADDocument {
       [],
       [],
       [],
+      // CAD-PARITY-006: empty block-definition + xref tables.
+      [],
+      1,
+      [],
+      1,
     );
   }
 
@@ -422,6 +520,8 @@ export class CADDocument {
       nextViewSequence: this.nextViewSequence,
       nextSheetSequence: this.nextSheetSequence,
       nextIfcImportSequence: this.nextIfcImportSequence,
+      nextBlockSequence: this.nextBlockSequence,
+      nextXrefSequence: this.nextXrefSequence,
     });
     return inverse;
   }
@@ -468,6 +568,8 @@ export class CADDocument {
       nextLayerSequence: this.nextLayerSequence,
       nextViewSequence: this.nextViewSequence,
       nextSheetSequence: this.nextSheetSequence,
+      nextBlockSequence: this.nextBlockSequence,
+      nextXrefSequence: this.nextXrefSequence,
     });
     return entry.forward;
   }
@@ -498,6 +600,8 @@ export class CADDocument {
       nextLayerSequence: this.nextLayerSequence,
       nextViewSequence: this.nextViewSequence,
       nextSheetSequence: this.nextSheetSequence,
+      nextBlockSequence: this.nextBlockSequence,
+      nextXrefSequence: this.nextXrefSequence,
     });
     return entry.forward;
   }
@@ -538,6 +642,11 @@ export class CADDocument {
       ...(this.textStyles.size > 0 ? { textStyles: [...this.textStyles.values()] } : {}),
       ...(this.dimStyles.size > 0 ? { dimStyles: [...this.dimStyles.values()] } : {}),
       ...(this.layerStates.size > 0 ? { layerStates: [...this.layerStates.values()] } : {}),
+      // CAD-PARITY-006: the block-definition + xref tables — omitted while
+      // empty so legacy snapshots (and the pinned parity fixtures) stay
+      // byte-identical (additive-optional contract).
+      ...(this.blockDefs.size > 0 ? { blockDefs: [...this.blockDefs.values()] } : {}),
+      ...(this.xrefs.size > 0 ? { xrefs: [...this.xrefs.values()] } : {}),
     };
   }
 
@@ -704,6 +813,22 @@ export class CADDocument {
       const minted = this.mintIfcImportId();
       const record = validateIfcImportRecord({ ...edit.record, id: minted });
       return { ...edit, record } as DocumentEdit;
+    }
+    // CAD-PARITY-006: addBlockDef mints a `blk-NNNNNN` identity when missing
+    // (the addView pattern); an explicit id is validated + duplicate-checked
+    // at apply time (validateBlockDefWrite).
+    if (edit.type === "addBlockDef") {
+      const raw = edit.block as { id?: unknown };
+      if (typeof raw.id === "string" && raw.id.length > 0) return edit;
+      const minted = this.mintBlockId();
+      return { ...edit, block: { ...edit.block, id: minted } } as DocumentEdit;
+    }
+    // CAD-PARITY-006: addXref mints an `xr-NNNNNN` identity when missing.
+    if (edit.type === "addXref") {
+      const raw = edit.xref as { id?: unknown };
+      if (typeof raw.id === "string" && raw.id.length > 0) return edit;
+      const minted = this.mintXrefId();
+      return { ...edit, xref: { ...edit.xref, id: minted } } as DocumentEdit;
     }
     if (edit.type !== "addElement") return edit;
     const element = edit.element;
@@ -1062,6 +1187,97 @@ export class CADDocument {
         this.layerStates.delete(edit.stateName);
         break;
       }
+      // --- CAD-PARITY-006 (additive): block definitions + xrefs ------------
+      case "addBlockDef": {
+        if (edit.block === undefined) throw new Error("addBlockDef requires block");
+        const block = this.validateBlockDefWrite(edit.block, false);
+        this.blockDefs.set(block.id, block);
+        break;
+      }
+      case "updateBlockDef": {
+        if (edit.blockId === undefined || edit.patch === undefined) {
+          throw new Error("updateBlockDef requires blockId + patch");
+        }
+        const current = this.blockDefs.get(edit.blockId);
+        if (current === undefined) throw new Error(`updateBlockDef: no block definition '${edit.blockId}'`);
+        let patchedEntities: readonly Record<string, unknown>[] = current.entities;
+        if (edit.patch.entities !== undefined) {
+          try {
+            patchedEntities = normalizeBlockEntities(edit.patch.entities as unknown[]);
+          } catch (e) {
+            throw new Error(`updateBlockDef: ${(e as Error).message}`);
+          }
+        }
+        const merged = applyBlockDefPatch(current, edit.patch, (id) =>
+          id === edit.blockId ? patchedEntities : this.blockDefs.get(id)?.entities,
+        );
+        this.assertBlockDefNameFree(merged.name, edit.blockId);
+        this.assertBlockRefsResolve(merged.id, merged.entities);
+        this.blockDefs.set(edit.blockId, merged);
+        break;
+      }
+      case "setBlockDefRecord": {
+        if (edit.blockId === undefined || edit.block === undefined) {
+          throw new Error("setBlockDefRecord requires blockId + block");
+        }
+        const block = validateBlockDefinitionRecord(edit.block, (id) =>
+          id === edit.blockId
+            ? (edit.block as BlockDefinitionRecord).entities
+            : this.blockDefs.get(id)?.entities,
+        );
+        if (block.id !== edit.blockId) throw new Error("setBlockDefRecord: block.id must equal blockId");
+        if (!this.blockDefs.has(block.id)) throw new Error(`setBlockDefRecord: no block definition '${block.id}'`);
+        this.assertBlockDefNameFree(block.name, block.id);
+        this.assertBlockRefsResolve(block.id, block.entities);
+        this.blockDefs.set(block.id, block);
+        break;
+      }
+      case "removeBlockDef": {
+        if (edit.blockId === undefined) throw new Error("removeBlockDef requires blockId");
+        if (!this.blockDefs.has(edit.blockId)) throw new Error(`removeBlockDef: no block definition '${edit.blockId}'`);
+        this.assertBlockDefUnreferenced(edit.blockId);
+        this.blockDefs.delete(edit.blockId);
+        break;
+      }
+      case "addXref": {
+        if (edit.xref === undefined) throw new Error("addXref requires xref");
+        const xref = validateXrefRecord(edit.xref);
+        if (this.xrefs.has(xref.id)) {
+          throw new Error(`addXref: reference id '${xref.id}' already exists — canonical reference identity must not be reused while the reference exists`);
+        }
+        this.assertXrefNameFree(xref.name, null);
+        this.xrefs.set(xref.id, xref);
+        break;
+      }
+      case "updateXref": {
+        if (edit.xrefId === undefined || edit.patch === undefined) {
+          throw new Error("updateXref requires xrefId + patch");
+        }
+        const current = this.xrefs.get(edit.xrefId);
+        if (current === undefined) throw new Error(`updateXref: no external reference '${edit.xrefId}'`);
+        const merged = applyXrefPatch(current, edit.patch);
+        this.assertXrefNameFree(merged.name, edit.xrefId);
+        this.xrefs.set(edit.xrefId, merged);
+        break;
+      }
+      case "setXrefRecord": {
+        if (edit.xrefId === undefined || edit.xref === undefined) {
+          throw new Error("setXrefRecord requires xrefId + xref");
+        }
+        const xref = validateXrefRecord(edit.xref);
+        if (xref.id !== edit.xrefId) throw new Error("setXrefRecord: xref.id must equal xrefId");
+        if (!this.xrefs.has(xref.id)) throw new Error(`setXrefRecord: no external reference '${xref.id}'`);
+        this.assertXrefNameFree(xref.name, xref.id);
+        this.xrefs.set(xref.id, xref);
+        break;
+      }
+      case "removeXref": {
+        if (edit.xrefId === undefined) throw new Error("removeXref requires xrefId");
+        if (!this.xrefs.has(edit.xrefId)) throw new Error(`removeXref: no external reference '${edit.xrefId}'`);
+        this.assertXrefUnreferenced(edit.xrefId);
+        this.xrefs.delete(edit.xrefId);
+        break;
+      }
       case "setViewRecord": {
         if (edit.viewId === undefined || edit.view === undefined) {
           throw new Error("setViewRecord requires viewId + view");
@@ -1338,6 +1554,87 @@ export class CADDocument {
         if (existing === undefined) throw new Error(`removeLayerState: no layer state '${edit.stateName}'`);
         return { type: "addLayerState", state: existing };
       }
+      // --- CAD-PARITY-006 (additive): block definitions + xrefs ------------
+      case "addBlockDef": {
+        if (edit.block === undefined) throw new Error("addBlockDef requires block");
+        const block = validateBlockDefinitionRecord(edit.block);
+        return { type: "removeBlockDef", blockId: block.id };
+      }
+      case "updateBlockDef": {
+        if (edit.blockId === undefined || edit.patch === undefined) {
+          throw new Error("updateBlockDef requires blockId + patch");
+        }
+        const current = this.blockDefs.get(edit.blockId);
+        if (current === undefined) throw new Error(`updateBlockDef: no block definition '${edit.blockId}'`);
+        // Exact inverse: a patch that ADDS a key absent from the current
+        // record (e.g. description) inverts through the full-record restore
+        // — the setViewRecord precedent (a prevValues patch could not
+        // represent the key's absence).
+        const patchKeys = Object.keys(edit.patch);
+        const addsKey = patchKeys.some(
+          (k) => !Object.prototype.hasOwnProperty.call(current as unknown as Record<string, unknown>, k),
+        );
+        if (addsKey) {
+          return { type: "setBlockDefRecord", blockId: edit.blockId, block: current };
+        }
+        const prevValues: Record<string, unknown> = {};
+        for (const k of patchKeys) {
+          prevValues[k] = (current as unknown as Record<string, unknown>)[k];
+        }
+        return { type: "updateBlockDef", blockId: edit.blockId, patch: prevValues };
+      }
+      case "setBlockDefRecord": {
+        if (edit.blockId === undefined || edit.block === undefined) {
+          throw new Error("setBlockDefRecord requires blockId + block");
+        }
+        const current = this.blockDefs.get(edit.blockId);
+        if (current === undefined) throw new Error(`setBlockDefRecord: no block definition '${edit.blockId}'`);
+        return { type: "setBlockDefRecord", blockId: edit.blockId, block: current };
+      }
+      case "removeBlockDef": {
+        if (edit.blockId === undefined) throw new Error("removeBlockDef requires blockId");
+        const existing = this.blockDefs.get(edit.blockId);
+        if (existing === undefined) throw new Error(`removeBlockDef: no block definition '${edit.blockId}'`);
+        return { type: "addBlockDef", block: existing };
+      }
+      case "addXref": {
+        if (edit.xref === undefined) throw new Error("addXref requires xref");
+        const xref = validateXrefRecord(edit.xref);
+        return { type: "removeXref", xrefId: xref.id };
+      }
+      case "updateXref": {
+        if (edit.xrefId === undefined || edit.patch === undefined) {
+          throw new Error("updateXref requires xrefId + patch");
+        }
+        const current = this.xrefs.get(edit.xrefId);
+        if (current === undefined) throw new Error(`updateXref: no external reference '${edit.xrefId}'`);
+        const patchKeys = Object.keys(edit.patch);
+        const addsKey = patchKeys.some(
+          (k) => !Object.prototype.hasOwnProperty.call(current as unknown as Record<string, unknown>, k),
+        );
+        if (addsKey) {
+          return { type: "setXrefRecord", xrefId: edit.xrefId, xref: current };
+        }
+        const prevValues: Record<string, unknown> = {};
+        for (const k of patchKeys) {
+          prevValues[k] = (current as unknown as Record<string, unknown>)[k];
+        }
+        return { type: "updateXref", xrefId: edit.xrefId, patch: prevValues };
+      }
+      case "setXrefRecord": {
+        if (edit.xrefId === undefined || edit.xref === undefined) {
+          throw new Error("setXrefRecord requires xrefId + xref");
+        }
+        const current = this.xrefs.get(edit.xrefId);
+        if (current === undefined) throw new Error(`setXrefRecord: no external reference '${edit.xrefId}'`);
+        return { type: "setXrefRecord", xrefId: edit.xrefId, xref: current };
+      }
+      case "removeXref": {
+        if (edit.xrefId === undefined) throw new Error("removeXref requires xrefId");
+        const existing = this.xrefs.get(edit.xrefId);
+        if (existing === undefined) throw new Error(`removeXref: no external reference '${edit.xrefId}'`);
+        return { type: "addXref", xref: existing };
+      }
       default: {
         const _exhaustive = edit satisfies never;
         throw new Error(`unreachable edit type: ${JSON.stringify(_exhaustive)}`);
@@ -1396,6 +1693,151 @@ export class CADDocument {
   /** Look up a layer state by name. */
   layerStateByName(name: string): LayerStateRecord | undefined {
     return this.layerStates.get(name);
+  }
+
+  // --- CAD-PARITY-006: block definitions + external references ------------
+
+  /** The block-definition table (insertion order). */
+  get blockDefTable(): readonly BlockDefinitionRecord[] {
+    return [...this.blockDefs.values()];
+  }
+
+  /** Look up a block definition by canonical id. */
+  blockDefById(id: string): BlockDefinitionRecord | undefined {
+    return this.blockDefs.get(id);
+  }
+
+  /** Look up a block definition by name (the user-facing address). */
+  blockDefByName(name: string): BlockDefinitionRecord | undefined {
+    for (const b of this.blockDefs.values()) {
+      if (b.name === name) return b;
+    }
+    return undefined;
+  }
+
+  /** The attached external references (insertion order). */
+  get xrefTable(): readonly XrefRecord[] {
+    return [...this.xrefs.values()];
+  }
+
+  /** Look up an external reference by canonical id. */
+  xrefById(id: string): XrefRecord | undefined {
+    return this.xrefs.get(id);
+  }
+
+  /** Look up an external reference by name. */
+  xrefByName(name: string): XrefRecord | undefined {
+    for (const x of this.xrefs.values()) {
+      if (x.name === name) return x;
+    }
+    return undefined;
+  }
+
+  /** Mint a canonical block-definition identity (`blk-NNNNNN`, monotonic,
+   *  never reused) — document authority, mirrors mintLayerId. */
+  mintBlockId(): string {
+    const minted = `blk-${String(this.nextBlockSequence).padStart(6, "0")}`;
+    this.nextBlockSequence += 1;
+    return minted;
+  }
+
+  /** Mint a canonical external-reference identity (`xr-NNNNNN`, monotonic,
+   *  never reused). */
+  mintXrefId(): string {
+    const minted = `xr-${String(this.nextXrefSequence).padStart(6, "0")}`;
+    this.nextXrefSequence += 1;
+    return minted;
+  }
+
+  /** Validate a block-definition record for an ADD or UPDATE against the
+   *  post-write table view: structural validation + the definition-graph
+   *  gates (cycles/nesting), duplicate id (add) and duplicate name checks,
+   *  and nested-reference resolution. */
+  private validateBlockDefWrite(raw: unknown, isUpdate: boolean): BlockDefinitionRecord {
+    const record = raw as BlockDefinitionRecord;
+    const resolver = (id: string): readonly Record<string, unknown>[] | undefined =>
+      id === record.id ? record.entities : this.blockDefs.get(id)?.entities;
+    let validated: BlockDefinitionRecord;
+    try {
+      validated = validateBlockDefinitionRecord(raw, resolver);
+    } catch (e) {
+      throw new Error(isUpdate ? `updateBlockDef: ${(e as Error).message}` : `addBlockDef: ${(e as Error).message}`);
+    }
+    if (!isUpdate && this.blockDefs.has(validated.id)) {
+      throw new Error(
+        `addBlockDef: block id '${validated.id}' already exists — canonical block identity must not be reused while the definition exists`,
+      );
+    }
+    this.assertBlockDefNameFree(validated.name, isUpdate ? validated.id : null);
+    this.assertBlockRefsResolve(validated.id, validated.entities);
+    return validated;
+  }
+
+  /** A definition name must stay unique (null excludeId = pure add check). */
+  private assertBlockDefNameFree(name: string, excludeId: string | null): void {
+    for (const b of this.blockDefs.values()) {
+      if (b.id !== excludeId && b.name === name) {
+        throw new Error(`block definition name '${name}' already exists — remove or rename it first`);
+      }
+    }
+  }
+
+  /** Every nested block-ref inside a definition's content must reference a
+   *  definition of the post-write table (self included — self-reference is
+   *  the cycle the graph gate rejects). */
+  private assertBlockRefsResolve(id: string, entities: readonly Record<string, unknown>[]): void {
+    for (const childId of referencedBlockIds(entities)) {
+      if (childId !== id && !this.blockDefs.has(childId)) {
+        throw new Error(`block definition references unknown definition '${childId}'`);
+      }
+    }
+  }
+
+  /** Reference check for removeBlockDef: instances AND other definitions'
+   *  inline content block removal (no silent cascade). */
+  private assertBlockDefUnreferenced(id: string): void {
+    let instances = 0;
+    for (const el of this.elements.values()) {
+      const p = el.props as Record<string, unknown>;
+      if (p.drafting === true && p.type === "block-ref" && p.blockId === id) instances += 1;
+    }
+    if (instances > 0) {
+      throw new Error(
+        `removeBlockDef: '${id}' is referenced by ${instances} block instance${instances === 1 ? "" : "s"} — erase or explode them first (no silent cascade)`,
+      );
+    }
+    for (const b of this.blockDefs.values()) {
+      if (b.id !== id && referencedBlockIds(b.entities).includes(id)) {
+        throw new Error(
+          `removeBlockDef: '${id}' is referenced by definition '${b.name}' — edit that definition first (no silent cascade)`,
+        );
+      }
+    }
+  }
+
+  /** An external-reference name must stay unique (null excludeId = add). */
+  private assertXrefNameFree(name: string, excludeId: string | null): void {
+    for (const x of this.xrefs.values()) {
+      if (x.id !== excludeId && x.name === name) {
+        throw new Error(`external reference name '${name}' already exists — detach it first`);
+      }
+    }
+  }
+
+  /** Reference check for removeXref: instance elements referencing the
+   *  record block removal — the DETACH command removes instances + record
+   * as ONE atomic batch (the cascade lives at the command layer). */
+  private assertXrefUnreferenced(id: string): void {
+    let instances = 0;
+    for (const el of this.elements.values()) {
+      const p = el.props as Record<string, unknown>;
+      if (p.drafting === true && p.type === "xref-ref" && p.xrefId === id) instances += 1;
+    }
+    if (instances > 0) {
+      throw new Error(
+        `removeXref: '${id}' is referenced by ${instances} reference instance${instances === 1 ? "" : "s"} — detach through the reference manager (XDETACH) instead`,
+      );
+    }
   }
 
   /** Capture the current layer table as a LayerStateRecord body (the

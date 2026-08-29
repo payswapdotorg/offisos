@@ -25,6 +25,7 @@ import { propsToGeom } from "./geometry/types.js";
 import { COMMANDS_2D } from "./commands-2d.js";
 import { COMMANDS_PROPS } from "./commands-props.js";
 import { COMMANDS_ANNO } from "./commands-anno.js";
+import { COMMANDS_BLOCK } from "./commands-blocks.js";
 import type {
   AppApiCommandPlanEntry,
   CommandCategory,
@@ -54,6 +55,21 @@ export interface WorkspaceCommand {
   readonly shortcut?: string;
   /** Prompt sequence for interactive commands. */
   readonly steps: readonly PromptStep[];
+  /**
+   * CAD-PARITY-006: context-dependent prompt sequences — when present, the
+   * prompt engine materializes the steps at command start AND whenever a
+   * step marked `rematerialize` completes (deterministic: the same ctx +
+   * the same collected values → the same steps, every host, every run).
+   * INSERT builds a per-attribute value prompt for every attdef of the
+   * named definition; ATTEDIT lists the picked instance's tags as keyword
+   * options. The builder contract is PREFIX-STABLE: already-completed
+   * steps keep their indices across rematerializations. Commands without
+   * dynamicSteps are unaffected.
+   */
+  readonly dynamicSteps?: (
+    ctx: CommandContext,
+    values: Readonly<Record<string, PromptValue>>,
+  ) => readonly PromptStep[];
   /**
    * LINE-style chaining: after the final step completes, the command stays
    * active with the final step re-prompted and the base carried forward.
@@ -951,6 +967,8 @@ export const WORKSPACE_COMMANDS: readonly WorkspaceCommand[] = [
   ...COMMANDS_2D,
   ...COMMANDS_PROPS,
   ...COMMANDS_ANNO,
+  // --- CAD-PARITY-006 (Issue #84): blocks, attributes & references -------
+  ...COMMANDS_BLOCK,
 ];
 
 function normalize(a: number): number {
