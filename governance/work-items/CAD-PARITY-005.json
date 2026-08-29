@@ -1,0 +1,118 @@
+{
+  "id": "CAD-PARITY-005",
+  "title": "Annotation, Text & Dimension engine: the professional annotation subsystem",
+  "issue": 82,
+  "architecture_version": "1.1",
+  "requirements": [
+    "CAD-001"
+  ],
+  "dependencies": [],
+  "objective": "Deliver the professional annotation/text/dimension subsystem on the frozen CAD/BIM Product Architecture v1.0 (Issue #82; the CAD-PARITY program's next AutoCAD-class subsystem after CAD-PARITY-004 merged at 49a7a367): the annotation/text engine (TEXT and MTEXT entities \u2014 single-line and multi-line content with insertion/attachment placement, justification, rotation, strict typed validation); the dimension system (DIMLINEAR with horizontal/vertical/rotated modes \u2014 auto-mode from the placement plus H/V flag options and the R(otation) sub-prompt \u2014 DIMALIGNED, DIMRADIUS, DIMDIAMETER, DIMANGULAR with the sector-selecting arc placement; SERVER-side measurement for every referenced target \u2014 client measurements are never trusted, they must match the recomputed value); leaders and multileaders (LEADER spines with optional annotation text, MLEADER arrow/landing/content blocks); text & dimension placement (text justification/height/rotation semantics, the DIMTEDIT text-position override, per-dimension textOverride); annotation scaling (the document-wide annotationScale standard \u2014 DIMSCALE-class \u2014 multiplying every dimension annotation's effective text height and arrow size: field \u00d7 style.scale \u00d7 annotationScale, persisted with the snapshot); styles \u2192 REAL rendered annotation behavior (text styles resolve font family / width factor / oblique angle LIVE at render time \u2014 changing a style visibly changes every referencing entity \u2014 and dim styles resolve text height / arrow size / overall scale / measurement precision / the NEW arrowStyle closed|tick|none and unitSuffix fields; both hosts paint through the ONE shared render-primitive + painter pipeline so the output is identical by construction); associative dimensions (dimension references re-resolve from the CURRENT geometry and re-measure inside the SAME atomic versioned batch when entity.modify or drafting.delete touches a referenced element; typed disassociation when targets vanish \u2014 the dimension survives at its last known value; annotation.remeasure for manual re-runs); the App API additions (annotation.create with server-side measurement + reference validation, annotation.update with per-type field vocabularies and null-resets, annotation.remeasure, the CommandContext style-table fields); Web/Electron parity through the same shared core + the pinned CAD-PARITY-005 fixture (36-command semantic stream, save sha a14ce71cfebd3a1d\u2026) with the pinned CAD-PARITY-002 and CAD-PARITY-004 fixtures byte-identical (every new field additive + optional); and Vercel deployed verification of the exact PR head (the post-CAD-PARITY-002 program rule).",
+  "acceptance_criteria": [
+    "Semantic correctness: every advertised annotation operation computes deterministic results with explicit typed failure behavior (LOCK-007 \u2014 empty text, zero heights, degenerate dimension extents, coincident points, parallel angular legs, unknown layers/styles/targets/anchors, field mismatches between client and recomputed measurements, locked-layer modifications and frozen-layer creations are rejected with stable codes, never silently repaired).",
+    "Measurement honesty: dimensions are measured SERVER-side from the referenced geometry (radius/diameter from the target's current circle/arc; linear extents recomputed from p1/p2 + mode; angular sweeps from the sector selection) \u2014 stored values are the document truth between updates and client-supplied measurements must match the recomputation or the create rejects.",
+    "Associativity: entity.modify AND drafting.delete cascade re-measurement for every referencing annotation inside the SAME atomic revision (one undo entry restores geometry AND dimensions together); disassociation is typed (the ref drops, the last known value survives, the echo says so) \u2014 never a silent repair and never a lost dimension.",
+    "Interaction parity: every CAD-PARITY-005 command (TEXT, MTEXT, DIMLINEAR, DIMALIGNED, DIMRADIUS, DIMDIAMETER, DIMANGULAR, LEADER, MLEADER, DIMTEDIT, DIMSCALE) is reachable from the command line (names + aliases), the ribbon/tool palette and the application menu on BOTH hosts through the ONE shared command registry and prompt engine \u2014 no host-specific command implementations.",
+    "Style-driven rendering: the SAME annotation entity renders identically on both hosts through the shared primitive/painter pipeline; text styles drive font/width/oblique live and dim styles drive text height/arrow size/precision/arrowStyle/unitSuffix live, with the document annotationScale multiplying dimension annotation geometry \u2014 style edits visibly change rendering without touching entities.",
+    "Web/Electron parity pinned: the Electron real-UI smoke (command line + canvas ENTITY/entityPoint picks through CDP) produces the IDENTICAL document (save sha256) AND the IDENTICAL 36-command semantic stream as the Web host smoke against the pinned CAD-PARITY-005 fixture; the pinned CAD-PARITY-002 and CAD-PARITY-004 fixtures stay byte-identical (additive-optional design).",
+    "Layer integration: annotations are full layer citizens \u2014 the CAD-PARITY-004 execute() locked/frozen gate applies (creation on frozen layers rejected; locked-layer modification typed-failed), display overrides resolve through the same ByLayer chain, and the properties inspector shows the per-type annotation sections with locked read-only affordances.",
+    "Deployed verification: the exact PR head is deployed to Vercel Preview and browser-verified (the post-CAD-PARITY-002 program rule) with the deployed surface serving the canonical CAD state and the annotation workflows exercising the deployed build."
+  ],
+  "non_goals": [
+    "No text wrapping engine (explicit line breaks only \u2014 MTEXT lays out its lines from the stored content; the column width is a layout hint), no rich-text formatting codes, no fields/formulas, no spell checking.",
+    "No annotative per-viewport object scaling (the single document-wide annotationScale standard multiplies dimension annotation geometry; AutoCAD's CANNOSCALE-per-viewport model is out of scope).",
+    "No DIMASSOC re-association command (dimensions associate at creation through their picks/refs; re-associating an existing dimension to new geometry is not supported \u2014 remeasure maintains existing references).",
+    "No tolerance/limits/gaps dimension vocabulary (DIMTOL/DIMLIM-class formatting), no alternate-unit dimensions, no inspection dimensions.",
+    "No plot-output behavior (CAD-PARITY-008 scope) \u2014 the annotations render on the model canvas only.",
+    "DIMLINEAR/DIMALIGNED are point-defined (non-associative): the extension origins are free points; association is the entity-dimension family (radius/diameter/angular) and the annotation.create refs parameter \u2014 stated in the command descriptions and echoes.",
+    "No MTEXT in-place editor (content is collected through the command line with \\n escapes); no leader spline fitting; no mleader style table (the landing/height conventions are documented deterministic defaults)."
+  ],
+  "risk_assumptions": [
+    "ASSUMPTION: the flat Pt-object annotation convention (drafting:true + annotation:true marks, kind:'annotation') extends the CAD-PARITY-003/004 element model without new DocumentEdit variants \u2014 annotations are elements (addElement/updateElement/setProps), styles are the existing tables, annotationScale is a DraftingSettings standard; the execute() enforcement gate applies through the existing drafting+layer markers.",
+    "ASSUMPTION: legacy COMPAT-CAD-001 dims (tuple points) load into the canonical annotation view with defaults and render through the shared painter \u2014 the legacy painter path becomes unreachable for annotation-kind elements; the pinned 002/004 fixtures contain no dims (verified) so their save shas are unaffected.",
+    "RISK: pixel-rounded canvas picks in the real-UI smoke could diverge from the typed web stream \u2014 mitigated by the side-based angular leg selection (the pick selects the half-line, not the direction) and by entity picks resolving by identity at the outline; the Electron smoke asserts the EXACT fixture sha.",
+    "RISK: the two-layer Electron paint (SVG geometry + canvas annotation overlay) cannot interleave document order \u2014 mitigated by painting annotations above geometry (the typical drafting order) with identical primitives; semantic parity (the fixture) is unaffected.",
+    "ASSUMPTION: the deterministic text metrics convention (0.6 glyph aspect \u00d7 widthFactor, 1.2 line pitch) is used for pick boxes and MTEXT block layout only \u2014 device fonts render the actual glyphs; the convention is documented and identical on every host.",
+    "RISK: the prompt-engine extensions (flag options; multiple point steps staying open when non-last) touch shared machinery \u2014 pinned by the existing CAD-PARITY-002/003/004 command tests and smokes running unchanged (entity/entityPoint multiple steps keep their advance-after-first semantics; the 002/003/004 fixtures stayed byte-identical through the full gauntlet)."
+  ],
+  "evidence_requirements": [
+    "Deterministic automated suites for the annotation vocabulary (typed constructors, exact measurement math incl. rotated projections and angular sectors, legacy dim loading), the style-driven render primitives (effective dim styles \u00d7 scale \u00d7 annotationScale, live text styles, arrow flip behavior, text metrics, primitive-based picking) and the App API/command surface (annotation.create server-side measurement + refs, the associative cascade through entity.modify AND drafting.delete in ONE revision, typed disassociation, annotation.update field rules, locked/frozen enforcement, save/open round-trips, the 11 command flows incl. flag options and multi-point collection), running in CI on the pinned toolchains with the full regression baseline.",
+    "Green cad-parity-005 CI workflow on the implementation head: app suite with LOCK-018 covering the extended src/workspace core (incl. annotation/ + commands-anno), Web host lint/typecheck/build + ALL THREE workspace smokes against ALL THREE pinned parity fixtures, Electron build + all twelve smokes incl. the 20-check annotation real-UI smoke asserting the SAME fixture sha AND the SAME command stream as the Web host.",
+    "Browser-verified golden paths on the dev server (the same build surface CI validates): the annotation commands through the command line, style-driven rendering, the inspector annotation sections \u2014 with zero console errors.",
+    "Deployed Vercel Preview verification of the exact PR head (post-CAD-PARITY-002 program rule): the deployed surface serves the canonical CAD state, the annotation semantic stream passes against the deployed build, and the pinned parity fixtures match \u2014 recorded as evidence before the Architect review."
+  ],
+  "state": "PR_OPEN",
+  "transitions": [
+    {
+      "from": "DRAFT",
+      "to": "READY",
+      "at": "2026-08-29T00:30:00Z",
+      "actor": "pectoraux",
+      "role": "architect",
+      "reason": "Architect work order issued through the program channel after CAD-PARITY-004 merged (49a7a367): 'CAD-PARITY-005 \u2014 the next major AutoCAD-class subsystem: annotation/text engine, dimension system, leaders/multileaders, text & dimension placement, annotation scaling, styles \u2192 real rendered annotation behavior, associative dimensions, Web/Electron parity, Vercel deployed verification' \u2014 explicitly preferring the annotation subsystem over BIM expansion; Issue #82 opened carrying the scope; ready on the merged CAD-PARITY-004 foundation.",
+      "references": {
+        "issue": 82
+      }
+    },
+    {
+      "from": "READY",
+      "to": "ASSIGNED",
+      "at": "2026-08-29T00:31:00Z",
+      "actor": "pectoraux",
+      "role": "architect",
+      "reason": "Architect execution directive in the same work order: 'Z.ai should implement it under the frozen architecture, with the same standards: shared semantic core, deterministic behavior, explicit unsupported cases, full regression coverage, real UI verification, Vercel Preview verification, and stop at PR_OPEN for Architect review' \u2014 assigned to the implementation agent.",
+      "references": {
+        "issue": 82,
+        "assignee": "z-ai-implementation-agent"
+      }
+    },
+    {
+      "from": "ASSIGNED",
+      "to": "IMPLEMENTING",
+      "at": "2026-08-29T00:45:00Z",
+      "actor": "z-ai-implementation-agent",
+      "role": "implementer",
+      "reason": "Implementation started on the assigned branch work/cad-parity-005-annotation (dependency satisfied on main per the work order: CAD-PARITY-004 merged at 49a7a367).",
+      "references": {
+        "issue": 82
+      }
+    },
+    {
+      "from": "IMPLEMENTING",
+      "to": "PR_OPEN",
+      "at": "2026-08-29T03:45:00Z",
+      "actor": "z-ai-implementation-agent",
+      "role": "implementer",
+      "reason": "Evidence package complete and PR #83 opened; the shared annotation core (the 8-type vocabulary with typed constructors and server-side measurement, the style-driven render primitives + the ONE shared canvas painter, primitive-based picking, the associative remeasure cascade through entity.modify AND drafting.delete), the App API additions (annotation.create/update/remeasure, the dimStyle.create arrowStyle/unitSuffix fields, the drafting.delete cascade), the 11-command registry extension with the flag-option + point-stay prompt-engine semantics, both host extensions (Web model-canvas/palettes/inspector/ribbon + the Electron mirror), the 78-test deterministic suite, the web/electron annotation smokes with the pinned CAD-PARITY-005 fixture (save sha a14ce71cfebd3a1d\u2026), the cad-parity-005 CI workflow and this record are on the branch; the local gauntlet (733-test app suite \u2014 655 baseline + 78 new \u2014 both host typechecks/builds/lints, all three web smokes with ALL THREE pinned fixtures intact, the Electron build + ten runnable smokes incl. the 20-check annotation real-UI smoke asserting the SAME fixture sha AND the SAME 36-command stream) is green; implementation stopped at PR_OPEN as directed \u2014 CI evidence (EV-003) lands on the PR head.",
+      "references": {
+        "issue": 82,
+        "pr": 83
+      }
+    }
+  ],
+  "evidence": [
+    {
+      "id": "EV-001",
+      "type": "automated-test-suite",
+      "description": "733/733 app tests at the implementation head 6c24611: the 655 pre-existing CAD/drafting/BIM/documentation/IFC/component/workspace regressions stay green and 78 new deterministic CAD-PARITY-005 tests run in three files \u2014 workspace-2d-annotation-entities (the 8-type vocabulary: strict typed constructors with every rejection case, exact measurement math \u2014 aligned/horizontal/vertical/rotated projections, the offset placement rule, the auto-mode heuristic, CCW sweeps and the wrap-correct sector selection, radius/diameter measurement invariants, leader/mleader validation \u2014 canonical-minimal props records, the legacy COMPAT-CAD-001 dim loading with tuple points, malformed-props rejections); workspace-2d-annotation-render (effective dim styles \u00d7 style.scale \u00d7 the document annotationScale, live text-style font/width/oblique with per-entity heights, measurement formatting incl. precision/suffix/degree conversion, the deterministic text metrics convention, the readability rotation rule, dim-linear extension/dimension-line/inward-arrow geometry with the outside-arrow flip, the DIMTEDIT textPos override, dim-radius arrow-on-circle/leader geometry, dim-diameter through-line/outward arrows/label placement, the dim-angular arc polyline sampling + tangential arrows + mid-arc label, MTEXT block layout with attachment corners, leader landings, mleader vertically-centered content, primitive-based picking incl. text boxes and window/crossing selection, double-run determinism); workspace-2d-annotation-commands (the 11-command registry with alias resolution, every prompt-engine flow \u2014 the H/V flag options, the R sub-prompt, multi-point LEADER collection with the optional text skip \u2014 annotation.create for every type with SERVER-side measurement incl. refs re-resolution and the full typed-failure catalogue, frozen/locked layer enforcement, display-override validation, the ASSOCIATIVE cascade: scale/rotate re-measurement in ONE revision with one-step undo of geometry+dimension together, disassociation through drafting.delete with value survival, non-associative dims untouched, annotation.update field rules with null-resets and display preservation, annotation.remeasure, save/open round-trips with every field persisting).",
+      "produced_at": "2026-08-29T03:30:00Z",
+      "reproducible": true,
+      "references": {
+        "commit": "6c24611551b021810ffd33bd2893ee811366c04e"
+      },
+      "reproduction": "cd app && node --import tsx --test test/workspace-2d-annotation-entities.test.ts test/workspace-2d-annotation-render.test.ts test/workspace-2d-annotation-commands.test.ts (or the full suite: npm test \u2014 733/733)"
+    },
+    {
+      "id": "EV-002",
+      "type": "inspectable-artifact",
+      "description": "Deployable host proofs on the implementation head 6c24611: Web lint/typecheck/build clean; dev-server annotation smoke green against the pinned CAD-PARITY-005 fixture (36-command semantic stream through the REAL prompt engine \u2014 every annotation type, the flag/rotation options, entity-picked dimensions, style-driven creation with the fixed-height rule, DIMTEDIT, DIMSCALE, the associative cascade incl. atomicity + disassociation, locked enforcement, save/open \u2014 save sha a14ce71cfebd3a1d\u2026) with the pinned CAD-PARITY-002 fixture INTACT (a48a29a8e1d4be65\u2026, 9-command stream) AND the pinned CAD-PARITY-004 fixture INTACT (f92be229eec4eb02\u2026, 55-command stream) \u2014 legacy snapshots stay byte-identical by the additive-optional design; Electron typecheck/build clean (the renderer bundle distills the shared annotation core); the Electron annotation real-UI smoke (the 12th) drives the professional workspace over CDP \u2014 the command line, canvas ENTITY picks on the circle outline, entityPoint picks on the angular legs, the DIMTEDIT dimension pick \u2014 and asserts 20/20 checks incl. the IDENTICAL fixture sha AND the IDENTICAL 36-command stream (Web/Electron parity, LOCK-004); the nine runnable Electron regression smokes (workspace/layers/drafting/geometry/model/impact/docs/bim + engine-free) all PASS with the 002/003/004 fixtures intact.",
+      "produced_at": "2026-08-29T03:40:00Z",
+      "reproducible": true,
+      "references": {
+        "commit": "6c24611551b021810ffd33bd2893ee811366c04e"
+      },
+      "reproduction": "cd apps/web && npm run dev -- -p 3100 & node --import tsx apps/web/test/annotation-smoke.mjs (fixture app/test/fixtures/cad-parity-005-annotation.json, save sha a14ce71cfebd3a1d\u2026); cd apps/electron && node test/smoke-annotation.mjs (20/20 real-UI checks asserting the SAME fixture sha AND the SAME 36-command stream)"
+    }
+  ],
+  "decisions": []
+}
