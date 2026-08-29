@@ -227,6 +227,76 @@ export interface XrefRecord {
   readonly entities: readonly BlockEntityRecord[];
 }
 
+// --- CAD-PARITY-007 (additive): parametric constraints ---------------------
+
+/** The anchor vocabulary a constraint may address on an entity — the
+ *  canonical geometry view (the CAD-PARITY-005 resolveAnchor precedent).
+ *  Which anchors exist depends on the entity type (line: start/end/midpoint;
+ *  circle/arc: center (+ arc start/end); point: start). */
+export type ConstraintAnchor = "start" | "end" | "center" | "midpoint";
+
+/** The geometric constraint vocabulary (CAD-PARITY-007 bounded first
+ *  slice — Issue #86; every kind has a closed-form deterministic
+ *  application in the shared solver):
+ *  - horizontal / vertical — a line's direction is level / plumb;
+ *  - coincident — two anchors occupy the same position;
+ *  - parallel / perpendicular — two lines' directions;
+ *  - equal — two lines' lengths or two circles'/arcs' radii;
+ *  - tangent — line↔circle/arc (distance(center, line) = r) or
+ *    circle↔circle (external: d = r1 + r2, internal: d = |r1 − r2| —
+ *    the mode is explicit on the record, never guessed);
+ *  - fixed — the whole entity (no anchor) or one anchor is pinned;
+ *    the solver never moves a fixed anchor. */
+export type GeometricConstraintKind =
+  | "horizontal"
+  | "vertical"
+  | "coincident"
+  | "parallel"
+  | "perpendicular"
+  | "equal"
+  | "tangent"
+  | "fixed";
+
+/** The dimensional constraint vocabulary: value is millimetres for
+ *  distance/radius and RADIANS for angle (the document's canonical unit
+ *  convention; prompts convert). `distance` addresses a line's length
+ *  (one target) or the separation of two anchors (two targets — moved
+ *  along the CURRENT separation direction, deterministic);
+ *  `angle` addresses two lines (the second rotates);
+ *  `radius` addresses one circle/arc. */
+export type DimensionalConstraintKind = "distance" | "angle" | "radius";
+
+export type ConstraintKind = GeometricConstraintKind | DimensionalConstraintKind;
+
+/** One constraint address: a canonical element id + (for anchor-addressed
+ *  constraints) the anchor. The id is the DOCUMENT identity — constraints
+ *  bind canonical identity, never engine ids (LOCK-019). */
+export interface ConstraintTarget {
+  readonly id: string;
+  readonly anchor?: ConstraintAnchor;
+}
+
+/** A parametric constraint record (CAD-PARITY-007). Canonical identity
+ *  `con-NNNNNN` is minted by the document (monotonic, never reused — the
+ *  blk-/xr- pattern). Constraints are versioned document STRUCTURE edited
+ *  through the DocumentEdit command model (addConstraint/updateConstraint/
+ *  setConstraintRecord/removeConstraint): one edit = one revision = one
+ *  undo entry. The stored record is the DECLARED graph only — satisfaction
+ *  status is COMPUTED on demand by the shared solver (constraints.diagnostics),
+ *  never persisted stale. */
+export interface ConstraintRecord {
+  readonly id: string;
+  readonly kind: ConstraintKind;
+  readonly targets: readonly ConstraintTarget[];
+  /** The dimensional value (mm; radians for angle) — dimensional kinds only. */
+  readonly value?: number;
+  /** The tangency configuration — tangent circle↔circle only (absent =
+   *  external; line↔circle tangency has no modes). */
+  readonly mode?: "external" | "internal";
+  /** Fixed deterministic creation timestamp (provenance). */
+  readonly createdAt: string;
+}
+
 /** COMPAT-CAD-001 (additive): non-versioned drafting workspace settings
  *  (grid/snap configuration, units, view state). Persisted with the snapshot
  *  so save/open restores the drafting environment; NOT part of the version
@@ -480,6 +550,13 @@ export interface CADDocumentSnapshot {
   /** CAD-PARITY-006: attached external references (absent while empty;
  *   *  same additive-optional + versioned-command-model contract). */
   readonly xrefs?: readonly XrefRecord[];
+  /** CAD-PARITY-007: parametric constraints (absent while empty so legacy
+ *   *  snapshots and the pinned CAD-PARITY-002/004/005/006 fixtures stay
+ *   *  byte-identical; versioned through the addConstraint/updateConstraint/
+ *   *  setConstraintRecord/removeConstraint command model). The declared
+ *   *  constraint graph only — satisfaction is computed on demand, never
+ *   *  stored stale. */
+  readonly constraints?: readonly ConstraintRecord[];
 }
 
 /** One canonical↔GlobalId provenance mapping entry of an IFC import
@@ -834,4 +911,50 @@ export type DocumentEdit =
       readonly element?: undefined;
       readonly patch?: undefined;
       readonly xrefId: string;
+    }
+  // --- CAD-PARITY-007 (additive): the parametric constraint table ----------
+  | {
+      /** Add a constraint record. A missing/empty id mints a canonical
+       *  `con-NNNNNN` identity (the addElement/addBlockDef pattern); a
+       *  duplicate id is rejected. The record's kind/targets/value
+       *  combination is validated against the constraint vocabulary (the
+       *  shared workspace core); target ELEMENTS need not exist at the
+       *  raw-edit level (the command layer severs dead constraints
+       *  explicitly — the CAD-PARITY-005 dead-ref precedent), but the
+       *  structural record shape is enforced here. */
+      readonly type: "addConstraint";
+      readonly elementId?: undefined;
+      readonly element?: undefined;
+      readonly patch?: undefined;
+      readonly constraint: ConstraintRecord;
+    }
+  | {
+      /** Patch a constraint (value/mode — the declaration semantics).
+       *  Geometry consequences (the re-solve) are computed by the command
+       *  layer and travel as element edits in the SAME atomic batch — this
+       *  edit only rewrites the declared record. */
+      readonly type: "updateConstraint";
+      readonly elementId?: undefined;
+      readonly element?: undefined;
+      readonly patch: Readonly<Record<string, unknown>>;
+      readonly constraintId: string;
+    }
+  | {
+      /** Full-record constraint restore (exact inverse semantics — mirrors
+       *  setBlockDefRecord: used as the updateConstraint inverse so absence
+       *  of keys is representable on undo/replay). */
+      readonly type: "setConstraintRecord";
+      readonly elementId?: undefined;
+      readonly element?: undefined;
+      readonly patch?: undefined;
+      readonly constraintId: string;
+      readonly constraint: ConstraintRecord;
+    }
+  | {
+      /** Remove a constraint record (the solver's graph forgets it). */
+      readonly type: "removeConstraint";
+      readonly elementId?: undefined;
+      readonly element?: undefined;
+      readonly patch?: undefined;
+      readonly constraintId: string;
     };

@@ -26,7 +26,7 @@
  */
 
 import type { Vec2 } from "../drafting/precision.js";
-import type { BlockDefinitionRecord, DimStyleRecord, LayerRecord, TextStyleRecord, XrefRecord } from "../contracts/caddocument.js";
+import type { BlockDefinitionRecord, ConstraintRecord, DimStyleRecord, LayerRecord, TextStyleRecord, XrefRecord } from "../contracts/caddocument.js";
 
 // ---------------------------------------------------------------------------
 // Command categories (mirrors the ribbon/menu information architecture of
@@ -255,6 +255,9 @@ export interface CommandContext {
   /** CAD-PARITY-006: the attached external references (XATTACH/XDETACH/
    *  XLIST builders; empty on legacy contexts). */
   readonly xrefs: readonly XrefRecord[];
+  /** CAD-PARITY-007: the declared parametric constraint graph
+   *  (CONSTRAINTLIST/DELCONSTRAINT builders; empty on legacy contexts). */
+  readonly constraints: readonly ConstraintRecord[];
 }
 
 export function defaultCommandContext(overrides?: Partial<CommandContext>): CommandContext {
@@ -272,6 +275,7 @@ export function defaultCommandContext(overrides?: Partial<CommandContext>): Comm
     currentDimStyle: "Standard",
     blocks: [],
     xrefs: [],
+    constraints: [],
     ...overrides,
   };
 }

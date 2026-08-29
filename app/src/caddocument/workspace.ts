@@ -973,6 +973,12 @@ import {
   normalizeBlockEntities,
 } from "../workspace/blocks/types.js";
 import type { BlockDefinitionRecord, BlockEntityRecord, XrefRecord } from "../contracts/caddocument.js";
+// CAD-PARITY-007: the shared constraints core (engine-free — the constraint
+// record grammar lives in the workspace core so the document validators and
+// both hosts resolve the SAME table; the type-only contracts import keeps
+// the runtime cycle-free).
+import { makeConstraint } from "../workspace/constraints/types.js";
+import type { ConstraintRecord } from "../contracts/caddocument.js";
 
 const SHA256_RE = /^[0-9a-f]{64}$/;
 
@@ -1165,6 +1171,63 @@ export function deriveXrefSequence(xrefs: readonly XrefRecord[]): number {
   let max = 0;
   for (const x of xrefs) {
     const m = /^xr-(\d{6,})$/.exec(x.id);
+    if (m !== null && m[1] !== undefined) max = Math.max(max, Number.parseInt(m[1], 10));
+  }
+  return max + 1;
+}
+
+// --- CAD-PARITY-007 (additive): the parametric constraint table -----------
+
+/** CAD-PARITY-007: validate + normalize a constraint record (the structural
+ *  grammar through the shared constraints core — makeConstraint; the
+ *  SEMANTIC vocabulary check against the actual elements happens at the
+ *  command layer through validateConstraintTargets). LOCK-007: malformed
+ *  records are rejected with a descriptive error, never repaired. */
+export function validateConstraintRecord(record: unknown): ConstraintRecord {
+  if (typeof record !== "object" || record === null) {
+    throw new Error("constraint record must be an object");
+  }
+  const r = record as Record<string, unknown>;
+  if (typeof r.id !== "string" || r.id.length === 0) {
+    throw new Error("constraint record: id must be a non-empty string");
+  }
+  try {
+    return makeConstraint(r);
+  } catch (e) {
+    throw new Error(`constraint '${r.id}': ${(e as Error).message}`);
+  }
+}
+
+/** Keys a constraint patch may carry (id/kind/targets/createdAt are the
+ *  declaration identity — immutable; a different kind or target set is a
+ *  remove + re-create, the honest bounded rule). */
+const CONSTRAINT_PATCH_KEYS = ["value", "mode"] as const;
+
+/** Validate + merge an updateConstraint patch (the merged record
+ *  re-validates as a whole through the shared grammar). */
+export function applyConstraintPatch(current: ConstraintRecord, patch: Readonly<Record<string, unknown>>): ConstraintRecord {
+  for (const key of Object.keys(patch)) {
+    if (key === "id" || key === "kind" || key === "targets" || key === "createdAt") {
+      throw new Error("updateConstraint: id/kind/targets/createdAt are the constraint identity — immutable (remove + re-create)");
+    }
+    if (!(CONSTRAINT_PATCH_KEYS as readonly string[]).includes(key)) {
+      throw new Error(`updateConstraint: unknown field '${key}' (allowed: ${CONSTRAINT_PATCH_KEYS.join(", ")})`);
+    }
+  }
+  const cleaned: Record<string, unknown> = { ...current };
+  for (const [key, value] of Object.entries(patch)) {
+    if (value === undefined) continue;
+    cleaned[key] = value;
+  }
+  return validateConstraintRecord(cleaned);
+}
+
+/** CAD-PARITY-007: derive the constraint mint-sequence counter from
+ *  existing minted ids (`con-NNNNNN`) — the deriveBlockSequence contract. */
+export function deriveConstraintSequence(constraints: readonly ConstraintRecord[]): number {
+  let max = 0;
+  for (const c of constraints) {
+    const m = /^con-(\d{6,})$/.exec(c.id);
     if (m !== null && m[1] !== undefined) max = Math.max(max, Number.parseInt(m[1], 10));
   }
   return max + 1;

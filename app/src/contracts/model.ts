@@ -113,6 +113,11 @@ export interface ModelHistory {
   /** CAD-PARITY-006: monotonic mint counter for `xr-NNNNNN` external-reference
    *  identities (additive-optional; absent on legacy histories). */
   readonly next_xref_sequence?: number;
+  /** CAD-PARITY-007: monotonic mint counter for `con-NNNNNN` parametric
+   *  constraint identities (additive-optional; absent on legacy histories —
+   *  canonical-minimal: emitted only once a constraint identity has actually
+   *  been minted, mirroring next_block_sequence). */
+  readonly next_constraint_sequence?: number;
   /** Append-only revision log (revisions[i].revision_number === i + 1). */
   readonly revisions: readonly ModelRevision[];
 }

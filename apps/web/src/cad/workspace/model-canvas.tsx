@@ -88,6 +88,14 @@ import {
   type TextAnnotation,
 } from "@offisos/cad-app-shell/workspace/annotation";
 import { paintAnnotationPrimitives } from "@offisos/cad-app-shell/workspace/annotation/paint";
+// CAD-PARITY-007 (Issue #86): the shared constraints core — the glyph
+// descriptors + the ONE shared badge painter (the SAME rendering the
+// Electron canvas runs; diagnostics computed through the shared solver).
+import {
+  constraintGlyphs,
+  diagnoseConstraints,
+  paintConstraintGlyphs,
+} from "@offisos/cad-app-shell/workspace/constraints";
 // CAD-PARITY-006 (Issue #84): the shared blocks core — the instance
 // vocabulary checks + the ONE shared expansion (render, pick and bounds read
 // the SAME derived view; no engine loads here — LOCK-003/018/004).
@@ -993,6 +1001,23 @@ export function ModelCanvas(props: ModelCanvasProps): React.JSX.Element {
         continue;
       }
       drawBimPlanElement(ctx, el, { selected: selectedSet.has(el.id), toScreen, zoom });
+    }
+
+    // CAD-PARITY-007 (Issue #86): the constraint bar badges — one glyph per
+    // declared constraint at the deterministic positions (the SHARED painter;
+    // violated badges render hot through the shared diagnostics — identical
+    // on Web and Electron, LOCK-004).
+    const declaredConstraints = snapshot?.constraints ?? [];
+    if (declaredConstraints.length > 0) {
+      const diagnostics = diagnoseConstraints(snapshot?.elements ?? [], declaredConstraints);
+      const violated = new Set(
+        diagnostics.statuses.filter((s) => !s.satisfied).map((s) => s.id),
+      );
+      paintConstraintGlyphs(
+        ctx,
+        constraintGlyphs(snapshot?.elements ?? [], declaredConstraints),
+        { toScreen: toScreenPt, violated },
+      );
     }
 
     // Pending polyline preview.

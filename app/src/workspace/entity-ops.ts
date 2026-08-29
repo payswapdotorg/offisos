@@ -70,7 +70,15 @@ import {
   normalizedRotation,
   xrefRefFromElement,
 } from "./blocks/index.js";
-import type { BlockDefinitionRecord } from "../contracts/caddocument.js";
+import type { BlockDefinitionRecord, ConstraintRecord } from "../contracts/caddocument.js";
+// CAD-PARITY-007: the parametric-constraints core (engine-free — the
+// constraint-aware editing cascade: severance + the deterministic re-solve,
+// composed with the annotation remeasure cascade in ONE atomic batch).
+import {
+  constraintCascade,
+  collectEditedIds,
+  applyEditsInMemory,
+} from "./constraints/index.js";
 
 // ---------------------------------------------------------------------------
 // Typed failures (stable codes across hosts; LOCK-007/008).
@@ -437,6 +445,24 @@ export type EntityModifyOp =
   | { readonly op: "explode"; readonly ids: readonly string[]; readonly blockDefById?: (id: string) => BlockDefinitionRecord | undefined }
   | { readonly op: "setGeometry"; readonly id: string; readonly geom: Geom }
   | {
+      /** CAD-PARITY-007: deterministic rectangular/polar array (the bounded
+       *  pattern surface — path arrays are a typed decline at the command
+       *  layer). Copies carry document-minted identities (one atomic batch,
+       *  replay-safe); constraint bindings do NOT travel to the copies (they
+       *  bind the source canonical identities — documented). */
+      readonly op: "array";
+      readonly mode: "rectangular" | "polar";
+      readonly ids: readonly string[];
+      readonly rows?: number;
+      readonly columns?: number;
+      readonly rowSpacing?: number;
+      readonly columnSpacing?: number;
+      readonly center?: Pt;
+      readonly items?: number;
+      readonly angleSpan?: number;
+      readonly rotateItems?: boolean;
+    }
+  | {
       /** CAD-PARITY-004: set display overrides + optional layer reassignment
        *  for a batch of entities — ONE atomic applyEdits revision (CHPROP /
        *  MATCHPROP / the Properties palette write path). */
@@ -447,87 +473,105 @@ export type EntityModifyOp =
       readonly ltypeResolves?: (name: string) => boolean;
     };
 
+/** CAD-PARITY-007: the constraint context for modify operations. When the
+ *  declared graph is present, geometry edits run the constraint-aware
+ *  cascade (severance for removed/re-topologized targets + the deterministic
+ *  re-solve with fixed-restore) inside the SAME atomic batch. */
+export interface ModifyContext {
+  readonly constraints?: readonly ConstraintRecord[];
+}
+
 /** Apply one modify operation. All geometry resolution goes through the
- *  canonical bridge; all computation through the deterministic kernel. */
-export function modifyEntities(elements: readonly Element[], op: EntityModifyOp): EntityOpOutcome {
+ *  canonical bridge; all computation through the deterministic kernel.
+ *  CAD-PARITY-007: the constraint cascade (severance + re-solve) composes
+ *  BEFORE the CAD-PARITY-005 annotation remeasure cascade — dimensions
+ *  re-measure against the constraint-settled world, all in ONE atomic
+ *  revision (one undo entry). */
+export function modifyEntities(
+  elements: readonly Element[],
+  op: EntityModifyOp,
+  context: ModifyContext = {},
+): EntityOpOutcome {
   const base = modifyEntitiesBase(elements, op);
+  if (base.edit === null) return base;
+  const baseEdits: DocumentEdit[] =
+    base.edit.type === "applyEdits" ? [...base.edit.edits] : [base.edit];
+  let edits = [...baseEdits];
+  let summary = base.summary;
+
+  // CAD-PARITY-007: the constraint-aware cascade (severance + re-solve).
+  if (context.constraints !== undefined && context.constraints.length > 0) {
+    const cascade = constraintCascade(
+      elements,
+      base.edit,
+      context.constraints,
+      retopologizedIdsOf(op),
+    );
+    if (cascade.edits.length > 0) {
+      edits = [...edits, ...cascade.edits];
+      summary = `${summary}; ${cascade.notes.join("; ")}`;
+    }
+  }
+
   // CAD-PARITY-005: the ASSOCIATIVE CASCADE — when the edit changes
   // geometry that dimensions reference, the dependent dimensions
   // re-measure inside the SAME atomic batch (one revision, one undo entry).
-  if (base.edit === null) return base;
-  const batch = base.edit.type === "applyEdits" ? base.edit : { type: "applyEdits" as const, edits: [base.edit] };
+  // CAD-PARITY-007: the changed-id set covers the base edit AND the
+  // constraint patches (a constraint-settled entity's dimensions re-measure
+  // against the settled world).
+  const currentBatch: DocumentEdit =
+    edits.length === baseEdits.length ? base.edit : { type: "applyEdits", edits };
   const changedIds = new Set<string>();
-  collectEditedIds(batch, changedIds);
+  collectEditedIds(currentBatch, changedIds);
   if (changedIds.size > 0) {
     const annotations = annotationViewsOf(elements);
     const dependent = annotationsReferencing(annotations, changedIds);
     if (dependent.length > 0) {
-      const worldAfter = applyEditsInMemory(elements, batch);
+      const worldAfter = applyEditsInMemory(elements, currentBatch);
       const cascade = remeasureCascade(dependent, worldAfter);
       if (cascade.edits.length > 0) {
-        const edits = [...batch.edits, ...cascade.edits];
-        return {
-          ...base,
-          edit: { type: "applyEdits", edits },
-          summary: `${base.summary}; ${cascade.edits.length} annotation${cascade.edits.length === 1 ? "" : "s"} re-measured`,
-        };
+        edits = [...edits, ...cascade.edits];
+        summary = `${summary}; ${cascade.edits.length} annotation${cascade.edits.length === 1 ? "" : "s"} re-measured`;
       }
     }
   }
-  return base;
+
+  // Nothing appended — the base edit stays EXACTLY as the op produced it
+  // (a single setProps stays a single setProps; the op's applyEdits shape
+  // is preserved — pinned by the CAD-PARITY-003 suite).
+  if (edits.length === baseEdits.length) return base;
+  return { ...base, edit: { type: "applyEdits", edits }, summary };
 }
 
-/** Apply an edit batch to an in-memory element world (the cascade's
- *  post-op view — addElement/updateElement(merge)/removeElement/
- *  setProps(replace); non-element edits pass through untouched). */
-function applyEditsInMemory(elements: readonly Element[], edit: DocumentEdit): Element[] {
-  let world = [...elements];
-  const walk = (e: DocumentEdit): void => {
-    if (e.type === "applyEdits") {
-      for (const sub of e.edits) walk(sub);
-      return;
-    }
-    switch (e.type) {
-      case "addElement":
-        world = [...world, e.element];
-        break;
-      case "removeElement":
-        world = world.filter((el) => el.id !== e.elementId);
-        break;
-      case "updateElement":
-        world = world.map((el) =>
-          el.id === e.elementId ? { ...el, props: { ...el.props, ...e.patch } } : el,
-        );
-        break;
-      case "setProps":
-        world = world.map((el) => (el.id === e.elementId ? { ...el, props: e.patch } : el));
-        break;
-      default:
-        break;
-    }
-  };
-  walk(edit);
-  return world;
-}
-
-/** Collect the element ids an edit batch touches (add/modify/remove). */
-function collectEditedIds(edit: DocumentEdit, out: Set<string>): void {
-  if (edit.type === "applyEdits") {
-    for (const sub of edit.edits) collectEditedIds(sub, out);
-    return;
-  }
-  switch (edit.type) {
-    case "addElement":
-      out.add(edit.element.id);
+/** CAD-PARITY-007: the entity ids a modify op RE-TOPOLOGIZES (their
+ *  construction-point identity is broken — the bounded severance rule:
+ *  trim/extend/break/fillet/chamfer/join delete the constraints of their
+ *  targets; transform ops return the geometry to the re-solve instead). */
+function retopologizedIdsOf(op: EntityModifyOp): ReadonlySet<string> {
+  const ids = new Set<string>();
+  switch (op.op) {
+    case "trim":
+      for (const t of op.trims) ids.add(t.targetId);
       break;
-    case "removeElement":
-    case "updateElement":
-    case "setProps":
-      out.add(edit.elementId);
+    case "extend":
+      for (const t of op.targets) ids.add(t.targetId);
+      break;
+    case "break":
+      ids.add(op.targetId);
+      break;
+    case "fillet":
+    case "chamfer":
+      if (op.firstId !== undefined) ids.add(op.firstId);
+      if (op.secondId !== undefined) ids.add(op.secondId);
+      if (op.polylineId !== undefined) ids.add(op.polylineId);
+      break;
+    case "join":
+      for (const id of op.ids) ids.add(id);
       break;
     default:
       break;
   }
+  return ids;
 }
 
 /** The CAD-PARITY-003 modify dispatch (the cascade wraps it). */
@@ -563,6 +607,8 @@ function modifyEntitiesBase(elements: readonly Element[], op: EntityModifyOp): E
       return opExplode(elements, op.ids, op.blockDefById);
     case "setGeometry":
       return opSetGeometry(elements, op.id, op.geom);
+    case "array":
+      return opArray(elements, op);
     case "setDisplay":
       return opSetDisplay(elements, op);
   }
@@ -792,6 +838,205 @@ function opSetGeometry(elements: readonly Element[], id: string, geom: Geom): En
     throw new EntityOpError("replacement geometry is not a well-formed canonical record", "bad_entity");
   }
   return outcome([replaceGeomEdit(view, geom)], `geometry of '${id}' updated`, { modified: 1 });
+}
+
+/** CAD-PARITY-007: the deterministic array/pattern op (rectangular +
+ *  polar — the bounded pattern surface). ONE atomic batch of copies with
+ *  document-minted identities (replay-safe: the batch is a single recorded
+ *  revision); constraint bindings do NOT travel to the copies (they bind
+ *  the SOURCE canonical identities — the honest bounded rule, echoed by
+ *  the commands). */
+function opArray(
+  elements: readonly Element[],
+  op: Extract<EntityModifyOp, { op: "array" }>,
+): EntityOpOutcome {
+  if (op.ids.length === 0) throw new EntityOpError("array requires at least one source entity", "bad_input");
+  const { instanceEls, geomIds } = partitionInstances(elements, op.ids);
+  const views = geomIds.length > 0 ? loadEntities(elements, geomIds) : new Map<string, EntityView>();
+  const edits: DocumentEdit[] = [];
+
+  const placeInstanceCopy = (el: Element, dx: number, dy: number, rotationDelta: number): void => {
+    const at = instancePlacement(el);
+    edits.push({
+      type: "addElement",
+      element: {
+        id: "",
+        kind: "geometry",
+        engineId: null,
+        props: {
+          ...el.props,
+          x: at.x + dx,
+          y: at.y + dy,
+          rotation: normalizedRotation(at.rotation + rotationDelta),
+        },
+      },
+    });
+  };
+  const placeGeomCopy = (view: EntityView, dx: number, dy: number, rotationDelta: number, pivot: Pt): void => {
+    let geom = moveGeom(view.geom, dx, dy);
+    if (rotationDelta !== 0) geom = rotateGeom(geom, pivot, rotationDelta);
+    edits.push(addGeomEdit(geom, layerOfElement(view.element), displayOverridesOf(view.element.props as Record<string, unknown>)));
+  };
+  /** The classic polar-array copy: rotateItems=true rotates the whole
+   *  geometry about the array center (pure rotation — endpoints map
+   *  p ↦ R(center, angle)·p); rotateItems=false translates by the rotated
+   *  bounding-box-center delta with the orientation preserved. */
+  const placePolarGeomCopy = (view: EntityView, angle: number, center: Pt, rotateItems: boolean): void => {
+    if (rotateItems) {
+      edits.push(
+        addGeomEdit(
+          rotateGeom(view.geom, center, angle),
+          layerOfElement(view.element),
+          displayOverridesOf(view.element.props as Record<string, unknown>),
+        ),
+      );
+      return;
+    }
+    const box = geometryBounds(view.geom);
+    const px = box.minX + (box.maxX - box.minX) / 2;
+    const py = box.minY + (box.maxY - box.minY) / 2;
+    const cos = Math.cos(angle);
+    const sin = Math.sin(angle);
+    const rx = center.x + cos * (px - center.x) - sin * (py - center.y);
+    const ry = center.y + sin * (px - center.x) + cos * (py - center.y);
+    placeGeomCopy(view, rx - px, ry - py, 0, center);
+  };
+
+  if (op.mode === "rectangular") {
+    const rows = op.rows ?? 1;
+    const columns = op.columns ?? 1;
+    const rowSpacing = op.rowSpacing ?? 0;
+    const columnSpacing = op.columnSpacing ?? 0;
+    if (!Number.isInteger(rows) || rows < 1 || !Number.isInteger(columns) || columns < 1) {
+      throw new EntityOpError("array rows/columns must be integers >= 1", "bad_input");
+    }
+    if (!Number.isFinite(rowSpacing) || !Number.isFinite(columnSpacing)) {
+      throw new EntityOpError("array spacings must be finite", "bad_input");
+    }
+    const copies = rows * columns - 1;
+    if (copies <= 0) {
+      return {
+        edit: null,
+        summary: `rectangular array is a single item (rows ${rows} x columns ${columns}) — nothing to create`,
+        createdCount: 0,
+        modifiedCount: 0,
+        removedCount: 0,
+      };
+    }
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < columns; c++) {
+        if (r === 0 && c === 0) continue; // the source stays
+        const dx = c * columnSpacing;
+        const dy = r * rowSpacing;
+        for (const el of instanceEls) placeInstanceCopy(el, dx, dy, 0);
+        for (const view of views.values()) placeGeomCopy(view, dx, dy, 0, { x: 0, y: 0 });
+      }
+    }
+    return outcome(
+      edits,
+      `rectangular array: ${copies} cop${copies === 1 ? "y" : "ies"} created (${rows} x ${columns}, spacing (${columnSpacing}, ${rowSpacing}))`,
+      { created: copies * op.ids.length },
+    );
+  }
+
+  // Polar.
+  const center = op.center;
+  if (center === undefined || !Number.isFinite(center.x) || !Number.isFinite(center.y)) {
+    throw new EntityOpError("polar array requires a finite center", "bad_input");
+  }
+  const items = op.items ?? 2;
+  if (!Number.isInteger(items) || items < 2) {
+    throw new EntityOpError("polar array requires an integer item count >= 2 (including the source)", "bad_input");
+  }
+  const span = op.angleSpan ?? Math.PI * 2;
+  if (!Number.isFinite(span) || span <= 0) {
+    throw new EntityOpError("polar array angle span must be > 0", "bad_input");
+  }
+  const full = span >= Math.PI * 2 - 1e-9;
+  const step = full ? Math.PI * 2 / items : span / (items - 1);
+  for (let i = 1; i < items; i++) {
+    const angle = i * step;
+    const cos = Math.cos(angle);
+    const sin = Math.sin(angle);
+    for (const el of instanceEls) {
+      const at = instancePlacement(el);
+      const rx = center.x + cos * (at.x - center.x) - sin * (at.y - center.y);
+      const ry = center.y + sin * (at.x - center.x) + cos * (at.y - center.y);
+      placeInstanceCopy(el, rx - at.x, ry - at.y, op.rotateItems === false ? 0 : angle);
+    }
+    for (const view of views.values()) {
+      placePolarGeomCopy(view, angle, center, op.rotateItems !== false);
+    }
+  }
+  const spanNote = full ? "full circle" : `${span * 180 / Math.PI}° span`;
+  const copies = items - 1;
+  return outcome(
+    edits,
+    `polar array: ${copies} cop${copies === 1 ? "y" : "ies"} created (${items} items, ${spanNote}${op.rotateItems === false ? ", items not rotated" : ""})`,
+    { created: copies * op.ids.length },
+  );
+}
+
+/** The world-space bounds of a geometry (the polar-array translation
+ *  basis — deterministic, exact for the flat vocabulary). */
+function geometryBounds(g: Geom): { minX: number; minY: number; maxX: number; maxY: number } {
+  switch (g.type) {
+    case "line":
+    case "ray":
+    case "xline":
+      return { minX: Math.min(g.x1, g.x2), minY: Math.min(g.y1, g.y2), maxX: Math.max(g.x1, g.x2), maxY: Math.max(g.y1, g.y2) };
+    case "circle":
+    case "arc":
+      return { minX: g.cx - g.r, minY: g.cy - g.r, maxX: g.cx + g.r, maxY: g.cy + g.r };
+    case "ellipse": {
+      const reach = Math.max(g.rx, g.ry);
+      return { minX: g.cx - reach, minY: g.cy - reach, maxX: g.cx + reach, maxY: g.cy + reach };
+    }
+    case "point":
+      return { minX: g.x, minY: g.y, maxX: g.x, maxY: g.y };
+    case "polyline": {
+      let minX = Infinity;
+      let minY = Infinity;
+      let maxX = -Infinity;
+      let maxY = -Infinity;
+      for (const v of g.vertices) {
+        minX = Math.min(minX, v.x);
+        minY = Math.min(minY, v.y);
+        maxX = Math.max(maxX, v.x);
+        maxY = Math.max(maxY, v.y);
+      }
+      return { minX, minY, maxX, maxY };
+    }
+    case "spline": {
+      let minX = Infinity;
+      let minY = Infinity;
+      let maxX = -Infinity;
+      let maxY = -Infinity;
+      for (const v of g.controlPoints) {
+        minX = Math.min(minX, v.x);
+        minY = Math.min(minY, v.y);
+        maxX = Math.max(maxX, v.x);
+        maxY = Math.max(maxY, v.y);
+      }
+      return { minX, minY, maxX, maxY };
+    }
+    case "region": {
+      const b = g.boundary;
+      if (b.kind === "circle") return { minX: b.cx - b.r, minY: b.cy - b.r, maxX: b.cx + b.r, maxY: b.cy + b.r };
+      if (b.kind === "ellipse") return { minX: b.cx - b.rx, minY: b.cy - b.ry, maxX: b.cx + b.rx, maxY: b.cy + b.ry };
+      let minX = Infinity;
+      let minY = Infinity;
+      let maxX = -Infinity;
+      let maxY = -Infinity;
+      for (const v of b.vertices) {
+        minX = Math.min(minX, v.x);
+        minY = Math.min(minY, v.y);
+        maxX = Math.max(maxX, v.x);
+        maxY = Math.max(maxY, v.y);
+      }
+      return { minX, minY, maxX, maxY };
+    }
+  }
 }
 
 function requireFinitePt(p: Pt, what: string): void {

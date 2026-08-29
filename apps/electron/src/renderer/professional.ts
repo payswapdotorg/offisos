@@ -169,6 +169,15 @@ import {
   type AnnotationStyleContext,
 } from "@offisos/cad-app-shell/workspace/annotation";
 import { paintAnnotationPrimitives } from "@offisos/cad-app-shell/workspace/annotation/paint";
+// CAD-PARITY-007 (Issue #86): the shared constraints core — the glyph
+// descriptors + the ONE shared badge painter + the shared diagnostics (the
+// SAME rendering/solver the Web canvas and the App API run; LOCK-004).
+import {
+  CONSTRAINT_LABEL,
+  constraintGlyphs,
+  diagnoseConstraints,
+  paintConstraintGlyphs,
+} from "@offisos/cad-app-shell/workspace/constraints";
 // CAD-PARITY-006 (Issue #84): the shared blocks core — the ONE expansion
 // (expandInstanceElement) + the instance views both hosts render/pick through
 // (LOCK-004 parity by construction; engine-free, pure — LOCK-003/018).
@@ -581,7 +590,7 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
   // panel input drafts. Survives re-renders (the panels rebuild on every
   // refresh; input values restore from these).
   let dockOpen = true;
-  let dockTab: "layers" | "styles" | "blocks" = "layers";
+  let dockTab: "layers" | "styles" | "blocks" | "constraints" = "layers";
   let layerFilterText = "";
   let layerFilterMode: LayerFilterMode = "all";
   let layerStatesOpen = false;
@@ -664,6 +673,10 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
       // reference table (the SAME snapshot fields the Web context passes).
       blocks: state.snapshot?.blockDefs ?? [],
       xrefs: state.snapshot?.xrefs ?? [],
+      // CAD-PARITY-007: the declared constraint graph (CONSTRAINTLIST /
+      // DELCONSTRAINT builders — the SAME document state the Web host
+      // passes; LOCK-004 parity).
+      constraints: state.snapshot?.constraints ?? [],
     });
   }
 
@@ -761,6 +774,10 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
             // CAD-PARITY-006: XREF — the Blocks & References manager (the
             // definitions list + the external-reference table).
             openDock("blocks");
+          } else if (palette === "constraints") {
+            // CAD-PARITY-007: CONSTRAINTS — the parametric manager (live
+            // diagnostics, dimensional value editing, removal).
+            openDock("constraints");
           } else if (palette === "properties") {
             // CAD-PARITY-004: PROPERTIES — the professional inspector overlay.
             showInspector();
@@ -919,6 +936,8 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
         { label: "Styles manager", run: () => openDock("styles") },
         // CAD-PARITY-006: the Blocks & References manager (right dock).
         { label: "Blocks & References manager", run: () => openDock("blocks") },
+        // CAD-PARITY-007: the Constraints manager (right dock).
+        { label: "Constraints manager", run: () => openDock("constraints") },
         { label: "Properties inspector", run: () => showInspector() },
       ],
     },
@@ -1038,6 +1057,14 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
       label: "Annotate",
       ids: ["text", "mtext", "dimlinear", "dimaligned", "dimradius", "dimdiameter", "dimangular", "leader", "mleader", "dimtedit", "dimscale"],
     },
+    // CAD-PARITY-007 (Issue #86): the parametric group — the SAME command
+    // set the Web Parametric ribbon tab carries (the geometric/dimensional
+    // constraint declarations, the graph inventory, the release + the
+    // manager surface; ARRAY lives in Modify).
+    {
+      label: "Parametric",
+      ids: ["geomconstraint", "dimconstraint", "constraintlist", "delconstraint", "constraints"],
+    },
     { label: "BIM", ids: ["story", "wall", "slab", "door", "window"] },
     {
       label: "Modify",
@@ -1057,6 +1084,8 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
         "join",
         "explode",
         "erase",
+        // CAD-PARITY-007 (Issue #86): the ARRAY pattern command (AR).
+        "array",
       ],
     },
   ];
@@ -1234,6 +1263,17 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
     dockTab = "blocks";
     renderDock();
   });
+  // CAD-PARITY-007 (Issue #86): the Constraints manager tab.
+  const dockTabConstraints = h("button", "pro-dock-tab");
+  dockTabConstraints.type = "button";
+  dockTabConstraints.textContent = "Constr";
+  dockTabConstraints.setAttribute("role", "tab");
+  dockTabConstraints.setAttribute("aria-label", "Constraints manager");
+  dockTabConstraints.setAttribute("data-testid", "pro-dock-tab-constraints");
+  dockTabConstraints.addEventListener("click", () => {
+    dockTab = "constraints";
+    renderDock();
+  });
   const dockClose = h("button", "pro-dock-close");
   dockClose.type = "button";
   dockClose.textContent = "×";
@@ -1243,13 +1283,13 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
     dockOpen = false;
     renderDock();
   });
-  dockTabs.append(dockTabLayers, dockTabStyles, dockTabBlocks, dockClose);
+  dockTabs.append(dockTabLayers, dockTabStyles, dockTabBlocks, dockTabConstraints, dockClose);
   const dockBody = h("div", "pro-dock-body");
   dock.append(dockTabs, dockBody);
   modelBody.append(dock);
 
   /** Open (and focus) a manager dock tab. */
-  function openDock(tab: "layers" | "styles" | "blocks"): void {
+  function openDock(tab: "layers" | "styles" | "blocks" | "constraints"): void {
     dockOpen = true;
     dockTab = tab;
     renderDock();
@@ -3016,6 +3056,23 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
       }
     }
 
+    // CAD-PARITY-007 (Issue #86): the constraint bar badges — one glyph per
+    // declared constraint at the deterministic positions, painted on the
+    // annotation canvas through the ONE shared painter (violated badges
+    // render hot through the shared diagnostics — identical on Web and
+    // Electron, LOCK-004).
+    const declaredConstraints = state.snapshot?.constraints ?? [];
+    if (declaredConstraints.length > 0 && annoCtx !== null) {
+      const diagnostics = diagnoseConstraints(state.snapshot?.elements ?? [], declaredConstraints);
+      const violated = new Set(
+        diagnostics.statuses.filter((s) => !s.satisfied).map((s) => s.id),
+      );
+      paintConstraintGlyphs(annoCtx, constraintGlyphs(state.snapshot?.elements ?? [], declaredConstraints), {
+        toScreen: (p: Pt): [number, number] => toScreen([p.x, p.y]),
+        violated,
+      });
+    }
+
     // CAD-PARITY-003 command previews (ghost geometry, axis lines, live
     // entities, echo readouts) + hover emphasis during object picks.
     const cmd = commandById(state.engine.commandId ?? "");
@@ -4116,12 +4173,15 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
     dockTabLayers.classList.toggle("active", dockTab === "layers");
     dockTabStyles.classList.toggle("active", dockTab === "styles");
     dockTabBlocks.classList.toggle("active", dockTab === "blocks");
+    dockTabConstraints.classList.toggle("active", dockTab === "constraints");
     dockTabLayers.setAttribute("aria-selected", String(dockTab === "layers"));
     dockTabStyles.setAttribute("aria-selected", String(dockTab === "styles"));
     dockTabBlocks.setAttribute("aria-selected", String(dockTab === "blocks"));
+    dockTabConstraints.setAttribute("aria-selected", String(dockTab === "constraints"));
     while (dockBody.firstChild) dockBody.removeChild(dockBody.firstChild);
     if (dockTab === "layers") renderLayersPanel(dockBody);
     else if (dockTab === "blocks") renderBlocksPanel(dockBody);
+    else if (dockTab === "constraints") renderConstraintsPanel(dockBody);
     else renderStylesPanel(dockBody);
   }
 
@@ -4708,6 +4768,152 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
       ]);
     }
     await refresh();
+  }
+
+  /** CAD-PARITY-007 (Issue #86): the Constraints manager (mirrors the Web
+   *  ConstraintsPanel) — the live solver diagnostics (the six typed
+   *  outcomes + the per-component DoF accounting), dimensional value
+   *  editing through constraint.update and removal through
+   *  constraint.remove; the explicit Solve runs constraint.solve. The
+   *  diagnostics compute through the SAME shared solver the Web panel and
+   *  the App API run (LOCK-004 parity by construction). */
+  function renderConstraintsPanel(container: HTMLElement): void {
+    const snapshot = state.snapshot;
+    const constraints = snapshot?.constraints ?? [];
+    const elements = snapshot?.elements ?? [];
+
+    const scroll = h("div", "pro-dock-scroll");
+    scroll.style.flex = "1";
+    const sec = (title: string): void => {
+      const s = h("div", "sec");
+      s.textContent = title;
+      scroll.append(s);
+    };
+    const desc = (text: string): void => {
+      const d = h("div", "desc");
+      d.textContent = text;
+      scroll.append(d);
+    };
+
+    // The header bar: the explicit Solve + the typed outcome badge.
+    const bar = h("div", "bar");
+    const solveBtn = h("button");
+    solveBtn.type = "button";
+    solveBtn.className = "mini";
+    solveBtn.style.width = "auto";
+    solveBtn.style.fontSize = "10px";
+    solveBtn.textContent = "Solve";
+    solveBtn.title = "Re-run the deterministic solve over the whole declared graph (CONSTRAINTSOLVE)";
+    solveBtn.setAttribute("aria-label", "solve the constraint graph");
+    solveBtn.addEventListener("click", () => {
+      void (async () => {
+        const res = await command("constraint.solve", {});
+        if (!res.ok) pushLines([`*ERROR* constraint.solve: ${res.code} — ${res.message}`]);
+        else pushLines([`CONSTRAINTS: ${(res.value as { summary?: string }).summary ?? "solved"}.`]);
+        await refresh();
+      })();
+    });
+    bar.append(solveBtn);
+    const outcomeBadge = h("span");
+    outcomeBadge.style.cssText = "font-size:10px;padding:1px 6px;border-radius:4px;border:1px solid;";
+    let statusById: Map<string, { id: string; satisfied: boolean; note: string | null }> | null = null;
+    if (constraints.length === 0) {
+      outcomeBadge.textContent = "no constraints";
+      outcomeBadge.style.color = "#57534e";
+    } else {
+      const diagnostics = diagnoseConstraints(elements, constraints);
+      outcomeBadge.textContent = diagnostics.outcome;
+      outcomeBadge.setAttribute("data-testid", "pro-constraints-outcome");
+      const dof = diagnostics.dof.reduce((sum, c) => sum + c.dof, 0);
+      outcomeBadge.title = `per-component DoF accounting (total ${dof})`;
+      const color =
+        diagnostics.outcome === "solved" ? "#047857" :
+        diagnostics.outcome === "under-constrained" ? "#b45309" :
+        diagnostics.outcome === "over-constrained" ? "#b91c1c" :
+        diagnostics.outcome === "unsupported" ? "#3f3f46" : "#c2410c";
+      outcomeBadge.style.color = color;
+      outcomeBadge.style.borderColor = color;
+      // The DoF section.
+      sec(`Degrees of freedom (total ${dof})`);
+      for (const comp of diagnostics.dof) {
+        const row = h("div", "desc");
+        row.textContent =
+          `${comp.entities.length} ${comp.entities.length === 1 ? "entity" : "entities"} · ` +
+          `${comp.constraints.length} ${comp.constraints.length === 1 ? "constraint" : "constraints"} · DoF ${comp.dof}`;
+        row.title = comp.entities.join(", ");
+        scroll.append(row);
+      }
+      statusById = new Map(diagnostics.statuses.map((s) => [s.id, s] as const));
+    }
+    bar.append(outcomeBadge);
+    scroll.append(bar);
+
+    sec("Declared constraints");
+    desc(
+      constraints.length === 0
+        ? "No constraints declared. GEOMCONSTRAINT (GC) / DIMCONSTRAINT (DC) add them; the canvas shows one badge per constraint."
+        : "The declared graph — satisfaction computed live through the shared solver. Edit a dimensional value to re-solve; the geometry follows in one revision.",
+    );
+    for (const c of constraints) {
+      const row = h("div", "pro-block-row");
+      const status = statusById?.get(c.id);
+      const satisfied = status?.satisfied ?? false;
+      const dot = h("span");
+      dot.style.cssText =
+        `width:8px;height:8px;border-radius:9999px;flex-shrink:0;background:${satisfied ? "#10b981" : "#ef4444"};`;
+      dot.title = satisfied ? "satisfied" : `not satisfied — ${status?.note ?? "unknown"}`;
+      dot.setAttribute("aria-label", satisfied ? "satisfied" : "violated");
+      const nm = h("span", "nm");
+      nm.textContent = CONSTRAINT_LABEL[c.kind] ?? c.kind;
+      const meta = h("span", "grow muted");
+      meta.textContent =
+        c.targets.map((t) => (t.anchor !== undefined ? `${t.id}:${t.anchor}` : t.id)).join(" → ") +
+        (c.mode !== undefined ? ` · ${c.mode}` : "");
+      meta.title = c.id;
+      row.append(dot, nm, meta);
+      if (!satisfied && status?.note != null) {
+        row.title = status.note;
+      }
+      // Dimensional value editing (constraint.update re-solves).
+      if (c.value !== undefined) {
+        const valueInput = document.createElement("input");
+        valueInput.type = "number";
+        valueInput.step = "any";
+        valueInput.min = "0";
+        valueInput.value = String(c.value);
+        valueInput.style.cssText = "width:64px;font-size:10px;text-align:right;";
+        valueInput.setAttribute("aria-label", `value of constraint ${c.id}`);
+        valueInput.title = "Re-declare the value and re-solve (constraint.update)";
+        valueInput.addEventListener("change", () => {
+          const n = Number(valueInput.value);
+          if (!Number.isFinite(n) || n <= 0 || n === c.value) return;
+          void (async () => {
+            const res = await command("constraint.update", { id: c.id, patch: { value: n } });
+            if (!res.ok) pushLines([`*ERROR* constraint.update: ${res.code} — ${res.message}`]);
+            await refresh();
+          })();
+        });
+        row.append(valueInput);
+      }
+      const removeBtn = h("button");
+      removeBtn.type = "button";
+      removeBtn.className = "mini";
+      removeBtn.style.width = "auto";
+      removeBtn.style.fontSize = "10px";
+      removeBtn.textContent = "×";
+      removeBtn.title = "Remove the constraint (the geometry stays at its solved state)";
+      removeBtn.setAttribute("aria-label", `remove constraint ${c.id}`);
+      removeBtn.addEventListener("click", () => {
+        void (async () => {
+          const res = await command("constraint.remove", { id: c.id });
+          if (!res.ok) pushLines([`*ERROR* constraint.remove: ${res.code} — ${res.message}`]);
+          await refresh();
+        })();
+      });
+      row.append(removeBtn);
+      scroll.append(row);
+    }
+    container.append(scroll);
   }
 
   /** The Styles manager (mirrors the Web StylesPanel): current styles +

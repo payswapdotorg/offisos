@@ -185,6 +185,10 @@ export function WorkspaceShell(): React.JSX.Element {
       // dynamic attribute prompts — the SAME document state both hosts pass).
       blocks: snapshot?.blockDefs ?? [],
       xrefs: snapshot?.xrefs ?? [],
+      // CAD-PARITY-007: the declared constraint graph
+      // (CONSTRAINTLIST/DELCONSTRAINT builders — the SAME document state
+      // both hosts pass).
+      constraints: snapshot?.constraints ?? [],
     });
   }, [snapshot, selection, activeLayer, activeStoryId]);
 
@@ -286,6 +290,11 @@ export function WorkspaceShell(): React.JSX.Element {
               // CAD-PARITY-006: XREF — the Blocks & References manager (the
               // definitions list + the external-reference manager).
               setDockTab("blocks");
+              setDockVisible(true);
+            } else if (palette === "constraints") {
+              // CAD-PARITY-007: CONSTRAINTS — the parametric manager (live
+              // diagnostics, dimensional value editing, removal).
+              setDockTab("constraints");
               setDockVisible(true);
             } else if (palette === "workspace") {
               setPreset((p) => (p === "compact" ? "drafting" : "compact"));

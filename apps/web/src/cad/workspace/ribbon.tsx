@@ -63,6 +63,7 @@ import {
   Type,
   Unlink,
   Undo2,
+  Waypoints,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -281,6 +282,11 @@ const RIBBON_TABS: readonly { id: string; label: string }[] = [
   { id: "Home", label: "Home" },
   { id: "Insert", label: "Insert" },
   { id: "Annotate", label: "Annotate" },
+  // CAD-PARITY-007 (Issue #86): the Parametric tab (GEOMCONSTRAINT /
+  // DIMCONSTRAINT / CONSTRAINTLIST / DELCONSTRAINT / CONSTRAINTS — the
+  // constraint manager surface, auto-mapped from the registry like every
+  // other tab).
+  { id: "Parametric", label: "Parametric" },
   { id: "BIM", label: "BIM" },
   { id: "Document", label: "Document" },
   { id: "View", label: "View" },
@@ -330,6 +336,14 @@ const TAB_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
   xlist: List,
   xref: Boxes,
   blocklist: ListTree,
+  // CAD-PARITY-007 parametric vocabulary (Issue #86): the constraint family
+  // + the ARRAY pattern command (Home tab).
+  geomconstraint: Waypoints,
+  dimconstraint: Ruler,
+  constraintlist: List,
+  delconstraint: Unlink,
+  constraints: Waypoints,
+  array: Grid3x3,
   // CAD-PARITY-003 modify vocabulary.
   rotate: RotateCw,
   scale: Scaling,
