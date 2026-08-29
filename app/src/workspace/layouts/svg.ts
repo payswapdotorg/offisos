@@ -157,7 +157,7 @@ export function plotIRToSVG(ir: PlotIR): string {
       const w = Math.abs(entry.rect.x2 - entry.rect.x1);
       const h = Math.abs(entry.rect.y2 - entry.rect.y1);
       parts.push(
-        `<clipPath id="vp-${entry.id}"><rect x="${fmt(x)}" y="${fmt(sheet.heightMm - y - h)}" width="${fmt(w)}" height="${fmt(h)}"/></clipPath>`,
+        `<clipPath id="clip-${entry.id}"><rect x="${fmt(x)}" y="${fmt(sheet.heightMm - y - h)}" width="${fmt(w)}" height="${fmt(h)}"/></clipPath>`,
       );
     }
     parts.push("</defs>");
@@ -171,7 +171,7 @@ export function plotIRToSVG(ir: PlotIR): string {
   }
   // Viewport content, clipped, in table order (later viewports on top).
   for (const entry of ir.viewports) {
-    parts.push(`<g clip-path="url(#vp-${entry.id})">`);
+    parts.push(`<g clip-path="url(#clip-${entry.id})">`);
     for (const p of entry.primitives) {
       const markup = primitiveToSVG(p, sheet.heightMm);
       if (markup.length > 0) parts.push(markup);

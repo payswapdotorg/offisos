@@ -275,6 +275,8 @@ export function validateDraftingSettings(value: unknown): DraftingSettings {
     textStyle?: string;
     dimStyle?: string;
     standards?: DrawingStandards;
+    activeLayout?: string;
+    space?: "model" | "paper";
   } = {};
   if (s.activeLayer !== undefined) {
     if (typeof s.activeLayer !== "string" || (s.activeLayer as string).length === 0) {
@@ -325,6 +327,22 @@ export function validateDraftingSettings(value: unknown): DraftingSettings {
       standards.annotationScale = st.annotationScale as number;
     }
     optional.standards = standards;
+  }
+  // CAD-PARITY-008 (additive + optional): the active layout id + the
+  // TILEMODE-class space context (persisted editor state; cross-reference
+  // checks like activeLayout existence live in the App API layer where the
+  // adopted table is available — the activeLayer precedent).
+  if (s.activeLayout !== undefined) {
+    if (typeof s.activeLayout !== "string" || (s.activeLayout as string).length === 0) {
+      throw new Error("draftingSettings.activeLayout must be a non-empty string when present");
+    }
+    optional.activeLayout = s.activeLayout as string;
+  }
+  if (s.space !== undefined) {
+    if (s.space !== "model" && s.space !== "paper") {
+      throw new Error("draftingSettings.space must be 'model' or 'paper' when present");
+    }
+    optional.space = s.space;
   }
   return {
     units: "mm",

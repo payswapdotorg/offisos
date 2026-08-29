@@ -1516,11 +1516,10 @@ export class CADDocument {
         if (edit.layoutId === undefined) throw new Error("removeLayout requires layoutId");
         if (!this.layouts.has(edit.layoutId)) throw new Error(`removeLayout: no layout '${edit.layoutId}'`);
         this.assertLayoutUnreferenced(edit.layoutId);
-        if (this.layouts.size <= 1) {
-          throw new Error(
-            `removeLayout: '${edit.layoutId}' is the last remaining layout — a document that has layouts keeps at least one (the last-tab rule)`,
-          );
-        }
+        // NOTE: the last-layout rule is a COMMAND-layer rule (LAYOUTDELETE),
+        // NOT a document-edit rule — undoing the FIRST layout creation
+        // replays removeLayout on a one-layout table and must succeed
+        // (journal semantics, the locked-layer-gate precedent).
         this.layouts.delete(edit.layoutId);
         break;
       }

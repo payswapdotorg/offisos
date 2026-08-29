@@ -2399,6 +2399,13 @@ export class AppApiHandler {
     const resolved = this.resolveLayoutRef(p ?? {});
     if ("ok" in resolved && resolved.ok === false) return resolved;
     const layout = resolved as LayoutRecord;
+    // The last-layout rule is a COMMAND rule (the AutoCAD last-tab rule):
+    // a document that has layouts keeps at least one. (The raw document
+    // edit does NOT enforce it — undo of the first layout creation must
+    // replay cleanly, journal semantics.)
+    if (this.doc.layoutTable.length <= 1) {
+      return err("layout_last", `layout '${layout.name}' is the last remaining layout — a document that has layouts keeps at least one (the last-tab rule)`, false);
+    }
     try {
       const viewports = this.doc.viewportsOfLayout(layout.id);
       const edits: DocumentEdit[] = viewports.map((v) => ({ type: "removeViewport", viewportId: v.id }) as DocumentEdit);
