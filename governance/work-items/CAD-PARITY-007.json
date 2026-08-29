@@ -1,0 +1,145 @@
+{
+  "id": "CAD-PARITY-007",
+  "title": "Parametric Constraints & Associative Editing: the professional constraints subsystem",
+  "issue": 86,
+  "architecture_version": "1.1",
+  "requirements": [
+    "CAD-001"
+  ],
+  "dependencies": [],
+  "objective": "Deliver the parametric constraints & associative editing subsystem on the frozen CAD/BIM Product Architecture v1.0 (Issue #86; the CAD-PARITY program's next AutoCAD-class subsystem after CAD-PARITY-006 merged at 77d1b4a): a BOUNDED DETERMINISTIC constraint solver for the existing 2D vocabulary (Issue #86 research direction — no general-purpose nonlinear solver, explicit supported constraint graphs with deterministic propagation/solve ordering over black-box numerics; unsupported relationships decline with typed results, never silently approximate), the constraint vocabulary (horizontal, vertical, coincident, parallel, perpendicular, equal, tangent, fixed + the dimensional family: line length, distances, angles, radii), the canonical constraint graph with stable ids + deterministic ordering + immutable revision integration, SIX explicit solve outcomes (solved, under-constrained, over-constrained, unsatisfied, ambiguous, unsupported), associative dimensions/annotations recompute from canonical element identities after supported geometry edits, constraint-aware MOVE/STRETCH/TRIM/EXTEND/ROTATE/COPY where the declared vocabulary supports it (transform edits re-solve with fixed-restore; re-topologizing edits sever the broken constraints — the CAD-PARITY-005 dead-ref precedent), the deterministic ARRAY/pattern family (rectangular + polar with document-minted canonical identities and replay-safe semantics; path arrays are typed declines), constraint diagnostics + the professional Constraints palette on Web and Electron (the SAME shared solver — LOCK-004 parity by construction), the shared glyph painter, save/open/undo/redo/replay persistence with Construction Graph mapping by canonical identity, and Vercel deployed verification of the exact PR head including the real constraint workflow.",
+  "acceptance_criteria": [
+    "Semantic correctness: every constraint kind computes deterministic results through closed-form applications with explicit typed failure behavior (LOCK-007 — unknown kinds, arity/anchor violations, non-positive dimensional values, targets outside the constrained vocabulary and mixed distance declarations are rejected with stable codes; ambiguity on degenerate geometry declines rather than guessing; the structural over-constraint create gate rejects redundant constraints naming the conflict).",
+    "Solver honesty: the six solve outcomes are explicit, reproducible and honest — solved (fully constrained), under-constrained (remaining declared DoF reported), over-constrained (structural redundancy or a fixed-geometry conflict), unsatisfied (a violated constraint after the deterministic pass bound), ambiguous (a degenerate closed form), unsupported (a target that left the vocabulary); satisfaction is COMPUTED on demand, never persisted stale.",
+    "Associative composition: constraint changes propagate to dependent geometry AND associative dimensions re-measure from canonical element identities inside the SAME atomic revision (one revision = one undo entry); constraint edits remain deterministic across repeated runs, undo/redo and save/open; canonical identities never change through solves.",
+    "Constraint-aware editing: transform edits re-solve the affected components with fixed-restore (a moved fixed entity returns to its pinned state, echoed); re-topologizing edits (trim/extend/break/fillet/chamfer/join) and deletions SEVER the broken constraints with explicit echoes; copies and array items carry NO constraint bindings (constraints bind the source canonical identities — documented and echoed).",
+    "Identity honesty: constraint identities are document-minted, monotonic and never reused (con-NNNNNN, the blk-/xr- pattern); the snapshot and history stay canonical-minimal so legacy documents and the pinned CAD-PARITY-002/004/005/006 fixtures remain byte-identical.",
+    "Host parity: Web and Electron run the SAME shared constraints core (vocabulary, solver, cascades, glyph painter, palette diagnostics) and produce the identical semantic command stream + save sha for the pinned 007 fixture (LOCK-004).",
+    "Deployed verification: the exact PR head is deployed to Vercel and the deployed build reproduces ALL FIVE parity fixtures byte-identically plus the real constraint workflow through the deployed browser (zero page errors).",
+    "Boundary discipline: no OCCT/FreeCAD/IfcOpenShell imports enter the renderer/workspace/CADDocument/App API (the LOCK-018 scan covers the constraints core); no protected architecture artifacts change."
+  ],
+  "non_goals": [
+    "Full AutoCAD/Archicad/Revit constraint parity.",
+    "General-purpose nonlinear optimization or numeric relaxation solvers.",
+    "Advanced 3D parametric assemblies.",
+    "Full structural/MEP constraint systems.",
+    "Production DWG/PDF writer implementation.",
+    "Project/scheduling work.",
+    "Architecture changes (Architecture v1.1 and the CAD/BIM Product Architecture v1.0 stay FROZEN)."
+  ],
+  "risk_assumptions": [
+    "The bounded propagation solver resolves typical chain topologies within the deterministic pass bound; pathological oscillations terminate at the bound with the honest unsatisfied outcome (verified by the contradictory-dimensionals test).",
+    "Anchor-level constraint addressing is limited to the canonical anchors (start/end/center/midpoint) of the constrained vocabulary — per-vertex polyline constraints are out of scope for this slice (typed declines).",
+    "The DoF accounting is the declared bounded formula (line 4, circle 3, arc 5, point 2; each constraint removes its declared DoF) — rigidity analysis is out of scope; the classification it drives is deterministic and reproducible.",
+    "Constraint bindings do not travel to COPY/ARRAY items (constraints bind the source canonical identities) — the honest bounded rule, echoed by the commands.",
+    "MIRROR on block instances remains the CAD-PARITY-006 typed decline; ARRAY of instances composes placements exactly."
+  ],
+  "evidence_requirements": [
+    "Deterministic automated suites for the constraints vocabulary (the grammar, the typed declines, anchor resolution, DoF accounting), the solver (every closed form with the authority/fixed-flip rules, the six outcomes explicit + reproducible, the fixed-restore cascade, determinism) and the document model (con- minting, the four edit variants with exact inverses incl. key-adding updates, canonical-minimal snapshot/history with legacy byte-identity, replay integrity, open-time validation).",
+    "The App API/command surface: constraint.create/update/remove/solve + constraints.list/diagnostics, the over-constraint create gate, the constraint-aware editing cascades composed with the annotation remeasure, severance on delete/trim, the ARRAY ops and the prompt-engine flows for all six commands.",
+    "The pinned CAD-PARITY-007 parity fixture asserted by BOTH hosts (the web prompt-engine smoke AND the Electron real-UI smoke over CDP) with the identical save sha AND the identical semantic command stream; the 002/004/005/006 fixtures stay byte-identical.",
+    "CI: the cad-parity-007 workflow green on the PR head (the full app suite with both real engines + all five web smokes + fourteen electron smokes).",
+    "Deployed Vercel verification of the exact PR head: all five fixtures byte-identical against the deployed build + the deployed constraints protocol + the deployed browser protocol with the real constraint workflow and zero page errors."
+  ],
+  "state": "PR_OPEN",
+  "transitions": [
+    {
+      "from": "DRAFT",
+      "to": "READY",
+      "at": "2026-08-29T10:40:00Z",
+      "actor": "pectoraux",
+      "role": "architect",
+      "reason": "Architect work order issued through the program channel after CAD-PARITY-006 merged (77d1b4a): 'CAD-PARITY-007 — Parametric Constraints & Associative Editing … the bounded deterministic constraint solver, associative dimensions/annotations, constraint-aware editing, mirror/array/pattern behavior, diagnostics, persistence, Web/Electron parity, and deployed Vercel verification' — the correct next slice in the frozen parity program; Issue #86 opened carrying the scope; Z.ai authorized to execute and stop at PR_OPEN / VERIFYING.",
+      "references": {
+        "issue": 86
+      }
+    },
+    {
+      "from": "READY",
+      "to": "ASSIGNED",
+      "at": "2026-08-29T10:45:00Z",
+      "actor": "pectoraux",
+      "role": "architect",
+      "reason": "Assigned to the Z.ai implementation agent for the CAD-PARITY program.",
+      "references": {
+        "issue": 86,
+        "assignee": "z-ai-implementation-agent"
+      }
+    },
+    {
+      "from": "ASSIGNED",
+      "to": "IMPLEMENTING",
+      "at": "2026-08-29T10:50:00Z",
+      "actor": "z-ai-implementation-agent",
+      "role": "implementer",
+      "reason": "Implementation started on branch work/cad-parity-007-parametrics.",
+      "references": {
+        "issue": 86
+      }
+    },
+    {
+      "from": "IMPLEMENTING",
+      "to": "PR_OPEN",
+      "at": "2026-08-29T19:30:00Z",
+      "actor": "z-ai-implementation-agent",
+      "role": "implementer",
+      "reason": "Implementation complete and submitted for review: PR #87 (branch work/cad-parity-007-parametrics) — the shared constraints core (the bounded deterministic solver with the six typed outcomes + the constraint-aware cascades + the glyph painter) + both host mirrors + 68 deterministic tests + the pinned 007 parity fixture asserted by BOTH hosts (the web prompt-engine smoke + the Electron real-UI smoke 21/21 over CDP) + the CI workflow; the exact head deployed to Vercel and verified (all five fixtures byte-identical + the 15/15 deployed constraints protocol + the deployed browser protocol with zero page errors). No APPROVED/VERIFIED claim — awaiting the Architect's review.",
+      "references": {
+        "issue": 86,
+        "pr": 87,
+        "commit": "ee5d892"
+      }
+    }
+  ],
+  "evidence": [
+    {
+      "id": "EV-001",
+      "type": "automated-test-suite",
+      "description": "871/871 app tests green at head ee5d892 (803 pre-existing + 68 new CAD-PARITY-007 tests in three files: workspace-2d-constraints-solver (24), workspace-2d-constraints-document (13), workspace-2d-constraints-commands (31)) — the vocabulary grammar + typed declines, the closed-form applications with the authority/fixed-flip rules, the six outcomes explicit + reproducible, the DoF accounting, the fixed-restore cascade, the minting/inverses/byte-identity/replay suites, the App API surface with the over-constraint create gate, the constraint-aware editing + remeasure composition, severance, the ARRAY ops and all six prompt-engine flows; the suites pinned implementation defects before commit (the tangent shift sign + authority direction, the polar-array double transform, the unwrapped single-edit batch shape).",
+      "produced_at": "2026-08-29T16:20:00Z",
+      "reproducible": true,
+      "reproduction": "cd app && node --import tsx --test test/*.test.ts",
+      "references": {
+        "commit": "ee5d892"
+      }
+    },
+    {
+      "id": "EV-002",
+      "type": "inspectable-artifact",
+      "description": "The pinned CAD-PARITY-007 parity fixture (app/test/fixtures/cad-parity-007-constraints.json — the 27-command semantic stream incl. GEOMCONSTRAINT horizontal/coincident/tangent/fixed, DIMCONSTRAINT length with the dynamic current-value default, constraint.update re-solves with the associative-dimension remeasure, constraint-aware MOVE, the fixed restore, the ARRAY pattern, solve diagnostics, severance, DELCONSTRAINT, save/open; save sha cd9f3f61fa23d38f…) asserted by BOTH hosts: the web prompt-engine smoke (constraints-smoke.mjs against the dev server) AND the Electron real-UI smoke (smoke-constraints.mjs, 21/21 checks over CDP with canvas ENTITY/ENTITY-POINT picks on the constraint targets) — identical sha AND identical command stream; the pinned 002/004/005/006 fixtures remain byte-identical (LOCK-004).",
+      "produced_at": "2026-08-29T18:10:00Z",
+      "reproducible": true,
+      "reproduction": "cd apps/web && npm run dev -- -p 3100 & then node --import tsx apps/web/test/constraints-smoke.mjs; cd apps/electron && npm run build && node test/smoke-constraints.mjs",
+      "references": {
+        "commit": "ee5d892",
+        "artifact_path": "app/test/fixtures/cad-parity-007-constraints.json"
+      }
+    },
+    {
+      "id": "EV-003",
+      "type": "ci-run",
+      "description": "CI-green on the PR head: the cad-parity-007 workflow runs the 871-test app suite with BOTH real engines (OCCT 7.8.1.1 + ifcopenshell 0.8.5), ALL FIVE web smokes (the 002/004/005/006 regression fixtures + the new 007 constraints fixture) and FOURTEEN electron smokes (the thirteen prior + the new constraints real-UI smoke) — the LOCK-018 forbidden-import scan covers the constraints core.",
+      "produced_at": "2026-08-29T20:00:00Z",
+      "reproducible": true,
+      "reproduction": "The cad-parity-007 workflow on PR #87",
+      "references": {
+        "commit": "ee5d892",
+        "pr": 87
+      }
+    },
+    {
+      "id": "EV-004",
+      "type": "inspectable-artifact",
+      "description": "Deployed verification of the EXACT PR head: Vercel deployment dpl_ymS26WJzQL13boG9qnpeK6x2B9eL READY at https://offisos-2jytui4hp-ekonplacidegmailcoms-projects.vercel.app with meta gitsha=ee5d892e849c832549f1b40e6e465500f37b0d41, pr=87, workitem=CAD-PARITY-007 (identity via the Vercel REST API). Against the deployed build through the instance-pinning relay: ALL FIVE parity fixtures byte-identical (007 cd9f3f61…, 002 a48a29a8…, 004 f92be229…, 005 a14ce71c…, 006 a7d7ff4c…); the deployed constraints protocol 15/15 (constraint.create atomicity + the exact inverse, the over-constraint create gate, the unsupported vocabulary decline, the update re-solve, the diagnostics/list inventories, the fixed-restore, severance, the ARRAY patterns, solve, save/open + determinism); the deployed browser protocol (the Parametric ribbon tab, GEOMCONSTRAINT Horizontal through the deployed command line with a REAL canvas pick, DIMCONSTRAINT Length with the dynamic current-value default, the Constraints palette rendering the live diagnostics — the under-constrained outcome + the DoF accounting + the per-constraint rows — the palette value edit re-solving through the deployed build, the constraint glyph badges VLM-confirmed) with ZERO page errors and ZERO console errors.",
+      "produced_at": "2026-08-29T19:50:00Z",
+      "reproducible": true,
+      "reproduction": "python3 relay-pinned.py <deployment-url> 3199 & then node constraints-protocol.mjs http://localhost:3199 (the protocol + relay live in /home/z/cp7-deployed/)",
+      "references": {
+        "commit": "ee5d892",
+        "pr": 87,
+        "artifact_path": "/home/z/cp7-deployed/constraints-protocol.mjs"
+      }
+    }
+  ],
+  "decisions": []
+}
