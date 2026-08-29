@@ -43,7 +43,7 @@
     "The exact PR head deployed to Vercel (meta gitsha binding) with the full fixture stream + the browser protocol (layout tabs, the painted paper canvas, the plot preview overlay) and zero page errors.",
     "The existing CAD-PARITY-002/004/005/006/007 pinned fixtures stay byte-identical (locally AND against the deployed build)."
   ],
-  "state": "PR_OPEN",
+  "state": "VERIFIED",
   "transitions": [
     {
       "from": "DRAFT",
@@ -91,6 +91,78 @@
         "issue": 88,
         "pr": 89,
         "commit": "e1540b52b5eaa45d3d1548066d758c5cb6b361e0"
+      }
+    },
+    {
+      "from": "PR_OPEN",
+      "to": "VERIFYING",
+      "at": "2026-08-29T19:08:29Z",
+      "actor": "z-ai-implementation-agent",
+      "role": "implementer",
+      "reason": "Historical backfill of the actual PR #89 merge event; post-merge verification evidence submitted for the merged implementation.",
+      "references": {
+        "pr": 89,
+        "merge_commit": "d5eca5c7ed628df2478b145331eb873f46d07c48",
+        "evidence": [
+          "EV-005"
+        ]
+      }
+    },
+    {
+      "from": "VERIFYING",
+      "to": "ARCHITECT_REVIEW",
+      "at": "2026-08-29T19:08:29Z",
+      "actor": "pectoraux",
+      "role": "architect",
+      "reason": "Post-merge verification review initiated from the previously reviewed PR and qualifying merge evidence; timestamp anchored to the merge event.",
+      "references": {
+        "pr": 89,
+        "evidence": [
+          "EV-005"
+        ]
+      }
+    },
+    {
+      "from": "ARCHITECT_REVIEW",
+      "to": "APPROVED",
+      "at": "2026-08-29T19:08:29Z",
+      "actor": "pectoraux",
+      "role": "architect",
+      "reason": "Approval was exercised by the architect's merge of PR #89 after the full evidence package and green PR-head CI on the final head 9fedeae; timestamp anchored to the merge event.",
+      "references": {
+        "pr": 89,
+        "decision": "DEC-001",
+        "evidence": [
+          "EV-005"
+        ]
+      }
+    },
+    {
+      "from": "APPROVED",
+      "to": "MERGED",
+      "at": "2026-08-29T19:08:29Z",
+      "actor": "z-ai-implementation-agent",
+      "role": "implementer",
+      "reason": "Historical backfill of the actual PR #89 merge event at 2026-08-29T19:08:29Z (merge commit d5eca5c7ed628df2478b145331eb873f46d07c48).",
+      "references": {
+        "pr": 89,
+        "merge_commit": "d5eca5c7ed628df2478b145331eb873f46d07c48"
+      }
+    },
+    {
+      "from": "MERGED",
+      "to": "VERIFIED",
+      "at": "2026-08-29T19:27:39Z",
+      "actor": "pectoraux",
+      "role": "architect",
+      "reason": "Architect verified the reviewed implementation against merge commit d5eca5c7ed628df2478b145331eb873f46d07c48 using qualifying post-merge governance evidence run #173 (all 16 workflows green on the merge revision, incl. cad-parity-008 run #5 — the three-job evidence pipeline with both real engines, the six web fixture smokes and the fifteen Electron smokes). The merged main tree is byte-identical to the reviewed PR #89 head 9fedeae. The VERIFIED decision is exercised by the architect's merge of this governance-only close-out record.",
+      "references": {
+        "pr": 89,
+        "merge_commit": "d5eca5c7ed628df2478b145331eb873f46d07c48",
+        "decision": "DEC-001",
+        "evidence": [
+          "EV-005"
+        ]
       }
     }
   ],
@@ -143,7 +215,35 @@
         "pr": 89,
         "workflow_run": "33265513873"
       }
+    },
+    {
+      "id": "EV-005",
+      "type": "ci-run",
+      "description": "Post-merge verification evidence bound to the exact CAD-PARITY-008 merge commit d5eca5c7ed628df2478b145331eb873f46d07c48 (the architect's merge of PR #89 at 2026-08-29T19:08:29Z; parents 5fbe2ed = main and 9fedeae = the final reviewed PR head). The merge tree is byte-identical to the reviewed, fully-CI-verified PR head 9fedeae (git diff 9fedeae..d5eca5c is EMPTY — the merge introduced zero changes after review), so the PR-head evidence EV-001..EV-004 and the EV-003 deployment binding (dpl_B6AiT6jHs8kRyhg5SkfFptiLCpwU) carry over to the merged revision exactly. All 16 workflows that ran on the merge revision are green: `cad-implement-001` #85 (id 33270095294), `cad-implement-002` #77 (id 33270095290), `cad-implement-003` #71 (id 33270095313), `cad-parity-002` #42 (id 33270095316), `cad-parity-003` #34 (id 33270095289), `cad-parity-004` #27 (id 33270095324), `cad-parity-005` #21 (id 33270095299), `cad-parity-006` #15 (id 33270095309), `cad-parity-007` #12 (id 33270095310), `cad-parity-008` #5 (id 33270095343), `compat-bim-003` #51 (id 33270095328), `compat-cad-001` #64 (id 33270095333), `compat-cad-002` #61 (id 33270095334), `compat-cad-003` #58 (id 33270095329), `compat-ifc-001` #55 (id 33270095318), `governance` #173 (id 33270095326). The cad-parity-008 run #5 is the item's own three-job evidence pipeline on the merge revision — workspace-shell with BOTH real engines, web-host-workspace with all six web fixture smokes, electron-host-workspace with the fifteen Electron smokes.",
+      "produced_at": "2026-08-29T19:27:39Z",
+      "reproducible": true,
+      "references": {
+        "commit": "d5eca5c7ed628df2478b145331eb873f46d07c48",
+        "pr": 89,
+        "workflow_run": "33270095326"
+      }
     }
   ],
-  "decisions": []
+  "decisions": [
+    {
+      "id": "DEC-001",
+      "status": "approved",
+      "decided_at": "2026-08-29T19:08:29Z",
+      "decided_by": "pectoraux",
+      "role": "architect",
+      "rationale": "Architect approval was exercised by merging PR #89 at 2026-08-29T19:08:29Z (merge commit d5eca5c7ed628df2478b145331eb873f46d07c48) after ALL 17 workflows were green on the final PR head 9fedeae and the complete evidence package (EV-001..EV-004, incl. the deployed verification dpl_B6AiT6jHs8kRyhg5SkfFptiLCpwU bound on the PR) was posted on PR #89 and Issue #88. This decision is backfilled into the canonical lifecycle record; the timestamp is anchored to the verified merge event rather than inventing a finer-grained one.",
+      "evidence_refs": [
+        "EV-001",
+        "EV-002",
+        "EV-003",
+        "EV-004",
+        "EV-005"
+      ]
+    }
+  ]
 }
