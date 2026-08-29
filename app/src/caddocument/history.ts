@@ -641,13 +641,37 @@ function isValidDocumentEdit(v: unknown): boolean {
     v.type !== "addLayout" && v.type !== "updateLayout" && v.type !== "removeLayout" &&
     v.type !== "setLayoutRecord" &&
     v.type !== "addViewport" && v.type !== "updateViewport" && v.type !== "removeViewport" &&
-    v.type !== "setViewportRecord"
+    v.type !== "setViewportRecord" &&
+    // CAD-PARITY-009 additive edit types (the UCS + section-plane tables).
+    v.type !== "addUcs" && v.type !== "updateUcs" && v.type !== "removeUcs" &&
+    v.type !== "setUcsRecord" &&
+    v.type !== "addSectionPlane" && v.type !== "updateSectionPlane" && v.type !== "removeSectionPlane" &&
+    v.type !== "setSectionPlaneRecord"
   ) {
     return false;
   }
   if (v.elementId !== undefined && typeof v.elementId !== "string") return false;
   if (v.element !== undefined && !isPlainObject(v.element)) return false;
   if (v.patch !== undefined && !isPlainObject(v.patch)) return false;
+  // CAD-PARITY-009: the UCS + section-plane record shapes (structural —
+  // semantic validation runs at the document boundary through the shared
+  // grammar).
+  if (v.type === "addUcs" || v.type === "setUcsRecord") {
+    if (!isPlainObject(v.ucs)) return false;
+    const u = v.ucs as Record<string, unknown>;
+    return typeof u.id === "string" && u.id.length > 0 && typeof u.name === "string";
+  }
+  if (v.type === "updateUcs" || v.type === "removeUcs") {
+    return typeof v.ucsId === "string" && v.ucsId.length > 0;
+  }
+  if (v.type === "addSectionPlane" || v.type === "setSectionPlaneRecord") {
+    if (!isPlainObject(v.sectionPlane)) return false;
+    const sp = v.sectionPlane as Record<string, unknown>;
+    return typeof sp.id === "string" && sp.id.length > 0 && typeof sp.name === "string";
+  }
+  if (v.type === "updateSectionPlane" || v.type === "removeSectionPlane") {
+    return typeof v.sectionPlaneId === "string" && v.sectionPlaneId.length > 0;
+  }
   if (v.type === "applyEdits") {
     return Array.isArray(v.edits) && v.edits.length > 0 && v.edits.every((sub) => isValidDocumentEdit(sub));
   }
