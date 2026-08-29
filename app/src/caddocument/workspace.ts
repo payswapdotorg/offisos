@@ -306,9 +306,17 @@ export function validateDraftingSettings(value: unknown): DraftingSettings {
         `draftingSettings.standards.defaultLineweight must be a standard lineweight when present (${STANDARD_DEFAULT_LINEWEIGHT} default)`,
       );
     }
-    const standards: { linetypeScale?: number; defaultLineweight?: number } = {};
+    const standards: { linetypeScale?: number; defaultLineweight?: number; annotationScale?: number } = {};
     if (st.linetypeScale !== undefined) standards.linetypeScale = st.linetypeScale as number;
     if (st.defaultLineweight !== undefined) standards.defaultLineweight = st.defaultLineweight as number;
+    // CAD-PARITY-005 (additive + optional): the document annotation scale
+    // (DIMSCALE-class; multiplies dimension annotation geometry).
+    if (st.annotationScale !== undefined) {
+      if (!isFiniteNumber(st.annotationScale) || (st.annotationScale as number) <= 0) {
+        throw new Error("draftingSettings.standards.annotationScale must be a positive finite number when present");
+      }
+      standards.annotationScale = st.annotationScale as number;
+    }
     optional.standards = standards;
   }
   return {
@@ -805,11 +813,33 @@ export function validateDimStyleRecord(style: unknown): DimStyleRecord {
   if (!Number.isInteger(s.precision) || (s.precision as number) < 0 || (s.precision as number) > 6) {
     throw new Error(`dimStyle '${s.name}': precision must be an integer 0–6`);
   }
-  return style as DimStyleRecord;
+  // CAD-PARITY-005 (additive + optional): the rendered arrowhead kind and
+  // the measurement unit suffix.
+  if (s.arrowStyle !== undefined && s.arrowStyle !== null) {
+    if (s.arrowStyle !== "closed" && s.arrowStyle !== "tick" && s.arrowStyle !== "none") {
+      throw new Error(`dimStyle '${s.name}': arrowStyle must be closed|tick|none when present`);
+    }
+  }
+  if (s.unitSuffix !== undefined && s.unitSuffix !== null) {
+    if (typeof s.unitSuffix !== "string" || s.unitSuffix.length > 16) {
+      throw new Error(`dimStyle '${s.name}': unitSuffix must be a string of at most 16 characters when present`);
+    }
+  }
+  // Canonical-minimal: default-valued optionals drop out of the record
+  // (arrowStyle "closed" and an empty unitSuffix are the defaults).
+  const out: Record<string, unknown> = { ...(style as DimStyleRecord) };
+  if (out.arrowStyle === null || out.arrowStyle === undefined || out.arrowStyle === "closed") {
+    delete out.arrowStyle;
+  }
+  if (out.unitSuffix === null || out.unitSuffix === undefined || out.unitSuffix === "") {
+    delete out.unitSuffix;
+  }
+  return out as unknown as DimStyleRecord;
 }
 
-/** Keys a dim-style patch may carry (name is the immutable identity). */
-const DIM_STYLE_PATCH_KEYS = ["textHeight", "arrowSize", "scale", "precision"] as const;
+/** Keys a dim-style patch may carry (name is the immutable identity;
+ *  CAD-PARITY-005 adds the rendered arrowStyle + unitSuffix). */
+const DIM_STYLE_PATCH_KEYS = ["textHeight", "arrowSize", "scale", "precision", "arrowStyle", "unitSuffix"] as const;
 
 /** Validate + merge an updateDimStyle patch. */
 export function applyDimStylePatch(current: DimStyleRecord, patch: Readonly<Record<string, unknown>>): DimStyleRecord {
@@ -824,6 +854,12 @@ export function applyDimStylePatch(current: DimStyleRecord, patch: Readonly<Reco
   const cleaned: Record<string, unknown> = { ...current };
   for (const [key, value] of Object.entries(patch)) {
     if (value === undefined) continue;
+    // CAD-PARITY-005: null RESETS an optional field to its default (the
+    // canonical-minimal record convention).
+    if (value === null && (key === "arrowStyle" || key === "unitSuffix")) {
+      delete cleaned[key];
+      continue;
+    }
     cleaned[key] = value;
   }
   return validateDimStyleRecord(cleaned);

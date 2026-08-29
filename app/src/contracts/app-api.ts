@@ -94,7 +94,17 @@ export type CommandName =
   | "textStyle.remove"
   | "dimStyle.create"
   | "dimStyle.update"
-  | "dimStyle.remove";
+  | "dimStyle.remove"
+  // --- CAD-PARITY-005 (additive, Issue #82): annotation/text/dimension ---
+  // The annotation command surface. annotation.create validates + applies
+  // ONE atomic batch of annotation entities (text/mtext/dims/leaders) with
+  // server-side measurement for referenced targets; annotation.update
+  // patches annotation content/style/placement fields (full-record props
+  // rewrite, display overrides preserved); annotation.remeasure re-runs the
+  // associative measurement for the given annotations (or every dimension).
+  | "annotation.create"
+  | "annotation.update"
+  | "annotation.remeasure";
 
 // --- Query names (non-mutating) ---
 // `document.getSelection` returns the ephemeral editor selection (orthogonal

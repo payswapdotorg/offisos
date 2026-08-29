@@ -66,7 +66,33 @@ import {
   LAYER_STANDARDS,
   BUILT_IN_LTYPE_NAMES,
   STANDARD_DEFAULT_LINEWEIGHT,
+  STANDARD_LINEWEIGHTS,
 } from "../workspace/standards/index.js";
+// CAD-PARITY-005 (additive): the annotation core (engine-free — the
+// canonical annotation vocabulary, style resolution, associative cascade).
+import {
+  AnnotationError,
+  annotationFromElement,
+  annotationRefIds,
+  annotationToProps,
+  circleGeomOf,
+  elementToAnnotation,
+  makeDimAngular,
+  makeDimDiameter,
+  makeDimLinear,
+  makeDimRadius,
+  makeLeader,
+  makeMLeader,
+  makeMText,
+  makeText,
+  resolveAnchor,
+  type Annotation,
+} from "../workspace/annotation/index.js";
+import {
+  annotationViewsOf,
+  remeasureCascade,
+} from "../workspace/annotation/assoc.js";
+import { resolveTextStyle, resolveDimStyle } from "../workspace/standards/index.js";
 import type { DimStyleRecord, LayerRecord, LtypeRecord, TextStyleRecord } from "../contracts/caddocument.js";
 // COMPAT-CAD-002: the pure BIM authoring core (LOCK-018 scanned).
 import {
@@ -250,6 +276,13 @@ export class AppApiHandler {
         return this.cmdDimStyleUpdate(command.payload);
       case "dimStyle.remove":
         return this.cmdDimStyleRemove(command.payload);
+      // --- CAD-PARITY-005 (additive): annotation/text/dimension commands ---
+      case "annotation.create":
+        return this.cmdAnnotationCreate(command.payload);
+      case "annotation.update":
+        return this.cmdAnnotationUpdate(command.payload);
+      case "annotation.remeasure":
+        return this.cmdAnnotationRemeasure(command.payload);
       // --- COMPAT-CAD-002 (additive): 3D/BIM authoring commands ---
       case "bim.createElements":
         return this.cmdBimCreate(command.payload);
@@ -705,8 +738,31 @@ export class AppApiHandler {
       if (outcome.status === "no-op") {
         return ok({ applied: false, reason: outcome.reason, snapshot: this.doc.snapshot() });
       }
-      this.doc.execute(outcome.edit);
-      return ok({ applied: true, summary: outcome.summary, snapshot: this.doc.snapshot() });
+      // CAD-PARITY-005: the associative cascade — annotations referencing
+      // DELETED targets disassociate (typed notes; their last known values
+      // survive) inside the SAME atomic revision.
+      const elements = this.doc.allElements();
+      const deleted = new Set(p.ids as string[]);
+      const annotations = annotationViewsOf(elements).filter(({ annotation }) => {
+        for (const refId of annotationRefIds(annotation)) {
+          if (deleted.has(refId)) return true;
+        }
+        return false;
+      });
+      let edit: DocumentEdit = outcome.edit;
+      let summary = outcome.summary;
+      if (annotations.length > 0) {
+        const worldAfter = elements.filter((el) => !deleted.has(el.id));
+        const cascade = remeasureCascade(annotations, worldAfter);
+        if (cascade.edits.length > 0) {
+          const edits = edit.type === "applyEdits" ? [...edit.edits] : [edit];
+          edits.push(...cascade.edits);
+          edit = { type: "applyEdits", edits };
+          summary = `${summary}; ${cascade.edits.length} annotation${cascade.edits.length === 1 ? "" : "s"} disassociated`;
+        }
+      }
+      this.doc.execute(edit);
+      return ok({ applied: true, summary, snapshot: this.doc.snapshot() });
     } catch (e) {
       return err("drafting_invalid", (e as Error).message, false);
     }
@@ -1274,6 +1330,348 @@ export class AppApiHandler {
   }
 
   // --- CAD-PARITY-003 (additive): canonical 2D entity commands ---------------
+
+  // ---------------------------------------------------------------------
+  // CAD-PARITY-005: annotation commands.
+  // ---------------------------------------------------------------------
+
+  /** The annotation.update vocabulary per type (content/placement/style —
+   *  display + layer belong to entity.setDisplay). */
+  private static annotationPatchFields(type: string): readonly string[] {
+    switch (type) {
+      case "text":
+        return ["value", "height", "rotation", "style", "hAlign", "vAlign"];
+      case "mtext":
+        return ["value", "height", "rotation", "style", "attachment"];
+      case "dim-linear":
+        return ["textOverride", "textPos", "style"];
+      case "dim-radius":
+        return ["textOverride", "textPos", "style", "at"];
+      case "dim-diameter":
+        return ["textOverride", "textPos", "style", "angle"];
+      case "dim-angular":
+        return ["textOverride", "textPos", "style"];
+      case "leader":
+        return ["value", "style", "height"];
+      case "mleader":
+        return ["value", "style", "height"];
+      default:
+        return [];
+    }
+  }
+
+  /** annotation.create — validate + apply ONE atomic batch of annotation
+   *  entities (text/mtext/dimensions/leaders). Measurements for referenced
+   *  targets (radius/diameter) are computed SERVER-side from the current
+   *  geometry; dim-linear refs re-resolve p1/p2 server-side; every style
+   *  name must resolve (built-in "Standard" or the user tables); display
+   *  overrides follow the entity.create rules. One versioned command, one
+   *  revision, one undo entry. */
+  private cmdAnnotationCreate(payload: unknown): CommandQueryResponse {
+    const p = payload as { entities?: unknown } | null;
+    if (p === null || typeof p !== "object" || !Array.isArray(p.entities) || p.entities.length === 0) {
+      return err("bad_payload", "annotation.create requires a non-empty entities array", true);
+    }
+    try {
+      const elements = this.doc.allElements();
+      const byId = new Map(elements.map((el) => [el.id, el] as const));
+      const edits: DocumentEdit[] = [];
+      const summaries: string[] = [];
+      for (const [index, raw] of (p.entities as unknown[]).entries()) {
+        if (typeof raw !== "object" || raw === null) {
+          throw new AnnotationError(`entities[${index}] must be an object`, "bad_input");
+        }
+        const input = { ...(raw as Record<string, unknown>) };
+        const layer = typeof input.layer === "string" && input.layer.length > 0 ? input.layer : "0";
+        if (this.doc.layerById(layer) === undefined) {
+          throw new AnnotationError(`entities[${index}]: layer '${layer}' does not exist`, "bad_layer");
+        }
+        input.layer = layer;
+        // Style names must resolve (text style for content entities; dim
+        // style for dimensions).
+        const kind = input.type;
+        const isDim = kind === "dim-linear" || kind === "dim-radius" || kind === "dim-diameter" || kind === "dim-angular";
+        const styleName = typeof input.style === "string" && input.style.length > 0 ? input.style : "Standard";
+        if (isDim) {
+          if (resolveDimStyle(styleName, this.doc.dimStyleTable) === null) {
+            throw new AnnotationError(`entities[${index}]: unknown dim style '${styleName}'`, "bad_style");
+          }
+        } else if (kind === "text" || kind === "mtext" || kind === "leader" || kind === "mleader") {
+          if (resolveTextStyle(styleName, this.doc.textStyleTable) === null) {
+            throw new AnnotationError(`entities[${index}]: unknown text style '${styleName}'`, "bad_style");
+          }
+        } else {
+          throw new AnnotationError(
+            `entities[${index}]: unknown annotation type '${String(kind)}' (text/mtext/dim-linear/dim-radius/dim-diameter/dim-angular/leader/mleader)`,
+            "bad_input",
+          );
+        }
+        // Server-side measurement for referenced targets.
+        let annotation: Annotation;
+        switch (kind) {
+          case "dim-radius":
+          case "dim-diameter": {
+            const target = typeof input.target === "string" ? input.target : "";
+            const targetEl = byId.get(target);
+            if (targetEl === undefined) {
+              throw new AnnotationError(
+                `entities[${index}]: ${String(kind)}.target '${target}' does not exist (create the geometry first, then dimension it)`,
+                "bad_ref",
+              );
+            }
+            const circle = circleGeomOf(targetEl);
+            if (circle === null) {
+              throw new AnnotationError(
+                `entities[${index}]: ${String(kind)}.target '${target}' must be a circle or arc`,
+                "bad_ref",
+              );
+            }
+            input.center = circle.center;
+            input.radius = circle.radius;
+            input.measured = kind === "dim-radius" ? circle.radius : 2 * circle.radius;
+            annotation = kind === "dim-radius" ? makeDimRadius(input) : makeDimDiameter(input);
+            break;
+          }
+          case "dim-linear": {
+            if (Array.isArray(input.refs)) {
+              // Refs re-resolve p1/p2 SERVER-side (the references are the
+              // truth; client p1/p2 are ignored).
+              let p1x: unknown = undefined;
+              let p2x: unknown = undefined;
+              for (const [ri, refRaw] of (input.refs as unknown[]).entries()) {
+                if (typeof refRaw !== "object" || refRaw === null) {
+                  throw new AnnotationError(`entities[${index}].refs[${ri}] must be an object`, "bad_input");
+                }
+                const ref = refRaw as Record<string, unknown>;
+                const targetEl = byId.get(typeof ref.id === "string" ? ref.id : "");
+                if (targetEl === undefined) {
+                  throw new AnnotationError(`entities[${index}].refs[${ri}]: target '${String(ref.id)}' does not exist`, "bad_ref");
+                }
+                const anchor = resolveAnchor(targetEl, ref.anchor as "start" | "end" | "center" | "midpoint");
+                if (anchor === null) {
+                  throw new AnnotationError(
+                    `entities[${index}].refs[${ri}]: target '${String(ref.id)}' does not carry the '${String(ref.anchor)}' anchor`,
+                    "bad_ref",
+                  );
+                }
+                if (ref.to === "p1") p1x = anchor;
+                else if (ref.to === "p2") p2x = anchor;
+                else {
+                  throw new AnnotationError(`entities[${index}].refs[${ri}].to must be p1 or p2 for dim-linear`, "bad_input");
+                }
+              }
+              if (p1x === undefined || p2x === undefined) {
+                throw new AnnotationError(
+                  `entities[${index}]: dim-linear with refs needs one p1 ref and one p2 ref`,
+                  "bad_ref",
+                );
+              }
+              input.p1 = p1x;
+              input.p2 = p2x;
+              delete input.measured;
+            }
+            annotation = makeDimLinear(input);
+            break;
+          }
+          case "dim-angular": {
+            if (Array.isArray(input.refs)) {
+              for (const [ri, refRaw] of (input.refs as unknown[]).entries()) {
+                if (typeof refRaw !== "object" || refRaw === null) {
+                  throw new AnnotationError(`entities[${index}].refs[${ri}] must be an object`, "bad_input");
+                }
+                const ref = refRaw as Record<string, unknown>;
+                const targetEl = byId.get(typeof ref.id === "string" ? ref.id : "");
+                if (targetEl === undefined) {
+                  throw new AnnotationError(`entities[${index}].refs[${ri}]: target '${String(ref.id)}' does not exist`, "bad_ref");
+                }
+                if (resolveAnchor(targetEl, ref.anchor as "start" | "end" | "center" | "midpoint") === null) {
+                  throw new AnnotationError(
+                    `entities[${index}].refs[${ri}]: target '${String(ref.id)}' does not carry the '${String(ref.anchor)}' anchor`,
+                    "bad_ref",
+                  );
+                }
+              }
+            }
+            annotation = makeDimAngular(input);
+            break;
+          }
+          case "text":
+            annotation = makeText(input);
+            break;
+          case "mtext":
+            annotation = makeMText(input);
+            break;
+          case "leader":
+            annotation = makeLeader(input);
+            break;
+          case "mleader":
+            annotation = makeMLeader(input);
+            break;
+          default:
+            throw new AnnotationError(`entities[${index}]: unknown annotation type '${String(kind)}'`, "bad_input");
+        }
+        // Display overrides on creation (the entity.create rules).
+        const props: Record<string, unknown> = annotationToProps(annotation);
+        for (const key of ["color", "linetype", "lineweight", "transparency"] as const) {
+          const v = (input as Record<string, unknown>)[key];
+          if (v === undefined || v === "ByLayer") continue;
+          if (key === "color") {
+            if (typeof v !== "string" || !/^#[0-9a-fA-F]{6}$/.test(v)) {
+              throw new AnnotationError(`entities[${index}]: color must be 'ByLayer' or #RRGGBB`, "bad_input");
+            }
+          } else if (key === "linetype") {
+            if (typeof v !== "string" || v.length === 0) {
+              throw new AnnotationError(`entities[${index}]: linetype must be 'ByLayer' or a linetype name`, "bad_input");
+            }
+            if (!this.ltypeResolves(v)) {
+              throw new AnnotationError(`entities[${index}]: unknown linetype '${v}'`, "bad_linetype");
+            }
+          } else if (key === "lineweight") {
+            if (typeof v !== "number" || !Number.isFinite(v) || !(STANDARD_LINEWEIGHTS as readonly number[]).some((w) => Math.abs(w - v) < 1e-9)) {
+              throw new AnnotationError(`entities[${index}]: lineweight must be 'ByLayer' or a standard lineweight (mm)`, "bad_input");
+            }
+          } else {
+            if (typeof v !== "number" || !Number.isInteger(v) || v < 0 || v > 90) {
+              throw new AnnotationError(`entities[${index}]: transparency must be 'ByLayer' or an integer 0–90`, "bad_input");
+            }
+          }
+          props[key] = v;
+        }
+        edits.push({
+          type: "addElement",
+          element: { id: "", kind: "annotation", engineId: null, props },
+        });
+        summaries.push(String(kind));
+      }
+      if (edits.length === 0) {
+        return ok({ applied: false, reason: "nothing to create", snapshot: this.doc.snapshot() });
+      }
+      this.doc.execute({ type: "applyEdits", edits });
+      return ok({
+        applied: true,
+        summary: `${edits.length} annotation${edits.length === 1 ? "" : "s"} created`,
+        snapshot: this.doc.snapshot(),
+      });
+    } catch (e) {
+      if (e instanceof AnnotationError) return err(e.code, e.message, false);
+      return err("annotation_invalid", (e as Error).message, false);
+    }
+  }
+
+  /** annotation.update — patch annotation content/style/placement fields
+   *  over a batch of annotations as ONE atomic revision. Applicable fields
+   *  are validated per TYPE (a field that does not apply is a typed
+   *  failure); null RESETS an optional field to its default; display
+   *  overrides + layer are preserved (entity.setDisplay owns those). */
+  private cmdAnnotationUpdate(payload: unknown): CommandQueryResponse {
+    const p = payload as { ids?: unknown; patch?: unknown } | null;
+    if (
+      p === null || typeof p !== "object" || !Array.isArray(p.ids) || p.ids.length === 0 ||
+      typeof p.patch !== "object" || p.patch === null
+    ) {
+      return err("bad_payload", "annotation.update requires ids + patch", true);
+    }
+    try {
+      const elements = this.doc.allElements();
+      const byId = new Map(elements.map((el) => [el.id, el] as const));
+      const patch = { ...(p.patch as Record<string, unknown>) };
+      const edits: DocumentEdit[] = [];
+      for (const id of p.ids as string[]) {
+        const el = byId.get(id);
+        if (el === undefined) {
+          throw new AnnotationError(`annotation '${id}' does not exist`, "bad_id");
+        }
+        const current = annotationFromElement(el);
+        if (current === null) {
+          throw new AnnotationError(`element '${id}' is not a CAD-PARITY-005 annotation`, "bad_annotation");
+        }
+        const allowed = AppApiHandler.annotationPatchFields(current.type);
+        for (const key of Object.keys(patch)) {
+          if (!(allowed as readonly string[]).includes(key)) {
+            throw new AnnotationError(
+              `annotation.update: field '${key}' does not apply to '${current.type}' (allowed: ${allowed.join(", ")})`,
+              "bad_input",
+            );
+          }
+        }
+        // Style references must resolve.
+        if (patch.style !== undefined && patch.style !== null) {
+          const isDim = current.type.startsWith("dim-");
+          const resolves = isDim
+            ? resolveDimStyle(String(patch.style), this.doc.dimStyleTable) !== null
+            : resolveTextStyle(String(patch.style), this.doc.textStyleTable) !== null;
+          if (!resolves) {
+            throw new AnnotationError(`annotation.update: unknown ${isDim ? "dim" : "text"} style '${String(patch.style)}'`, "bad_style");
+          }
+        }
+        // Merge the patch into the current props; null RESETS optional
+        // fields (drop the key); re-validate through the constructors.
+        const props: Record<string, unknown> = { ...annotationToProps(current) };
+        for (const [key, value] of Object.entries(patch)) {
+          if (value === null) delete props[key];
+          else props[key] = value;
+        }
+        // Re-validate: the merged record must construct cleanly.
+        const updated = elementToAnnotation({ id, kind: "annotation", engineId: null, props });
+        void updated;
+        // Preserve the CAD-PARITY-004 display overrides + layer through the
+        // full-record rewrite.
+        for (const key of ["color", "linetype", "lineweight", "transparency"] as const) {
+          const v = (el.props as Record<string, unknown>)[key];
+          if (v !== undefined) props[key] = v;
+        }
+        edits.push({ type: "setProps", elementId: id, patch: props });
+      }
+      this.doc.execute({ type: "applyEdits", edits });
+      return ok({
+        applied: true,
+        summary: `${edits.length} annotation${edits.length === 1 ? "" : "s"} updated`,
+        snapshot: this.doc.snapshot(),
+      });
+    } catch (e) {
+      if (e instanceof AnnotationError) return err(e.code, e.message, false);
+      return err("annotation_invalid", (e as Error).message, false);
+    }
+  }
+
+  /** annotation.remeasure — re-run the associative measurement for the
+   *  given annotation ids (or EVERY dimension annotation when ids is
+   *  absent/empty). One atomic batch; disassociated dimensions keep their
+   *  last known values (typed notes in the result). */
+  private cmdAnnotationRemeasure(payload: unknown): CommandQueryResponse {
+    const p = payload as { ids?: unknown } | null;
+    const ids = p !== null && typeof p === "object" && Array.isArray(p.ids) ? (p.ids as string[]) : [];
+    try {
+      const elements = this.doc.allElements();
+      const views = annotationViewsOf(elements);
+      const selected = ids.length > 0
+        ? views.filter((v) => (ids as string[]).includes(v.id))
+        : views;
+      const missing = ids.filter((id) => !selected.some((v) => v.id === id));
+      if (missing.length > 0) {
+        return err("bad_id", `annotation.remeasure: '${missing[0]}' is not a CAD-PARITY-005 annotation`, false);
+      }
+      const cascade = remeasureCascade(selected, elements);
+      if (cascade.edits.length === 0) {
+        return ok({
+          applied: false,
+          summary: "all measurements current",
+          notes: [],
+          snapshot: this.doc.snapshot(),
+        });
+      }
+      this.doc.execute({ type: "applyEdits", edits: cascade.edits });
+      return ok({
+        applied: true,
+        summary: `${cascade.edits.length} annotation${cascade.edits.length === 1 ? "" : "s"} re-measured`,
+        notes: cascade.notes,
+        snapshot: this.doc.snapshot(),
+      });
+    } catch (e) {
+      if (e instanceof AnnotationError) return err(e.code, e.message, false);
+      return err("annotation_invalid", (e as Error).message, false);
+    }
+  }
 
   /** entity.create — validate + apply ONE atomic create batch of canonical
    *  2D entities (the CAD-2D-001 vocabulary through the shared geometry

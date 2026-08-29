@@ -275,6 +275,15 @@ function collectValue(
     if (value.kind === "point") lastPoint = value.point;
   }
 
+  // CAD-PARITY-005: a multiple POINT step collects until Enter whether or
+  // not it is the last step (LEADER's spine + trailing annotation text).
+  // (Entity/entityPoint multiple steps keep the shipped advance-after-first
+  // behavior — the pinned CAD-PARITY-002/003 parity streams rely on it.)
+  if (step.multiple === true && step.kind === "point" && cmd.chained !== true) {
+    const next: PromptEngineState = { ...state, values, lastPoint };
+    return { state: next, output: activeOutput(next, echo) };
+  }
+
   // LINE chaining: completing the final step of a chained command emits a
   // plan and re-prompts the final step with the carried base.
   const isLastStep = state.stepIndex === cmd.steps.length - 1;
@@ -393,6 +402,16 @@ function applyOptionKeyword(
   // running (AutoCAD-class invalid-option handling).
   if (option.unsupported !== undefined) {
     return { state, output: activeOutput(state, [option.unsupported]) };
+  }
+
+  // CAD-PARITY-005: a FLAG option — the keyword itself is the value: it is
+  // stored under the option key and the step re-prompts (DIMLINEAR's
+  // Horizontal/Vertical). The stored text is the keyword, uppercase.
+  if (option.flag === true) {
+    const key = optionValueKey(step.id, option.keyword);
+    const values: Record<string, PromptValue> = { ...state.values, [key]: { kind: "text", text: option.keyword.toUpperCase() } };
+    const next: PromptEngineState = { ...state, values, optionCapture: null };
+    return { state: next, output: activeOutput(next, echoKeyword(option)) };
   }
 
   // CAD-PARITY-003 generic mechanism: an option with `input` opens its own
@@ -536,14 +555,20 @@ export function applyPromptEvent(
           const next: PromptEngineState = { ...state, stepIndex: state.stepIndex + 1 };
           return { state: next, output: activeOutput(next, []) };
         }
-        // Optional multiple POINT step (POLYLINE vertices): finish.
+        // Optional multiple POINT step (POLYLINE vertices): finish — or,
+        // when more steps follow (CAD-PARITY-005 LEADER's annotation text),
+        // ADVANCE to the next step with the collected points.
         const existing = state.values[step.id];
         const points = existing !== undefined && existing.kind === "points" ? existing.points : [];
         const min = step.minInputs ?? 1;
         if (points.length < min) {
           return { state, output: activeOutput(state, [`Need at least ${min} more point(s) — press Esc to cancel.`]) };
         }
-        return completeCommand(state, cmd, [], ctx);
+        if (state.stepIndex === cmd.steps.length - 1) {
+          return completeCommand(state, cmd, [], ctx);
+        }
+        const next: PromptEngineState = { ...state, stepIndex: state.stepIndex + 1 };
+        return { state: next, output: activeOutput(next, []) };
       }
 
       // Enter accepts a declared default (number/text steps).

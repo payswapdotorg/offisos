@@ -52,6 +52,13 @@ import {
   isStandardLineweight,
   type EntityDisplayOverrides,
 } from "./standards/index.js";
+// CAD-PARITY-005: the associative annotation core (engine-free — the
+// remeasure cascade over dimension references).
+import {
+  annotationViewsOf,
+  annotationsReferencing,
+  remeasureCascade,
+} from "./annotation/assoc.js";
 
 // ---------------------------------------------------------------------------
 // Typed failures (stable codes across hosts; LOCK-007/008).
@@ -431,6 +438,88 @@ export type EntityModifyOp =
 /** Apply one modify operation. All geometry resolution goes through the
  *  canonical bridge; all computation through the deterministic kernel. */
 export function modifyEntities(elements: readonly Element[], op: EntityModifyOp): EntityOpOutcome {
+  const base = modifyEntitiesBase(elements, op);
+  // CAD-PARITY-005: the ASSOCIATIVE CASCADE — when the edit changes
+  // geometry that dimensions reference, the dependent dimensions
+  // re-measure inside the SAME atomic batch (one revision, one undo entry).
+  if (base.edit === null) return base;
+  const batch = base.edit.type === "applyEdits" ? base.edit : { type: "applyEdits" as const, edits: [base.edit] };
+  const changedIds = new Set<string>();
+  collectEditedIds(batch, changedIds);
+  if (changedIds.size > 0) {
+    const annotations = annotationViewsOf(elements);
+    const dependent = annotationsReferencing(annotations, changedIds);
+    if (dependent.length > 0) {
+      const worldAfter = applyEditsInMemory(elements, batch);
+      const cascade = remeasureCascade(dependent, worldAfter);
+      if (cascade.edits.length > 0) {
+        const edits = [...batch.edits, ...cascade.edits];
+        return {
+          ...base,
+          edit: { type: "applyEdits", edits },
+          summary: `${base.summary}; ${cascade.edits.length} annotation${cascade.edits.length === 1 ? "" : "s"} re-measured`,
+        };
+      }
+    }
+  }
+  return base;
+}
+
+/** Apply an edit batch to an in-memory element world (the cascade's
+ *  post-op view — addElement/updateElement(merge)/removeElement/
+ *  setProps(replace); non-element edits pass through untouched). */
+function applyEditsInMemory(elements: readonly Element[], edit: DocumentEdit): Element[] {
+  let world = [...elements];
+  const walk = (e: DocumentEdit): void => {
+    if (e.type === "applyEdits") {
+      for (const sub of e.edits) walk(sub);
+      return;
+    }
+    switch (e.type) {
+      case "addElement":
+        world = [...world, e.element];
+        break;
+      case "removeElement":
+        world = world.filter((el) => el.id !== e.elementId);
+        break;
+      case "updateElement":
+        world = world.map((el) =>
+          el.id === e.elementId ? { ...el, props: { ...el.props, ...e.patch } } : el,
+        );
+        break;
+      case "setProps":
+        world = world.map((el) => (el.id === e.elementId ? { ...el, props: e.patch } : el));
+        break;
+      default:
+        break;
+    }
+  };
+  walk(edit);
+  return world;
+}
+
+/** Collect the element ids an edit batch touches (add/modify/remove). */
+function collectEditedIds(edit: DocumentEdit, out: Set<string>): void {
+  if (edit.type === "applyEdits") {
+    for (const sub of edit.edits) collectEditedIds(sub, out);
+    return;
+  }
+  switch (edit.type) {
+    case "addElement":
+      out.add(edit.element.id);
+      break;
+    case "removeElement":
+    case "updateElement":
+    case "setProps":
+      out.add(edit.elementId);
+      break;
+    default:
+      break;
+  }
+}
+
+/** The CAD-PARITY-003 modify dispatch (the cascade wraps it). */
+function modifyEntitiesBase(elements: readonly Element[], op: EntityModifyOp): EntityOpOutcome {
   switch (op.op) {
     case "move":
       return opMove(elements, op.ids, op.dx, op.dy);

@@ -113,7 +113,10 @@ export interface TextStyleRecord {
 /** A dimension style (CAD-PARITY-004, CAD-2D-004 style tables). The reserved
  *  built-in "Standard" style is code-resolved; records carry user-defined
  *  styles, name-keyed. Values are in drawing mm, applied before the drawing
- *  scale. */
+ *  scale. CAD-PARITY-005 (additive + optional): `arrowStyle` selects the
+ *  rendered arrowhead kind and `unitSuffix` appends to every formatted
+ *  measurement — absent = closed arrows / no suffix (legacy snapshots stay
+ *  byte-identical). */
 export interface DimStyleRecord {
   readonly name: string;
   /** Dimension text height. */
@@ -124,6 +127,11 @@ export interface DimStyleRecord {
   readonly scale: number;
   /** Measurement value decimal places, 0…6. */
   readonly precision: number;
+  /** CAD-PARITY-005: arrowhead rendering kind. Absent = "closed". */
+  readonly arrowStyle?: "closed" | "tick" | "none";
+  /** CAD-PARITY-005: unit suffix appended to formatted measurements
+   *  (e.g. " mm"). Absent = none. */
+  readonly unitSuffix?: string;
 }
 
 /** A named layer state (CAD-PARITY-004): the captured layer-table state
@@ -195,6 +203,11 @@ export interface DrawingStandards {
   /** Default lineweight (mm) for ByLayer resolution when a layer does not
    *  specify one. Must be a standard lineweight. Absent/default = 0.25. */
   readonly defaultLineweight?: number;
+  /** CAD-PARITY-005 (additive + optional): the document-wide ANNOTATION
+   *  scale (DIMSCALE-class). Multiplies every dimension annotation's
+   *  effective text height / arrow size (field × style.scale × this).
+   *  > 0. Absent/default = 1 — legacy snapshots stay byte-identical. */
+  readonly annotationScale?: number;
 }
 
 /** Snap candidate kinds (COMPAT-CAD-001 precision scope). Deterministic
