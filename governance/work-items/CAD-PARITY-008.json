@@ -33,7 +33,7 @@
   "risk_assumptions": [
     "ASSUMPTION (deployed verification reachability): the CAD-PARITY-008 deployment lives on the owner's existing Vercel project (the CAD-PARITY-007 deployment precedent), reachable from this sandbox for the fixture/browser protocols; the browser protocol runs through a local serialization relay because the in-memory CADDocument splits across serverless instances under concurrent requests (the documented CAD-PARITY-002-era hosting finding — a production-hosting constraint of the in-memory editor model, NOT a CAD-PARITY-008 defect).",
     "ASSUMPTION (electron paper canvas scope): the Electron paper canvas is the display + tab + preview + panel-editing surface; viewport frame GRIP editing (corner resize/move) is the Web paper canvas affordance this slice (both hosts edit viewports through the SAME viewport.update commands — semantic parity holds; the host affordance difference is documented honestly).",
-    "RISK (credential boundary — OPEN): the sandbox reset wiped the GitHub token previous sessions received via chat ($GITHUB_TOKEN; verified exhaustively absent from every file/env/process on this machine). The implementation, the local gauntlet and the deployed verification are COMPLETE at the local head; the push, the PR, the CI runs on the head and the PR_OPEN transition are BLOCKED until the architect re-provides the token (the 007-session credential handoff precedent). The Vercel deployment of the exact head (dpl_44GnFDcx8ySzvS3cn4rMPRkpGrw1, meta gitsha e7e8ab2…) already exists and is verified; the CI-run evidence entries will bind to the pushed head's runs when the credential arrives.",
+    "RISK (credential boundary — OPEN): the sandbox reset wiped the GitHub token previous sessions received via chat ($GITHUB_TOKEN; verified exhaustively absent from every file/env/process on this machine). The implementation, the local gauntlet and the deployed verification are COMPLETE at the local head; the push, the PR, the CI runs on the head and the PR_OPEN transition are BLOCKED until the architect re-provides the token (the 007-session credential handoff precedent). The Vercel deployment of the exact head (dpl_44GnFDcx8ySzvS3cn4rMPRkpGrw1, meta gitsha e7e8ab2…) already exists and is verified; the CI-run evidence entries will bind to the pushed head's runs when the credential arrives. RESOLVED 2026-08-29T17:44:49.329Z: the architect accepted the implementation as architecturally ready for PR submission (no further feature changes) and re-provided the GitHub credential; the push + PR #89 + CI + this PR_OPEN transition executed at the real timestamps bound below and on the PR.",
     "ASSUMPTION (bounded plot policy): layouts plot at exact paper size (the AutoCAD layout-plot equivalence); the recorded N:M ratio governs model-space direct plotting, outside this slice — the honest bounded rule (an alternative interpretation — sheet scaling by M/N — was implemented first and corrected during the smoke runs when it produced an absurd 29.7 m output page for 1:50)."
   ],
   "evidence_requirements": [
@@ -43,7 +43,7 @@
     "The exact PR head deployed to Vercel (meta gitsha binding) with the full fixture stream + the browser protocol (layout tabs, the painted paper canvas, the plot preview overlay) and zero page errors.",
     "The existing CAD-PARITY-002/004/005/006/007 pinned fixtures stay byte-identical (locally AND against the deployed build)."
   ],
-  "state": "IMPLEMENTING",
+  "state": "PR_OPEN",
   "transitions": [
     {
       "from": "DRAFT",
@@ -78,6 +78,19 @@
       "references": {
         "issue": 88,
         "commit": "e7e8ab2b12026023ba4f8ab7edf6ac66fbc39a8f"
+      }
+    },
+    {
+      "from": "IMPLEMENTING",
+      "to": "PR_OPEN",
+      "at": "2026-08-29T17:44:49.329Z",
+      "actor": "z-ai-implementation-agent",
+      "role": "implementer",
+      "reason": "The submission path executed with the re-provided GitHub credential: branch work/cad-parity-008-layouts-plot pushed and PR #89 opened against main 5fbe2ed. The first pushed-head CI run caught 53 strict-typing errors in the new commands test (the CAD-PARITY-007 fe04589 precedent — the CI typecheck covers app/test) — fixed in e1540b5 with type annotations ONLY (git diff e7e8ab2..e1540b5 = the test file ONLY; tsc clean + 48/48 green). CI green on the typing-fix pushed head e1540b5 — ALL 17 workflows (governance 33265513865, cad-implement-001 33265513894, compat-bim-003 33265513885, compat-ifc-001 33265513864, compat-cad-001 33265513878, cad-parity-005 33265513866, cad-implement-002 33265513868, compat-cad-002 33265513901, compat-cad-003 33265513887, cad-parity-004 33265513879, research-cad-007 33265513880, cad-implement-003 33265513871, cad-parity-003 33265513883, cad-parity-002 33265513876, cad-parity-006 33265513881, cad-parity-007 33265513893, cad-parity-008 33265513873), incl. the cad-parity-008 run 33265513873 (the three-job evidence pipeline: workspace-shell with BOTH real engines, web-host-workspace with all six fixture smokes, electron-host-workspace with the fifteen smokes). This record-only commit is the final PR head: the delta e1540b5→this-commit is governance/work-items/CAD-PARITY-008.json ONLY (git-diff verifiable; no app/apps paths); the final head's own CI runs + deployment are bound on PR #89 (a commit cannot embed identifiers of artifacts created after it).",
+      "references": {
+        "issue": 88,
+        "pr": 89,
+        "commit": "e1540b52b5eaa45d3d1548066d758c5cb6b361e0"
       }
     }
   ],
@@ -116,6 +129,19 @@
       "references": {
         "commit": "e7e8ab2b12026023ba4f8ab7edf6ac66fbc39a8f",
         "artifact_path": "/home/z/cp8-deployed/04-deployed-paper-canvas.png"
+      }
+    },
+    {
+      "id": "EV-004",
+      "type": "ci-run",
+      "description": "CI-green on the typing-fix pushed head e1540b5 (the implementation head e7e8ab2 + the IMPLEMENTING record commit + the CI-caught test-typing fix e1540b5 — 53 strict-typing errors in the new commands test caught by the first pushed-head run, fixed with type annotations ONLY): ALL 17 workflows succeeded — `governance` 33265513865 (17:23:40Z→17:23:57Z), `cad-implement-001` 33265513894 (17:23:40Z→17:25:39Z), `compat-bim-003` 33265513885 (17:23:40Z→17:25:50Z), `compat-ifc-001` 33265513864 (17:23:40Z→17:26:02Z), `compat-cad-001` 33265513878 (17:23:40Z→17:26:10Z), `cad-parity-005` 33265513866 (17:23:40Z→17:27:19Z), `cad-implement-002` 33265513868 (17:23:40Z→17:27:30Z), `compat-cad-002` 33265513901 (17:23:40Z→17:27:36Z), `compat-cad-003` 33265513887 (17:23:40Z→17:27:55Z), `cad-parity-004` 33265513879 (17:23:40Z→17:28:06Z), `research-cad-007` 33265513880 (17:23:40Z→17:28:16Z), `cad-implement-003` 33265513871 (17:23:40Z→17:28:53Z), `cad-parity-003` 33265513883 (17:23:40Z→17:29:10Z), `cad-parity-002` 33265513876 (17:23:40Z→17:29:32Z), `cad-parity-006` 33265513881 (17:23:40Z→17:30:31Z), `cad-parity-007` 33265513893 (17:23:40Z→17:39:19Z), `cad-parity-008` 33265513873 (17:23:40Z→17:44:02Z) — including the cad-parity-008 run 33265513873 with its three jobs (workspace-shell: the full app suite with BOTH real engines — cadquery-ocp/OCCT 7.8.1.1 + ifcopenshell 0.8.5; web-host-workspace: the deployable Web host lint/typecheck/build + ALL SIX fixture smokes — CAD-PARITY-002/004/005/006/007 byte-identical + the new CAD-PARITY-008 layouts fixture; electron-host-workspace: the deployable Electron host build + the FIFTEEN smokes incl. the 35/35 layouts real-UI smoke). The pushed head differs from the typing-fix head e1540b5 by the governance record file ONLY (git-diff verifiable).",
+      "produced_at": "2026-08-29T17:44:49.329Z",
+      "reproducible": true,
+      "reproduction": "PR #89 checks tab — the run list is bound in the PR_OPEN transition of this record.",
+      "references": {
+        "commit": "e1540b52b5eaa45d3d1548066d758c5cb6b361e0",
+        "pr": 89,
+        "workflow_run": 33265513873
       }
     }
   ],
