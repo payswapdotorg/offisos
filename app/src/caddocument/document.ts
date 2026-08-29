@@ -47,6 +47,8 @@ import type {
   XrefRecord,
   ConstraintRecord,
   ViewportRecord,
+  SectionPlaneRecord,
+  UcsRecord,
 } from "../contracts/caddocument.js";
 import type { ModelHistory } from "../contracts/model.js";
 import { childVersion, rootVersion } from "./versioning.js";
@@ -61,8 +63,10 @@ import {
   applyLtypePatch,
   applySheetPatch,
   applyTextStylePatch,
+  applyUcsPatch,
   applyViewPatch,
   applyViewportPatch,
+  applySectionPlanePatch,
   applyXrefPatch,
   captureLayerState,
   defaultBimSettings,
@@ -76,6 +80,8 @@ import {
   deriveViewSequence,
   deriveViewportSequence,
   deriveXrefSequence,
+  deriveUcsSequence,
+  deriveSectionPlaneSequence,
   elementLayerReference,
   validateBimSettings,
   validateBlockDefinitionRecord,
@@ -90,6 +96,8 @@ import {
   validateLayoutRecord,
   validateLtypeRecord,
   validateTextStyleRecord,
+  validateUcsTableRecord,
+  validateSectionPlaneTableRecord,
   validateViewportRecord,
   validateXrefRecord,
 } from "./workspace.js";
@@ -207,6 +215,19 @@ export class CADDocument {
   private readonly viewports: Map<string, ViewportRecord> = new Map();
   /** CAD-PARITY-008: monotonic mint counter for `vp-NNNNNN` identities. */
   private nextViewportSequence: number;
+  /** CAD-PARITY-009: the named UCS/workplane table (id-keyed, insertion-
+   *  ordered; edited ONLY through the DocumentEdit command model — one
+   *  edit = one revision = one undo entry). The World UCS is IMPLICIT —
+   *  never a table record (addressable as "world"). */
+  private readonly ucsTable: Map<string, UcsRecord> = new Map();
+  /** CAD-PARITY-009: monotonic mint counter for `ucs-NNNNNN` identities. */
+  private nextUcsSequence: number;
+  /** CAD-PARITY-009: the section/slice plane table (id-keyed, insertion-
+   *  ordered; the bounded section-preview foundation — the derived preview
+   * is recomputed on demand, never stored). */
+  private readonly sectionPlanes: Map<string, SectionPlaneRecord> = new Map();
+  /** CAD-PARITY-009: monotonic mint counter for `sp-NNNNNN` identities. */
+  private nextSectionPlaneSequence: number;
   /** Ephemeral editor selection (§5.4 editor state). Orthogonal to the
    *  versioned document content: it is NOT in the version-id derivation and
    *  NOT in the parity content hash (§5.5). Since COMPAT-CAD-001 it IS
@@ -248,6 +269,10 @@ export class CADDocument {
     nextLayoutSequence: number,
     viewports: Iterable<ViewportRecord>,
     nextViewportSequence: number,
+    ucsTable: Iterable<UcsRecord>,
+    nextUcsSequence: number,
+    sectionPlanes: Iterable<SectionPlaneRecord>,
+    nextSectionPlaneSequence: number,
   ) {
     this.version = version;
     for (const e of elements) this.elements.set(e.id, e);
@@ -286,6 +311,11 @@ export class CADDocument {
     this.nextLayoutSequence = nextLayoutSequence;
     for (const v of viewports) this.viewports.set(v.id, v);
     this.nextViewportSequence = nextViewportSequence;
+    // CAD-PARITY-009: the UCS + section-plane tables.
+    for (const u of ucsTable) this.ucsTable.set(u.id, u);
+    this.nextUcsSequence = nextUcsSequence;
+    for (const sp of sectionPlanes) this.sectionPlanes.set(sp.id, sp);
+    this.nextSectionPlaneSequence = nextSectionPlaneSequence;
   }
 
   /** Open a snapshot: load state, set version, clear undo/redo, adopt the
@@ -451,6 +481,51 @@ export class CADDocument {
     if (activeLayout !== undefined && !layoutIds.has(activeLayout)) {
       throw new Error(`open: activeLayout '${activeLayout}' does not reference an adopted layout`);
     }
+    // CAD-PARITY-009: adopt the named UCS + section-plane tables when present
+    // (validated structurally through the SHARED model3d grammar —
+    // right-handed orthonormal axes / unit normals, LOCK-007); a legacy
+    // snapshot opens with empty tables (the additive-feature default, not a
+    // repair). The active-UCS editor reference is DEFENSIVELY REPAIRED to
+    // the implicit World UCS when dangling (documented editor-state repair —
+    // the command layer never lets a dangling id be SET; a corrupt hand-edited
+    // snapshot must still open deterministically).
+    const ucsRecords: UcsRecord[] = [];
+    const ucsIds = new Set<string>();
+    const ucsNames = new Set<string>();
+    for (const u of [...(snapshot.ucs ?? [])]) {
+      const validated = validateUcsTableRecord(u);
+      if (ucsIds.has(validated.id)) {
+        throw new Error(`open: duplicate UCS id '${validated.id}'`);
+      }
+      if (ucsNames.has(validated.name)) {
+        throw new Error(`open: duplicate UCS name '${validated.name}'`);
+      }
+      ucsIds.add(validated.id);
+      ucsNames.add(validated.name);
+      ucsRecords.push(validated);
+    }
+    const sectionPlaneRecords: SectionPlaneRecord[] = [];
+    const sectionPlaneIds = new Set<string>();
+    const sectionPlaneNames = new Set<string>();
+    for (const sp of [...(snapshot.sectionPlanes ?? [])]) {
+      const validated = validateSectionPlaneTableRecord(sp);
+      if (sectionPlaneIds.has(validated.id)) {
+        throw new Error(`open: duplicate section plane id '${validated.id}'`);
+      }
+      if (sectionPlaneNames.has(validated.name)) {
+        throw new Error(`open: duplicate section plane name '${validated.name}'`);
+      }
+      sectionPlaneIds.add(validated.id);
+      sectionPlaneNames.add(validated.name);
+      sectionPlaneRecords.push(validated);
+    }
+    let adoptedSettings = draftingSettings;
+    const activeUcs = draftingSettings.activeUcs;
+    if (activeUcs !== undefined && activeUcs !== "world" && !ucsIds.has(activeUcs)) {
+      const repaired = { ...draftingSettings };
+      delete (repaired as { activeUcs?: string }).activeUcs;
+      adoptedSettings = validateDraftingSettings(repaired);
+    }
     return new CADDocument(
       snapshot.version,
       snapshot.elements,
@@ -463,7 +538,7 @@ export class CADDocument {
       Math.max(nextElementSequence, history.next_element_sequence),
       layers,
       Math.max(deriveLayerSequence(layers), history.next_layer_sequence ?? 1),
-      draftingSettings,
+      adoptedSettings,
       bimSettings,
       docsViews,
       Math.max(deriveViewSequence(docsViews), history.next_view_sequence ?? 1),
@@ -485,6 +560,10 @@ export class CADDocument {
       Math.max(deriveLayoutSequence(layouts), history.next_layout_sequence ?? 1),
       viewports,
       Math.max(deriveViewportSequence(viewports), history.next_viewport_sequence ?? 1),
+      ucsRecords,
+      Math.max(deriveUcsSequence(ucsRecords), history.next_ucs_sequence ?? 1),
+      sectionPlaneRecords,
+      Math.max(deriveSectionPlaneSequence(sectionPlaneRecords), history.next_section_plane_sequence ?? 1),
     );
   }
 
@@ -528,6 +607,12 @@ export class CADDocument {
       [],
       1,
       // CAD-PARITY-008: empty layout + viewport tables.
+      [],
+      1,
+      [],
+      1,
+      // CAD-PARITY-009: empty UCS + section-plane tables (the World UCS is
+      // implicit — never a table record).
       [],
       1,
       [],
@@ -639,6 +724,8 @@ export class CADDocument {
       nextConstraintSequence: this.nextConstraintSequence,
       nextLayoutSequence: this.nextLayoutSequence,
       nextViewportSequence: this.nextViewportSequence,
+      nextUcsSequence: this.nextUcsSequence,
+      nextSectionPlaneSequence: this.nextSectionPlaneSequence,
     });
     return inverse;
   }
@@ -690,6 +777,8 @@ export class CADDocument {
       nextConstraintSequence: this.nextConstraintSequence,
       nextLayoutSequence: this.nextLayoutSequence,
       nextViewportSequence: this.nextViewportSequence,
+      nextUcsSequence: this.nextUcsSequence,
+      nextSectionPlaneSequence: this.nextSectionPlaneSequence,
     });
     return entry.forward;
   }
@@ -725,6 +814,8 @@ export class CADDocument {
       nextConstraintSequence: this.nextConstraintSequence,
       nextLayoutSequence: this.nextLayoutSequence,
       nextViewportSequence: this.nextViewportSequence,
+      nextUcsSequence: this.nextUcsSequence,
+      nextSectionPlaneSequence: this.nextSectionPlaneSequence,
     });
     return entry.forward;
   }
@@ -779,6 +870,13 @@ export class CADDocument {
       // derived state, never stored).
       ...(this.layouts.size > 0 ? { layouts: [...this.layouts.values()] } : {}),
       ...(this.viewports.size > 0 ? { viewports: [...this.viewports.values()] } : {}),
+      // CAD-PARITY-009: the named UCS + section-plane tables — omitted while
+      // empty so legacy snapshots (and the pinned parity fixtures) stay
+      // byte-identical (the additive-optional contract; the World UCS is
+      // implicit, never a record; the section preview is derived, never
+      // stored).
+      ...(this.ucsTable.size > 0 ? { ucs: [...this.ucsTable.values()] } : {}),
+      ...(this.sectionPlanes.size > 0 ? { sectionPlanes: [...this.sectionPlanes.values()] } : {}),
     };
   }
 
@@ -989,6 +1087,24 @@ export class CADDocument {
       let minted = this.mintViewportId();
       while (this.viewports.has(minted)) minted = this.mintViewportId();
       return { ...edit, viewport: { ...edit.viewport, id: minted } } as DocumentEdit;
+    }
+    // CAD-PARITY-009: addUcs mints a `ucs-NNNNNN` identity when missing
+    // (the addLayout pattern — the mint skips past taken ids).
+    if (edit.type === "addUcs") {
+      const raw = edit.ucs as { id?: unknown };
+      if (typeof raw.id === "string" && raw.id.length > 0) return edit;
+      let minted = this.mintUcsId();
+      while (this.ucsTable.has(minted)) minted = this.mintUcsId();
+      return { ...edit, ucs: { ...edit.ucs, id: minted } } as DocumentEdit;
+    }
+    // CAD-PARITY-009: addSectionPlane mints an `sp-NNNNNN` identity when
+    // missing.
+    if (edit.type === "addSectionPlane") {
+      const raw = edit.sectionPlane as { id?: unknown };
+      if (typeof raw.id === "string" && raw.id.length > 0) return edit;
+      let minted = this.mintSectionPlaneId();
+      while (this.sectionPlanes.has(minted)) minted = this.mintSectionPlaneId();
+      return { ...edit, sectionPlane: { ...edit.sectionPlane, id: minted } } as DocumentEdit;
     }
     if (edit.type !== "addElement") return edit;
     const element = edit.element;
@@ -1565,6 +1681,94 @@ export class CADDocument {
         this.viewports.delete(edit.viewportId);
         break;
       }
+      // --- CAD-PARITY-009 (additive): the UCS + section-plane tables ----
+      case "addUcs": {
+        if (edit.ucs === undefined) throw new Error("addUcs requires ucs");
+        const ucs = validateUcsTableRecord(edit.ucs);
+        if (this.ucsTable.has(ucs.id)) {
+          throw new Error(
+            `addUcs: UCS id '${ucs.id}' already exists — canonical UCS identity must not be reused while the UCS exists`,
+          );
+        }
+        this.assertUcsNameFree(ucs.name, null);
+        this.ucsTable.set(ucs.id, ucs);
+        break;
+      }
+      case "updateUcs": {
+        if (edit.ucsId === undefined || edit.patch === undefined) {
+          throw new Error("updateUcs requires ucsId + patch");
+        }
+        const current = this.ucsTable.get(edit.ucsId);
+        if (current === undefined) throw new Error(`updateUcs: no UCS '${edit.ucsId}'`);
+        const merged = applyUcsPatch(current, edit.patch);
+        this.assertUcsNameFree(merged.name, edit.ucsId);
+        this.ucsTable.set(edit.ucsId, merged);
+        // The editor reference stays honest: activation references the
+        // immutable id, so a rename never dangles it.
+        break;
+      }
+      case "setUcsRecord": {
+        if (edit.ucsId === undefined || edit.ucs === undefined) {
+          throw new Error("setUcsRecord requires ucsId + ucs");
+        }
+        const ucs = validateUcsTableRecord(edit.ucs);
+        if (ucs.id !== edit.ucsId) throw new Error("setUcsRecord: ucs.id must equal ucsId");
+        if (!this.ucsTable.has(ucs.id)) throw new Error(`setUcsRecord: no UCS '${ucs.id}'`);
+        this.assertUcsNameFree(ucs.name, ucs.id);
+        this.ucsTable.set(ucs.id, ucs);
+        break;
+      }
+      case "removeUcs": {
+        if (edit.ucsId === undefined) throw new Error("removeUcs requires ucsId");
+        if (!this.ucsTable.has(edit.ucsId)) throw new Error(`removeUcs: no UCS '${edit.ucsId}'`);
+        // NOTE: removing the ACTIVE UCS is a COMMAND-layer typed decline
+        // (ucs_active — activate World first), NOT a document-edit rule —
+        // undoing the FIRST UCS creation replays removeUcs on the table the
+        // revision recorded (journal semantics, the removeLayout precedent;
+        // open() defensively repairs a dangling activeUcs to World).
+        this.ucsTable.delete(edit.ucsId);
+        break;
+      }
+      case "addSectionPlane": {
+        if (edit.sectionPlane === undefined) throw new Error("addSectionPlane requires sectionPlane");
+        const plane = validateSectionPlaneTableRecord(edit.sectionPlane);
+        if (this.sectionPlanes.has(plane.id)) {
+          throw new Error(
+            `addSectionPlane: section plane id '${plane.id}' already exists — canonical section-plane identity must not be reused while the plane exists`,
+          );
+        }
+        this.assertSectionPlaneNameFree(plane.name, null);
+        this.sectionPlanes.set(plane.id, plane);
+        break;
+      }
+      case "updateSectionPlane": {
+        if (edit.sectionPlaneId === undefined || edit.patch === undefined) {
+          throw new Error("updateSectionPlane requires sectionPlaneId + patch");
+        }
+        const current = this.sectionPlanes.get(edit.sectionPlaneId);
+        if (current === undefined) throw new Error(`updateSectionPlane: no section plane '${edit.sectionPlaneId}'`);
+        const merged = applySectionPlanePatch(current, edit.patch);
+        this.assertSectionPlaneNameFree(merged.name, edit.sectionPlaneId);
+        this.sectionPlanes.set(edit.sectionPlaneId, merged);
+        break;
+      }
+      case "setSectionPlaneRecord": {
+        if (edit.sectionPlaneId === undefined || edit.sectionPlane === undefined) {
+          throw new Error("setSectionPlaneRecord requires sectionPlaneId + sectionPlane");
+        }
+        const plane = validateSectionPlaneTableRecord(edit.sectionPlane);
+        if (plane.id !== edit.sectionPlaneId) throw new Error("setSectionPlaneRecord: sectionPlane.id must equal sectionPlaneId");
+        if (!this.sectionPlanes.has(plane.id)) throw new Error(`setSectionPlaneRecord: no section plane '${plane.id}'`);
+        this.assertSectionPlaneNameFree(plane.name, plane.id);
+        this.sectionPlanes.set(plane.id, plane);
+        break;
+      }
+      case "removeSectionPlane": {
+        if (edit.sectionPlaneId === undefined) throw new Error("removeSectionPlane requires sectionPlaneId");
+        if (!this.sectionPlanes.has(edit.sectionPlaneId)) throw new Error(`removeSectionPlane: no section plane '${edit.sectionPlaneId}'`);
+        this.sectionPlanes.delete(edit.sectionPlaneId);
+        break;
+      }
       case "setViewRecord": {
         if (edit.viewId === undefined || edit.view === undefined) {
           throw new Error("setViewRecord requires viewId + view");
@@ -2041,6 +2245,83 @@ export class CADDocument {
         if (existing === undefined) throw new Error(`removeViewport: no viewport '${edit.viewportId}'`);
         return { type: "addViewport", viewport: existing };
       }
+      // --- CAD-PARITY-009 (additive): UCS + section-plane inverses -------
+      case "addUcs": {
+        if (edit.ucs === undefined) throw new Error("addUcs requires ucs");
+        const ucs = validateUcsTableRecord(edit.ucs);
+        return { type: "removeUcs", ucsId: ucs.id };
+      }
+      case "updateUcs": {
+        if (edit.ucsId === undefined || edit.patch === undefined) {
+          throw new Error("updateUcs requires ucsId + patch");
+        }
+        const current = this.ucsTable.get(edit.ucsId);
+        if (current === undefined) throw new Error(`updateUcs: no UCS '${edit.ucsId}'`);
+        const patchKeys = Object.keys(edit.patch);
+        const addsKey = patchKeys.some(
+          (k) => !Object.prototype.hasOwnProperty.call(current as unknown as Record<string, unknown>, k),
+        );
+        if (addsKey) {
+          return { type: "setUcsRecord", ucsId: edit.ucsId, ucs: current };
+        }
+        const prevValues: Record<string, unknown> = {};
+        for (const k of patchKeys) {
+          prevValues[k] = (current as unknown as Record<string, unknown>)[k];
+        }
+        return { type: "updateUcs", ucsId: edit.ucsId, patch: prevValues };
+      }
+      case "setUcsRecord": {
+        if (edit.ucsId === undefined || edit.ucs === undefined) {
+          throw new Error("setUcsRecord requires ucsId + ucs");
+        }
+        const current = this.ucsTable.get(edit.ucsId);
+        if (current === undefined) throw new Error(`setUcsRecord: no UCS '${edit.ucsId}'`);
+        return { type: "setUcsRecord", ucsId: edit.ucsId, ucs: current };
+      }
+      case "removeUcs": {
+        if (edit.ucsId === undefined) throw new Error("removeUcs requires ucsId");
+        const existing = this.ucsTable.get(edit.ucsId);
+        if (existing === undefined) throw new Error(`removeUcs: no UCS '${edit.ucsId}'`);
+        return { type: "addUcs", ucs: existing };
+      }
+      case "addSectionPlane": {
+        if (edit.sectionPlane === undefined) throw new Error("addSectionPlane requires sectionPlane");
+        const plane = validateSectionPlaneTableRecord(edit.sectionPlane);
+        return { type: "removeSectionPlane", sectionPlaneId: plane.id };
+      }
+      case "updateSectionPlane": {
+        if (edit.sectionPlaneId === undefined || edit.patch === undefined) {
+          throw new Error("updateSectionPlane requires sectionPlaneId + patch");
+        }
+        const current = this.sectionPlanes.get(edit.sectionPlaneId);
+        if (current === undefined) throw new Error(`updateSectionPlane: no section plane '${edit.sectionPlaneId}'`);
+        const patchKeys = Object.keys(edit.patch);
+        const addsKey = patchKeys.some(
+          (k) => !Object.prototype.hasOwnProperty.call(current as unknown as Record<string, unknown>, k),
+        );
+        if (addsKey) {
+          return { type: "setSectionPlaneRecord", sectionPlaneId: edit.sectionPlaneId, sectionPlane: current };
+        }
+        const prevValues: Record<string, unknown> = {};
+        for (const k of patchKeys) {
+          prevValues[k] = (current as unknown as Record<string, unknown>)[k];
+        }
+        return { type: "updateSectionPlane", sectionPlaneId: edit.sectionPlaneId, patch: prevValues };
+      }
+      case "setSectionPlaneRecord": {
+        if (edit.sectionPlaneId === undefined || edit.sectionPlane === undefined) {
+          throw new Error("setSectionPlaneRecord requires sectionPlaneId + sectionPlane");
+        }
+        const current = this.sectionPlanes.get(edit.sectionPlaneId);
+        if (current === undefined) throw new Error(`setSectionPlaneRecord: no section plane '${edit.sectionPlaneId}'`);
+        return { type: "setSectionPlaneRecord", sectionPlaneId: edit.sectionPlaneId, sectionPlane: current };
+      }
+      case "removeSectionPlane": {
+        if (edit.sectionPlaneId === undefined) throw new Error("removeSectionPlane requires sectionPlaneId");
+        const existing = this.sectionPlanes.get(edit.sectionPlaneId);
+        if (existing === undefined) throw new Error(`removeSectionPlane: no section plane '${edit.sectionPlaneId}'`);
+        return { type: "addSectionPlane", sectionPlane: existing };
+      }
       default: {
         const _exhaustive = edit satisfies never;
         throw new Error(`unreachable edit type: ${JSON.stringify(_exhaustive)}`);
@@ -2234,6 +2515,22 @@ export class CADDocument {
     return minted;
   }
 
+  /** CAD-PARITY-009: mint a canonical UCS identity (`ucs-NNNNNN`, monotonic,
+   *  never reused) — document authority (mirrors mintLayoutId). */
+  mintUcsId(): string {
+    const minted = `ucs-${String(this.nextUcsSequence).padStart(6, "0")}`;
+    this.nextUcsSequence += 1;
+    return minted;
+  }
+
+  /** CAD-PARITY-009: mint a canonical section-plane identity
+   *  (`sp-NNNNNN`, monotonic, never reused) — document authority. */
+  mintSectionPlaneId(): string {
+    const minted = `sp-${String(this.nextSectionPlaneSequence).padStart(6, "0")}`;
+    this.nextSectionPlaneSequence += 1;
+    return minted;
+  }
+
   /** Validate a block-definition record for an ADD or UPDATE against the
    *  post-write table view: structural validation + the definition-graph
    *  gates (cycles/nesting), duplicate id (add) and duplicate name checks,
@@ -2332,6 +2629,75 @@ export class CADDocument {
     for (const l of this.layouts.values()) {
       if (l.id !== excludeId && l.name === name) {
         throw new Error(`layout name '${name}' already exists — layout names are unique`);
+      }
+    }
+  }
+
+  // --- CAD-PARITY-009: the UCS + section-plane surfaces ----------------------
+
+  /** CAD-PARITY-009: the named UCS table (insertion order; the implicit
+   *  World UCS is NEVER in it — address it as "world"). */
+  get ucsRecords(): readonly UcsRecord[] {
+    return [...this.ucsTable.values()];
+  }
+
+  /** Look up a named UCS by canonical id. */
+  ucsById(id: string): UcsRecord | undefined {
+    return this.ucsTable.get(id);
+  }
+
+  /** Look up a named UCS by name (names unique among UCSs). */
+  ucsByName(name: string): UcsRecord | undefined {
+    for (const u of this.ucsTable.values()) {
+      if (u.name === name) return u;
+    }
+    return undefined;
+  }
+
+  /** Current mint counter for UCS identities (persisted via the history). */
+  get ucsSequence(): number {
+    return this.nextUcsSequence;
+  }
+
+  /** CAD-PARITY-009: the section-plane table (insertion order). */
+  get sectionPlaneRecords(): readonly SectionPlaneRecord[] {
+    return [...this.sectionPlanes.values()];
+  }
+
+  /** Look up a section plane by canonical id. */
+  sectionPlaneById(id: string): SectionPlaneRecord | undefined {
+    return this.sectionPlanes.get(id);
+  }
+
+  /** Look up a section plane by name. */
+  sectionPlaneByName(name: string): SectionPlaneRecord | undefined {
+    for (const sp of this.sectionPlanes.values()) {
+      if (sp.name === name) return sp;
+    }
+    return undefined;
+  }
+
+  /** Current mint counter for section-plane identities. */
+  get sectionPlaneSequence(): number {
+    return this.nextSectionPlaneSequence;
+  }
+
+  /** Uniqueness check for UCS names (rename keeps names unique; the
+   *  implicit World UCS owns its reserved name by construction — table
+   * records cannot take it, validateUcsTableRecord rejects it). */
+  private assertUcsNameFree(name: string, excludeId: string | null): void {
+    for (const u of this.ucsTable.values()) {
+      if (u.id !== excludeId && u.name === name) {
+        throw new Error(`UCS name '${name}' already exists — UCS names are unique`);
+      }
+    }
+  }
+
+  /** Uniqueness check for section-plane names. */
+  private assertSectionPlaneNameFree(name: string, excludeId: string | null): void {
+    for (const sp of this.sectionPlanes.values()) {
+      if (sp.id !== excludeId && sp.name === name) {
+        throw new Error(`section plane name '${name}' already exists — section plane names are unique`);
       }
     }
   }

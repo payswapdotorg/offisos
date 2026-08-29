@@ -53,6 +53,16 @@ import {
 // plus this one runtime import; no cycle: layouts/paper imports contracts
 // types only).
 import { validatePageSetup } from "../workspace/layouts/paper.js";
+// CAD-PARITY-009: the shared 3D navigation/UCS/workplane/section grammar —
+// the SAME precedent: the shared engine-free model3d modules ARE the
+// validators (no cycle: model3d imports contracts types only).
+import {
+  validateCamera,
+  normalizeCamera,
+  validateUcsRecord as validateUcsRecordShape,
+  validateSectionPlaneRecord as validateSectionPlaneRecordShape,
+} from "../workspace/model3d/index.js";
+import type { Camera3DState, SectionPlaneRecord, UcsRecord } from "../contracts/caddocument.js";
 
 /** Canonical BIM camera presets (COMPAT-CAD-002). */
 export const BIM_CAMERA_PRESETS: readonly BimCameraPreset[] = ["iso", "top", "front", "right"];
@@ -277,6 +287,8 @@ export function validateDraftingSettings(value: unknown): DraftingSettings {
     standards?: DrawingStandards;
     activeLayout?: string;
     space?: "model" | "paper";
+    activeUcs?: string;
+    view3d?: Camera3DState;
   } = {};
   if (s.activeLayer !== undefined) {
     if (typeof s.activeLayer !== "string" || (s.activeLayer as string).length === 0) {
@@ -328,6 +340,21 @@ export function validateDraftingSettings(value: unknown): DraftingSettings {
     }
     optional.standards = standards;
   }
+  // CAD-PARITY-009 (additive + optional): the ACTIVE UCS id (the
+  // current-workplane semantics — non-versioned editor state; "world" or
+  // absent = the implicit World UCS; dangling-id repair lives at document
+  // open where the adopted table is available) and the persisted 3D camera
+  // state (validated through the SHARED camera grammar — the normalized
+  // frame is what persists; view state strictly separated from model
+  // history).
+  if (s.activeUcs !== undefined) {
+    if (typeof s.activeUcs !== "string" || (s.activeUcs as string).length === 0) {
+      throw new Error("draftingSettings.activeUcs must be a non-empty string when present ('world' = the implicit World UCS)");
+    }
+    optional.activeUcs = s.activeUcs as string;
+  }
+  const camera3d = validateCamera3DSettings(s.view3d);
+  if (camera3d !== null) optional.view3d = camera3d;
   // CAD-PARITY-008 (additive + optional): the active layout id + the
   // TILEMODE-class space context (persisted editor state; cross-reference
   // checks like activeLayout existence live in the App API layer where the
@@ -1442,4 +1469,125 @@ export function deriveViewportSequence(viewports: readonly ViewportRecord[]): nu
     if (m !== null && m[1] !== undefined) max = Math.max(max, Number.parseInt(m[1], 10));
   }
   return max + 1;
+}
+
+// --- CAD-PARITY-009 (additive, Issue #90): the UCS + section-plane tables ---
+
+const UCS_PATCH_KEYS = ["name", "origin", "xAxis", "yAxis", "zAxis"] as const;
+const SECTION_PLANE_PATCH_KEYS = ["name", "origin", "normal"] as const;
+
+/** CAD-PARITY-009: validate a UCS table record through the SHARED model3d
+ *  grammar (right-handed orthonormal axes within UCS_ORTHONORMAL_TOLERANCE —
+ *  degenerate/non-orthonormal triples are rejected, never normalized). The
+ *  name is trimmed-checked, non-empty, max 255 chars; the World UCS is
+ *  implicit so the reserved name (case-insensitive "world") and the reserved
+ *  id "world" are typed rejections. */
+export function validateUcsTableRecord(record: unknown): UcsRecord {
+  if (typeof record !== "object" || record === null || Array.isArray(record)) {
+    throw new Error("ucs record must be an object");
+  }
+  const failure = validateUcsRecordShape(record as UcsRecord);
+  if (failure !== null) throw new Error(`ucs record: ${failure}`);
+  const r = record as UcsRecord;
+  if (r.name.length > 255) {
+    throw new Error(`ucs '${r.id}': name must be max 255 chars`);
+  }
+  if (r.id === "world") {
+    throw new Error("ucs record: id 'world' is the implicit World UCS — never a table record");
+  }
+  if (r.name.trim().toLowerCase() === "world") {
+    throw new Error(`ucs '${r.id}': the name 'World' is reserved for the implicit World UCS`);
+  }
+  return { id: r.id, name: r.name.trim(), origin: [...r.origin], xAxis: [...r.xAxis], yAxis: [...r.yAxis], zAxis: [...r.zAxis], createdAt: r.createdAt };
+}
+
+/** CAD-PARITY-009: validate + merge an updateUcs patch (the merged record
+ *  re-validates as a whole through the shared grammar). */
+export function applyUcsPatch(current: UcsRecord, patch: Readonly<Record<string, unknown>>): UcsRecord {
+  for (const key of Object.keys(patch)) {
+    if (key === "id" || key === "createdAt") {
+      throw new Error("updateUcs: id/createdAt are the UCS identity — immutable");
+    }
+    if (!(UCS_PATCH_KEYS as readonly string[]).includes(key)) {
+      throw new Error(`updateUcs: unknown field '${key}' (allowed: ${UCS_PATCH_KEYS.join(", ")})`);
+    }
+  }
+  const cleaned: Record<string, unknown> = { ...current };
+  for (const [key, value] of Object.entries(patch)) {
+    if (value === undefined) continue;
+    cleaned[key] = value;
+  }
+  return validateUcsTableRecord(cleaned);
+}
+
+/** CAD-PARITY-009: derive the UCS mint-sequence counter from existing
+ *  minted ids (`ucs-NNNNNN`). */
+export function deriveUcsSequence(ucsTable: readonly UcsRecord[]): number {
+  let max = 0;
+  for (const u of ucsTable) {
+    const m = /^ucs-(\d{6,})$/.exec(u.id);
+    if (m !== null && m[1] !== undefined) max = Math.max(max, Number.parseInt(m[1], 10));
+  }
+  return max + 1;
+}
+
+/** CAD-PARITY-009: validate a section-plane table record through the SHARED
+ *  model3d grammar (finite origin + UNIT normal — the zero vector is a typed
+ *  decline; un-normalized input is accepted ONLY through the explicit
+ *  command-layer normalize path, never silently here). */
+export function validateSectionPlaneTableRecord(record: unknown): SectionPlaneRecord {
+  if (typeof record !== "object" || record === null || Array.isArray(record)) {
+    throw new Error("section plane record must be an object");
+  }
+  const failure = validateSectionPlaneRecordShape(record as SectionPlaneRecord);
+  if (failure !== null) throw new Error(`section plane record: ${failure}`);
+  const r = record as SectionPlaneRecord;
+  if (r.name.length > 255) {
+    throw new Error(`section plane '${r.id}': name must be max 255 chars`);
+  }
+  return { id: r.id, name: r.name.trim(), origin: [...r.origin], normal: [...r.normal], createdAt: r.createdAt };
+}
+
+/** CAD-PARITY-009: validate + merge an updateSectionPlane patch. */
+export function applySectionPlanePatch(current: SectionPlaneRecord, patch: Readonly<Record<string, unknown>>): SectionPlaneRecord {
+  for (const key of Object.keys(patch)) {
+    if (key === "id" || key === "createdAt") {
+      throw new Error("updateSectionPlane: id/createdAt are the section plane identity — immutable");
+    }
+    if (!(SECTION_PLANE_PATCH_KEYS as readonly string[]).includes(key)) {
+      throw new Error(`updateSectionPlane: unknown field '${key}' (allowed: ${SECTION_PLANE_PATCH_KEYS.join(", ")})`);
+    }
+  }
+  const cleaned: Record<string, unknown> = { ...current };
+  for (const [key, value] of Object.entries(patch)) {
+    if (value === undefined) continue;
+    cleaned[key] = value;
+  }
+  return validateSectionPlaneTableRecord(cleaned);
+}
+
+/** CAD-PARITY-009: derive the section-plane mint-sequence counter from
+ *  existing minted ids (`sp-NNNNNN`). */
+export function deriveSectionPlaneSequence(planes: readonly SectionPlaneRecord[]): number {
+  let max = 0;
+  for (const sp of planes) {
+    const m = /^sp-(\d{6,})$/.exec(sp.id);
+    if (m !== null && m[1] !== undefined) max = Math.max(max, Number.parseInt(m[1], 10));
+  }
+  return max + 1;
+}
+
+/** CAD-PARITY-009: validate a persisted Camera3DState editor setting
+ *  (additive-optional) through the SHARED camera grammar; the stored state
+ *  is the NORMALIZED frame (deterministic rounding — the same arithmetic on
+ *  every host). Returns null (field omitted) for absent input. */
+export function validateCamera3DSettings(value: unknown): Camera3DState | null {
+  if (value === undefined || value === null) return null;
+  const failure = validateCamera(value as Camera3DState);
+  if (failure !== null) throw new Error(`draftingSettings.view3d: ${failure}`);
+  const normalized = normalizeCamera(value as Camera3DState);
+  if (normalized === null) {
+    throw new Error("draftingSettings.view3d: camera frame is degenerate");
+  }
+  return normalized;
 }

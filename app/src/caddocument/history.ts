@@ -137,6 +137,12 @@ export interface RecordRevisionInput {
   /** CAD-PARITY-008: the viewport mint counter after this revision
    *  (never-reused `vp-NNNNNN` identities). */
   readonly nextViewportSequence?: number;
+  /** CAD-PARITY-009: the UCS mint counter after this revision
+   *  (never-reused `ucs-NNNNNN` identities). */
+  readonly nextUcsSequence?: number;
+  /** CAD-PARITY-009: the section-plane mint counter after this revision
+   *  (never-reused `sp-NNNNNN` identities). */
+  readonly nextSectionPlaneSequence?: number;
 }
 
 /** Append one immutable revision to a history (returns a NEW frozen
@@ -168,6 +174,8 @@ export function appendRevision(input: RecordRevisionInput): ModelHistory {
   const nextConstraint = Math.max(history.next_constraint_sequence ?? 1, input.nextConstraintSequence ?? 1);
   const nextLayout = Math.max(history.next_layout_sequence ?? 1, input.nextLayoutSequence ?? 1);
   const nextViewport = Math.max(history.next_viewport_sequence ?? 1, input.nextViewportSequence ?? 1);
+  const nextUcs = Math.max(history.next_ucs_sequence ?? 1, input.nextUcsSequence ?? 1);
+  const nextSectionPlane = Math.max(history.next_section_plane_sequence ?? 1, input.nextSectionPlaneSequence ?? 1);
   return deepFreeze({
     entity_id: history.entity_id,
     format: history.format,
@@ -183,6 +191,8 @@ export function appendRevision(input: RecordRevisionInput): ModelHistory {
     ...(nextConstraint > 1 ? { next_constraint_sequence: nextConstraint } : {}),
     ...(nextLayout > 1 ? { next_layout_sequence: nextLayout } : {}),
     ...(nextViewport > 1 ? { next_viewport_sequence: nextViewport } : {}),
+    ...(nextUcs > 1 ? { next_ucs_sequence: nextUcs } : {}),
+    ...(nextSectionPlane > 1 ? { next_section_plane_sequence: nextSectionPlane } : {}),
     revisions: deepFreeze([...history.revisions, revision]),
   });
 }
@@ -491,6 +501,45 @@ export function applyEditToElements(map: Map<string, Element>, edit: DocumentEdi
     }
     case "removeViewport": {
       if (edit.viewportId === undefined) throw new Error("replay: removeViewport requires viewportId");
+      break;
+    }
+    // CAD-PARITY-009: UCS-/section-plane-table edits are element-set no-ops
+    // (the tables replay through the recorded applied edits; the element
+    // delta stays empty — the layout-table precedent).
+    case "addUcs": {
+      if (edit.ucs === undefined) throw new Error("replay: addUcs requires ucs");
+      break;
+    }
+    case "updateUcs": {
+      if (edit.ucsId === undefined) throw new Error("replay: updateUcs requires ucsId");
+      break;
+    }
+    case "setUcsRecord": {
+      if (edit.ucsId === undefined || edit.ucs === undefined) {
+        throw new Error("replay: setUcsRecord requires ucsId + ucs");
+      }
+      break;
+    }
+    case "removeUcs": {
+      if (edit.ucsId === undefined) throw new Error("replay: removeUcs requires ucsId");
+      break;
+    }
+    case "addSectionPlane": {
+      if (edit.sectionPlane === undefined) throw new Error("replay: addSectionPlane requires sectionPlane");
+      break;
+    }
+    case "updateSectionPlane": {
+      if (edit.sectionPlaneId === undefined) throw new Error("replay: updateSectionPlane requires sectionPlaneId");
+      break;
+    }
+    case "setSectionPlaneRecord": {
+      if (edit.sectionPlaneId === undefined || edit.sectionPlane === undefined) {
+        throw new Error("replay: setSectionPlaneRecord requires sectionPlaneId + sectionPlane");
+      }
+      break;
+    }
+    case "removeSectionPlane": {
+      if (edit.sectionPlaneId === undefined) throw new Error("replay: removeSectionPlane requires sectionPlaneId");
       break;
     }
     default: {
@@ -802,6 +851,22 @@ export function validateModelHistory(history: unknown): asserts history is Model
       history.next_viewport_sequence < 1)
   ) {
     throw new Error("modelHistory.next_viewport_sequence must be a positive integer when present");
+  }
+  if (
+    history.next_ucs_sequence !== undefined &&
+    (typeof history.next_ucs_sequence !== "number" ||
+      !Number.isInteger(history.next_ucs_sequence) ||
+      history.next_ucs_sequence < 1)
+  ) {
+    throw new Error("modelHistory.next_ucs_sequence must be a positive integer when present");
+  }
+  if (
+    history.next_section_plane_sequence !== undefined &&
+    (typeof history.next_section_plane_sequence !== "number" ||
+      !Number.isInteger(history.next_section_plane_sequence) ||
+      history.next_section_plane_sequence < 1)
+  ) {
+    throw new Error("modelHistory.next_section_plane_sequence must be a positive integer when present");
   }
   if (!Array.isArray(history.revisions)) throw new Error("modelHistory.revisions must be an array");
   for (const [i, rev] of history.revisions.entries()) {

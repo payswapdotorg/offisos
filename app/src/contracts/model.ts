@@ -125,6 +125,13 @@ export interface ModelHistory {
   /** CAD-PARITY-008: monotonic mint counter for `vp-NNNNNN` layout viewport
    *  identities (additive-optional; absent on legacy histories). */
   readonly next_viewport_sequence?: number;
+  /** CAD-PARITY-009 (additive): the ucs-NNNNNN minting cursor (mirrors
+   *  next_layout_sequence; emitted only after the first ucs- id is minted —
+   *  the canonical-minimal contract). */
+  readonly next_ucs_sequence?: number;
+  /** CAD-PARITY-009 (additive): the sp-NNNNNN minting cursor (mirrors
+   *  next_layout_sequence; emitted only after the first sp- id is minted). */
+  readonly next_section_plane_sequence?: number;
   /** Append-only revision log (revisions[i].revision_number === i + 1). */
   readonly revisions: readonly ModelRevision[];
 }

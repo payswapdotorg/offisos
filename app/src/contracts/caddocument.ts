@@ -13,6 +13,7 @@
  */
 
 import type { ModelHistory } from "./model.js";
+import type { Vec3 } from "./geometry.js";
 
 /** Versioned entity metadata per data-model.md §2. */
 export interface VersionMeta {
@@ -401,6 +402,80 @@ export interface ViewportRecord {
   readonly layerOverrides?: readonly ViewportLayerOverride[];
 }
 
+// --- CAD-PARITY-009 (additive, Issue #90): the 3D navigation / UCS /
+// workplane / bounded-modeling contracts ---------------------------------
+
+/** A user coordinate system definition (CAD-PARITY-009). Canonical identity
+ *  `ucs-NNNNNN` is minted by the document (monotonic, never reused — the
+ *  lo-/vp- pattern); the NAME is the user-facing address (unique among
+ *  UCSs). The WORLD UCS is implicit — it is NOT a table record (never
+ *  minted, never removable, addressable as "world" / the null active id)
+ *  — the AutoCAD WCS precedent. The axis triple must be right-handed
+ *  orthonormal (x × y = z, unit lengths, pairwise ⊥ within the documented
+ *  tolerance) — validated at the document boundary; degenerate or
+ *  non-orthonormal triples are typed declines (never silently normalized).
+ *  UCS records are versioned document STRUCTURE edited through the
+ *  DocumentEdit command model (addUcs/updateUcs/setUcsRecord/removeUcs):
+ *  one edit = one revision = one undo entry. Which UCS is ACTIVE is
+ *  non-versioned editor state (draftingSettings.activeUcs — the
+ *  activeLayout precedent). */
+export interface UcsRecord {
+  readonly id: string;
+  readonly name: string;
+  /** Workplane origin in world coordinates (any finite point). */
+  readonly origin: Vec3;
+  /** Unit + orthonormal axis triple in world coordinates. */
+  readonly xAxis: Vec3;
+  readonly yAxis: Vec3;
+  readonly zAxis: Vec3;
+  /** Fixed deterministic creation timestamp (provenance). */
+  readonly createdAt: string;
+}
+
+/** A section/slice plane definition (CAD-PARITY-009 — the bounded section
+ *  PREVIEW foundation). Canonical identity `sp-NNNNNN` is minted by the
+ *  document (monotonic, never reused); the NAME is the user-facing address
+ *  (unique among section planes). The plane is the set { p : (p − origin)·n
+ *  = 0 } with a UNIT normal. Section planes are versioned document
+ *  STRUCTURE (addSectionPlane/updateSectionPlane/setSectionPlaneRecord/
+ *  removeSectionPlane); the derived preview (the bounded plane∩bbox
+ *  intersection surface) is DERIVED state, recomputed on demand and never
+ *  stored — the Plot IR precedent. Exact BRep cross-sections are a typed
+ *  decline at the adapter boundary in this slice. */
+export interface SectionPlaneRecord {
+  readonly id: string;
+  readonly name: string;
+  readonly origin: Vec3;
+  /** Unit plane normal (any finite direction; normalized/validated at the
+   *  document boundary — the zero vector is a typed decline). */
+  readonly normal: Vec3;
+  /** Fixed deterministic creation timestamp (provenance). */
+  readonly createdAt: string;
+}
+
+/** The persisted deterministic 3D camera state (CAD-PARITY-009). Eye/
+ *  target/up is the right-handed view frame (up ⊥ (target − eye), both
+ *  unit-normalized deterministically by the shared camera module before
+ *  persistence). `mode` selects the projection: orthographic uses
+ *  `orthoHalfHeight` (world units of the viewport half-height at the
+ *  target plane — the zoom handle), perspective uses `fovDeg` (vertical
+ *  field of view) with the eye↔target distance as the zoom handle. The
+ *  state is persisted as NON-VERSIONED editor settings
+ *  (draftingSettings.view3d — the draftingSettings.view precedent): view
+ *  state is strictly separated from model history (never in the revision
+ *  content hashes, never undoable, restored by save/open on every host). */
+export interface Camera3DState {
+  readonly eye: Vec3;
+  readonly target: Vec3;
+  readonly up: Vec3;
+  readonly mode: "orthographic" | "perspective";
+  /** Orthographic zoom handle: world units of the viewport half-height.
+ *  > 0. */
+  readonly orthoHalfHeight: number;
+  /** Perspective vertical field of view in degrees. (0, 180). */
+  readonly fovDeg: number;
+}
+
 /** COMPAT-CAD-001 (additive): non-versioned drafting workspace settings
  *  (grid/snap configuration, units, view state). Persisted with the snapshot
  *  so save/open restores the drafting environment; NOT part of the version
@@ -442,6 +517,18 @@ export interface DraftingSettings {
    *  space (TILEMODE 1 — the Model view), "paper" = the active layout
    *  (TILEMODE 0 — MSPACE/PSPACE switch between them). Absent = "model". */
   readonly space?: "model" | "paper";
+  /** CAD-PARITY-009: the ACTIVE UCS id — the current-workplane semantics
+   *  (non-versioned editor state, the activeLayout precedent; survives
+   *  save/open on every host). "world" (or absent) = the implicit World
+   *  UCS; any other value must reference an existing ucs table record at
+   *  set time (dangling ids are rejected by the command layer and reset to
+   *  World on open as a defensive repair). */
+  readonly activeUcs?: string;
+  /** CAD-PARITY-009: the persisted deterministic 3D camera state
+   *  (non-versioned editor settings, the draftingSettings.view precedent —
+   *  view state strictly separated from model history). Absent = the
+   *  default isometric camera the shared camera module derives. */
+  readonly view3d?: Camera3DState;
 }
 
 /** CAD-PARITY-004 persistent drawing standards: the document-wide display
@@ -680,6 +767,16 @@ export interface CADDocumentSnapshot {
    *  removeViewport command model — model geometry is referenced, never
    *  copied; the sheet/plot IR is derived state, never stored). */
   readonly viewports?: readonly ViewportRecord[];
+  /** CAD-PARITY-009: named UCS/workplane definitions (absent while empty
+   *  so legacy snapshots and the pinned CAD-PARITY-002..008 fixtures stay
+   *  byte-identical; versioned through the addUcs/updateUcs/setUcsRecord/
+   *  removeUcs command model; the World UCS is implicit, never a record). */
+  readonly ucs?: readonly UcsRecord[];
+  /** CAD-PARITY-009: section/slice plane definitions (absent while empty;
+   *  versioned through the addSectionPlane/updateSectionPlane/
+   *  setSectionPlaneRecord/removeSectionPlane command model — the derived
+   *  bounded preview is recomputed on demand, never stored). */
+  readonly sectionPlanes?: readonly SectionPlaneRecord[];
 }
 
 /** One canonical↔GlobalId provenance mapping entry of an IFC import
@@ -1164,4 +1261,87 @@ export type DocumentEdit =
       readonly element?: undefined;
       readonly patch?: undefined;
       readonly viewportId: string;
+    }
+  // --- CAD-PARITY-009 (additive): the UCS + section-plane tables ------
+  | {
+      /** Add a named UCS/workplane definition. A missing/empty id mints a
+       *  canonical `ucs-NNNNNN` identity (the addLayout pattern); duplicate
+       *  ids and duplicate names are rejected; the origin + axis triple is
+       *  validated as a whole (right-handed orthonormal within tolerance —
+       *  degenerate/non-orthonormal triples are rejected, never silently
+       *  normalized). */
+      readonly type: "addUcs";
+      readonly elementId?: undefined;
+      readonly element?: undefined;
+      readonly patch?: undefined;
+      readonly ucs: UcsRecord;
+    }
+  | {
+      /** Patch a UCS (name — kept unique — and/or origin/axes; id/createdAt
+       *  are immutable). The merged record re-validates as a whole. */
+      readonly type: "updateUcs";
+      readonly elementId?: undefined;
+      readonly element?: undefined;
+      readonly patch: Readonly<Record<string, unknown>>;
+      readonly ucsId: string;
+    }
+  | {
+      /** Full-record UCS restore (exact inverse semantics — mirrors
+       *  setLayoutRecord: used as the updateUcs inverse so absence of keys
+       *  is representable on undo/replay). */
+      readonly type: "setUcsRecord";
+      readonly elementId?: undefined;
+      readonly element?: undefined;
+      readonly patch?: undefined;
+      readonly ucsId: string;
+      readonly ucs: UcsRecord;
+    }
+  | {
+      /** Remove a UCS record. Rejected while section-plane records still
+       *  reference it? — NO: section planes are self-contained (origin +
+       *  normal), so there is no dangling-reference gate; removing the
+       *  ACTIVE UCS is a command-layer typed decline (ucs_active —
+       *  activate World first), never silently here. */
+      readonly type: "removeUcs";
+      readonly elementId?: undefined;
+      readonly element?: undefined;
+      readonly patch?: undefined;
+      readonly ucsId: string;
+    }
+  | {
+      /** Add a section/slice plane definition. A missing/empty id mints a
+       *  canonical `sp-NNNNNN` identity; duplicate ids and duplicate names
+       *  are rejected; origin + unit normal validated as a whole. */
+      readonly type: "addSectionPlane";
+      readonly elementId?: undefined;
+      readonly element?: undefined;
+      readonly patch?: undefined;
+      readonly sectionPlane: SectionPlaneRecord;
+    }
+  | {
+      /** Patch a section plane (name/origin/normal; id/createdAt immutable).
+       *  The merged record re-validates as a whole. */
+      readonly type: "updateSectionPlane";
+      readonly elementId?: undefined;
+      readonly element?: undefined;
+      readonly patch: Readonly<Record<string, unknown>>;
+      readonly sectionPlaneId: string;
+    }
+  | {
+      /** Full-record section-plane restore (setLayoutRecord semantics). */
+      readonly type: "setSectionPlaneRecord";
+      readonly elementId?: undefined;
+      readonly element?: undefined;
+      readonly patch?: undefined;
+      readonly sectionPlaneId: string;
+      readonly sectionPlane: SectionPlaneRecord;
+    }
+  | {
+      /** Remove a section-plane record (the derived preview recomputes on
+       *  demand — nothing stored references it). */
+      readonly type: "removeSectionPlane";
+      readonly elementId?: undefined;
+      readonly element?: undefined;
+      readonly patch?: undefined;
+      readonly sectionPlaneId: string;
     };
