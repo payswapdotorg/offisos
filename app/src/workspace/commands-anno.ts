@@ -54,7 +54,7 @@ import type {
   PromptValue,
 } from "./types.js";
 import { optionValue } from "./prompt-engine.js";
-import { propsToGeom } from "./geometry/types.js";
+import { geomFromElement } from "./geometry/bridge.js";
 import { lineLine } from "./geometry/math2d.js";
 import {
   angularSectorForPlacement,
@@ -147,9 +147,16 @@ function styleFixedHeight(ctx: CommandContext, styleName: string): number {
   return style !== undefined ? style.height : 0;
 }
 
+/** The canonical geometry of a pick — BOTH storage conventions (the
+ *  command-line CIRCLE/LINE commands still emit the COMPAT-CAD-001 layout;
+ *  the bridge is the one canonical view over both). */
+function geomOfPick(pick: EntityPick): import("./geometry/types.js").Geom | null {
+  return geomFromElement({ id: pick.id, kind: "geometry", engineId: null, props: pick.props });
+}
+
 /** The circle/arc geometry of a pick (for dimension targets). */
 function circleOfPick(pick: EntityPick): { center: Pt; radius: number } | null {
-  const geom = propsToGeom(pick.props);
+  const geom = geomOfPick(pick);
   if (geom === null) return null;
   if (geom.type === "circle") return { center: { x: geom.cx, y: geom.cy }, radius: geom.r };
   if (geom.type === "arc") return { center: { x: geom.cx, y: geom.cy }, radius: geom.r };
@@ -158,7 +165,7 @@ function circleOfPick(pick: EntityPick): { center: Pt; radius: number } | null {
 
 /** The infinite line of a pick (for angular legs). */
 function lineOfPick(pick: EntityPick): { a: Pt; b: Pt } | null {
-  const geom = propsToGeom(pick.props);
+  const geom = geomOfPick(pick);
   if (geom === null) return null;
   if (geom.type === "line" || geom.type === "ray" || geom.type === "xline") {
     return { a: { x: geom.x1, y: geom.y1 }, b: { x: geom.x2, y: geom.y2 } };
@@ -515,20 +522,20 @@ export const COMMANDS_ANNO: readonly WorkspaceCommand[] = [
       if (vertex === null) {
         throw new Error("The two lines are parallel — there is no angle to measure.");
       }
-      // Leg ray directions point toward where each line was picked.
-      const leg1Dir: Pt = { x: pick1.point[0] - vertex.x, y: pick1.point[1] - vertex.y };
-      const leg2Dir: Pt = { x: pick2.point[0] - vertex.x, y: pick2.point[1] - vertex.y };
-      if (Math.hypot(leg1Dir.x, leg1Dir.y) <= 1e-12 || Math.hypot(leg2Dir.x, leg2Dir.y) <= 1e-12) {
-        throw new Error("Pick each line away from the intersection point.");
-      }
+      // Leg ray directions: the HALF-LINE of each picked line that contains
+      // the pick (the pick selects the SIDE, not the direction — robust to
+      // pick-point rounding; the angle is between the LINES, AutoCAD-class).
+      const len1 = Math.hypot(d1.x, d1.y);
+      const len2 = Math.hypot(d2.x, d2.y);
+      const side1 = (pick1.point[0] - vertex.x) * d1.x + (pick1.point[1] - vertex.y) * d1.y >= 0 ? 1 : -1;
+      const side2 = (pick2.point[0] - vertex.x) * d2.x + (pick2.point[1] - vertex.y) * d2.y >= 0 ? 1 : -1;
+      const leg1Dir: Pt = { x: (d1.x / len1) * side1, y: (d1.y / len1) * side1 };
+      const leg2Dir: Pt = { x: (d2.x / len2) * side2, y: (d2.y / len2) * side2 };
       const placement = toPt(pointValue(values, "placement"));
       const [startAngle, endAngle] = angularSectorForPlacement(vertex, leg1Dir, leg2Dir, placement);
       const radius = Math.max(distPts({ x: placement.x, y: placement.y }, vertex), 10);
       // Leg anchors: the endpoint each ray points toward (association).
-      const anchorOf = (line: { a: Pt; b: Pt }, dir: Pt): "start" | "end" => {
-        const lineDir: Pt = { x: line.b.x - line.a.x, y: line.b.y - line.a.y };
-        return lineDir.x * dir.x + lineDir.y * dir.y > 0 ? "end" : "start";
-      };
+      const anchorOf = (side: number): "start" | "end" => (side > 0 ? "end" : "start");
       return plan(
         [
           {
@@ -544,8 +551,8 @@ export const COMMANDS_ANNO: readonly WorkspaceCommand[] = [
                   radius,
                   style: ctx.currentDimStyle,
                   refs: [
-                    { id: pick1.entity.id, anchor: anchorOf(line1, leg1Dir), to: "leg1" },
-                    { id: pick2.entity.id, anchor: anchorOf(line2, leg2Dir), to: "leg2" },
+                    { id: pick1.entity.id, anchor: anchorOf(side1), to: "leg1" },
+                    { id: pick2.entity.id, anchor: anchorOf(side2), to: "leg2" },
                   ],
                 },
               ],

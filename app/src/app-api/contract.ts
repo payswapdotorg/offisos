@@ -1249,8 +1249,15 @@ export class AppApiHandler {
         scale: typeof p.scale === "number" ? p.scale : 1,
         precision: typeof p.precision === "number" ? p.precision : 0,
       };
-      this.doc.execute({ type: "addDimStyle", style: record });
-      return ok({ name: record.name, snapshot: this.doc.snapshot() });
+      // CAD-PARITY-005 (additive + optional): the rendered arrowhead kind
+      // and the measurement unit suffix.
+      const withOptional: DimStyleRecord = {
+        ...record,
+        ...(p.arrowStyle === "closed" || p.arrowStyle === "tick" || p.arrowStyle === "none" ? { arrowStyle: p.arrowStyle } : {}),
+        ...(typeof p.unitSuffix === "string" && p.unitSuffix.length > 0 && p.unitSuffix.length <= 16 ? { unitSuffix: p.unitSuffix } : {}),
+      };
+      this.doc.execute({ type: "addDimStyle", style: withOptional });
+      return ok({ name: withOptional.name, snapshot: this.doc.snapshot() });
     } catch (e) {
       return err("drafting_invalid", (e as Error).message, false);
     }
