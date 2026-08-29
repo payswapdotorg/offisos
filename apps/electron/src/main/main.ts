@@ -182,6 +182,38 @@ function registerIpc(bundle: EngineAdapterBundle = CONFIG.adapterBundle): { hand
     }
   });
 
+  // CAD-PARITY-008 (Issue #88): the plot-artifact save dialog — the
+  // main-process showSaveDialog (the pickReferenceFile precedent; the
+  // renderer never touches node/fs — §16 context isolation). Typed outcomes
+  // (canceled / error / saved); the renderer writes the returned path back
+  // through cad:savePlotFile below.
+  ipcMain.handle("cad:pickSavePath", async (_e, payload: { defaultPath?: string } = {}): Promise<{ status: "canceled" } | { status: "saved"; filePath: string } | { status: "error"; message: string }> => {
+    const options: Electron.SaveDialogOptions = {
+      title: "Save plot artifact",
+      defaultPath: typeof payload?.defaultPath === "string" ? payload.defaultPath : "offisos-plot",
+    };
+    const picked = mainWindow !== null ? await dialog.showSaveDialog(mainWindow, options) : await dialog.showSaveDialog(options);
+    if (picked.canceled || picked.filePath === undefined) return { status: "canceled" };
+    return { status: "saved", filePath: picked.filePath };
+  });
+  // CAD-PARITY-008: write the plot artifact bytes (SVG text or PDF base64)
+  // at the previously picked path — the single fs write the plot flow needs.
+  ipcMain.handle(
+    "cad:savePlotFile",
+    async (_e, payload: { filePath: string; text?: string; bytesBase64?: string }): Promise<{ status: "saved"; size: number } | { status: "error"; message: string }> => {
+      try {
+        const data =
+          typeof payload?.bytesBase64 === "string"
+            ? Buffer.from(payload.bytesBase64, "base64")
+            : Buffer.from(payload?.text ?? "", "utf8");
+        writeFileSync(payload.filePath, data);
+        return { status: "saved", size: data.length };
+      } catch (e) {
+        return { status: "error", message: (e as Error).message };
+      }
+    },
+  );
+
   return { handler, host };
 }
 

@@ -20,6 +20,13 @@ const api = {
   // typed pick outcome; the parsed snapshot object is the xref.attach
   // `content` payload (the renderer never touches node/fs).
   pickReferenceFile: (): Promise<unknown> => ipcRenderer.invoke("cad:pickReferenceFile"),
+  // CAD-PARITY-008 (Issue #88): the plot-artifact save flow — pickSavePath
+  // (the showSaveDialog) + savePlotFile (the one fs write). Typed outcomes;
+  // the renderer never touches node/fs (§16).
+  pickSavePath: (defaultPath?: string): Promise<unknown> =>
+    ipcRenderer.invoke("cad:pickSavePath", { defaultPath }),
+  savePlotFile: (payload: { filePath: string; text?: string; bytesBase64?: string }): Promise<unknown> =>
+    ipcRenderer.invoke("cad:savePlotFile", payload),
 };
 
 contextBridge.exposeInMainWorld("cad", api);

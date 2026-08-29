@@ -178,6 +178,18 @@ import {
   diagnoseConstraints,
   paintConstraintGlyphs,
 } from "@offisos/cad-app-shell/workspace/constraints";
+// CAD-PARITY-008 (Issue #88): the shared layouts/plot core — the SAME
+// model↔paper transform, Plot IR builder and paper painter the Web host and
+// the export writers consume (LOCK-004 parity by construction).
+import {
+  buildPlotIR,
+  formatViewportScale,
+  paintPlotIR,
+  paintSheetBackdrop,
+  type PaperPt,
+  type PlotIR,
+} from "@offisos/cad-app-shell/workspace/layouts";
+import type { LayoutRecord, ViewportRecord } from "@offisos/cad-app-shell/contracts/caddocument";
 // CAD-PARITY-006 (Issue #84): the shared blocks core — the ONE expansion
 // (expandInstanceElement) + the instance views both hosts render/pick through
 // (LOCK-004 parity by construction; engine-free, pure — LOCK-003/018).
@@ -209,6 +221,11 @@ export interface ProfessionalOptions {
    *  Attach/Reload flows resolve xref CONTENT through it (Electron-only
    *  capability; the command line attaches unresolved by design). */
   readonly pickReferenceFile: () => Promise<ReferenceFilePick | null>;
+  /** CAD-PARITY-008 (Issue #88): the plot-artifact save flow — the
+   *  main-process save dialog + the single fs write (pickSavePath +
+   *  savePlotFile through the preload bridge; typed outcomes; the renderer
+   *  never touches node/fs, §16). Optional so legacy hosts mount without it. */
+  readonly pickSaveFile?: (defaultPath: string, payload: { text?: string; bytesBase64?: string }) => Promise<{ status: "canceled" } | { status: "saved"; size: number } | { status: "error"; message: string }>;
 }
 
 /** The reference-file pick outcome (mirrors the main-process
@@ -402,6 +419,18 @@ const PRO_CSS = `
 .pro-palette li button .desc { margin-left:auto; color:var(--muted); font-size:10px; max-width:46%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .pro-palette li.sel button, .pro-palette li button:hover { background:#f1f5f9; }
 .pro-ribbon { display:flex; align-items:stretch; gap:14px; border-bottom:1px solid var(--border); padding:4px 10px; background:var(--bg); overflow-x:auto; }
+.pro-layout-tabs { display:flex; align-items:center; gap:2px; border-bottom:1px solid var(--border); padding:3px 10px 0; background:var(--bg); }
+.pro-layout-tab { border:1px solid var(--border); border-bottom:none; background:transparent; font-size:11px; font-weight:600; padding:3px 12px; border-radius:4px 4px 0 0; cursor:pointer; color:var(--muted); }
+.pro-layout-tab:hover { background:#f1f5f9; }
+.pro-layout-tab.active { background:var(--bg); color:var(--fg); }
+.pro-layout-tabs-dyn { display:flex; gap:2px; margin-left:8px; padding-left:8px; border-left:1px solid var(--border); }
+.pro-overlay { position:fixed; inset:0; z-index:60; display:flex; align-items:center; justify-content:center; background:rgba(15,23,42,.45); }
+.pro-overlay-card { display:flex; flex-direction:column; gap:8px; width:min(940px,94vw); max-height:88vh; overflow:auto; background:var(--bg); border:1px solid var(--border); border-radius:8px; padding:12px 14px; box-shadow:0 20px 40px rgba(15,23,42,.25); }
+.pro-overlay-card header { display:flex; align-items:center; }
+.pro-overlay-card h2 { flex:1; font-size:13px; margin:0; }
+.pro-vp-row { flex-wrap:wrap; gap:6px; }
+.pro-strong { font-weight:700; font-size:10px; font-family:ui-monospace,monospace; }
+.pro-inline { display:inline-flex; align-items:center; gap:3px; font-size:10px; color:var(--muted); }
 .pro-ribbon-group { display:flex; flex-direction:column; gap:2px; }
 .pro-ribbon-label { font-size:9px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:var(--muted); text-align:center; }
 .pro-ribbon-buttons { display:flex; gap:2px; }
@@ -545,6 +574,16 @@ const PRO_CSS = `
  *  paths the real input/canvas handlers use). */
 export interface ProfessionalDriver {
   typedInput(text: string): Promise<void>;
+  /** CAD-PARITY-008 (Issue #88): the paper-space surface — the space
+   *  context, the paper canvas info, the plot preview + the deterministic
+   *  plot exports (the SAME commands the UI runs; the smoke asserts the
+   *  artifacts byte-identically against the Web host). */
+  space(): "model" | "paper";
+  setActiveSpace(next: "model" | "paper"): void;
+  paperInfo(): { space: "model" | "paper"; layoutName: string | null; viewportCount: number; selectedViewportId: string | null };
+  openPlotPreview(): Promise<void>;
+  exportPlot(layoutName: string, format: "svg" | "pdf" | "plot-ir"): Promise<{ ok: boolean; sha256?: string; size?: number; message?: string }>;
+  selectViewport(id: string | null): void;
   pressEnter(): Promise<void>;
   pressEscape(): Promise<void>;
   pickPoint(x: number, y: number): Promise<void>;
@@ -590,7 +629,14 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
   // panel input drafts. Survives re-renders (the panels rebuild on every
   // refresh; input values restore from these).
   let dockOpen = true;
-  let dockTab: "layers" | "styles" | "blocks" | "constraints" = "layers";
+  let dockTab: "layers" | "styles" | "blocks" | "constraints" | "layouts" = "layers";
+  // CAD-PARITY-008 (Issue #88): the paper-space editor context — the host
+  // view switches between the Model canvas and the ACTIVE layout's paper
+  // canvas (the layout.activate / layout.setSpace commands drive it through
+  // executePlan's space.model/space.paper ui actions; LOCK-015 host-local
+  // view state, the Web host's Layout tab mirror).
+  let space: "model" | "paper" = "model";
+  let selectedViewportId: string | null = null;
   let layerFilterText = "";
   let layerFilterMode: LayerFilterMode = "all";
   let layerStatesOpen = false;
@@ -634,6 +680,7 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
       );
       if (story !== undefined) state.activeStoryId = story.id;
     }
+    renderLayoutTabs();
     renderModel();
     renderCommandLine();
     renderStatusBar();
@@ -677,6 +724,12 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
       // DELCONSTRAINT builders — the SAME document state the Web host
       // passes; LOCK-004 parity).
       constraints: state.snapshot?.constraints ?? [],
+      // CAD-PARITY-008: the paper-space layout/viewport tables + the
+      // TILEMODE-class context (the SAME document state the Web host passes).
+      layouts: state.snapshot?.layouts ?? [],
+      viewports: state.snapshot?.viewports ?? [],
+      activeLayoutId: state.snapshot?.draftingSettings?.activeLayout ?? state.snapshot?.layouts?.[0]?.id ?? null,
+      space: state.snapshot?.draftingSettings?.space ?? "model",
     });
   }
 
@@ -697,6 +750,29 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
             );
             if (story !== undefined) state.activeStoryId = story.id;
           }
+        }
+      } else if (res.ok && (entry.name === "plot.export" || entry.name === "plot.publish")) {
+        // CAD-PARITY-008: PLOT/PUBLISH deliver the deterministic artifact —
+        // save through the main-process dialog (the Web host downloads; the
+        // SAME App API command produces the SAME bytes on both hosts).
+        const value = res.value as {
+          format?: string; text?: string; bytesBase64?: string; sha256?: string;
+          layoutName?: string; pageCount?: number;
+        };
+        const ext = value.format === "pdf" ? "pdf" : value.format === "svg" ? "svg" : "json";
+        const base = (value.layoutName ?? "layouts").replace(/\s+/g, "-").toLowerCase();
+        const defaultPath = `offisos-${base}${value.pageCount !== undefined && value.pageCount > 1 ? "-set" : ""}.${ext}`;
+        const payload: { text?: string; bytesBase64?: string } =
+          value.bytesBase64 !== undefined ? { bytesBase64: value.bytesBase64 } : { text: value.text ?? "" };
+        if (opts.pickSaveFile !== undefined) {
+          const saved = await opts.pickSaveFile(defaultPath, payload);
+          if (saved.status === "saved") {
+            pushLines([`PLOT: ${value.pageCount !== undefined && value.pageCount > 1 ? `${value.pageCount} layouts published` : (value.layoutName ?? "layout")} as ${(value.format ?? "?").toUpperCase()} — saved (${saved.size} bytes, sha256 ${(value.sha256 ?? "").slice(0, 12)}…).`]);
+          } else if (saved.status === "error") {
+            pushLines([`*ERROR* plot save: ${saved.message}`]);
+          }
+        } else {
+          pushLines([`PLOT: ${(value.format ?? "?").toUpperCase()} artifact ready (sha256 ${(value.sha256 ?? "").slice(0, 12)}…) — no save dialog bridge on this host.`]);
         }
       }
       state.busy = false;
@@ -722,6 +798,24 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
         }
         case "view.zoomExtents":
           zoomExtents();
+          break;
+        // CAD-PARITY-008 (Issue #88): the paper-space context switches + the
+        // plot preview surface (host-local view state, LOCK-015 — the Web
+        // host's Layout view mirror).
+        case "space.model":
+          space = "model";
+          renderLayoutTabs();
+          break;
+        case "space.paper":
+          space = "paper";
+          renderLayoutTabs();
+          break;
+        case "plot.preview":
+          openPlotPreview();
+          break;
+        case "plot.download":
+          // The artifact already saved inline with the plot.export /
+          // plot.publish response (see the appApi loop above).
           break;
         case "selection.clear":
           await command("document.setSelection", { ids: [] });
@@ -778,6 +872,11 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
             // CAD-PARITY-007: CONSTRAINTS — the parametric manager (live
             // diagnostics, dimensional value editing, removal).
             openDock("constraints");
+          } else if (palette === "layouts") {
+            // CAD-PARITY-008: LAYOUT/VPORTS — the layouts manager (the layout
+            // table, page setup, viewport scale/rotation/lock + the
+            // per-viewport layer visibility).
+            openDock("layouts");
           } else if (palette === "properties") {
             // CAD-PARITY-004: PROPERTIES — the professional inspector overlay.
             showInspector();
@@ -1065,6 +1164,13 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
       label: "Parametric",
       ids: ["geomconstraint", "dimconstraint", "constraintlist", "delconstraint", "constraints"],
     },
+    // CAD-PARITY-008 (Issue #88): the layouts/publishing group — the SAME
+    // command set the Web Layout ribbon tab carries (the layout lifecycle,
+    // the context switches, viewports, page setup, preview, plot, publish).
+    {
+      label: "Layout",
+      ids: ["layout", "layoutnew", "layoutrename", "layoutclone", "layoutdelete", "tilemode", "mspace", "pspace", "mview", "vports", "pagesetup", "preview", "plot", "publish"],
+    },
     { label: "BIM", ids: ["story", "wall", "slab", "door", "window"] },
     {
       label: "Modify",
@@ -1146,6 +1252,65 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
     ribbon.append(g);
   }
   opts.root.insertBefore(ribbon, menuBar.nextSibling);
+
+  // --- CAD-PARITY-008 (Issue #88): the layout tab row — the Model tab plus
+  //     ONE tab per paper-space layout (distinct from the Model tab, the Web
+  //     host's view-tabs mirror). Clicking a layout activates it through
+  //     layout.activate + switches the canvas to paper space.
+
+  const layoutTabsRow = h("div", "pro-layout-tabs");
+  layoutTabsRow.setAttribute("role", "tablist");
+  layoutTabsRow.setAttribute("aria-label", "model and layout tabs");
+  layoutTabsRow.setAttribute("data-testid", "pro-layout-tabs");
+  const modelTabBtn = h("button", "pro-layout-tab");
+  modelTabBtn.type = "button";
+  modelTabBtn.textContent = "Model";
+  modelTabBtn.setAttribute("role", "tab");
+  modelTabBtn.setAttribute("data-testid", "pro-tab-model");
+  modelTabBtn.addEventListener("click", () => {
+    void (async () => {
+      space = "model";
+      await command("layout.setSpace", { space: "model" });
+      renderLayoutTabs();
+      await refresh();
+    })();
+  });
+  layoutTabsRow.append(modelTabBtn);
+  const layoutTabsDyn = h("span", "pro-layout-tabs-dyn");
+  layoutTabsRow.append(layoutTabsDyn);
+  opts.root.insertBefore(layoutTabsRow, ribbon.nextSibling);
+
+  /** Repaint the layout tab row from the current snapshot (called by
+   *  refresh + the space switches). */
+  function renderLayoutTabs(): void {
+    while (layoutTabsDyn.firstChild) layoutTabsDyn.removeChild(layoutTabsDyn.firstChild);
+    modelTabBtn.classList.toggle("active", space === "model");
+    modelTabBtn.setAttribute("aria-selected", String(space === "model"));
+    const layouts = state.snapshot?.layouts ?? [];
+    const activeId = state.snapshot?.draftingSettings?.activeLayout ?? layouts[0]?.id ?? null;
+    for (const layout of layouts) {
+      const btn = h("button", "pro-layout-tab");
+      btn.type = "button";
+      btn.textContent = layout.name;
+      btn.setAttribute("role", "tab");
+      btn.setAttribute("data-testid", `pro-tab-layout-${layout.id}`);
+      const isActive = space === "paper" && layout.id === activeId;
+      btn.classList.toggle("active", isActive);
+      btn.setAttribute("aria-selected", String(isActive));
+      btn.title = `Activate the '${layout.name}' layout (${layout.pageSetup.paperSize} ${layout.pageSetup.orientation})`;
+      btn.addEventListener("click", () => {
+        void (async () => {
+          selectedViewportId = null;
+          space = "paper";
+          const res = await command("layout.activate", { name: layout.name });
+          if (!res.ok) pushLines([`*ERROR* layout.activate: ${res.code} — ${res.message}`]);
+          renderLayoutTabs();
+          await refresh();
+        })();
+      });
+      layoutTabsDyn.append(btn);
+    }
+  }
 
   // --- Model canvas (drafting mode card) ---------------------------------------------
 
@@ -1274,6 +1439,17 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
     dockTab = "constraints";
     renderDock();
   });
+  // CAD-PARITY-008 (Issue #88): the Layouts manager tab.
+  const dockTabLayouts = h("button", "pro-dock-tab");
+  dockTabLayouts.type = "button";
+  dockTabLayouts.textContent = "Layouts";
+  dockTabLayouts.setAttribute("role", "tab");
+  dockTabLayouts.setAttribute("aria-label", "Layouts manager");
+  dockTabLayouts.setAttribute("data-testid", "pro-dock-tab-layouts");
+  dockTabLayouts.addEventListener("click", () => {
+    dockTab = "layouts";
+    renderDock();
+  });
   const dockClose = h("button", "pro-dock-close");
   dockClose.type = "button";
   dockClose.textContent = "×";
@@ -1283,13 +1459,13 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
     dockOpen = false;
     renderDock();
   });
-  dockTabs.append(dockTabLayers, dockTabStyles, dockTabBlocks, dockTabConstraints, dockClose);
+  dockTabs.append(dockTabLayers, dockTabStyles, dockTabBlocks, dockTabConstraints, dockTabLayouts, dockClose);
   const dockBody = h("div", "pro-dock-body");
   dock.append(dockTabs, dockBody);
   modelBody.append(dock);
 
   /** Open (and focus) a manager dock tab. */
-  function openDock(tab: "layers" | "styles" | "blocks" | "constraints"): void {
+  function openDock(tab: "layers" | "styles" | "blocks" | "constraints" | "layouts"): void {
     dockOpen = true;
     dockTab = tab;
     renderDock();
@@ -2838,6 +3014,59 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
       annoCtx.clearRect(0, 0, SVG_W, SVG_H);
     }
 
+    // CAD-PARITY-008 (Issue #88): PAPER SPACE — the active layout's sheet
+    // painted through the SHARED paper painter from the SHARED Plot IR (the
+    // SAME ir.ts/paint.ts the Web paper canvas and the export writers
+    // consume — the preview IS the plot). The SVG plan viewport stays empty
+    // in paper mode; theannoCanvas carries the sheet (display-only surface —
+    // viewport frame editing lives in the Layouts dock panel through the
+    // SAME viewport.update commands; the Web paper canvas adds grips).
+    if (space === "paper") {
+      const layouts = state.snapshot?.layouts ?? [];
+      const activeId = state.snapshot?.draftingSettings?.activeLayout ?? layouts[0]?.id ?? null;
+      const layout = layouts.find((l) => l.id === activeId) ?? null;
+      modelTitle.textContent = `Paper — ${layout?.name ?? "no layout"}`;
+      if (annoCtx !== null) {
+        annoCtx.fillStyle = "#e2e8f0";
+        annoCtx.fillRect(0, 0, SVG_W, SVG_H);
+      }
+      if (layout !== null) {
+        const snap = state.snapshot;
+        if (snap !== null) {
+          const ir: PlotIR = buildPlotIR({
+            layout,
+            viewports: snap.viewports ?? [],
+            elements: snap.elements,
+            layers: snap.layers ?? [],
+            ltypes: snap.ltypes ?? [],
+            textStyles: snap.textStyles ?? [],
+            dimStyles: snap.dimStyles ?? [],
+            ...(snap.draftingSettings?.standards !== undefined ? { standards: snap.draftingSettings.standards } : {}),
+          });
+          if (annoCtx !== null) {
+            const margin = 20;
+            const zoom = Math.min((SVG_W - margin * 2) / ir.sheet.widthMm, (SVG_H - margin * 2) / ir.sheet.heightMm);
+            const ox = (SVG_W - ir.sheet.widthMm * zoom) / 2;
+            const oy = (SVG_H + ir.sheet.heightMm * zoom) / 2;
+            const toScreen = (pt: PaperPt): [number, number] => [ox + pt.x * zoom, oy - pt.y * zoom];
+            paintSheetBackdrop(annoCtx, ir, { toScreen, pxPerMm: zoom });
+            paintPlotIR(annoCtx, ir, { toScreen, pxPerMm: zoom, selectedViewportId });
+            // The paper sheet marker (the smoke asserts the painted surface).
+            const marker = svgNs("rect");
+            marker.setAttribute("data-testid", "pro-paper-sheet");
+            marker.setAttribute("x", "0");
+            marker.setAttribute("y", "0");
+            marker.setAttribute("width", "0");
+            marker.setAttribute("height", "0");
+            marker.setAttribute("fill", "none");
+            svg.append(marker);
+          }
+        }
+      }
+      return;
+    }
+    modelTitle.textContent = "Model — command-driven plan viewport";
+
     const settings = state.snapshot?.draftingSettings;
     if (settings?.grid.enabled === true && settings.grid.size > 0) {
       const size = settings.grid.size * Math.max(1, Math.round(10 / (settings.grid.size * state.zoom)));
@@ -4114,7 +4343,12 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
     const layerName =
       (state.snapshot?.layers ?? []).find((l) => l.id === state.activeLayer)?.name ?? state.activeLayer;
     layerLink.textContent = `Layer ${layerName}`;
-    infoRest.textContent = ` · Story ${storyName} · Sel ${state.selection.length} · v${state.snapshot?.version?.version_number ?? 0} · ${settings?.units ?? "mm"}`;
+    // CAD-PARITY-008: the Model/Paper context indicator (TILEMODE/MSPACE/
+    // PSPACE — layout.setSpace).
+    const layouts = state.snapshot?.layouts ?? [];
+    const activeLayout = layouts.find((l) => l.id === (settings?.activeLayout ?? layouts[0]?.id));
+    const spaceLabel = layouts.length === 0 ? "" : space === "model" ? "Model" : `Paper · ${activeLayout?.name ?? "—"}`;
+    infoRest.textContent = `${spaceLabel.length > 0 ? ` · ${spaceLabel}` : ""} · Story ${storyName} · Sel ${state.selection.length} · v${state.snapshot?.version?.version_number ?? 0} · ${settings?.units ?? "mm"}`;
   }
 
   // --- CAD-PARITY-004 right dock: Layers manager + Styles manager ---------------
@@ -4174,14 +4408,17 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
     dockTabStyles.classList.toggle("active", dockTab === "styles");
     dockTabBlocks.classList.toggle("active", dockTab === "blocks");
     dockTabConstraints.classList.toggle("active", dockTab === "constraints");
+    dockTabLayouts.classList.toggle("active", dockTab === "layouts");
     dockTabLayers.setAttribute("aria-selected", String(dockTab === "layers"));
     dockTabStyles.setAttribute("aria-selected", String(dockTab === "styles"));
     dockTabBlocks.setAttribute("aria-selected", String(dockTab === "blocks"));
     dockTabConstraints.setAttribute("aria-selected", String(dockTab === "constraints"));
+    dockTabLayouts.setAttribute("aria-selected", String(dockTab === "layouts"));
     while (dockBody.firstChild) dockBody.removeChild(dockBody.firstChild);
     if (dockTab === "layers") renderLayersPanel(dockBody);
     else if (dockTab === "blocks") renderBlocksPanel(dockBody);
     else if (dockTab === "constraints") renderConstraintsPanel(dockBody);
+    else if (dockTab === "layouts") renderLayoutsPanel(dockBody);
     else renderStylesPanel(dockBody);
   }
 
@@ -4916,6 +5153,373 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
     container.append(scroll);
   }
 
+  // --- CAD-PARITY-008 (Issue #88): the Layouts manager + the plot preview ----
+
+  /** The active layout record (activeLayout ?? the first table entry — the
+   *  layouts.list semantics). */
+  function activeLayoutRecord(): LayoutRecord | null {
+    const layouts = state.snapshot?.layouts ?? [];
+    const activeId = state.snapshot?.draftingSettings?.activeLayout ?? layouts[0]?.id ?? null;
+    return layouts.find((l) => l.id === activeId) ?? null;
+  }
+
+  /** The Layouts manager (mirrors the Web LayoutsPanel): the layout table
+   *  (activate/rename/clone/delete), the page setup of the active layout and
+   *  the viewport inventory (scale/rotation/lock + the per-viewport layer
+   *  visibility — the VPLAYER surface). Every write is ONE App API command
+   *  (commitCommand) — the SAME commands the Web panel sends. */
+  function renderLayoutsPanel(container: HTMLElement): void {
+    const layouts = state.snapshot?.layouts ?? [];
+    const viewports = state.snapshot?.viewports ?? [];
+    const layers = state.snapshot?.layers ?? [];
+    const active = activeLayoutRecord();
+    const layoutViewports: ViewportRecord[] = viewports.filter((v) => v.layoutId === active?.id);
+
+    const head = h("div", "pro-panel-head");
+    const newBtn = h("button", "pro-btn");
+    newBtn.type = "button";
+    newBtn.textContent = "New";
+    newBtn.title = "Create a paper-space layout (LAYOUTNEW)";
+    newBtn.setAttribute("data-testid", "pro-layouts-new");
+    newBtn.addEventListener("click", () => void startCommand("layoutnew"));
+    const vpBtn = h("button", "pro-btn");
+    vpBtn.type = "button";
+    vpBtn.textContent = "Viewports";
+    vpBtn.title = "The bounded viewport manager (VPORTS)";
+    vpBtn.addEventListener("click", () => void startCommand("vports"));
+    const previewBtn = h("button", "pro-btn");
+    previewBtn.type = "button";
+    previewBtn.textContent = "Preview";
+    previewBtn.title = "The deterministic plot preview of the active layout (PREVIEW)";
+    previewBtn.setAttribute("data-testid", "pro-layouts-preview");
+    previewBtn.addEventListener("click", () => openPlotPreview());
+    const publishBtn = h("button", "pro-btn");
+    publishBtn.type = "button";
+    publishBtn.textContent = "Publish";
+    publishBtn.title = "Publish every layout as one multi-page PDF (PUBLISH)";
+    publishBtn.addEventListener("click", () => void startCommand("publish"));
+    head.append(newBtn, vpBtn, previewBtn, publishBtn);
+    container.append(head);
+
+    // --- The layout table.
+    const list = h("div", "pro-panel-list");
+    list.setAttribute("data-testid", "pro-layouts-list");
+    if (layouts.length === 0) {
+      const empty = h("p", "pro-muted");
+      empty.textContent = "No layouts yet — LAYOUTNEW creates one (A3 landscape, 10 mm margins, fit, as-displayed plot style).";
+      list.append(empty);
+    }
+    for (const layout of layouts) {
+      const vps = viewports.filter((v) => v.layoutId === layout.id);
+      const isActive = layout.id === active?.id;
+      const row = h("div", "pro-row" + (isActive ? " pro-active" : ""));
+      row.setAttribute("data-testid", `pro-layout-row-${layout.id}`);
+      const nameBtn = h("button", "pro-link");
+      nameBtn.type = "button";
+      nameBtn.textContent = (isActive ? "▸ " : "") + layout.name;
+      nameBtn.title = "Activate this layout (paper space)";
+      nameBtn.addEventListener("click", () => {
+        void (async () => {
+          const res = await command("layout.activate", { name: layout.name });
+          if (!res.ok) pushLines([`*ERROR* layout.activate: ${res.code} — ${res.message}`]);
+          space = "paper";
+          renderLayoutTabs();
+          await refresh();
+        })();
+      });
+      const meta = h("span", "pro-muted");
+      meta.textContent = `${layout.pageSetup.paperSize} · ${vps.length}vp`;
+      const renameBtn = h("button", "pro-icon-btn");
+      renameBtn.type = "button";
+      renameBtn.textContent = "✎";
+      renameBtn.title = "Rename layout (LAYOUTRENAME)";
+      renameBtn.addEventListener("click", () => {
+        const newName = window.prompt("New layout name", layout.name);
+        if (newName !== null && newName.trim().length > 0) commitCommand("layout.rename", { name: layout.name, newName: newName.trim() });
+      });
+      const cloneBtn = h("button", "pro-icon-btn");
+      cloneBtn.type = "button";
+      cloneBtn.textContent = "⧉";
+      cloneBtn.title = "Clone layout with its viewports (LAYOUTCLONE)";
+      cloneBtn.addEventListener("click", () => commitCommand("layout.clone", { name: layout.name, newName: `${layout.name}-Copy` }));
+      const delBtn = h("button", "pro-icon-btn danger");
+      delBtn.type = "button";
+      delBtn.textContent = "✕";
+      delBtn.title = "Delete layout and its viewports (LAYOUTDELETE)";
+      delBtn.addEventListener("click", () => commitCommand("layout.remove", { name: layout.name }));
+      row.append(nameBtn, meta, renameBtn, cloneBtn, delBtn);
+      list.append(row);
+    }
+    container.append(list);
+
+    // --- The page setup of the active layout.
+    if (active !== null) {
+      const setup = active.pageSetup;
+      const section = h("div", "pro-panel-section");
+      section.setAttribute("data-testid", "pro-pagesetup");
+      const title = h("p", "pro-section-title");
+      title.textContent = `Page setup — ${active.name}`;
+      section.append(title);
+
+      const paperRow = h("div", "pro-row");
+      const paperLabel = h("span", "pro-muted");
+      paperLabel.textContent = "Paper";
+      const paperSel = document.createElement("select");
+      paperSel.setAttribute("aria-label", "paper size");
+      for (const size of ["A4", "A3", "A2", "A1", "A0"] as const) {
+        const opt = document.createElement("option");
+        opt.value = size;
+        opt.textContent = size;
+        if (setup.paperSize === size) opt.selected = true;
+        paperSel.append(opt);
+      }
+      if (setup.paperSize === "CUSTOM") {
+        const opt = document.createElement("option");
+        opt.value = "CUSTOM";
+        opt.textContent = "CUSTOM";
+        opt.selected = true;
+        paperSel.append(opt);
+      }
+      paperSel.addEventListener("change", () => {
+        const size = paperSel.value as "A4" | "A3" | "A2" | "A1" | "A0";
+        const dims: Record<string, { w: number; h: number }> = {
+          A4: { w: 210, h: 297 }, A3: { w: 297, h: 420 }, A2: { w: 420, h: 594 },
+          A1: { w: 594, h: 841 }, A0: { w: 841, h: 1189 },
+        };
+        const d = dims[size]!;
+        commitCommand("layout.setPageSetup", { name: active.name, patch: { paperSize: size, widthMm: d.w, heightMm: d.h } });
+      });
+      paperRow.append(paperLabel, paperSel);
+      section.append(paperRow);
+
+      const orientRow = h("div", "pro-row");
+      const orientLabel = h("span", "pro-muted");
+      orientLabel.textContent = "Orientation";
+      const orientSel = document.createElement("select");
+      orientSel.setAttribute("aria-label", "orientation");
+      for (const o of ["portrait", "landscape"] as const) {
+        const opt = document.createElement("option");
+        opt.value = o;
+        opt.textContent = o === "portrait" ? "Portrait" : "Landscape";
+        if (setup.orientation === o) opt.selected = true;
+        orientSel.append(opt);
+      }
+      orientSel.addEventListener("change", () => {
+        commitCommand("layout.setPageSetup", { name: active.name, patch: { orientation: orientSel.value } });
+      });
+      orientRow.append(orientLabel, orientSel);
+      section.append(orientRow);
+
+      const scaleRow = h("div", "pro-row");
+      const scaleLabel = h("span", "pro-muted");
+      scaleLabel.textContent = "Plot scale";
+      const scaleInput = document.createElement("input");
+      scaleInput.type = "text";
+      scaleInput.value = setup.plotScale;
+      scaleInput.setAttribute("aria-label", "plot scale (fit or N:M)");
+      scaleInput.style.width = "72px";
+      scaleInput.addEventListener("change", () => {
+        commitCommand("layout.setPageSetup", { name: active.name, patch: { plotScale: scaleInput.value.trim() } });
+      });
+      scaleRow.append(scaleLabel, scaleInput);
+      section.append(scaleRow);
+
+      const styleNote = h("p", "pro-muted");
+      styleNote.textContent =
+        setup.plotStyleKind === "none"
+          ? `Plot style: none (as displayed) · borders ${setup.plotViewports !== false ? "plotted" : "off"}`
+          : `Plot style: ${setup.plotStyleTable} (${setup.plotStyleKind.toUpperCase()}) — application is a typed decline`;
+      section.append(styleNote);
+      container.append(section);
+    }
+
+    // --- The viewport inventory of the active layout.
+    const vpSection = h("div", "pro-panel-section");
+    vpSection.setAttribute("data-testid", "pro-viewports");
+    const vpTitle = h("p", "pro-section-title");
+    vpTitle.textContent = `Viewports — ${active?.name ?? "…"} (${layoutViewports.length})`;
+    vpSection.append(vpTitle);
+    if (layoutViewports.length === 0) {
+      const empty = h("p", "pro-muted");
+      empty.textContent = "None yet — MVIEW places one (two paper corners + Fit/Scale/Window).";
+      vpSection.append(empty);
+    }
+    for (const vp of layoutViewports) {
+      const locked = vp.locked === true;
+      const row = h("div", "pro-row pro-vp-row");
+      row.setAttribute("data-testid", `pro-viewport-row-${vp.id}`);
+      const idLabel = h("span", "pro-strong");
+      idLabel.textContent = vp.id;
+      const scaleLabel = h("label", "pro-inline");
+      scaleLabel.textContent = "1:";
+      const scaleInput = document.createElement("input");
+      scaleInput.type = "number";
+      scaleInput.value = String(vp.scaleDenominator);
+      scaleInput.disabled = locked;
+      scaleInput.style.width = "64px";
+      scaleInput.setAttribute("aria-label", `viewport ${vp.id} scale denominator`);
+      scaleInput.addEventListener("change", () => {
+        const d = Number(scaleInput.value);
+        if (Number.isFinite(d) && d > 0) commitCommand("viewport.update", { id: vp.id, patch: { scaleDenominator: d } });
+      });
+      scaleLabel.append(scaleInput);
+      const rotLabel = h("label", "pro-inline");
+      rotLabel.textContent = "rot°";
+      const rotInput = document.createElement("input");
+      rotInput.type = "number";
+      rotInput.value = String(vp.rotationDeg);
+      rotInput.disabled = locked;
+      rotInput.style.width = "56px";
+      rotInput.setAttribute("aria-label", `viewport ${vp.id} rotation degrees`);
+      rotInput.addEventListener("change", () => {
+        const r = Number(rotInput.value);
+        if (Number.isFinite(r)) commitCommand("viewport.update", { id: vp.id, patch: { rotationDeg: r } });
+      });
+      rotLabel.append(rotInput);
+      const lockLabel = h("label", "pro-inline");
+      lockLabel.title = "Display lock: the view (camera/scale/rotation) freezes; the frame still moves";
+      const lockInput = document.createElement("input");
+      lockInput.type = "checkbox";
+      lockInput.checked = locked;
+      lockInput.setAttribute("aria-label", `viewport ${vp.id} display lock`);
+      lockInput.addEventListener("change", () => {
+        commitCommand("viewport.update", { id: vp.id, patch: { locked: lockInput.checked } });
+      });
+      lockLabel.append(lockInput, document.createTextNode(" lock"));
+      const layerBtn = h("button", "pro-btn");
+      layerBtn.type = "button";
+      layerBtn.textContent = "layers";
+      layerBtn.title = "Per-viewport layer visibility (VPLAYER)";
+      layerBtn.addEventListener("click", () => {
+        const next = promptViewportLayerOverrides(vp, layers);
+        if (next !== null) commitCommand("viewport.update", { id: vp.id, patch: { layerOverrides: next } });
+      });
+      const delBtn = h("button", "pro-icon-btn danger");
+      delBtn.type = "button";
+      delBtn.textContent = "✕";
+      delBtn.title = "Delete viewport";
+      delBtn.addEventListener("click", () => commitCommand("viewport.remove", { id: vp.id }));
+      row.append(idLabel, scaleLabel, rotLabel, lockLabel, layerBtn, delBtn);
+      vpSection.append(row);
+    }
+    container.append(vpSection);
+  }
+
+  /** The bounded VPLAYER prompt: one line per layer — "y/n/<Enter>=inherit".
+   *  Builds the canonical-minimal override array (entries only where the
+   *  override DIFFERS from the layer table). */
+  function promptViewportLayerOverrides(vp: ViewportRecord, layers: readonly LayerRecord[]): { layerId: string; visible: boolean }[] | null {
+    const overrides: { layerId: string; visible: boolean }[] = [];
+    for (const layer of layers) {
+      const current = (vp.layerOverrides ?? []).find((o: { layerId: string; visible?: boolean }) => o.layerId === layer.id)?.visible ?? layer.visible;
+      const answer = window.prompt(`Layer '${layer.name}' visible in viewport ${vp.id}? (y/n, empty = inherit)`, current ? "y" : "n");
+      if (answer === null) return null;
+      const trimmed = answer.trim().toLowerCase();
+      if (trimmed === "y") overrides.push({ layerId: layer.id, visible: true });
+      else if (trimmed === "n") overrides.push({ layerId: layer.id, visible: false });
+    }
+    // Canonical-minimal: keep only entries that DIFFER from the table.
+    return overrides.filter((o) => o.visible !== (layers.find((l) => l.id === o.layerId)?.visible ?? o.visible));
+  }
+
+  /** The deterministic plot preview overlay (mirrors the Web PlotPreview):
+   *  plot.preview IR + hash painted through the SHARED paper painter, with
+   *  the page-setup summary and the SVG/PDF export buttons (the main-process
+   *  save dialog when the bridge exists). */
+  function openPlotPreview(): void {
+    const existing = document.querySelector("[data-testid='pro-plot-preview']");
+    if (existing !== null) existing.remove();
+    const active = activeLayoutRecord();
+    const overlay = h("div", "pro-overlay");
+    overlay.setAttribute("role", "dialog");
+    overlay.setAttribute("aria-modal", "true");
+    overlay.setAttribute("aria-label", "Plot preview");
+    overlay.setAttribute("data-testid", "pro-plot-preview");
+    overlay.addEventListener("click", () => overlay.remove());
+    const card = h("div", "pro-overlay-card");
+    card.addEventListener("click", (e) => e.stopPropagation());
+    const head = h("header");
+    const title = h("h2");
+    title.textContent = `Plot preview — ${active?.name ?? "no layout"}`;
+    const closeBtn = h("button", "pro-icon-btn");
+    closeBtn.type = "button";
+    closeBtn.textContent = "×";
+    closeBtn.setAttribute("aria-label", "close plot preview");
+    closeBtn.addEventListener("click", () => overlay.remove());
+    head.append(title, closeBtn);
+    card.append(head);
+    const canvas = document.createElement("canvas");
+    canvas.width = 880;
+    canvas.height = 560;
+    canvas.setAttribute("data-testid", "pro-plot-preview-canvas");
+    canvas.setAttribute("aria-label", "plot preview canvas");
+    canvas.style.cssText = "width:100%;height:auto;background:#e2e8f0;border-radius:4px;";
+    card.append(canvas);
+    const info = h("p", "pro-muted");
+    info.setAttribute("data-testid", "pro-plot-preview-info");
+    info.textContent = "Building the plot IR…";
+    card.append(info);
+    const actions = h("div", "pro-row");
+    const exportSvg = h("button", "pro-btn");
+    exportSvg.type = "button";
+    exportSvg.textContent = "Export SVG";
+    exportSvg.setAttribute("data-testid", "pro-plot-preview-export-svg");
+    const exportPdf = h("button", "pro-btn");
+    exportPdf.type = "button";
+    exportPdf.textContent = "Export PDF";
+    actions.append(exportSvg, exportPdf);
+    card.append(actions);
+    overlay.append(card);
+    document.body.append(overlay);
+    if (active === null) {
+      info.textContent = "No layouts exist yet — LAYOUTNEW creates one.";
+      return;
+    }
+    void (async () => {
+      const res = await query("plot.preview", { name: active.name });
+      if (!res.ok) {
+        info.textContent = `*ERROR* plot.preview: ${res.code} — ${res.message}`;
+        return;
+      }
+      const value = res.value as { ir: PlotIR; hash: string; layoutName: string };
+      info.textContent = `IR sha256 ${value.hash.slice(0, 16)}… · ${value.ir.primitiveCount} primitives · ${active.pageSetup.paperSize} ${active.pageSetup.orientation} · plot scale ${active.pageSetup.plotScale}`;
+      const ctx = canvas.getContext("2d");
+      if (ctx !== null) {
+        ctx.fillStyle = "#e2e8f0";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        const margin = 20;
+        const zoom = Math.min((canvas.width - margin * 2) / value.ir.sheet.widthMm, (canvas.height - margin * 2) / value.ir.sheet.heightMm);
+        const ox = (canvas.width - value.ir.sheet.widthMm * zoom) / 2;
+        const oy = (canvas.height + value.ir.sheet.heightMm * zoom) / 2;
+        const toScreen = (pt: PaperPt): [number, number] => [ox + pt.x * zoom, oy - pt.y * zoom];
+        paintSheetBackdrop(ctx, value.ir, { toScreen, pxPerMm: zoom });
+        paintPlotIR(ctx, value.ir, { toScreen, pxPerMm: zoom, selectedViewportId });
+      }
+      const doExport = (format: "svg" | "pdf"): void => {
+        void (async () => {
+          const res2 = await command("plot.export", { name: active.name, format });
+          if (!res2.ok) {
+            pushLines([`*ERROR* plot.export: ${res2.code} — ${res2.message}`]);
+            return;
+          }
+          const out = res2.value as { text?: string; bytesBase64?: string; sha256: string; layoutName: string };
+          if (opts.pickSaveFile !== undefined) {
+            const ext = format === "pdf" ? "pdf" : "svg";
+            const payload: { text?: string; bytesBase64?: string } =
+              out.bytesBase64 !== undefined ? { bytesBase64: out.bytesBase64 } : { text: out.text ?? "" };
+            const saved = await opts.pickSaveFile(`offisos-${out.layoutName.replace(/\s+/g, "-").toLowerCase()}.${ext}`, payload);
+            if (saved.status === "saved") pushLines([`PLOT: ${out.layoutName} exported as ${format.toUpperCase()} — saved (${saved.size} bytes, sha256 ${out.sha256.slice(0, 12)}…).`]);
+            else if (saved.status === "error") pushLines([`*ERROR* plot save: ${saved.message}`]);
+          } else {
+            pushLines([`PLOT: ${out.layoutName} ${format.toUpperCase()} artifact ready (sha256 ${out.sha256.slice(0, 12)}…).`]);
+          }
+        })();
+      };
+      exportSvg.addEventListener("click", () => doExport("svg"));
+      exportPdf.addEventListener("click", () => doExport("pdf"));
+    })();
+  }
+
   /** The Styles manager (mirrors the Web StylesPanel): current styles +
    *  standards, the linetype catalog + user linetypes, text styles and
    *  dimension styles. */
@@ -5533,6 +6137,45 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
     },
     commandLog(): string[] {
       return [...commandLog];
+    },
+    // CAD-PARITY-008 (Issue #88): the paper-space driver surface — the smoke
+    // asserts the tab switching, the painted paper sheet, the preview
+    // overlay and the deterministic plot exports through the SAME commands
+    // the UI runs.
+    space(): "model" | "paper" {
+      return space;
+    },
+    setActiveSpace(next: "model" | "paper"): void {
+      space = next;
+      renderLayoutTabs();
+      renderModel();
+    },
+    paperInfo(): { space: "model" | "paper"; layoutName: string | null; viewportCount: number; selectedViewportId: string | null } {
+      const layout = activeLayoutRecord();
+      return {
+        space,
+        layoutName: layout?.name ?? null,
+        viewportCount: layout !== null ? (state.snapshot?.viewports ?? []).filter((v) => v.layoutId === layout.id).length : 0,
+        selectedViewportId,
+      };
+    },
+    async openPlotPreview(): Promise<void> {
+      openPlotPreview();
+      await new Promise((resolve) => setTimeout(resolve, 400));
+    },
+    async exportPlot(layoutName: string, format: "svg" | "pdf" | "plot-ir"): Promise<{ ok: boolean; sha256?: string; size?: number; message?: string }> {
+      const res = await query("plot.preview", { name: layoutName });
+      if (!res.ok) return { ok: false, message: `${res.code}: ${res.message}` };
+      const previewValue = res.value as { hash: string };
+      if (format === "plot-ir") return { ok: true, sha256: previewValue.hash };
+      const out = await command("plot.export", { name: layoutName, format });
+      if (!out.ok) return { ok: false, message: `${out.code}: ${out.message}` };
+      const value = out.value as { sha256: string; size: number };
+      return { ok: true, sha256: value.sha256, size: value.size };
+    },
+    selectViewport(id: string | null): void {
+      selectedViewportId = id;
+      renderModel();
     },
     viewTransform(): { pan: { x: number; y: number }; zoom: number; width: number; height: number } {
       return { pan: { ...state.pan }, zoom: state.zoom, width: SVG_W, height: SVG_H };

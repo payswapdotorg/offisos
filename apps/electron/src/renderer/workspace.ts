@@ -2900,6 +2900,15 @@ function main(): void {
       // main-process Electron dialog through the preload bridge (the Blocks &
       // References manager's Attach/Reload flows resolve xref content with it).
       pickReferenceFile: () => window.cad.pickReferenceFile(),
+      // CAD-PARITY-008 (Issue #88): the plot-artifact save flow — the
+      // main-process save dialog + the single fs write (PLOT/PUBLISH and the
+      // preview's export buttons save deterministic SVG/PDF artifacts).
+      pickSaveFile: async (defaultPath: string, payload: { text?: string; bytesBase64?: string }) => {
+        const picked = (await window.cad.pickSavePath(defaultPath)) as { status: "canceled" } | { status: "saved"; filePath: string } | { status: "error"; message: string };
+        if (picked.status === "canceled") return { status: "canceled" as const };
+        if (picked.status === "error") return { status: "error" as const, message: picked.message };
+        return (await window.cad.savePlotFile({ filePath: picked.filePath, ...payload })) as { status: "saved"; size: number } | { status: "error"; message: string };
+      },
     });
   }
   void (async () => {
