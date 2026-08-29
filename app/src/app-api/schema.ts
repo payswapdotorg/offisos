@@ -406,6 +406,51 @@ export const COMMAND_PAYLOAD_SCHEMAS: Readonly<Record<CommandName, object>> = {
     required: ["layerIds"],
   },
   "layer.unisolate": { type: "object", properties: {} },
+  // --- CAD-PARITY-005 (additive, Issue #82): annotation commands ---
+  "annotation.create": {
+    type: "object",
+    properties: {
+      entities: {
+        type: "array",
+        minItems: 1,
+        items: {
+          type: "object",
+          properties: {
+            type: {
+              type: "string",
+              enum: [
+                "text",
+                "mtext",
+                "dim-linear",
+                "dim-radius",
+                "dim-diameter",
+                "dim-angular",
+                "leader",
+                "mleader",
+              ],
+            },
+            layer: { type: "string" },
+          },
+          required: ["type"],
+        },
+      },
+    },
+    required: ["entities"],
+  },
+  "annotation.update": {
+    type: "object",
+    properties: {
+      ids: { type: "array", items: { type: "string" }, minItems: 1 },
+      patch: { type: "object", minProperties: 1 },
+    },
+    required: ["ids", "patch"],
+  },
+  "annotation.remeasure": {
+    type: "object",
+    properties: {
+      ids: { type: "array", items: { type: "string" } },
+    },
+  },
   "layerState.save": {
     type: "object",
     properties: {

@@ -19,6 +19,21 @@
  * menu and the LWT status toggle — mirroring the Web host palettes.tsx so
  * both hosts present the SAME property/layer/style surface (LOCK-004).
  *
+ * CAD-PARITY-005 (Issue #82) — annotation/text/dimension parity: annotation
+ * elements (the 8-type canonical vocabulary AND the legacy COMPAT-CAD-001
+ * dims) render on a real HTML canvas overlay through the ONE shared painter
+ * (annotationPrimitives + paintAnnotationPrimitives) with the resolved
+ * CAD-PARITY-004 display (layer visibility/frozen gate, selected = thicker +
+ * full alpha); pick and window/crossing selection merge the shared
+ * primitive-based annotation hit tests; the Properties inspector gains the
+ * per-type Annotation section (measured READ-ONLY through dimensionLabel,
+ * textOverride, style/height/rotation/justification/attachment edits through
+ * annotation.update, locked-layer read-only); the Styles manager gains the
+ * dim-style arrowStyle/unitSuffix editors + the document annotation scale;
+ * the Annotate menu/ribbon surfaces expose all 11 annotation commands —
+ * mirroring the Web host model-canvas/palettes/ribbon so both hosts present
+ * the SAME annotation surface (LOCK-004 parity by construction).
+ *
  * Adds the professional shell to the Electron host: application menu bar,
  * ribbon/tool palette, command-driven 2D Model canvas (SVG plan viewport
  * with crosshair, snap markers, ortho/polar rubber bands, window/crossing
@@ -116,6 +131,22 @@ import {
   transparencyToAlpha,
   type LayerFilterMode,
 } from "@offisos/cad-app-shell/workspace/standards";
+// CAD-PARITY-005: the shared annotation core (Issue #82) — the SAME
+// style-driven primitive resolution, the ONE shared canvas painter and the
+// primitive-based pick surface the Web host renderer and the App API run
+// (LOCK-004 parity by construction; engine-free, pure — LOCK-003/018).
+import {
+  ANNOTATION_LABEL,
+  annotationFromElement,
+  annotationPrimitives,
+  annotationStyleContext,
+  dimensionLabel,
+  pickAnnotationAt,
+  selectAnnotations,
+  type Annotation,
+  type AnnotationStyleContext,
+} from "@offisos/cad-app-shell/workspace/annotation";
+import { paintAnnotationPrimitives } from "@offisos/cad-app-shell/workspace/annotation/paint";
 
 export interface ProfessionalOptions {
   /** The app root element (#app). */
@@ -241,6 +272,20 @@ function canonicalBoundsPoints(g: Geom): readonly Vec2[] {
     }
   }
 }
+
+// CAD-PARITY-005 (Issue #82): the annotation inspector constants — the 9
+// MTEXT attachment corners (AutoCAD vocabulary), the annotation types
+// carrying a text-content value and the degrees conversion for the rotation
+// editor (stored radians, edited in degrees — the Web host's convention).
+const DEG = Math.PI / 180;
+
+const MTEXT_ATTACHMENTS: readonly string[] = [
+  "top-left", "top-center", "top-right",
+  "middle-left", "middle-center", "middle-right",
+  "bottom-left", "bottom-center", "bottom-right",
+];
+
+const CONTENT_TYPES: readonly string[] = ["text", "mtext", "leader", "mleader"];
 
 const PRO_CSS = `
 .pro-menubar { display:flex; align-items:center; gap:2px; border-bottom:1px solid var(--border); padding:4px 10px; background:var(--bg); flex-wrap:wrap; }
@@ -395,6 +440,17 @@ const PRO_CSS = `
 /* CAD-PARITY-004: the status-bar active-layer link. */
 .pro-statusbar .layerlink { border:0; background:transparent; font-size:11px; font-weight:600; cursor:pointer; padding:1px 5px; border-radius:3px; color:var(--fg); }
 .pro-statusbar .layerlink:hover { background:#f1f5f9; }
+/* CAD-PARITY-005: the annotation inspector editors (text/number inputs,
+   multi-line content) + the Annotate ribbon tools (icon + label) + the
+   wrap-aware dim-style rows (arrowStyle/unitSuffix join the numeric fields). */
+.pro-props .prow input[type="text"], .pro-props .prow input[type="number"] { font-size:10px; border:1px solid var(--border); border-radius:3px; background:var(--bg); padding:1px 4px; width:132px; font-family:ui-monospace,monospace; }
+.pro-props .prow input[type="number"] { text-align:right; width:64px; }
+.pro-props textarea { font-size:10px; border:1px solid var(--border); border-radius:3px; background:var(--bg); padding:1px 4px; width:150px; height:auto; resize:vertical; font-family:ui-monospace,monospace; display:block; }
+.pro-props .prow input:disabled, .pro-props textarea:disabled { color:#94a3b8; background:#f8fafc; }
+.pro-props .prow .v.measure { font-weight:600; }
+.pro-ribbon-tool { display:inline-flex; align-items:center; gap:4px; }
+.pro-ribbon-tool svg { flex-shrink:0; }
+.pro-style-row.dimrow { flex-wrap:wrap; row-gap:2px; }
 `;
 
 /** Public driver surface (used by test/smoke-workspace.mjs — the SAME code
@@ -515,6 +571,14 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
       // LAYERSTATE builders resolve layer NAMES through it (name resolution,
       // LAYON batching; empty on snapshots without layers).
       layers: state.snapshot?.layers ?? [],
+      // CAD-PARITY-005: the user style tables + the current style names
+      // (TEXT/MTEXT resolve style-fixed heights; every annotation command
+      // stamps ctx.currentTextStyle / ctx.currentDimStyle — the SAME
+      // persisted editor state the Web shell passes).
+      textStyles: state.snapshot?.textStyles ?? [],
+      dimStyles: state.snapshot?.dimStyles ?? [],
+      currentTextStyle: state.snapshot?.draftingSettings?.textStyle ?? "Standard",
+      currentDimStyle: state.snapshot?.draftingSettings?.dimStyle ?? "Standard",
     });
   }
 
@@ -660,9 +724,15 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
   brand.textContent = "Offisos";
   menuBar.append(brand);
 
+  interface MenuEntry {
+    readonly label: string;
+    readonly run: () => void;
+  }
+
   interface MenuSpec {
     label: string;
-    items: readonly { label: string; run: () => void }[];
+    /** CAD-PARITY-005: entries, or separators ({ sep: true }). */
+    items: readonly (MenuEntry | { readonly sep: true })[];
   }
   const setDraftingMode = (): void => {
     const btn = document.querySelector<HTMLButtonElement>('[data-testid="mode-drafting"]');
@@ -686,6 +756,27 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
   };
   const runCmd = (id: string) => (): void => {
     void startCommand(id);
+  };
+
+  // CAD-PARITY-005 (Issue #82): the annotation tool glyphs — 12×12 line
+  // icons (currentColor strokes, the SAME single-path convention as the dock
+  // ICON set below) mirroring the Web ribbon's lucide choices: Type (text),
+  // Text (mtext), Ruler (dimlinear), MoveHorizontal (dimaligned), Circle
+  // (dimradius), CircleDashed (dimdiameter), Compass (dimangular),
+  // ArrowUpRight (leader), MessageSquareText (mleader), TextCursorInput
+  // (dimtedit), Scaling (dimscale).
+  const ANNOTATION_ICONS: Readonly<Record<string, () => SVGElement>> = {
+    text: () => icon("M2 2 h8 M6 2 v8"),
+    mtext: () => icon("M2 2.2 h8 M2 5.5 h6 M2 8.8 h4"),
+    dimlinear: () => icon("M1.6 8.2 L8.2 1.6 L10.4 3.8 L3.8 10.4 Z M3.4 6.4 l1.2 1.2 M5.2 4.6 l1.2 1.2 M7 2.8 l1.2 1.2"),
+    dimaligned: () => icon("M1 6 h10 M3.2 3.8 L1 6 l2.2 2.2 M8.8 3.8 L11 6 l-2.2 2.2"),
+    dimradius: () => icon("M6 6 m-4.2 0 a4.2 4.2 0 1 0 8.4 0 a4.2 4.2 0 1 0 -8.4 0 M6 6 L9.2 2.8"),
+    dimdiameter: () => icon("M6 6 m-4.2 0 a4.2 4.2 0 1 0 8.4 0 a4.2 4.2 0 1 0 -8.4 0 M1.8 6 h8.4"),
+    dimangular: () => icon("M6 6 m-4.5 0 a4.5 4.5 0 1 0 9 0 a4.5 4.5 0 1 0 -9 0 M6 6 L8.8 3.2 M6 6 v-4.5"),
+    leader: () => icon("M2.5 9.5 L9.5 2.5 M9.5 2.5 h-4 M9.5 2.5 v4"),
+    mleader: () => icon("M1.5 2.5 h9 v5.5 h-5.5 l-1.8 1.8 v-1.8 h-1.7 Z M4 4.8 h4 M4 6.3 h2.4"),
+    dimtedit: () => icon("M4.5 1.5 h3 M4.5 10.5 h3 M6 1.5 v9 M3 3 h1 M3 9 h1 M8 3 h1 M8 9 h1"),
+    dimscale: () => icon("M2 10 L7 5 M2 10 v-3 M2 10 h3 M10 2 L5 7 M10 2 v3 M10 2 h-3"),
   };
 
   const menus: readonly MenuSpec[] = [
@@ -724,7 +815,29 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
       ],
     },
     { label: "Insert", items: [{ label: "Door", run: runCmd("door") }, { label: "Window", run: runCmd("window") }, { label: "Slab", run: runCmd("slab") }] },
-    { label: "Annotate", items: [{ label: "Linear dimension", run: runCmd("dimlinear") }, { label: "Radius dimension", run: runCmd("dimradius") }] },
+    {
+      label: "Annotate",
+      // CAD-PARITY-005 (Issue #82): the full annotation/text/dimension
+      // vocabulary — every entry resolves to the canonical registry command
+      // (runCmd → startCommand), nothing mutates state directly. The mirror
+      // of the Web MenuBar Annotate menu (labels + separators included).
+      items: [
+        { label: "Text (DT)", run: runCmd("text") },
+        { label: "MText (MT)", run: runCmd("mtext") },
+        { sep: true },
+        { label: "Linear dimension (DLI)", run: runCmd("dimlinear") },
+        { label: "Aligned dimension (DAL)", run: runCmd("dimaligned") },
+        { label: "Radius dimension (DRA)", run: runCmd("dimradius") },
+        { label: "Diameter dimension (DDI)", run: runCmd("dimdiameter") },
+        { label: "Angular dimension (DAN)", run: runCmd("dimangular") },
+        { sep: true },
+        { label: "Leader (LE)", run: runCmd("leader") },
+        { label: "Multileader (MLD)", run: runCmd("mleader") },
+        { sep: true },
+        { label: "Dimension text position (DIMTED)", run: runCmd("dimtedit") },
+        { label: "Annotation scale (DIMSCALE)", run: runCmd("dimscale") },
+      ],
+    },
     { label: "BIM", items: [{ label: "Story", run: runCmd("story") }, { label: "Wall", run: runCmd("wall") }, { label: "Slab", run: runCmd("slab") }, { label: "Door", run: runCmd("door") }, { label: "Window", run: runCmd("window") }] },
     { label: "Help", items: [{ label: "Command palette", run: () => openPalette(true) }] },
   ];
@@ -738,6 +851,12 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
     button.setAttribute("aria-haspopup", "menu");
     const items = h("div", "items");
     for (const item of spec.items) {
+      // CAD-PARITY-005: separators between menu groups (the Web MenuBar's
+      // border-t dividers).
+      if ("sep" in item) {
+        items.append(h("div", "sep"));
+        continue;
+      }
       const ib = h("button");
       ib.type = "button";
       ib.textContent = item.label;
@@ -774,7 +893,14 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
       label: "Draw",
       ids: ["line", "polyline", "circle", "arc", "rectangle", "ellipse", "spline", "point", "ray", "xline", "region"],
     },
-    { label: "Annotate", ids: ["dimlinear", "dimradius"] },
+    // CAD-PARITY-005 (Issue #82): the full interactive annotation vocabulary
+    // — the SAME 11-command group the Web Annotate tool palette carries
+    // (text/mtext, the dimension family, leaders/multileaders, DIMTEDIT and
+    // the DIMSCALE settings command).
+    {
+      label: "Annotate",
+      ids: ["text", "mtext", "dimlinear", "dimaligned", "dimradius", "dimdiameter", "dimangular", "leader", "mleader", "dimtedit", "dimscale"],
+    },
     { label: "BIM", ids: ["story", "wall", "slab", "door", "window"] },
     {
       label: "Modify",
@@ -833,7 +959,17 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
       if (tool === null) continue;
       const b = h("button", "pro-ribbon-tool");
       b.type = "button";
-      b.textContent = tool.label;
+      // CAD-PARITY-005: the annotation tools carry icon glyphs (the Web
+      // ribbon's lucide icon choices rendered as 12×12 line icons).
+      const glyph = ANNOTATION_ICONS[id];
+      if (glyph !== undefined) {
+        b.append(glyph());
+        const lbl = h("span");
+        lbl.textContent = tool.label;
+        b.append(lbl);
+      } else {
+        b.textContent = tool.label;
+      }
       b.title = `${tool.name} (${tool.aliases.join(", ")}) — ${tool.description}`;
       b.setAttribute("data-testid", `pro-tool-${id}`);
       b.setAttribute("aria-label", tool.name);
@@ -867,6 +1003,23 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
   svg.setAttribute("tabindex", "0");
   svg.setAttribute("data-testid", "pro-model-svg");
   viewport.append(svg);
+  // CAD-PARITY-005 (Issue #82): the annotation paint layer — a REAL HTML
+  // canvas overlaying the SVG plan viewport (pointer-transparent, aligned to
+  // the svg's box through the same 900×620 aspect). Annotation elements
+  // paint through the ONE shared canvas painter (annotation/paint.ts) —
+  // the SAME strokes, arrowheads, text runs and fonts the Web model canvas
+  // draws (LOCK-004 parity by construction). The painter's structural
+  // Canvas2DContext accepts the DOM CanvasRenderingContext2D directly (its
+  // style slots are widened to `string | object` in the core).
+  const annoCanvas = document.createElement("canvas");
+  annoCanvas.width = SVG_W;
+  annoCanvas.height = SVG_H;
+  annoCanvas.setAttribute("aria-hidden", "true");
+  annoCanvas.setAttribute("data-testid", "pro-model-annotation-canvas");
+  annoCanvas.style.cssText =
+    `position:absolute;top:0;left:0;width:100%;height:auto;aspect-ratio:${SVG_W}/${SVG_H};pointer-events:none;`;
+  viewport.append(annoCanvas);
+  const annoCtx: CanvasRenderingContext2D | null = annoCanvas.getContext("2d");
   modelBody.append(viewport);
   modelCard.append(modelBody);
   opts.main.insertBefore(modelCard, opts.main.firstChild);
@@ -1014,6 +1167,19 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
     }
   }
 
+  /** CAD-PARITY-005: the annotation style context — the user text/dim style
+   *  tables + the document annotation scale (DrawingStandards.annotationScale,
+   *  1 when absent). The SAME resolution drives annotation rendering, picking
+   *  and window selection on both hosts (the SVG-mirror of the Web
+   *  annotationStyleCtx memo). */
+  function annotationStyleCtxOf(): AnnotationStyleContext {
+    return annotationStyleContext(
+      state.snapshot?.textStyles ?? [],
+      state.snapshot?.dimStyles ?? [],
+      state.snapshot?.draftingSettings?.standards?.annotationScale,
+    );
+  }
+
   // --- entity views (CAD-PARITY-004: frozen = suppressed; locked = drawn
   // faded but not interactive — the same exclusion the App API precision
   // queries run) ---------------------------------------------------------
@@ -1148,8 +1314,10 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
 
   /** Deterministic merged pick (CAD-PARITY-003, mirror of the Web
    *  pickEntityAt): the shared pickAt over the canonical entity view, merged
-   *  with the legacy hitTest (which also covers dimension annotations).
-   *  Closest distance wins; ties break by element id. */
+   *  with the legacy hitTest (which also covers legacy dimension annotations)
+   *  and the CAD-PARITY-005 annotation pick (primitive-based — the pick
+   *  surface IS the render surface). Closest distance wins; ties break by
+   *  element id. */
   function pickEntityAt(world: Vec2, geoms: readonly GeomEntity[], visible: readonly Element[]): { id: string; d: number } | null {
     const aperture = 8 / state.zoom;
     const probe = { x: world[0], y: world[1] };
@@ -1160,12 +1328,18 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
     }
     const legacyHits = hitTest(world, aperture, visible);
     const legacyBest = legacyHits.length > 0 ? { id: legacyHits[0]!.id, d: legacyHits[0]!.distance } : null;
-    if (legacyBest === null) return canonicalBest;
-    if (canonicalBest === null) return legacyBest;
-    if (Math.abs(canonicalBest.d - legacyBest.d) <= 1e-12) {
-      return canonicalBest.id < legacyBest.id ? canonicalBest : legacyBest;
-    }
-    return canonicalBest.d < legacyBest.d ? canonicalBest : legacyBest;
+    // CAD-PARITY-005: annotations pick where they paint (primitives).
+    const annotationPick = pickAnnotationAt(visible, probe, aperture, annotationStyleCtxOf());
+    const annotationBest = annotationPick !== null ? { id: annotationPick.id, d: annotationPick.d } : null;
+    let best: { id: string; d: number } | null = null;
+    const consider = (c: { id: string; d: number } | null): void => {
+      if (c === null) return;
+      if (best === null || c.d < best.d - 1e-12 || (Math.abs(c.d - best.d) <= 1e-12 && c.id < best.id)) best = c;
+    };
+    consider(canonicalBest);
+    consider(legacyBest);
+    consider(annotationBest);
+    return best;
   }
 
   // --- canvas pointer interaction ------------------------------------------------------------
@@ -1360,6 +1534,17 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
       });
       const merged: string[] = [...ids];
       for (const id of canonicalIds) {
+        if (!merged.includes(id)) merged.push(id);
+      }
+      // CAD-PARITY-005: annotations select through their render primitives
+      // (window = whole primitive set inside, crossing = any intersection);
+      // deduped by id against the geometry paths.
+      const annotationIds = selectAnnotations(
+        visible,
+        { mode: rect.mode, min: { x: rect.min[0], y: rect.min[1] }, max: { x: rect.max[0], y: rect.max[1] } },
+        annotationStyleCtxOf(),
+      );
+      for (const id of annotationIds) {
         if (!merged.includes(id)) merged.push(id);
       }
       const next = e.shiftKey ? Array.from(new Set([...state.selection, ...merged])) : merged;
@@ -2005,6 +2190,13 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
   function renderModel(): void {
     while (svg.firstChild) svg.removeChild(svg.firstChild);
 
+    // CAD-PARITY-005: the annotation paint layer repaints with the model —
+    // cleared first (transparent; the SVG's white background shows through).
+    if (annoCtx !== null) {
+      annoCtx.setTransform(1, 0, 0, 1, 0, 0);
+      annoCtx.clearRect(0, 0, SVG_W, SVG_H);
+    }
+
     const settings = state.snapshot?.draftingSettings;
     if (settings?.grid.enabled === true && settings.grid.size > 0) {
       const size = settings.grid.size * Math.max(1, Math.round(10 / (settings.grid.size * state.zoom)));
@@ -2053,8 +2245,7 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
       const display = displayById.get(el.id);
       // CAD-PARITY-003: canonical geometry first — the SAME bridge painter
       // the Web host uses (ellipse/spline/point/ray/xline/region + the
-      // classic types in BOTH conventions); annotations (dims) fall through
-      // to the legacy painter below.
+      // classic types in BOTH conventions).
       const canonical = renderGeomById.get(el.id);
       if (canonical !== undefined) {
         const layer = layerById.get(canonical.layer);
@@ -2066,6 +2257,34 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
           alpha: display?.alpha,
         });
         continue;
+      }
+      // CAD-PARITY-005: annotation elements (the 8-type canonical vocabulary
+      // AND the legacy COMPAT-CAD-001 dims — both load through
+      // annotationFromElement) render through the ONE shared painter: the
+      // style-driven primitives painted identically on Web and Electron.
+      // Layer visibility/frozen filtering applies exactly like geometry;
+      // selected annotations render slightly thicker at full alpha (no
+      // emphasis outline by design — the Web host's exact convention).
+      if (el.kind === "annotation") {
+        const anno = annotationFromElement(el);
+        if (anno !== null) {
+          const layer = layerById.get(anno.layer);
+          if (layer !== undefined && (layer.frozen === true || !layer.visible)) continue;
+          if (annoCtx !== null) {
+            const primitives = annotationPrimitives(anno, annotationStyleCtxOf());
+            paintAnnotationPrimitives(annoCtx, primitives, {
+              // The shared painter takes Pt objects ({x, y}) — the view
+              // transform stays tuple-based (Vec2), so adapt once per frame.
+              toScreen: (p: Pt): [number, number] => toScreen([p.x, p.y]),
+              zoom: state.zoom,
+              color: display?.color ?? layer?.color ?? "#111827",
+              weightPx: selected ? (display?.weightPx ?? 1) * 1.8 : (display?.weightPx ?? 1),
+              dash: display?.dash ?? null,
+              alpha: selected ? 1 : (display?.alpha ?? 1),
+            });
+          }
+          continue;
+        }
       }
       const entity = parseEntity(el);
       if (entity !== null) {
@@ -2288,7 +2507,21 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
       svg.append(lx, ly);
     }
 
-    renderProperties();
+    // CAD-PARITY-005: skip the inspector rebuild while a free-text editor
+    // inside it holds focus (the annotation value/override/height fields
+    // would lose their in-progress edit on every canvas mousemove repaint —
+    // the Web host never re-renders the panel during typing; selects/color
+    // inputs commit on change and rebuild freely). The panel catches up on
+    // the next repaint after the edit commits and blurs.
+    const active = document.activeElement;
+    let editingText = false;
+    if (active !== null && propsPanel.contains(active)) {
+      const tag = active.tagName;
+      editingText =
+        tag === "TEXTAREA" ||
+        (tag === "INPUT" && ((active as HTMLInputElement).type === "text" || (active as HTMLInputElement).type === "number"));
+    }
+    if (!editingText) renderProperties();
   }
 
   // --- CAD-PARITY-004 professional Properties inspector ------------------------
@@ -2446,6 +2679,266 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
     parent.append(layerRow);
   }
 
+  // --- CAD-PARITY-005 professional Properties inspector: the annotation
+  // sections (Issue #82) — the DOM mirror of the Web AnnotationRows /
+  // AnnotationMultiRows. Every write goes through the annotation.update App
+  // API command (one atomic revision per field; null RESETS an optional field
+  // to its default, keeping records canonical-minimal). The measured value is
+  // the READ-ONLY stored document truth, formatted through the SAME style
+  // context the canvas paints (dimensionLabel). -----------------------------
+
+  /** The style select shared by every annotation type ("Standard" = the
+   *  built-in, resolved code-side; selecting it RESETS the reference; the
+   *  empty value is the multi-selection "choose a style" placeholder). */
+  function annotationStyleSelect(
+    value: string,
+    dim: boolean,
+    locked: boolean,
+    onPatch: (patch: Record<string, unknown>) => void,
+  ): HTMLSelectElement {
+    const sel = h("select");
+    sel.title = dim ? "Annotation dim style" : "Annotation text style";
+    sel.setAttribute("aria-label", dim ? "annotation dim style" : "annotation text style");
+    sel.disabled = locked;
+    if (value.length === 0) {
+      const placeholder = h("option");
+      placeholder.value = "";
+      placeholder.textContent = "(set…)";
+      sel.append(placeholder);
+    }
+    const std = h("option");
+    std.value = "Standard";
+    std.textContent = "Standard (built-in)";
+    sel.append(std);
+    const styles = dim ? (state.snapshot?.dimStyles ?? []) : (state.snapshot?.textStyles ?? []);
+    for (const s of styles) {
+      const o = h("option");
+      o.value = s.name;
+      o.textContent = s.name;
+      sel.append(o);
+    }
+    sel.value = value;
+    sel.addEventListener("change", () => {
+      if (sel.value.length === 0) return;
+      onPatch({ style: sel.value === "Standard" ? null : sel.value });
+    });
+    return sel;
+  }
+
+  /** The single-selection annotation fields (text, mtext, the dimension
+   *  family, leaders and multileaders) — the mirror of the Web
+   *  AnnotationRows. */
+  function appendAnnotationRows(
+    parent: HTMLElement,
+    anno: Annotation,
+    locked: boolean,
+    onPatch: (patch: Record<string, unknown>) => void,
+  ): void {
+    const isDim = anno.type.startsWith("dim-");
+    const styleName = anno.style ?? "Standard";
+    const row = (key: string, control: HTMLElement): void => {
+      const r = h("div", "prow");
+      const k = h("span", "k");
+      k.textContent = key;
+      r.append(k, control);
+      parent.append(r);
+    };
+
+    propRow(parent, "type", ANNOTATION_LABEL[anno.type]);
+
+    // --- Content entities (text / mtext): value, height, rotation. --------
+    if (anno.type === "text" || anno.type === "mtext") {
+      const value = anno.type === "text" ? h("input") : h("textarea");
+      value.setAttribute("aria-label", "annotation value");
+      if (anno.type === "text") {
+        (value as HTMLInputElement).type = "text";
+        (value as HTMLInputElement).value = anno.value;
+      } else {
+        (value as HTMLTextAreaElement).rows = 3;
+        (value as HTMLTextAreaElement).value = anno.value;
+      }
+      value.disabled = locked;
+      value.addEventListener("change", () => {
+        const v = (value as HTMLInputElement | HTMLTextAreaElement).value;
+        if (v !== anno.value && v.length > 0) onPatch({ value: v });
+      });
+      row("value", value);
+
+      const height = h("input");
+      height.type = "number";
+      height.step = "any";
+      height.title = "Text height (mm)";
+      height.setAttribute("aria-label", "annotation height");
+      height.value = String(anno.height);
+      height.disabled = locked;
+      height.addEventListener("change", () => {
+        const v = Number(height.value);
+        if (Number.isFinite(v) && v > 0 && v !== anno.height) onPatch({ height: v });
+      });
+      row("height", height);
+
+      const rotation = h("input");
+      rotation.type = "number";
+      rotation.step = "any";
+      rotation.title = "Rotation (°)";
+      rotation.setAttribute("aria-label", "annotation rotation degrees");
+      rotation.value = String(Number((anno.rotation / DEG).toFixed(4)));
+      rotation.disabled = locked;
+      rotation.addEventListener("change", () => {
+        const v = Number(rotation.value);
+        if (Number.isFinite(v)) onPatch({ rotation: v * DEG });
+      });
+      row("rotation (°)", rotation);
+    }
+    if (anno.type === "text") {
+      const hAlign = h("select");
+      hAlign.title = "Horizontal justification";
+      hAlign.setAttribute("aria-label", "annotation horizontal alignment");
+      hAlign.disabled = locked;
+      for (const a of ["left", "center", "right"] as const) {
+        const o = h("option");
+        o.value = a;
+        o.textContent = a;
+        hAlign.append(o);
+      }
+      hAlign.value = anno.hAlign ?? "left";
+      hAlign.addEventListener("change", () => onPatch({ hAlign: hAlign.value === "left" ? null : hAlign.value }));
+      row("horizontal", hAlign);
+
+      const vAlign = h("select");
+      vAlign.title = "Vertical justification";
+      vAlign.setAttribute("aria-label", "annotation vertical alignment");
+      vAlign.disabled = locked;
+      for (const a of ["baseline", "bottom", "middle", "top"] as const) {
+        const o = h("option");
+        o.value = a;
+        o.textContent = a;
+        vAlign.append(o);
+      }
+      vAlign.value = anno.vAlign ?? "baseline";
+      vAlign.addEventListener("change", () => onPatch({ vAlign: vAlign.value === "baseline" ? null : vAlign.value }));
+      row("vertical", vAlign);
+    }
+    if (anno.type === "mtext") {
+      const attach = h("select");
+      attach.title = "Attachment corner";
+      attach.setAttribute("aria-label", "annotation attachment corner");
+      attach.disabled = locked;
+      for (const a of MTEXT_ATTACHMENTS) {
+        const o = h("option");
+        o.value = a;
+        o.textContent = a;
+        attach.append(o);
+      }
+      attach.value = anno.attachment ?? "top-left";
+      attach.addEventListener("change", () => onPatch({ attachment: attach.value === "top-left" ? null : attach.value }));
+      row("attachment", attach);
+    }
+
+    // --- Dimensions: measured (read-only document truth) + text override. --
+    if (anno.type === "dim-linear" || anno.type === "dim-radius" || anno.type === "dim-diameter" || anno.type === "dim-angular") {
+      const measured = h("div", "prow");
+      const measuredKey = h("span", "k");
+      measuredKey.textContent = "measured";
+      const measuredVal = h("span", "v measure");
+      measuredVal.textContent = dimensionLabel(anno, annotationStyleCtxOf());
+      measuredVal.setAttribute("data-testid", "pro-annotation-measured");
+      measured.append(measuredKey, measuredVal);
+      parent.append(measured);
+
+      const override = h("input");
+      override.type = "text";
+      override.title = "Text override (empty = the measured value)";
+      override.setAttribute("aria-label", "annotation text override");
+      override.placeholder = "(none)";
+      override.value = anno.textOverride ?? "";
+      override.disabled = locked;
+      override.addEventListener("change", () => {
+        const v = override.value;
+        if (v !== (anno.textOverride ?? "")) onPatch({ textOverride: v.length === 0 ? null : v });
+      });
+      row("text override", override);
+    }
+
+    // --- Leaders / multileaders: content + the optional text height. -------
+    if (anno.type === "leader" || anno.type === "mleader") {
+      const value = h("input");
+      value.type = "text";
+      value.setAttribute("aria-label", "annotation content");
+      value.placeholder = "(none)";
+      value.value = anno.value ?? "";
+      value.disabled = locked;
+      value.addEventListener("change", () => {
+        const v = value.value;
+        if (v !== (anno.value ?? "")) onPatch({ value: v.length === 0 ? null : v });
+      });
+      row(anno.type === "leader" ? "value" : "content", value);
+
+      const height = h("input");
+      height.type = "number";
+      height.step = "any";
+      height.title = "Text height (blank = the Standard dim text height)";
+      height.setAttribute("aria-label", "annotation height");
+      height.placeholder = "2.5";
+      height.value = anno.height !== undefined ? String(anno.height) : "";
+      height.disabled = locked;
+      height.addEventListener("change", () => {
+        const raw = height.value.trim();
+        if (raw.length === 0) {
+          if (anno.height !== undefined) onPatch({ height: null });
+          return;
+        }
+        const v = Number(raw);
+        if (Number.isFinite(v) && v > 0 && v !== anno.height) onPatch({ height: v });
+      });
+      row("height", height);
+    }
+
+    // --- Style reference (every annotation type). --------------------------
+    row("style", annotationStyleSelect(styleName, isDim, locked, onPatch));
+  }
+
+  /** The multi-selection annotation fields — only the fields that apply to
+   *  EVERY selected annotation (the server validates the per-type vocabulary;
+   *  mixed dim/content selections show a note instead). The mirror of the
+   *  Web AnnotationMultiRows. */
+  function appendAnnotationMultiRows(
+    parent: HTMLElement,
+    annos: readonly Annotation[],
+    locked: boolean,
+    onPatch: (patch: Record<string, unknown>) => void,
+  ): void {
+    const allDims = annos.every((a) => a.type.startsWith("dim-"));
+    const allContent = annos.every((a) => CONTENT_TYPES.includes(a.type));
+    if (!allDims && !allContent) {
+      const hint = h("div", "hint");
+      hint.textContent =
+        "Mixed annotation types — shared-field editing needs one kind (all dimensions or all text/leaders); edit individually with a single selection.";
+      parent.append(hint);
+      return;
+    }
+    const input = h("input");
+    input.type = "text";
+    input.setAttribute("aria-label", allDims ? "annotation text override" : "annotation value");
+    input.placeholder = "(none)";
+    input.disabled = locked;
+    input.addEventListener("change", () => {
+      const v = input.value;
+      if (v.length > 0) onPatch(allDims ? { textOverride: v } : { value: v });
+    });
+    const r = h("div", "prow");
+    const k = h("span", "k");
+    k.textContent = allDims ? "text override" : "value";
+    r.append(k, input);
+    parent.append(r);
+
+    const styleRow = h("div", "prow");
+    const styleKey = h("span", "k");
+    styleKey.textContent = "style";
+    styleRow.append(styleKey, annotationStyleSelect("", allDims, locked, onPatch));
+    parent.append(styleRow);
+  }
+
   function renderProperties(): void {
     while (propsPanel.firstChild) propsPanel.removeChild(propsPanel.firstChild);
     const layers = state.snapshot?.layers ?? [];
@@ -2460,12 +2953,17 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
       const el = selected[0]!;
       const p = el.props as Record<string, unknown>;
       const canonical = geomFromElement(el);
+      // CAD-PARITY-005: annotations carry the shared type label vocabulary
+      // (the ANNOTATION_LABEL mirror of the Web inspector's badge).
+      const anno = annotationFromElement(el);
       title.textContent =
-        canonical !== null
-          ? GEOM_LABEL[canonical.type]
-          : typeof p.type === "string"
-            ? p.type
-            : el.kind;
+        anno !== null
+          ? ANNOTATION_LABEL[anno.type]
+          : canonical !== null
+            ? GEOM_LABEL[canonical.type]
+            : typeof p.type === "string"
+              ? p.type
+              : el.kind;
       const idSpan = h("span");
       idSpan.textContent = ` · ${el.id}`;
       title.append(idSpan);
@@ -2556,8 +3054,16 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
         const layerId = (el.props as Record<string, unknown>).layer;
         return typeof layerId === "string" && layerById.get(layerId)?.locked === true;
       });
+      // CAD-PARITY-005: the annotation subset (soft load — legacy dims too);
+      // annotation.update patches apply to the annotation ids only.
+      const annoViews: { el: Element; anno: Annotation }[] = [];
+      for (const el of selected) {
+        const anno = annotationFromElement(el);
+        if (anno !== null) annoViews.push({ el, anno });
+      }
       propSection(propsPanel, `Selection — ${selected.length} entities`);
       propRow(propsPanel, "drafting entities", String(drafting.length));
+      if (annoViews.length > 0) propRow(propsPanel, "annotations", String(annoViews.length));
       if (locked) {
         const l = h("div", "locked");
         l.textContent = "locked layer — read-only";
@@ -2580,6 +3086,17 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
         const hint = h("div", "hint");
         hint.textContent = `Display edits apply to the ${drafting.length} drafting entities atomically (CHPROP semantics); mixed values show ByLayer defaults.`;
         propsPanel.append(hint);
+      }
+      if (annoViews.length > 0) {
+        // CAD-PARITY-005: the shared annotation fields over the whole
+        // annotation subset (one atomic annotation.update revision).
+        propSection(propsPanel, `Common annotation properties — ${annoViews.length}`);
+        appendAnnotationMultiRows(
+          propsPanel,
+          annoViews.map((v) => v.anno),
+          locked,
+          (patch) => commitCommand("annotation.update", { ids: annoViews.map((v) => v.el.id), patch }),
+        );
       }
       return;
     }
@@ -2662,6 +3179,24 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
           propRow(propsPanel, "closed", g.closed ? "yes" : "no");
           break;
       }
+    }
+
+    // CAD-PARITY-005: the per-type annotation fields (content/placement/
+    // style — annotation.update, one atomic revision per field; the measured
+    // value is the READ-ONLY stored document truth, formatted through the
+    // SAME style context the canvas paints). The mirror of the Web
+    // PropertiesPanel Annotation section.
+    const anno = annotationFromElement(el);
+    if (anno !== null) {
+      propSection(propsPanel, "Annotation");
+      if (locked) {
+        const l = h("div", "locked");
+        l.textContent = `layer “${layer?.name ?? layerId}” locked — read-only`;
+        propsPanel.append(l);
+      }
+      appendAnnotationRows(propsPanel, anno, locked, (patch) =>
+        commitCommand("annotation.update", { ids: [el.id], patch }),
+      );
     }
   }
 
@@ -3278,6 +3813,23 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
       });
       r.append(input);
     });
+    // CAD-PARITY-005: the document annotation scale (DIMSCALE-class —
+    // multiplies every dimension annotation's text height and arrow size:
+    // field × style.scale × this). Positive values only; invalid entries
+    // never write (the mirror of the Web StylesPanel row).
+    styleRow("annotation scale", (r) => {
+      const input = h("input", "num");
+      input.type = "number";
+      input.step = "any";
+      input.title = "Document annotation scale (DIMSCALE-class — multiplies every dimension annotation's text height and arrow size)";
+      input.setAttribute("aria-label", "annotation scale");
+      input.value = String(settings?.standards?.annotationScale ?? 1);
+      input.addEventListener("change", () => {
+        const v = Number(input.value);
+        if (Number.isFinite(v) && v > 0) setSettings({ standards: { annotationScale: v } });
+      });
+      r.append(input);
+    });
     styleRow("default lineweight", (r) => {
       const sel = h("select");
       sel.title = "Default lineweight (mm)";
@@ -3517,7 +4069,7 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
     dsBar.append(dsName, dsAdd);
     scroll.append(dsBar);
     for (const s of dimStyles as readonly DimStyleRecord[]) {
-      const r = h("div", "pro-style-row");
+      const r = h("div", "pro-style-row dimrow");
       const nm = h("span", "nm");
       nm.textContent = s.name;
       nm.title = s.name;
@@ -3553,13 +4105,47 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
       precision.addEventListener("change", () =>
         commitCommand("dimStyle.update", { name: s.name, patch: { precision: Number(precision.value) } }),
       );
+      // CAD-PARITY-005: the rendered arrowhead kind ("closed" is the default
+      // — selecting it sends the null RESET so records stay
+      // canonical-minimal) and the measurement unit suffix (empty sends the
+      // null RESET) — the mirror of the Web dim-style row editors.
+      const arrowStyle = h("select");
+      arrowStyle.title = "Arrowhead kind (closed filled / architectural tick / none)";
+      arrowStyle.setAttribute("aria-label", `${s.name} arrow style`);
+      arrowStyle.style.width = "54px";
+      for (const a of ["closed", "tick", "none"] as const) {
+        const o = h("option");
+        o.value = a;
+        o.textContent = a;
+        arrowStyle.append(o);
+      }
+      arrowStyle.value = s.arrowStyle ?? "closed";
+      arrowStyle.addEventListener("change", () =>
+        commitCommand("dimStyle.update", {
+          name: s.name,
+          patch: { arrowStyle: arrowStyle.value === "closed" ? null : arrowStyle.value },
+        }),
+      );
+      const unitSuffix = h("input");
+      unitSuffix.type = "text";
+      unitSuffix.title = 'Unit suffix appended to formatted measurements (e.g. " mm")';
+      unitSuffix.setAttribute("aria-label", `${s.name} unit suffix`);
+      unitSuffix.style.width = "50px";
+      unitSuffix.placeholder = "(none)";
+      unitSuffix.value = s.unitSuffix ?? "";
+      unitSuffix.addEventListener("change", () => {
+        const v = unitSuffix.value;
+        if (v !== (s.unitSuffix ?? "")) {
+          commitCommand("dimStyle.update", { name: s.name, patch: { unitSuffix: v.length === 0 ? null : v } });
+        }
+      });
       const del = h("button", "tgl");
       del.type = "button";
       del.title = "Delete dimension style (blocked while referenced)";
       del.setAttribute("aria-label", `delete dim style ${s.name}`);
       del.append(ICON.trash());
       del.addEventListener("click", () => commitCommand("dimStyle.remove", { name: s.name }));
-      r.append(nm, numField("textHeight", "text"), numField("arrowSize", "arrow"), numField("scale", "scale"), precision, del);
+      r.append(nm, numField("textHeight", "text"), numField("arrowSize", "arrow"), numField("scale", "scale"), precision, arrowStyle, unitSuffix, del);
       scroll.append(r);
     }
 

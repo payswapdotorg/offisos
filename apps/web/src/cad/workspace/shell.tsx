@@ -172,6 +172,14 @@ export function WorkspaceShell(): React.JSX.Element {
       // CAD-PARITY-004: the layer table (name resolution for -LAYER/CHPROP/
       // LAYON builders — the SAME document state both hosts pass).
       layers: snapshot?.layers ?? [],
+      // CAD-PARITY-005: the user style tables + the current style names
+      // (TEXT/MTEXT resolve style-fixed heights; every annotation command
+      // stamps ctx.currentTextStyle / ctx.currentDimStyle — the SAME
+      // persisted editor state both hosts pass).
+      textStyles: snapshot?.textStyles ?? [],
+      dimStyles: snapshot?.dimStyles ?? [],
+      currentTextStyle: snapshot?.draftingSettings?.textStyle ?? "Standard",
+      currentDimStyle: snapshot?.draftingSettings?.dimStyle ?? "Standard",
     });
   }, [snapshot, selection, activeLayer, activeStoryId]);
 

@@ -13,6 +13,7 @@ import {
   ArrowUpRight,
   Box,
   Circle,
+  CircleDashed,
   CircleDot,
   Clipboard,
   Columns2,
@@ -28,6 +29,7 @@ import {
   Layers,
   Link2,
   Bomb,
+  MessageSquareText,
   Minus,
   MousePointer2,
   MoveHorizontal,
@@ -38,6 +40,7 @@ import {
   PencilRuler,
   Redo2,
   RotateCw,
+  Ruler,
   Save,
   Scaling,
   Scissors,
@@ -46,7 +49,10 @@ import {
   Split,
   Square,
   Squircle,
+  Text,
+  TextCursorInput,
   Trash2,
+  Type,
   Undo2,
 } from "lucide-react";
 
@@ -179,8 +185,23 @@ export function MenuBar(props: MenuBarProps): React.JSX.Element {
         <MenuItem label="Components palette…" onClick={() => props.onSwitchView("components")} />
       </Menu>
       <Menu label="Annotate">
+        {/* CAD-PARITY-005 (Issue #82): the full annotation/text/dimension
+            vocabulary — every item resolves to the canonical registry
+            command (props.onCommand), nothing mutates state directly. */}
+        <MenuItem label="Text (DT)" onClick={() => props.onCommand("text")} />
+        <MenuItem label="MText (MT)" onClick={() => props.onCommand("mtext")} />
+        <div className="my-1 border-t" />
         <MenuItem label="Linear dimension (DLI)" onClick={() => props.onCommand("dimlinear")} />
+        <MenuItem label="Aligned dimension (DAL)" onClick={() => props.onCommand("dimaligned")} />
         <MenuItem label="Radius dimension (DRA)" onClick={() => props.onCommand("dimradius")} />
+        <MenuItem label="Diameter dimension (DDI)" onClick={() => props.onCommand("dimdiameter")} />
+        <MenuItem label="Angular dimension (DAN)" onClick={() => props.onCommand("dimangular")} />
+        <div className="my-1 border-t" />
+        <MenuItem label="Leader (LE)" onClick={() => props.onCommand("leader")} />
+        <MenuItem label="Multileader (MLD)" onClick={() => props.onCommand("mleader")} />
+        <div className="my-1 border-t" />
+        <MenuItem label="Dimension text position (DIMTED)" onClick={() => props.onCommand("dimtedit")} />
+        <MenuItem label="Annotation scale (DIMSCALE)" onClick={() => props.onCommand("dimscale")} />
       </Menu>
       <Menu label="Manage">
         <MenuItem label="Layers… (LA)" onClick={() => props.onCommand("layer")} />
@@ -253,7 +274,7 @@ const TAB_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
   slab: Square,
   door: Square,
   window: Square,
-  dimlinear: Square,
+  dimlinear: Ruler,
   dimradius: Circle,
   // CAD-PARITY-003 draw vocabulary.
   ellipse: Egg,
@@ -262,6 +283,17 @@ const TAB_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
   ray: ArrowUpRight,
   xline: MoveHorizontal,
   region: Pentagon,
+  // CAD-PARITY-005 annotation vocabulary (Issue #82): text/mtext, the
+  // dimension family, leaders/multileaders, DIMTEDIT + DIMSCALE.
+  text: Type,
+  mtext: Text,
+  dimaligned: MoveHorizontal,
+  dimdiameter: CircleDashed,
+  dimangular: Compass,
+  leader: ArrowUpRight,
+  mleader: MessageSquareText,
+  dimtedit: TextCursorInput,
+  dimscale: Scaling,
   // CAD-PARITY-003 modify vocabulary.
   rotate: RotateCw,
   scale: Scaling,
@@ -466,7 +498,14 @@ export function ToolPalette(props: ToolPaletteProps): React.JSX.Element | null {
       label: "Draw",
       ids: ["line", "polyline", "circle", "arc", "rectangle", "ellipse", "spline", "point", "ray", "xline", "region"],
     },
-    { label: "Annotate", ids: ["dimlinear", "dimradius"] },
+    // CAD-PARITY-005 (Issue #82): the full interactive annotation vocabulary
+    // (the ToolPalette resolves ids through the registry — instant/interactive
+    // and category filtering are NOT applied here, so the settings-category
+    // DIMSCALE appears alongside the drawing commands).
+    {
+      label: "Annotate",
+      ids: ["text", "mtext", "dimlinear", "dimaligned", "dimradius", "dimdiameter", "dimangular", "leader", "mleader", "dimtedit", "dimscale"],
+    },
     { label: "BIM", ids: ["story", "wall", "slab", "door", "window"] },
     {
       label: "Modify",

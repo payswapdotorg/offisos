@@ -24,6 +24,7 @@ import type { Vec2 } from "../drafting/precision.js";
 import { propsToGeom } from "./geometry/types.js";
 import { COMMANDS_2D } from "./commands-2d.js";
 import { COMMANDS_PROPS } from "./commands-props.js";
+import { COMMANDS_ANNO } from "./commands-anno.js";
 import type {
   AppApiCommandPlanEntry,
   CommandCategory,
@@ -412,71 +413,6 @@ export const WORKSPACE_COMMANDS: readonly WorkspaceCommand[] = [
     },
   },
 
-  {
-    id: "dimlinear",
-    name: "DIMLINEAR",
-    aliases: ["DLI", "DAL"],
-    label: "Linear dimension",
-    description: "Annotate the distance between two points (aligned).",
-    category: "draw",
-    ribbonTab: "Annotate",
-    steps: [
-      { id: "p1", kind: "point", prompt: "Specify first extension line origin:" },
-      { id: "p2", kind: "point", prompt: "Specify second extension line origin:" },
-      { id: "side", kind: "point", prompt: "Specify the dimension line side:" },
-    ],
-    build: (values, ctx) => {
-      const p1 = pointValue(values, "p1");
-      const p2 = pointValue(values, "p2");
-      const side = pointValue(values, "side");
-      const dx = p2[0] - p1[0];
-      const dy = p2[1] - p1[1];
-      const len = Math.hypot(dx, dy) || 1;
-      const nx = -dy / len;
-      const ny = dx / len;
-      const offset = (side[0] - p1[0]) * nx + (side[1] - p1[1]) * ny;
-      return plan(
-        [
-          {
-            name: "drafting.createEntities",
-            payload: {
-              entities: [{ type: "dim-linear", layer: ctx.activeLayer, p1: [p1[0], p1[1]], p2: [p2[0], p2[1]], mode: "aligned", offset }],
-            },
-          },
-        ],
-        [`DIMLINEAR: (${fmtPoint(p1)}) → (${fmtPoint(p2)}), offset ${trimNum(offset)}.`],
-      );
-    },
-  },
-  {
-    id: "dimradius",
-    name: "DIMRADIUS",
-    aliases: ["DRA", "DIMRAD"],
-    label: "Radius dimension",
-    description: "Annotate the radius of a circle or arc.",
-    category: "draw",
-    ribbonTab: "Annotate",
-    steps: [
-      { id: "target", kind: "entity", prompt: "Select a circle or arc:" },
-    ],
-    build: (values, ctx) => {
-      const target = entitiesValue(values, "target")[0];
-      if (target === undefined) throw new Error("DIMRADIUS requires a target.");
-      const props = target.props as Record<string, unknown>;
-      if (props.type !== "circle" && props.type !== "arc") {
-        throw new Error("DIMRADIUS target must be a circle or arc.");
-      }
-      return plan(
-        [
-          {
-            name: "drafting.createEntities",
-            payload: { entities: [{ type: "dim-radius", layer: ctx.activeLayer, target: target.id }] },
-          },
-        ],
-        [`DIMRADIUS: '${target.id}'.`],
-      );
-    },
-  },
 
   // --- BIM authoring (ribbon: BIM) ------------------------------------------
   {
@@ -1014,6 +950,7 @@ export const WORKSPACE_COMMANDS: readonly WorkspaceCommand[] = [
   // --- CAD-PARITY-003 (Issue #78): the 2D draw/modify vocabulary ---------
   ...COMMANDS_2D,
   ...COMMANDS_PROPS,
+  ...COMMANDS_ANNO,
 ];
 
 function normalize(a: number): number {

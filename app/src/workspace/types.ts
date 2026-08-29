@@ -26,7 +26,7 @@
  */
 
 import type { Vec2 } from "../drafting/precision.js";
-import type { LayerRecord } from "../contracts/caddocument.js";
+import type { DimStyleRecord, LayerRecord, TextStyleRecord } from "../contracts/caddocument.js";
 
 // ---------------------------------------------------------------------------
 // Command categories (mirrors the ribbon/menu information architecture of
@@ -92,6 +92,10 @@ export interface PromptStepOption {
    *  (the supported/unsupported surface must be explicit in the command
    *  line — never silent, never a generic parse error). */
   readonly unsupported?: string;
+  /** CAD-PARITY-005: a FLAG option — the keyword itself is the value (no
+   *  sub-prompt): it is stored under the option key and the step
+   *  re-prompts (DIMLINEAR's Horizontal/Vertical mode selection). */
+  readonly flag?: boolean;
 }
 
 export interface PromptStep {
@@ -225,6 +229,16 @@ export interface CommandContext {
    *  -LAYER / CHPROP / LAYERSTATE builders; empty on contexts that predate
    *  the field — every builder treats it as "no resolvable names"). */
   readonly layers: readonly LayerRecord[];
+  /** CAD-PARITY-005: the document user text-style table (the annotation
+   *  builders resolve style-fixed heights; empty = only "Standard"). */
+  readonly textStyles: readonly TextStyleRecord[];
+  /** CAD-PARITY-005: the document user dim-style table. */
+  readonly dimStyles: readonly DimStyleRecord[];
+  /** CAD-PARITY-005: the current text style name (persisted editor state;
+   *  "Standard" default). */
+  readonly currentTextStyle: string;
+  /** CAD-PARITY-005: the current dim style name ("Standard" default). */
+  readonly currentDimStyle: string;
 }
 
 export function defaultCommandContext(overrides?: Partial<CommandContext>): CommandContext {
@@ -236,6 +250,10 @@ export function defaultCommandContext(overrides?: Partial<CommandContext>): Comm
     defaults: DEFAULT_COMMAND_DEFAULTS,
     currentSelection: [],
     layers: [],
+    textStyles: [],
+    dimStyles: [],
+    currentTextStyle: "Standard",
+    currentDimStyle: "Standard",
     ...overrides,
   };
 }
