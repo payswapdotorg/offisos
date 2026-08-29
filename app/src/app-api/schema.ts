@@ -544,6 +544,61 @@ export const COMMAND_PAYLOAD_SCHEMAS: Readonly<Record<CommandName, object>> = {
     },
     required: ["content"],
   },
+  // --- CAD-PARITY-007 (additive): parametric constraints ---------------
+  "constraint.create": {
+    type: "object",
+    properties: {
+      kind: {
+        type: "string",
+        enum: [
+          "horizontal", "vertical", "coincident", "parallel", "perpendicular",
+          "equal", "tangent", "fixed", "distance", "angle", "radius",
+        ],
+      },
+      targets: {
+        type: "array",
+        minItems: 1,
+        maxItems: 2,
+        items: {
+          type: "object",
+          properties: {
+            id: { type: "string", minLength: 1 },
+            anchor: { type: "string", enum: ["start", "end", "center", "midpoint"] },
+          },
+          required: ["id"],
+        },
+      },
+      value: { type: "number", exclusiveMinimum: 0 },
+      mode: { type: "string", enum: ["external", "internal"] },
+    },
+    required: ["kind", "targets"],
+  },
+  "constraint.update": {
+    type: "object",
+    properties: {
+      id: { type: "string", minLength: 1 },
+      patch: {
+        type: "object",
+        minProperties: 1,
+        properties: {
+          value: { type: "number", exclusiveMinimum: 0 },
+          mode: { type: "string", enum: ["external", "internal"] },
+        },
+      },
+    },
+    required: ["id", "patch"],
+  },
+  "constraint.remove": {
+    type: "object",
+    properties: {
+      id: { type: "string", minLength: 1 },
+    },
+    required: ["id"],
+  },
+  "constraint.solve": {
+    type: "object",
+    properties: {},
+  },
   "layerState.save": {
     type: "object",
     properties: {
@@ -1136,6 +1191,9 @@ export const QUERY_PAYLOAD_SCHEMAS: Readonly<Record<QueryName, object>> = {
   // CAD-PARITY-006 (additive): the inventory queries take no payload.
   "blocks.list": { type: "object", properties: {} },
   "xrefs.list": { type: "object", properties: {} },
+  // CAD-PARITY-007 (additive): the constraints inventory + diagnostics.
+  "constraints.list": { type: "object", properties: {} },
+  "constraints.diagnostics": { type: "object", properties: {} },
 };
 
 export const WIRE_ENVELOPE_SCHEMA = {

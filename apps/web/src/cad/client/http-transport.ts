@@ -213,6 +213,52 @@ export async function xrefsList(): Promise<CommandQueryResponse> {
   return query("xrefs.list", {});
 }
 
+// --- CAD-PARITY-007: the parametric-constraints surface (Issue #86) -------
+
+/** `constraint.create` — declare ONE constraint and APPLY it through the
+ *  deterministic solver (the closed-form adjustment + propagation + the
+ *  associative-annotation cascade travel in ONE atomic revision). */
+export async function constraintCreate(payload: {
+  kind: string;
+  targets: readonly { id: string; anchor?: string }[];
+  value?: number;
+  mode?: "external" | "internal";
+}): Promise<CommandQueryResponse> {
+  return command("constraint.create", payload);
+}
+
+/** `constraint.update` — re-declare a dimensional value (or tangency mode)
+ *  and RE-SOLVE (same atomic-revision contract). */
+export async function constraintUpdate(
+  id: string,
+  patch: Record<string, unknown>,
+): Promise<CommandQueryResponse> {
+  return command("constraint.update", { id, patch });
+}
+
+/** `constraint.remove` — delete the declared record (geometry stays). */
+export async function constraintRemove(id: string): Promise<CommandQueryResponse> {
+  return command("constraint.remove", { id });
+}
+
+/** `constraint.solve` — re-run the deterministic solve over the whole
+ *  declared graph (the explicit diagnostics surface). */
+export async function constraintSolve(): Promise<CommandQueryResponse> {
+  return command("constraint.solve", {});
+}
+
+/** `constraints.list` (query) — the declared graph inventory with the
+ *  computed per-constraint statuses. */
+export async function constraintsList(): Promise<CommandQueryResponse> {
+  return query("constraints.list", {});
+}
+
+/** `constraints.diagnostics` (query) — the full on-demand solver report:
+ *  the typed outcome, per-constraint verification, per-component DoF. */
+export async function constraintsDiagnostics(): Promise<CommandQueryResponse> {
+  return query("constraints.diagnostics", {});
+}
+
 // --- CAD-IMPLEMENT-002: real geometry through the shared App API ----------
 
 /** Response value of a successful `geometry.prepare` (mirror of the wire). */

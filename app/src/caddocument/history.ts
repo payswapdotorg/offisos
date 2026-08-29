@@ -128,6 +128,9 @@ export interface RecordRevisionInput {
   /** CAD-PARITY-006: the external-reference mint counter after this
    *  revision (never-reused `xr-NNNNNN` identities). */
   readonly nextXrefSequence?: number;
+  /** CAD-PARITY-007: the constraint mint counter after this revision
+   *  (never-reused `con-NNNNNN` identities). */
+  readonly nextConstraintSequence?: number;
 }
 
 /** Append one immutable revision to a history (returns a NEW frozen
@@ -156,6 +159,7 @@ export function appendRevision(input: RecordRevisionInput): ModelHistory {
   });
   const nextBlock = Math.max(history.next_block_sequence ?? 1, input.nextBlockSequence ?? 1);
   const nextXref = Math.max(history.next_xref_sequence ?? 1, input.nextXrefSequence ?? 1);
+  const nextConstraint = Math.max(history.next_constraint_sequence ?? 1, input.nextConstraintSequence ?? 1);
   return deepFreeze({
     entity_id: history.entity_id,
     format: history.format,
@@ -168,6 +172,7 @@ export function appendRevision(input: RecordRevisionInput): ModelHistory {
     next_ifc_import_sequence: Math.max(history.next_ifc_import_sequence ?? 1, input.nextIfcImportSequence ?? 1),
     ...(nextBlock > 1 ? { next_block_sequence: nextBlock } : {}),
     ...(nextXref > 1 ? { next_xref_sequence: nextXref } : {}),
+    ...(nextConstraint > 1 ? { next_constraint_sequence: nextConstraint } : {}),
     revisions: deepFreeze([...history.revisions, revision]),
   });
 }
@@ -418,6 +423,27 @@ export function applyEditToElements(map: Map<string, Element>, edit: DocumentEdi
       if (edit.xrefId === undefined) throw new Error("replay: removeXref requires xrefId");
       break;
     }
+    // CAD-PARITY-007: constraint-table edits are element-set no-ops (the
+    // table replays through the recorded applied edits; the element delta
+    // stays empty — the block/xref precedent).
+    case "addConstraint": {
+      if (edit.constraint === undefined) throw new Error("replay: addConstraint requires constraint");
+      break;
+    }
+    case "updateConstraint": {
+      if (edit.constraintId === undefined) throw new Error("replay: updateConstraint requires constraintId");
+      break;
+    }
+    case "setConstraintRecord": {
+      if (edit.constraintId === undefined || edit.constraint === undefined) {
+        throw new Error("replay: setConstraintRecord requires constraintId + constraint");
+      }
+      break;
+    }
+    case "removeConstraint": {
+      if (edit.constraintId === undefined) throw new Error("replay: removeConstraint requires constraintId");
+      break;
+    }
     default: {
       const _exhaustive = edit satisfies never;
       throw new Error(`replay: unreachable edit type: ${JSON.stringify(_exhaustive)}`);
@@ -509,7 +535,10 @@ function isValidDocumentEdit(v: unknown): boolean {
     v.type !== "addBlockDef" && v.type !== "updateBlockDef" && v.type !== "removeBlockDef" &&
     v.type !== "setBlockDefRecord" &&
     v.type !== "addXref" && v.type !== "updateXref" && v.type !== "removeXref" &&
-    v.type !== "setXrefRecord"
+    v.type !== "setXrefRecord" &&
+    // CAD-PARITY-007 additive edit types (the parametric constraint table).
+    v.type !== "addConstraint" && v.type !== "updateConstraint" && v.type !== "removeConstraint" &&
+    v.type !== "setConstraintRecord"
   ) {
     return false;
   }
@@ -597,6 +626,15 @@ function isValidDocumentEdit(v: unknown): boolean {
   }
   if (v.type === "updateXref" || v.type === "removeXref") {
     return typeof v.xrefId === "string" && v.xrefId.length > 0;
+  }
+  // CAD-PARITY-007: the constraint record shapes.
+  if (v.type === "addConstraint" || v.type === "setConstraintRecord") {
+    if (!isPlainObject(v.constraint)) return false;
+    const c = v.constraint as Record<string, unknown>;
+    return typeof c.id === "string" && c.id.length > 0 && typeof c.kind === "string" && Array.isArray(c.targets);
+  }
+  if (v.type === "updateConstraint" || v.type === "removeConstraint") {
+    return typeof v.constraintId === "string" && v.constraintId.length > 0;
   }
   return true;
 }
@@ -686,6 +724,14 @@ export function validateModelHistory(history: unknown): asserts history is Model
       history.next_xref_sequence < 1)
   ) {
     throw new Error("modelHistory.next_xref_sequence must be a positive integer when present");
+  }
+  if (
+    history.next_constraint_sequence !== undefined &&
+    (typeof history.next_constraint_sequence !== "number" ||
+      !Number.isInteger(history.next_constraint_sequence) ||
+      history.next_constraint_sequence < 1)
+  ) {
+    throw new Error("modelHistory.next_constraint_sequence must be a positive integer when present");
   }
   if (!Array.isArray(history.revisions)) throw new Error("modelHistory.revisions must be an array");
   for (const [i, rev] of history.revisions.entries()) {

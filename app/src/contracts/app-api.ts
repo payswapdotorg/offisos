@@ -123,7 +123,20 @@ export type CommandName =
   | "attribute.update"
   | "xref.attach"
   | "xref.detach"
-  | "xref.reload";
+  | "xref.reload"
+  // --- CAD-PARITY-007 (additive, Issue #86): parametric constraints ---
+  // constraint.create validates + declares ONE constraint and APPLIES it
+  // through the shared deterministic solver (the closed-form geometry
+  // adjustment + propagation patches + the associative-annotation cascade
+  // travel as element edits in the SAME atomic revision — one undo entry);
+  // constraint.update re-declares a dimensional value and re-solves;
+  // constraint.remove deletes the record; constraint.solve re-runs the
+  // deterministic solve over the whole graph (the explicit diagnostics
+  // surface — six typed outcomes, never a silent approximation).
+  | "constraint.create"
+  | "constraint.update"
+  | "constraint.remove"
+  | "constraint.solve";
 
 // --- Query names (non-mutating) ---
 // `document.getSelection` returns the ephemeral editor selection (orthogonal
@@ -184,7 +197,13 @@ export type QueryName =
   // CAD-PARITY-006 (additive): the blocks/xrefs inventory with instance
   // counts + attribute tags / status diagnostics (non-mutating).
   | "blocks.list"
-  | "xrefs.list";
+  | "xrefs.list"
+  // CAD-PARITY-007 (additive): the declared constraint graph inventory and
+  // the on-demand solver diagnostics (satisfaction per constraint, the
+  // per-component degrees-of-freedom accounting, the typed outcome —
+  // non-mutating, computed fresh every call, never persisted stale).
+  | "constraints.list"
+  | "constraints.diagnostics";
 
 export interface Command {
   readonly type: "command";

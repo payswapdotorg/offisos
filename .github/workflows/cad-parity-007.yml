@@ -1,0 +1,312 @@
+name: cad-parity-007
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "app/**"
+      - "apps/web/**"
+      - "apps/electron/**"
+      - ".github/workflows/cad-parity-007.yml"
+  pull_request:
+    paths:
+      - "app/**"
+      - "apps/web/**"
+      - "apps/electron/**"
+      - ".github/workflows/cad-parity-007.yml"
+
+# CAD-PARITY-007: parametric constraints & associative editing (Issue #86,
+# CAD/BIM Product Architecture v1.0 FROZEN under ConstructionOS Architecture
+# v1.1). Proves the constraints subsystem:
+#   - workspace-shell: the FULL app suite with BOTH real engines installed
+#     (cadquery-ocp / OCCT 7.8.1.1 for geometry; ifcopenshell 0.8.5 +
+#     IfcTester 0.8.5 for IFC/openBIM) — the pre-existing regressions stay
+#     green (803 tests) and the 68 new deterministic CAD-PARITY-007 tests
+#     run: the constraint vocabulary (the 11-kind grammar with arity/anchor
+#     rules, the typed unsupported declines, anchor resolution + the DoF
+#     accounting), the bounded deterministic solver (the closed-form
+#     applications with authority + fixed-flip rules, the SIX typed outcomes
+#     — solved/under-constrained/over-constrained/unsatisfied/ambiguous/
+#     unsupported — the fixed-restore cascade, determinism), the document
+#     model (con-NNNNNN monotonic minting, exact inverses incl. key-adding
+#     updates, canonical-minimal snapshot/history, replay integrity,
+#     legacy byte-identity) and the App API/command surface (constraint.
+#     create/update/remove/solve, the constraints.list/diagnostics queries,
+#     the over-constraint create gate, the constraint-aware editing
+#     cascades with the associative-dimension composition, severance on
+#     delete/trim, the ARRAY pattern ops, the GEOMCONSTRAINT/DIMCONSTRAINT/
+#     CONSTRAINTLIST/DELCONSTRAINT/CONSTRAINTS/ARRAY prompt-engine flows,
+#     save/open, determinism). The LOCK-018 forbidden-import scan covers
+#     the extended src/workspace core (incl. constraints/ +
+#     commands-parametrics).
+#   - web-host-workspace: the deployable Web host lints + typechecks +
+#     builds, then serves the professional workspace from the running dev
+#     server and drives the EXACT semantic command streams the UI produces
+#     through /api/cad: the pinned CAD-PARITY-002 parity fixture (the
+#     regression gate), the pinned CAD-PARITY-004 layers/styles fixture,
+#     the pinned CAD-PARITY-005 annotation fixture, the pinned CAD-PARITY-
+#     006 blocks fixture AND the new pinned CAD-PARITY-007 constraints
+#     fixture (27-command stream: GEOMCONSTRAINT horizontal/coincident/
+#     tangent/fixed, DIMCONSTRAINT length with the dynamic current-value
+#     default, constraint updates re-solving with the associative-dimension
+#     remeasure, constraint-aware MOVE, the fixed restore, the ARRAY
+#     pattern, solve diagnostics, severance, DELCONSTRAINT, save/open).
+#   - electron-host-workspace: the deployable Electron host builds and runs
+#     FOURTEEN smokes — the nine regression smokes, the workspace
+#     BrowserWindow smoke, the CAD-PARITY-004 layers real-UI smoke, the
+#     CAD-PARITY-005 annotation real-UI smoke, the CAD-PARITY-006 blocks
+#     real-UI smoke AND the new CAD-PARITY-007 constraints real-UI smoke
+#     (canvas ENTITY/ENTITY-POINT picks on the constraint targets through
+#     CDP) asserting the SAME pinned 007 fixture sha AND the SAME
+#     27-command semantic stream — Web/Electron parity is the acceptance
+#     criterion (LOCK-004).
+#
+# Engine isolation (LOCK-003/018): no engine import leaks into the renderer,
+# CADDocument, App API or the workspace command core (enforced by the
+# LOCK-018 scan); IfcOpenShell/IfcTester run only inside the IFC adapter's
+# disposable Python worker. The CAD-PARITY-007 core is engine-free by
+# construction (pure TypeScript constraints/solver/cascade modules — NO
+# black-box numerical solver, per the Issue #86 research direction).
+
+jobs:
+  workspace-shell:
+    name: Workspace deterministic suite (OCCT 7.8.1.1 + ifcopenshell 0.8.5 toolchains)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Set up Python (pinned toolchain)
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install the pinned OCCT engine (cadquery-ocp)
+        run: pip install cadquery-ocp==7.8.1.1.post1
+
+      - name: Install the pinned IFC toolchain (ifcopenshell + IfcTester)
+        run: pip install ifcopenshell==0.8.5 IfcTester==0.8.5 numpy==2.1.3
+
+      - name: Install root toolchain (tsx + typescript + ajv)
+        run: npm install
+
+      - name: Typecheck app shell (incl. the CAD-PARITY-007 constraints core)
+        run: node_modules/.bin/tsc --noEmit -p app/tsconfig.json
+
+      - name: "Full app test suite with both real engines (871 tests: 803 pre-existing + 68 CAD-PARITY-007)"
+        working-directory: app
+        run: node --import tsx --test test/*.test.ts
+
+      - name: "CAD-PARITY-007 deterministic suite (constraints solver/document/commands + the 003/004/005/006 kernels)"
+        working-directory: app
+        run: node --import tsx --test test/workspace-2d-*.test.ts
+
+      - name: Forbidden-import static check (LOCK-018 incl. src/workspace + annotation/ + blocks/ + constraints/ + commands-parametrics)
+        working-directory: app
+        run: node --import tsx --test test/no-forbidden-imports.test.ts
+
+      - name: IFC worker availability probe (pin check)
+        working-directory: app
+        run: |
+          echo '{"op":"ping"}' | python3 src/adapters/ifc/worker/ifc-worker.py
+          echo '{"op":"ping"}' | python3 src/adapters/ifc/worker/ifc-worker.py | grep -q '"engineVersion":"0.8.5"'
+
+      - name: Upload test evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cad-parity-007-shell-evidence
+          path: app/src
+          if-no-files-found: warn
+
+  web-host-workspace:
+    name: Web host (Next.js 16 + ALL FIVE workspace smokes + ALL FIVE parity fixtures)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/web/package.json
+
+      - name: Set up Python (pinned toolchain)
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install the pinned engines (OCCT + ifcopenshell)
+        run: pip install cadquery-ocp==7.8.1.1.post1 ifcopenshell==0.8.5 IfcTester==0.8.5 numpy==2.1.3
+
+      - name: Install root toolchain (tsx for the shared-engine smoke)
+        run: npm install
+
+      - name: Install Web host deps
+        working-directory: apps/web
+        run: npm install
+
+      - name: Web host lint (ESLint)
+        working-directory: apps/web
+        run: npm run lint
+
+      - name: Web host typecheck (tsc --noEmit)
+        working-directory: apps/web
+        run: npx tsc --noEmit
+
+      - name: Web host build (next build --webpack)
+        working-directory: apps/web
+        run: npm run build
+
+      - name: Web host workspace workflow smokes (dev server + shared prompt engine + ALL FIVE parity fixtures)
+        working-directory: apps/web
+        env:
+          OFFISOS_OCCT_WORKER: ${{ github.workspace }}/app/src/adapters/occt/worker/occt-worker.py
+          OFFISOS_IFC_WORKER: ${{ github.workspace }}/app/src/adapters/ifc/worker/ifc-worker.py
+          OFFISOS_WEB_URL: http://localhost:3100
+        run: |
+          npm run dev -- --webpack -p 3100 &
+          DEV_PID=$!
+          for i in $(seq 1 60); do
+            if curl -sS -o /dev/null http://localhost:3100/ 2>/dev/null; then break; fi
+            sleep 2
+          done
+          sleep 3
+          cd ../..
+          node --import tsx apps/web/test/workspace-smoke.mjs
+          SMOKE_STATUS=$?
+          if [ $SMOKE_STATUS -eq 0 ]; then
+            node --import tsx apps/web/test/layers-styles-smoke.mjs
+            SMOKE_STATUS=$?
+          fi
+          if [ $SMOKE_STATUS -eq 0 ]; then
+            node --import tsx apps/web/test/annotation-smoke.mjs
+            SMOKE_STATUS=$?
+          fi
+          if [ $SMOKE_STATUS -eq 0 ]; then
+            node --import tsx apps/web/test/blocks-smoke.mjs
+            SMOKE_STATUS=$?
+          fi
+          if [ $SMOKE_STATUS -eq 0 ]; then
+            node --import tsx apps/web/test/constraints-smoke.mjs
+            SMOKE_STATUS=$?
+          fi
+          kill $DEV_PID 2>/dev/null || true
+          exit $SMOKE_STATUS
+
+      - name: Upload workspace smoke evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cad-parity-007-web-evidence
+          path: |
+            app/test/fixtures/cad-parity-002-parity.json
+            app/test/fixtures/cad-parity-004-layers.json
+            app/test/fixtures/cad-parity-006-annotation.json
+            app/test/fixtures/cad-parity-007-constraints.json
+          if-no-files-found: warn
+
+  electron-host-workspace:
+    name: Electron host (build + 14 smokes incl. the workspace + layers + annotation + blocks + constraints real-UI parity smokes)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/electron/package.json
+
+      - name: Set up Python (pinned toolchain)
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install the pinned engines (OCCT + ifcopenshell)
+        run: pip install cadquery-ocp==7.8.1.1.post1 ifcopenshell==0.8.5 IfcTester==0.8.5 numpy==2.1.3
+
+      - name: Install Xvfb (headless display)
+        run: sudo apt-get update && sudo apt-get install -y xvfb
+
+      - name: Install Electron host deps
+        working-directory: apps/electron
+        run: npm install
+
+      - name: Electron host typecheck
+        working-directory: apps/electron
+        run: npm run typecheck
+
+      - name: Electron host build
+        working-directory: apps/electron
+        run: npm run build
+
+      - name: Electron regression smokes (engine-free, geometry, model, impact, drafting, BIM, documentation, IFC, components)
+        working-directory: apps/electron
+        env:
+          OFFISOS_OCCT_WORKER: ${{ github.workspace }}/app/src/adapters/occt/worker/occt-worker.py
+          OFFISOS_IFC_WORKER: ${{ github.workspace }}/app/src/adapters/ifc/worker/ifc-worker.py
+        run: |
+          npm run smoke
+          npm run smoke:geometry
+          npm run smoke:model
+          npm run smoke:impact
+          npm run smoke:drafting
+          npm run smoke:bim
+          npm run smoke:docs
+          npm run smoke:ifc
+          npm run smoke:components
+
+      - name: "Electron workspace smoke (real-UI parity: 19 steps incl. 5 CAD-PARITY-003 golden paths)"
+        working-directory: apps/electron
+        env:
+          OFFISOS_OCCT_WORKER: ${{ github.workspace }}/app/src/adapters/occt/worker/occt-worker.py
+          OFFISOS_IFC_WORKER: ${{ github.workspace }}/app/src/adapters/ifc/worker/ifc-worker.py
+        run: npm run smoke:workspace
+
+      - name: "Electron layers/styles/properties smoke (real-UI CAD-PARITY-004 golden paths + Web parity fixture)"
+        working-directory: apps/electron
+        env:
+          OFFISOS_OCCT_WORKER: ${{ github.workspace }}/app/src/adapters/occt/worker/occt-worker.py
+          OFFISOS_IFC_WORKER: ${{ github.workspace }}/app/src/adapters/ifc/worker/ifc-worker.py
+        run: node test/smoke-layers.mjs
+
+      - name: "Electron annotation smoke (real-UI CAD-PARITY-005 golden paths: canvas entity/entityPoint picks + the Web parity fixture + stream)"
+        working-directory: apps/electron
+        env:
+          OFFISOS_OCCT_WORKER: ${{ github.workspace }}/app/src/adapters/occt/worker/occt-worker.py
+          OFFISOS_IFC_WORKER: ${{ github.workspace }}/app/src/adapters/ifc/worker/ifc-worker.py
+        run: node test/smoke-annotation.mjs
+
+      - name: "Electron blocks smoke (real-UI CAD-PARITY-006 golden paths: canvas block source/instance picks + the Web parity fixture + stream)"
+        working-directory: apps/electron
+        env:
+          OFFISOS_OCCT_WORKER: ${{ github.workspace }}/app/src/adapters/occt/worker/occt-worker.py
+          OFFISOS_IFC_WORKER: ${{ github.workspace }}/app/src/adapters/ifc/worker/ifc-worker.py
+        run: node test/smoke-blocks.mjs
+
+      - name: "Electron constraints smoke (real-UI CAD-PARITY-007 golden paths: canvas entity/entityPoint constraint-target picks + the Web parity fixture + stream)"
+        working-directory: apps/electron
+        env:
+          OFFISOS_OCCT_WORKER: ${{ github.workspace }}/app/src/adapters/occt/worker/occt-worker.py
+          OFFISOS_IFC_WORKER: ${{ github.workspace }}/app/src/adapters/ifc/worker/ifc-worker.py
+        run: node test/smoke-constraints.mjs
+
+      - name: Upload workspace smoke evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cad-parity-007-electron-evidence
+          path: apps/electron/dist/smoke-workspace-result.json
+          if-no-files-found: warn

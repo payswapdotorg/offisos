@@ -53,6 +53,7 @@ import {
   Type,
   Ruler,
   Waves,
+  Waypoints,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -62,6 +63,7 @@ import { Separator } from "@/components/ui/separator";
 import type {
   BlockDefinitionRecord,
   CADDocumentSnapshot,
+  ConstraintRecord,
   DimStyleRecord,
   Element,
   LayerRecord,
@@ -109,7 +111,7 @@ import {
 } from "@offisos/cad-app-shell/workspace/standards";
 import { setSelection } from "@/cad/client/http-transport";
 
-export type DockTab = "properties" | "layers" | "styles" | "blocks" | "navigator";
+export type DockTab = "properties" | "layers" | "styles" | "blocks" | "constraints" | "navigator";
 
 export interface PalettesProps {
   readonly snapshot: CADDocumentSnapshot | null;
@@ -2201,6 +2203,189 @@ function NavigatorPanel(props: PalettesProps): React.JSX.Element {
 }
 
 // ---------------------------------------------------------------------------
+// CAD-PARITY-007 (Issue #86): the Constraints manager — the parametric
+// diagnostics + editing surface.
+// ---------------------------------------------------------------------------
+
+/** The shared constraints core (the SAME diagnostics the Electron renderer
+ *  and the App API run — LOCK-004 parity by construction). */
+import {
+  CONSTRAINT_LABEL,
+  diagnoseConstraints,
+} from "@offisos/cad-app-shell/workspace/constraints";
+
+const OUTCOME_BADGE: Readonly<Record<string, string>> = {
+  solved: "bg-emerald-100 text-emerald-800 border-emerald-300",
+  "under-constrained": "bg-amber-100 text-amber-800 border-amber-300",
+  "over-constrained": "bg-red-100 text-red-800 border-red-300",
+  unsatisfied: "bg-orange-100 text-orange-800 border-orange-300",
+  ambiguous: "bg-purple-100 text-purple-800 border-purple-300",
+  unsupported: "bg-zinc-100 text-zinc-800 border-zinc-300",
+};
+
+function ConstraintsPanel(props: PalettesProps): React.JSX.Element {
+  const constraints = props.snapshot?.constraints ?? [];
+  const elements = props.snapshot?.elements ?? [];
+  const commit = props.onCommitEdit;
+  // The diagnostics run CLIENT-SIDE through the SHARED solver (verify-only —
+  // no mutation; the SAME module the App API's constraints.diagnostics query
+  // runs server-side — parity by construction).
+  const diagnostics = React.useMemo(
+    () => (constraints.length > 0 ? diagnoseConstraints(elements, constraints) : null),
+    [constraints, elements],
+  );
+  const statusById = React.useMemo(
+    () => new Map((diagnostics?.statuses ?? []).map((s) => [s.id, s])),
+    [diagnostics],
+  );
+  const [dofOpen, setDofOpen] = React.useState(false);
+
+  const formatTarget = (t: { id: string; anchor?: string }): string =>
+    t.anchor !== undefined ? `${t.id}:${t.anchor}` : t.id;
+
+  return (
+    <div className="flex h-full flex-col" data-testid="constraints-panel">
+      {/* Header: the typed outcome + the explicit solve */}
+      <div className="flex items-center gap-1 border-b p-2">
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-7 gap-1 px-2 text-[11px]"
+          title="Re-run the deterministic solve over the whole declared graph (constraint.solve)"
+          onClick={() => void commit("solve constraints", async () => {
+            const { constraintSolve } = await import("@/cad/client/http-transport");
+            return constraintSolve();
+          })}
+        >
+          <RefreshCw className="h-3.5 w-3.5" aria-hidden /> Solve
+        </Button>
+        {diagnostics === null ? (
+          <span className="truncate text-[10px] text-muted-foreground">no constraints declared</span>
+        ) : (
+          <span
+            className={
+              "truncate rounded border px-1.5 py-0.5 text-[10px] font-medium " +
+              (OUTCOME_BADGE[diagnostics.outcome] ?? "bg-muted text-muted-foreground border-border")
+            }
+            data-testid="constraints-outcome"
+          >
+            {diagnostics.outcome}
+          </span>
+        )}
+        {diagnostics !== null && (
+          <Button
+            size="sm"
+            variant="ghost"
+            className="ml-auto h-6 px-1.5 text-[10px] text-muted-foreground"
+            aria-expanded={dofOpen}
+            onClick={() => setDofOpen((v) => !v)}
+            title="Per-component degrees-of-freedom accounting"
+          >
+            DoF {diagnostics.dof.reduce((sum, c) => sum + c.dof, 0)}
+          </Button>
+        )}
+      </div>
+      {dofOpen && diagnostics !== null && (
+        <div className="border-b bg-muted/30 p-2 text-[10px] text-muted-foreground">
+          {diagnostics.dof.map((c) => (
+            <div key={c.entities[0]} className="flex justify-between gap-2 py-0.5">
+              <span className="truncate" title={c.entities.join(", ")}>
+                {c.entities.length} {c.entities.length === 1 ? "entity" : "entities"} · {c.constraints.length}{" "}
+                {c.constraints.length === 1 ? "constraint" : "constraints"}
+              </span>
+              <span className={c.dof < 0 ? "font-medium text-red-700" : c.dof === 0 ? "font-medium text-emerald-700" : ""}>
+                DoF {c.dof}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <ScrollArea className="min-h-0 flex-1">
+        <div className="p-1">
+          {constraints.length === 0 && (
+            <div className="px-2 py-6 text-center text-[11px] text-muted-foreground">
+              No constraints declared. Use GEOMCONSTRAINT (GC) / DIMCONSTRAINT (DC) or the Parametric ribbon tab.
+            </div>
+          )}
+          <ul aria-label="declared constraints">
+            {constraints.map((c: ConstraintRecord) => {
+              const status = statusById.get(c.id);
+              const satisfied = status?.satisfied ?? false;
+              const dimensional = c.value !== undefined;
+              return (
+                <li
+                  key={c.id}
+                  className="flex items-center gap-1 rounded px-2 py-1 text-[11px] hover:bg-muted/50"
+                  data-testid={`constraint-row-${c.id}`}
+                >
+                  <span
+                    className={
+                      "h-2 w-2 shrink-0 rounded-full " + (satisfied ? "bg-emerald-500" : "bg-red-500")
+                    }
+                    title={satisfied ? "satisfied" : `not satisfied — ${status?.note ?? "unknown"}`}
+                    aria-label={satisfied ? "satisfied" : "violated"}
+                  />
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate font-medium">{CONSTRAINT_LABEL[c.kind] ?? c.kind}</span>
+                    <span className="block truncate text-[10px] text-muted-foreground" title={c.id}>
+                      {c.targets.map(formatTarget).join(" → ")}
+                      {c.mode !== undefined ? ` · ${c.mode}` : ""}
+                    </span>
+                    {status !== undefined && !satisfied && status.note !== null && (
+                      <span className="block truncate text-[10px] text-red-700" title={status.note}>
+                        {status.note}
+                      </span>
+                    )}
+                  </span>
+                  {dimensional && (
+                    <input
+                      type="number"
+                      step="any"
+                      min="0"
+                      className={NUM_INPUT + " !w-16"}
+                      defaultValue={c.value}
+                      key={`${c.id}:${c.value}`}
+                      aria-label={`value of constraint ${c.id}`}
+                      title="Re-declare the dimensional value and re-solve (constraint.update)"
+                      onBlur={(e) => {
+                        const n = Number(e.target.value);
+                        if (Number.isFinite(n) && n > 0 && n !== c.value) {
+                          void commit("update constraint", async () => {
+                            const { constraintUpdate } = await import("@/cad/client/http-transport");
+                            return constraintUpdate(c.id, { value: n });
+                          });
+                        }
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+                      }}
+                    />
+                  )}
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-6 w-6 shrink-0 p-0 text-muted-foreground hover:text-destructive"
+                    aria-label={`remove constraint ${c.id}`}
+                    title="Remove the constraint (the geometry stays at its solved state)"
+                    onClick={() => void commit("remove constraint", async () => {
+                      const { constraintRemove } = await import("@/cad/client/http-transport");
+                      return constraintRemove(c.id);
+                    })}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" aria-hidden />
+                  </Button>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      </ScrollArea>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // The dock.
 // ---------------------------------------------------------------------------
 
@@ -2213,6 +2398,10 @@ export function RightDock(props: PalettesProps): React.JSX.Element | null {
     // CAD-PARITY-006: the Blocks & References manager (BLOCKLIST + XREF
     // surfaces — the XREF command's palette.show target).
     { id: "blocks", label: "Blocks", icon: Boxes },
+    // CAD-PARITY-007: the Constraints manager (CONSTRAINTS — live solver
+    // diagnostics with the six typed outcomes, DoF accounting, dimensional
+    // value editing + removal).
+    { id: "constraints", label: "Constr", icon: Waypoints },
     { id: "navigator", label: "Nav", icon: Navigation },
   ];
   return (
@@ -2242,6 +2431,7 @@ export function RightDock(props: PalettesProps): React.JSX.Element | null {
         {props.activeTab === "layers" && <LayersPanel {...props} />}
         {props.activeTab === "styles" && <StylesPanel {...props} />}
         {props.activeTab === "blocks" && <BlocksPanel {...props} />}
+        {props.activeTab === "constraints" && <ConstraintsPanel {...props} />}
         {props.activeTab === "navigator" && <NavigatorPanel {...props} />}
       </div>
       <div className="border-t p-2 text-[10px] text-muted-foreground">

@@ -90,6 +90,7 @@ import {
 } from "../workspace/annotation/index.js";
 import {
   annotationViewsOf,
+  annotationsReferencing,
   remeasureCascade,
 } from "../workspace/annotation/assoc.js";
 import { resolveTextStyle, resolveDimStyle } from "../workspace/standards/index.js";
@@ -106,7 +107,24 @@ import {
 } from "../workspace/blocks/index.js";
 import { geomFromElement } from "../workspace/geometry/bridge.js";
 import { canonicalStringify } from "../caddocument/serialization.js";
-import type { BlockDefinitionRecord, BlockEntityRecord, XrefRecord } from "../contracts/caddocument.js";
+import type { BlockDefinitionRecord, BlockEntityRecord, XrefRecord, ConstraintRecord } from "../contracts/caddocument.js";
+// CAD-PARITY-007 (additive): the parametric-constraints core (engine-free —
+// the declared graph grammar, the deterministic propagation solver, the
+// constraint-aware editing cascades and the shared glyph painter).
+import {
+  ConstraintError,
+  applyEditsInMemory as constraintsApplyEditsInMemory,
+  collectEditedIds as constraintsCollectEditedIds,
+  collectRemovedIds,
+  CONSTRAINT_LABEL,
+  diagnoseConstraints,
+  makeConstraint,
+  severanceFor,
+  solveConstraints,
+  solveGeometryEdits,
+  validateConstraintTargets,
+} from "../workspace/constraints/index.js";
+import { applyConstraintPatch } from "../caddocument/workspace.js";
 // COMPAT-CAD-002: the pure BIM authoring core (LOCK-018 scanned).
 import {
   buildBimCreate,
@@ -313,6 +331,15 @@ export class AppApiHandler {
         return this.cmdXrefDetach(command.payload);
       case "xref.reload":
         return this.cmdXrefReload(command.payload);
+      // --- CAD-PARITY-007 (additive): parametric constraints commands ----
+      case "constraint.create":
+        return this.cmdConstraintCreate(command.payload);
+      case "constraint.update":
+        return this.cmdConstraintUpdate(command.payload);
+      case "constraint.remove":
+        return this.cmdConstraintRemove(command.payload);
+      case "constraint.solve":
+        return this.cmdConstraintSolve(command.payload);
       // --- COMPAT-CAD-002 (additive): 3D/BIM authoring commands ---
       case "bim.createElements":
         return this.cmdBimCreate(command.payload);
@@ -663,6 +690,12 @@ export class AppApiHandler {
         return this.qBlocksList();
       case "xrefs.list":
         return this.qXrefsList();
+      // CAD-PARITY-007 (additive): the constraint graph inventory + the
+      // on-demand solver diagnostics (non-mutating, computed fresh).
+      case "constraints.list":
+        return this.qConstraintsList();
+      case "constraints.diagnostics":
+        return this.qConstraintsDiagnostics();
       default: {
         const _exhaustive: never = query.name;
         return err("unknown_query", `unknown query: ${JSON.stringify(_exhaustive)}`);
@@ -776,6 +809,8 @@ export class AppApiHandler {
       // CAD-PARITY-005: the associative cascade — annotations referencing
       // DELETED targets disassociate (typed notes; their last known values
       // survive) inside the SAME atomic revision.
+      // CAD-PARITY-007: constraints referencing deleted targets SEVER
+      // (removeConstraint edits + typed notes — the dead-ref precedent).
       const elements = this.doc.allElements();
       const deleted = new Set(p.ids as string[]);
       const annotations = annotationViewsOf(elements).filter(({ annotation }) => {
@@ -784,17 +819,26 @@ export class AppApiHandler {
         }
         return false;
       });
+      const constraints = this.doc.constraintTable;
+      const severance = constraints.length > 0 ? severanceFor(constraints, deleted) : { edits: [], severed: [], notes: [] };
       let edit: DocumentEdit = outcome.edit;
       let summary = outcome.summary;
+      const extraEdits: DocumentEdit[] = [];
       if (annotations.length > 0) {
         const worldAfter = elements.filter((el) => !deleted.has(el.id));
         const cascade = remeasureCascade(annotations, worldAfter);
         if (cascade.edits.length > 0) {
-          const edits = edit.type === "applyEdits" ? [...edit.edits] : [edit];
-          edits.push(...cascade.edits);
-          edit = { type: "applyEdits", edits };
+          extraEdits.push(...cascade.edits);
           summary = `${summary}; ${cascade.edits.length} annotation${cascade.edits.length === 1 ? "" : "s"} disassociated`;
         }
+      }
+      if (severance.edits.length > 0) {
+        extraEdits.push(...severance.edits);
+        summary = `${summary}; ${severance.severed.length} constraint${severance.severed.length === 1 ? "" : "s"} severed`;
+      }
+      if (extraEdits.length > 0) {
+        const edits = edit.type === "applyEdits" ? [...edit.edits, ...extraEdits] : [edit, ...extraEdits];
+        edit = { type: "applyEdits", edits };
       }
       this.doc.execute(edit);
       return ok({ applied: true, summary, snapshot: this.doc.snapshot() });
@@ -1918,6 +1962,255 @@ export class AppApiHandler {
     return ok({ xrefs: out });
   }
 
+  // --- CAD-PARITY-007 (additive): parametric constraints -------------------
+
+  /** The fixed deterministic constraint provenance timestamp (the
+   *  BLOCKS_NOW convention). */
+  private static readonly CONSTRAINTS_NOW = "2026-01-01T00:00:00.000Z";
+
+  /** constraint.create — declare ONE constraint and APPLY it through the
+   *  shared deterministic solver: the closed-form geometry adjustment +
+   *  propagation patches + the associative-annotation cascade travel as
+   *  element edits in the SAME atomic revision (one undo entry). The
+   *  structural over-constraint gate rejects a create whose component DoF
+   *  drops below zero (the AutoCAD-class redundant-constraint rejection —
+   *  typed, naming the conflict). */
+  private cmdConstraintCreate(payload: unknown): CommandQueryResponse {
+    const p = payload as Record<string, unknown> | null;
+    if (p === null || typeof p !== "object") {
+      return err("bad_payload", "constraint.create requires a payload object", true);
+    }
+    try {
+      // Mint the canonical identity UP FRONT (the solve needs the id for
+      // deterministic ordering; a minted-but-unused identity is burned,
+      // never reused — the mintElementId precedent).
+      const id = this.doc.mintConstraintId();
+      const record = makeConstraint({
+        ...(p as Record<string, unknown>),
+        id,
+        createdAt: AppApiHandler.CONSTRAINTS_NOW,
+      });
+      const elementById = (elementId: string) => this.doc.elementById(elementId);
+      validateConstraintTargets(record, elementById);
+      const existing = this.doc.constraintTable;
+      // The structural over-constraint gate: the hypothetical post-create
+      // graph must not push any component's declared DoF below zero.
+      const graph = [...existing, record];
+      const preflight = diagnoseConstraints(this.doc.allElements(), graph);
+      const targetIds = new Set(record.targets.map((t) => t.id));
+      const conflicts = preflight.dof.filter(
+        (c) => c.dof < 0 && c.entities.some((id) => targetIds.has(id)),
+      );
+      if (conflicts.length > 0) {
+        const c = conflicts[0]!;
+        return err(
+          "over_constrained",
+          `constraint '${record.kind}' over-constrains the component of '${c.entities[0]}' (declared DoF ${c.dof}) — remove a constraint first (the redundant set: ${c.constraints.join(", ")})`,
+          false,
+        );
+      }
+      // The deterministic apply: seed the targets' component from the new
+      // constraint and propagate.
+      const result = solveConstraints(this.doc.allElements(), graph, {
+        seedIds: [...targetIds],
+      });
+      const edits: DocumentEdit[] = [
+        { type: "addConstraint", constraint: record },
+        ...solveGeometryEdits(this.doc.allElements(), result),
+      ];
+      // The associative-annotation cascade (dimensions re-measure against
+      // the constraint-settled world — CAD-PARITY-005 composition).
+      const batch: DocumentEdit = { type: "applyEdits", edits };
+      const changedIds = new Set<string>();
+      constraintsCollectEditedIds(batch, changedIds);
+      if (changedIds.size > 0) {
+        const annotations = annotationViewsOf(this.doc.allElements());
+        const dependent = annotationsReferencing(annotations, changedIds);
+        if (dependent.length > 0) {
+          const worldAfter = constraintsApplyEditsInMemory(this.doc.allElements(), batch);
+          const cascade = remeasureCascade(dependent, worldAfter);
+          if (cascade.edits.length > 0) edits.push(...cascade.edits);
+        }
+      }
+      const finalBatch: DocumentEdit = edits.length === 1 ? edits[0]! : { type: "applyEdits", edits };
+      this.doc.execute(finalBatch);
+      const adjusted = result.geometry.size;
+      return ok({
+        constraintId: id,
+        kind: record.kind,
+        outcome: result.outcome,
+        dof: result.dof,
+        summary:
+          `${CONSTRAINT_LABEL[record.kind]} constraint ${id} applied — solve outcome: ${result.outcome}` +
+          (adjusted > 0 ? ` (${adjusted} ${adjusted === 1 ? "entity" : "entities"} adjusted)` : ""),
+        snapshot: this.doc.snapshot(),
+      });
+    } catch (e) {
+      if (e instanceof ConstraintError) return err(e.code, e.message, false);
+      return err("constraint_invalid", (e as Error).message, false);
+    }
+  }
+
+  /** constraint.update — re-declare a dimensional value (or tangency mode)
+   *  and RE-SOLVE: the propagation patches + the annotation cascade travel
+   *  in the SAME atomic revision. */
+  private cmdConstraintUpdate(payload: unknown): CommandQueryResponse {
+    const p = payload as { id?: unknown; patch?: unknown } | null;
+    if (p === null || typeof p !== "object" || typeof p.id !== "string" || p.id.length === 0) {
+      return err("bad_payload", "constraint.update requires an id string", true);
+    }
+    if (typeof p.patch !== "object" || p.patch === null) {
+      return err("bad_payload", "constraint.update requires a patch object", true);
+    }
+    try {
+      const current = this.doc.constraintById(p.id);
+      if (current === undefined) {
+        return err("bad_id", `constraint '${p.id}' does not exist`, false);
+      }
+      const updated = applyConstraintPatch(current, p.patch as Record<string, unknown>);
+      const graph = this.doc.constraintTable.map((c) => (c.id === p.id ? updated : c));
+      const seedIds = updated.targets.map((t) => t.id);
+      const result = solveConstraints(this.doc.allElements(), graph, { seedIds });
+      const edits: DocumentEdit[] = [
+        { type: "updateConstraint", constraintId: p.id, patch: p.patch as Record<string, unknown> },
+        ...solveGeometryEdits(this.doc.allElements(), result),
+      ];
+      const batch: DocumentEdit = { type: "applyEdits", edits };
+      const changedIds = new Set<string>();
+      constraintsCollectEditedIds(batch, changedIds);
+      if (changedIds.size > 0) {
+        const annotations = annotationViewsOf(this.doc.allElements());
+        const dependent = annotationsReferencing(annotations, changedIds);
+        if (dependent.length > 0) {
+          const worldAfter = constraintsApplyEditsInMemory(this.doc.allElements(), batch);
+          const cascade = remeasureCascade(dependent, worldAfter);
+          if (cascade.edits.length > 0) edits.push(...cascade.edits);
+        }
+      }
+      const finalBatch: DocumentEdit = edits.length === 1 ? edits[0]! : { type: "applyEdits", edits };
+      this.doc.execute(finalBatch);
+      const adjusted = result.geometry.size;
+      return ok({
+        constraintId: p.id,
+        kind: updated.kind,
+        value: updated.value ?? null,
+        outcome: result.outcome,
+        dof: result.dof,
+        summary:
+          `constraint '${p.id}' updated — solve outcome: ${result.outcome}` +
+          (adjusted > 0 ? ` (${adjusted} ${adjusted === 1 ? "entity" : "entities"} adjusted)` : ""),
+        snapshot: this.doc.snapshot(),
+      });
+    } catch (e) {
+      if (e instanceof ConstraintError) return err(e.code, e.message, false);
+      return err("constraint_invalid", (e as Error).message, false);
+    }
+  }
+
+  /** constraint.remove — delete the declared record (the geometry stays at
+   *  its current solved state; no re-solve is triggered — AutoCAD-class
+   *  behavior). */
+  private cmdConstraintRemove(payload: unknown): CommandQueryResponse {
+    const p = payload as { id?: unknown } | null;
+    if (p === null || typeof p !== "object" || typeof p.id !== "string" || p.id.length === 0) {
+      return err("bad_payload", "constraint.remove requires an id string", true);
+    }
+    if (this.doc.constraintById(p.id) === undefined) {
+      return err("bad_id", `constraint '${p.id}' does not exist`, false);
+    }
+    this.doc.execute({ type: "removeConstraint", constraintId: p.id });
+    return ok({
+      constraintId: p.id,
+      removed: true,
+      snapshot: this.doc.snapshot(),
+    });
+  }
+
+  /** constraint.solve — re-run the deterministic solve over the WHOLE
+   *  declared graph (the explicit diagnostics surface; geometry patches +
+   *  the annotation cascade in ONE atomic revision when anything moves). */
+  private cmdConstraintSolve(payload: unknown): CommandQueryResponse {
+    void payload;
+    const constraints = this.doc.constraintTable;
+    if (constraints.length === 0) {
+      return ok({
+        outcome: "solved",
+        statuses: [],
+        dof: [],
+        summary: "no constraints declared (the graph is empty)",
+        snapshot: this.doc.snapshot(),
+      });
+    }
+    try {
+      const result = solveConstraints(this.doc.allElements(), constraints, {});
+      const edits: DocumentEdit[] = [...solveGeometryEdits(this.doc.allElements(), result)];
+      if (edits.length > 0) {
+        const batch: DocumentEdit = { type: "applyEdits", edits };
+        const changedIds = new Set<string>();
+        constraintsCollectEditedIds(batch, changedIds);
+        if (changedIds.size > 0) {
+          const annotations = annotationViewsOf(this.doc.allElements());
+          const dependent = annotationsReferencing(annotations, changedIds);
+          if (dependent.length > 0) {
+            const worldAfter = constraintsApplyEditsInMemory(this.doc.allElements(), batch);
+            const cascade = remeasureCascade(dependent, worldAfter);
+            if (cascade.edits.length > 0) edits.push(...cascade.edits);
+          }
+        }
+        this.doc.execute({ type: "applyEdits", edits });
+      }
+      const violated = result.statuses.filter((s) => !s.satisfied).length;
+      return ok({
+        outcome: result.outcome,
+        statuses: result.statuses,
+        dof: result.dof,
+        summary:
+          `constraint solve: ${result.outcome} — ${result.statuses.length - violated}/${result.statuses.length} satisfied` +
+          (result.geometry.size > 0
+            ? `, ${result.geometry.size} ${result.geometry.size === 1 ? "entity" : "entities"} adjusted`
+            : ""),
+        snapshot: this.doc.snapshot(),
+      });
+    } catch (e) {
+      return err("constraint_invalid", (e as Error).message, false);
+    }
+  }
+
+  /** constraints.list (query) — the declared graph inventory with the
+   *  computed per-constraint status (diagnose — never persisted stale). */
+  private qConstraintsList(): CommandQueryResponse {
+    const constraints = this.doc.constraintTable;
+    const diagnostics = diagnoseConstraints(this.doc.allElements(), constraints);
+    const statusById = new Map(diagnostics.statuses.map((s) => [s.id, s]));
+    const out = constraints.map((c) => {
+      const status = statusById.get(c.id);
+      return {
+        id: c.id,
+        kind: c.kind,
+        label: CONSTRAINT_LABEL[c.kind],
+        targets: c.targets,
+        ...(c.value !== undefined ? { value: c.value } : {}),
+        ...(c.mode !== undefined ? { mode: c.mode } : {}),
+        satisfied: status?.satisfied ?? false,
+        note: status?.note ?? null,
+      };
+    });
+    return ok({ constraints: out, outcome: diagnostics.outcome, dof: diagnostics.dof });
+  }
+
+  /** constraints.diagnostics (query) — the full on-demand solver report:
+   *  the typed outcome, the per-constraint verification statuses and the
+   *  per-component degrees-of-freedom accounting (verify-only — no
+   *  propagation, no mutation). */
+  private qConstraintsDiagnostics(): CommandQueryResponse {
+    const constraints = this.doc.constraintTable;
+    if (constraints.length === 0) {
+      return ok({ outcome: "solved", statuses: [], dof: [], notes: [] });
+    }
+    const result = diagnoseConstraints(this.doc.allElements(), constraints);
+    return ok(result);
+  }
+
   /** drafting.snap (query) — deterministic snap resolution against the
    *  current document. Hidden layers are not snappable (visibility is
    *  pickability); defaults come from the document drafting settings. */
@@ -2353,7 +2646,13 @@ export class AppApiHandler {
         p.op === "explode"
           ? { ...p, blockDefById: (id: string) => this.doc.blockDefById(id) }
           : p;
-      const outcome = modifyEntities(this.doc.allElements(), op as never);
+      // CAD-PARITY-007: thread the declared constraint graph so the
+      // geometry ops run the constraint-aware cascade (severance for
+      // re-topologized targets + the deterministic re-solve with
+      // fixed-restore — inside the SAME atomic revision).
+      const outcome = modifyEntities(this.doc.allElements(), op as never, {
+        constraints: this.doc.constraintTable,
+      });
       if (outcome.edit === null) {
         return ok({ applied: false, reason: outcome.summary, snapshot: this.doc.snapshot() });
       }

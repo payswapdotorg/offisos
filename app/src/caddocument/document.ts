@@ -44,6 +44,7 @@ import type {
   IfcImportRecordView,
   BlockDefinitionRecord,
   XrefRecord,
+  ConstraintRecord,
 } from "../contracts/caddocument.js";
 import type { ModelHistory } from "../contracts/model.js";
 import { childVersion, rootVersion } from "./versioning.js";
@@ -51,6 +52,7 @@ import { canonicalStringify } from "./serialization.js";
 import {
   DEFAULT_LAYER,
   applyBlockDefPatch,
+  applyConstraintPatch,
   applyDimStylePatch,
   applyLayerPatch,
   applyLtypePatch,
@@ -62,6 +64,7 @@ import {
   defaultBimSettings,
   defaultDraftingSettings,
   deriveBlockSequence,
+  deriveConstraintSequence,
   deriveIfcImportSequence,
   deriveLayerSequence,
   deriveSheetSequence,
@@ -70,6 +73,7 @@ import {
   elementLayerReference,
   validateBimSettings,
   validateBlockDefinitionRecord,
+  validateConstraintRecord,
   validateDimStyleRecord,
   validateDocsSheetRecord,
   validateIfcImportRecord,
@@ -176,6 +180,13 @@ export class CADDocument {
   private readonly xrefs: Map<string, XrefRecord> = new Map();
   /** CAD-PARITY-006: monotonic mint counter for `xr-NNNNNN` identities. */
   private nextXrefSequence: number;
+  /** CAD-PARITY-007: the declared parametric constraint graph (id-keyed,
+   *  insertion-ordered; edited ONLY through the DocumentEdit command model
+   *  — one edit = one revision = one undo entry; satisfaction is COMPUTED
+   *  on demand by the shared solver, never persisted stale). */
+  private readonly constraints: Map<string, ConstraintRecord> = new Map();
+  /** CAD-PARITY-007: monotonic mint counter for `con-NNNNNN` identities. */
+  private nextConstraintSequence: number;
   /** Ephemeral editor selection (§5.4 editor state). Orthogonal to the
    *  versioned document content: it is NOT in the version-id derivation and
    *  NOT in the parity content hash (§5.5). Since COMPAT-CAD-001 it IS
@@ -211,6 +222,8 @@ export class CADDocument {
     nextBlockSequence: number,
     xrefs: Iterable<XrefRecord>,
     nextXrefSequence: number,
+    constraints: Iterable<ConstraintRecord>,
+    nextConstraintSequence: number,
   ) {
     this.version = version;
     for (const e of elements) this.elements.set(e.id, e);
@@ -241,6 +254,9 @@ export class CADDocument {
     this.nextBlockSequence = nextBlockSequence;
     for (const x of xrefs) this.xrefs.set(x.id, x);
     this.nextXrefSequence = nextXrefSequence;
+    // CAD-PARITY-007: the declared constraint table.
+    for (const c of constraints) this.constraints.set(c.id, c);
+    this.nextConstraintSequence = nextConstraintSequence;
   }
 
   /** Open a snapshot: load state, set version, clear undo/redo, adopt the
@@ -351,6 +367,22 @@ export class CADDocument {
       }
     }
     const blockDefs = adoptedBlockDefs;
+    // CAD-PARITY-007: adopt the declared constraint table when present
+    // (validated structurally through the shared grammar, LOCK-007); a
+    // legacy snapshot opens with an empty table (the additive-feature
+    // default, not a repair). Target elements are NOT existence-checked at
+    // open (the command layer severs dead constraints explicitly — the
+    // CAD-PARITY-005 dead-ref precedent; diagnostics report them honestly).
+    const constraints: ConstraintRecord[] = [];
+    const constraintIds = new Set<string>();
+    for (const c of [...(snapshot.constraints ?? [])]) {
+      const validated = validateConstraintRecord(c);
+      if (constraintIds.has(validated.id)) {
+        throw new Error(`open: duplicate constraint id '${validated.id}'`);
+      }
+      constraintIds.add(validated.id);
+      constraints.push(validated);
+    }
     return new CADDocument(
       snapshot.version,
       snapshot.elements,
@@ -379,6 +411,8 @@ export class CADDocument {
       Math.max(deriveBlockSequence(blockDefs), history.next_block_sequence ?? 1),
       xrefs,
       Math.max(deriveXrefSequence(xrefs), history.next_xref_sequence ?? 1),
+      constraints,
+      Math.max(deriveConstraintSequence(constraints), history.next_constraint_sequence ?? 1),
     );
   }
 
@@ -416,6 +450,9 @@ export class CADDocument {
       // CAD-PARITY-006: empty block-definition + xref tables.
       [],
       1,
+      [],
+      1,
+      // CAD-PARITY-007: empty constraint table.
       [],
       1,
     );
@@ -522,6 +559,7 @@ export class CADDocument {
       nextIfcImportSequence: this.nextIfcImportSequence,
       nextBlockSequence: this.nextBlockSequence,
       nextXrefSequence: this.nextXrefSequence,
+      nextConstraintSequence: this.nextConstraintSequence,
     });
     return inverse;
   }
@@ -570,6 +608,7 @@ export class CADDocument {
       nextSheetSequence: this.nextSheetSequence,
       nextBlockSequence: this.nextBlockSequence,
       nextXrefSequence: this.nextXrefSequence,
+      nextConstraintSequence: this.nextConstraintSequence,
     });
     return entry.forward;
   }
@@ -602,6 +641,7 @@ export class CADDocument {
       nextSheetSequence: this.nextSheetSequence,
       nextBlockSequence: this.nextBlockSequence,
       nextXrefSequence: this.nextXrefSequence,
+      nextConstraintSequence: this.nextConstraintSequence,
     });
     return entry.forward;
   }
@@ -647,6 +687,9 @@ export class CADDocument {
       // byte-identical (additive-optional contract).
       ...(this.blockDefs.size > 0 ? { blockDefs: [...this.blockDefs.values()] } : {}),
       ...(this.xrefs.size > 0 ? { xrefs: [...this.xrefs.values()] } : {}),
+      // CAD-PARITY-007: the declared constraint graph — omitted while empty
+      // (the same additive-optional contract; satisfaction is never stored).
+      ...(this.constraints.size > 0 ? { constraints: [...this.constraints.values()] } : {}),
     };
   }
 
@@ -829,6 +872,17 @@ export class CADDocument {
       if (typeof raw.id === "string" && raw.id.length > 0) return edit;
       const minted = this.mintXrefId();
       return { ...edit, xref: { ...edit.xref, id: minted } } as DocumentEdit;
+    }
+    // CAD-PARITY-007: addConstraint mints a `con-NNNNNN` identity when
+    // missing (the addBlockDef pattern); an explicit id is validated +
+    // duplicate-checked at apply time (applyAddConstraint). The mint skips
+    // past explicitly-taken ids (never-reuse stays collision-free).
+    if (edit.type === "addConstraint") {
+      const raw = edit.constraint as { id?: unknown };
+      if (typeof raw.id === "string" && raw.id.length > 0) return edit;
+      let minted = this.mintConstraintId();
+      while (this.constraints.has(minted)) minted = this.mintConstraintId();
+      return { ...edit, constraint: { ...edit.constraint, id: minted } } as DocumentEdit;
     }
     if (edit.type !== "addElement") return edit;
     const element = edit.element;
@@ -1278,6 +1332,43 @@ export class CADDocument {
         this.xrefs.delete(edit.xrefId);
         break;
       }
+      // --- CAD-PARITY-007 (additive): the parametric constraint table ----
+      case "addConstraint": {
+        if (edit.constraint === undefined) throw new Error("addConstraint requires constraint");
+        const constraint = validateConstraintRecord(edit.constraint);
+        if (this.constraints.has(constraint.id)) {
+          throw new Error(
+            `addConstraint: constraint id '${constraint.id}' already exists — canonical constraint identity must not be reused while the constraint exists`,
+          );
+        }
+        this.constraints.set(constraint.id, constraint);
+        break;
+      }
+      case "updateConstraint": {
+        if (edit.constraintId === undefined || edit.patch === undefined) {
+          throw new Error("updateConstraint requires constraintId + patch");
+        }
+        const current = this.constraints.get(edit.constraintId);
+        if (current === undefined) throw new Error(`updateConstraint: no constraint '${edit.constraintId}'`);
+        this.constraints.set(edit.constraintId, applyConstraintPatch(current, edit.patch));
+        break;
+      }
+      case "setConstraintRecord": {
+        if (edit.constraintId === undefined || edit.constraint === undefined) {
+          throw new Error("setConstraintRecord requires constraintId + constraint");
+        }
+        const constraint = validateConstraintRecord(edit.constraint);
+        if (constraint.id !== edit.constraintId) throw new Error("setConstraintRecord: constraint.id must equal constraintId");
+        if (!this.constraints.has(constraint.id)) throw new Error(`setConstraintRecord: no constraint '${constraint.id}'`);
+        this.constraints.set(constraint.id, constraint);
+        break;
+      }
+      case "removeConstraint": {
+        if (edit.constraintId === undefined) throw new Error("removeConstraint requires constraintId");
+        if (!this.constraints.has(edit.constraintId)) throw new Error(`removeConstraint: no constraint '${edit.constraintId}'`);
+        this.constraints.delete(edit.constraintId);
+        break;
+      }
       case "setViewRecord": {
         if (edit.viewId === undefined || edit.view === undefined) {
           throw new Error("setViewRecord requires viewId + view");
@@ -1635,6 +1726,48 @@ export class CADDocument {
         if (existing === undefined) throw new Error(`removeXref: no external reference '${edit.xrefId}'`);
         return { type: "addXref", xref: existing };
       }
+      // --- CAD-PARITY-007 (additive): constraint inverses -----------------
+      case "addConstraint": {
+        if (edit.constraint === undefined) throw new Error("addConstraint requires constraint");
+        const constraint = validateConstraintRecord(edit.constraint);
+        return { type: "removeConstraint", constraintId: constraint.id };
+      }
+      case "updateConstraint": {
+        if (edit.constraintId === undefined || edit.patch === undefined) {
+          throw new Error("updateConstraint requires constraintId + patch");
+        }
+        const current = this.constraints.get(edit.constraintId);
+        if (current === undefined) throw new Error(`updateConstraint: no constraint '${edit.constraintId}'`);
+        const patchKeys = Object.keys(edit.patch);
+        const addsKey = patchKeys.some(
+          (k) => !Object.prototype.hasOwnProperty.call(current as unknown as Record<string, unknown>, k),
+        );
+        if (addsKey) {
+          // The patch adds a key the stored record lacks (e.g. mode appears)
+          // — the exact inverse is the full-record restore (setBlockDefRecord
+          // semantics: absence of keys is representable on undo/replay).
+          return { type: "setConstraintRecord", constraintId: edit.constraintId, constraint: current };
+        }
+        const prevValues: Record<string, unknown> = {};
+        for (const k of patchKeys) {
+          prevValues[k] = (current as unknown as Record<string, unknown>)[k];
+        }
+        return { type: "updateConstraint", constraintId: edit.constraintId, patch: prevValues };
+      }
+      case "setConstraintRecord": {
+        if (edit.constraintId === undefined || edit.constraint === undefined) {
+          throw new Error("setConstraintRecord requires constraintId + constraint");
+        }
+        const current = this.constraints.get(edit.constraintId);
+        if (current === undefined) throw new Error(`setConstraintRecord: no constraint '${edit.constraintId}'`);
+        return { type: "setConstraintRecord", constraintId: edit.constraintId, constraint: current };
+      }
+      case "removeConstraint": {
+        if (edit.constraintId === undefined) throw new Error("removeConstraint requires constraintId");
+        const existing = this.constraints.get(edit.constraintId);
+        if (existing === undefined) throw new Error(`removeConstraint: no constraint '${edit.constraintId}'`);
+        return { type: "addConstraint", constraint: existing };
+      }
       default: {
         const _exhaustive = edit satisfies never;
         throw new Error(`unreachable edit type: ${JSON.stringify(_exhaustive)}`);
@@ -1733,6 +1866,16 @@ export class CADDocument {
     return undefined;
   }
 
+  /** CAD-PARITY-007: the declared constraint graph (insertion order). */
+  get constraintTable(): readonly ConstraintRecord[] {
+    return [...this.constraints.values()];
+  }
+
+  /** CAD-PARITY-007: look up one constraint record by canonical id. */
+  constraintById(id: string): ConstraintRecord | undefined {
+    return this.constraints.get(id);
+  }
+
   /** Mint a canonical block-definition identity (`blk-NNNNNN`, monotonic,
    *  never reused) — document authority, mirrors mintLayerId. */
   mintBlockId(): string {
@@ -1746,6 +1889,14 @@ export class CADDocument {
   mintXrefId(): string {
     const minted = `xr-${String(this.nextXrefSequence).padStart(6, "0")}`;
     this.nextXrefSequence += 1;
+    return minted;
+  }
+
+  /** CAD-PARITY-007: mint a canonical constraint identity (`con-NNNNNN`,
+   *  monotonic, never reused) — document authority, mirrors mintBlockId. */
+  mintConstraintId(): string {
+    const minted = `con-${String(this.nextConstraintSequence).padStart(6, "0")}`;
+    this.nextConstraintSequence += 1;
     return minted;
   }
 
