@@ -26,7 +26,18 @@
  */
 
 import type { Vec2 } from "../drafting/precision.js";
-import type { BlockDefinitionRecord, ConstraintRecord, DimStyleRecord, LayerRecord, LayoutRecord, TextStyleRecord, ViewportRecord, XrefRecord } from "../contracts/caddocument.js";
+import type {
+  BlockDefinitionRecord,
+  Camera3DState,
+  ConstraintRecord,
+  DimStyleRecord,
+  LayerRecord,
+  LayoutRecord,
+  TextStyleRecord,
+  UcsRecord,
+  ViewportRecord,
+  XrefRecord,
+} from "../contracts/caddocument.js";
 
 // ---------------------------------------------------------------------------
 // Command categories (mirrors the ribbon/menu information architecture of
@@ -40,7 +51,10 @@ export type CommandCategory =
   | "document"
   | "view"
   | "settings"
-  | "help";
+  | "help"
+  // CAD-PARITY-009 (Issue #90): the 3D navigation / UCS / bounded-modeling
+  // vocabulary (the ribbon's 3D Model tab carries it).
+  | "model3d";
 
 // ---------------------------------------------------------------------------
 // Prompt steps — what a running command asks for.
@@ -267,6 +281,18 @@ export interface CommandContext {
   readonly activeLayoutId: string | null;
   /** CAD-PARITY-008: the TILEMODE-class editing context ("model" | "paper"). */
   readonly space: "model" | "paper";
+  /** CAD-PARITY-009: the named-UCS table (the UCS family and the model3d
+   *  builders; empty on legacy contexts — the implicit World is the
+   *  fallback for every resolution). */
+  readonly ucs: readonly UcsRecord[];
+  /** CAD-PARITY-009: the ACTIVE UCS id (the persisted non-versioned
+   *  draftingSettings.activeUcs editor state; "world" default). */
+  readonly activeUcsId: string;
+  /** CAD-PARITY-009: the persisted deterministic 3D camera (null → the
+   *  shared module's default isometric view — the view3d.state semantics). */
+  readonly view3d: Camera3DState | null;
+  /** CAD-PARITY-009: the count of model3d solid elements (the 3DSTATE echo). */
+  readonly model3dSolidCount: number;
 }
 
 export function defaultCommandContext(overrides?: Partial<CommandContext>): CommandContext {
@@ -289,6 +315,10 @@ export function defaultCommandContext(overrides?: Partial<CommandContext>): Comm
     viewports: [],
     activeLayoutId: null,
     space: "model",
+    ucs: [],
+    activeUcsId: "world",
+    view3d: null,
+    model3dSolidCount: 0,
     ...overrides,
   };
 }
