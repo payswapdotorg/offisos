@@ -252,7 +252,7 @@ test("the IR filters unplottable/invisible/frozen layers and composes viewport o
   assert.equal(seg.kind, "segment");
 });
 
-test("the plot policy resolves sheetScale and the centering offset deterministically", () => {
+test("the plot policy records the ratio; layouts plot at exact paper size (the bounded equivalence)", () => {
   // centerPlot: the content bbox (the viewport frame) centers in the
   // printable area of the A3 landscape sheet (400×277 at 10,10).
   const centered = buildPlotIR(irInput([], [vp({ corner1: [0, 0], corner2: [100, 100] })], [LAYER_0], { ...layout(), pageSetup: { ...DEFAULT_PAGE_SETUP, centerPlot: true } }));
@@ -260,12 +260,13 @@ test("the plot policy resolves sheetScale and the centering offset deterministic
   // offset = (210-50, 148.5-50) = (160, 98.5).
   assert.ok(Math.abs(centered.plot.offsetXMm - 160) < 1e-9);
   assert.ok(Math.abs(centered.plot.offsetYMm - 98.5) < 1e-9);
-  // A custom 1:2 plot scale scales the sheet by M/N = 2.
+  // A custom 1:2 plot scale is RECORDED but does not rescale the sheet
+  // (layouts plot at exact paper size — the AutoCAD layout equivalence).
   const scaled = buildPlotIR(irInput([], [vp()], [LAYER_0], { ...layout(), pageSetup: { ...DEFAULT_PAGE_SETUP, plotScale: "1:2" } }));
   assert.equal(scaled.plot.scaleN, 1);
   assert.equal(scaled.plot.scaleM, 2);
-  assert.equal(scaled.plot.sheetScale, 2);
-  assert.equal(scaled.plot.outputWidthMm, 840);
+  assert.equal(scaled.plot.sheetScale, 1);
+  assert.equal(scaled.plot.outputWidthMm, 420);
 });
 
 test("buildPlotIR is deterministic (identical inputs → identical IR)", () => {

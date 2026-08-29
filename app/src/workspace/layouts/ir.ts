@@ -21,11 +21,13 @@
  * - Lineweights plot as LITERAL paper mm; dash patterns scale with the
  *   viewport (dash_model / denominator — the PSLTSCALE 0 behavior); text
  *   height scales with the viewport (model height / denominator).
- * - The page-setup plot policy maps the sheet onto the output page:
- *   "fit" ≡ 1:1 (a layout IS the paper); "N:M" scales the whole sheet by
- *   M/N about the sheet origin. The plot offset (or "center the plot")
+ * - The page-setup plot policy: LAYOUTS PLOT AT EXACT PAPER SIZE 1:1 — the
+ *   AutoCAD layout-plot equivalence ("fit" ≡ 1:1; a custom "N:M" ratio is
+ *   RECORDED on the IR for provenance but does not rescale the sheet —
+ *   model-space direct plotting at a custom ratio is outside this slice,
+ *   the honest bounded rule). The plot offset (or "center the plot")
  *   translates the sheet CONTENT (viewport frames + projected geometry)
- *   relative to the sheet before scaling; the sheet frame/margins are
+ *   relative to the sheet before output; the sheet frame/margins are
  *   paper furniture and stay anchored.
  * - Curve primitives stay EXACT (circles/arcs/ellipses are curves, not
  *   polylines); every writer applies NATIVE rectangular clipping (SVG
@@ -123,10 +125,11 @@ export interface PlotViewportEntry {
 
 /** The resolved plot policy of the page setup. */
 export interface PlotPolicy {
-  /** The declared ratio (1,1 for "fit"). */
+  /** The declared ratio (1,1 for "fit") — provenance only. */
   readonly scaleN: number;
   readonly scaleM: number;
-  /** Output mm per paper mm (M/N; 1 for "fit"). */
+  /** Output mm per paper mm — ALWAYS 1 in this slice (the bounded
+   *  layout-plot equivalence: layouts plot at exact paper size). */
   readonly sheetScale: number;
   /** The content translation in paper mm (plot origin / centering). */
   readonly offsetXMm: number;
@@ -358,7 +361,10 @@ export function buildPlotIR(input: PlotIRInput): PlotIR {
   const scale = parsePlotScale(layout.pageSetup.plotScale);
   const scaleN = scale.mode === "fit" ? 1 : scale.numerator;
   const scaleM = scale.mode === "fit" ? 1 : scale.denominator;
-  const sheetScale = scaleM / scaleN;
+  // The bounded layout-plot equivalence: layouts plot at EXACT paper size
+  // (sheetScale 1 — "fit" ≡ 1:1; the recorded N:M ratio is provenance for
+  // the model-space plot policy that is outside this slice).
+  const sheetScale = 1;
 
   const layoutViewports = input.viewports.filter((v) => v.layoutId === layout.id);
   // The plot offset: "center the plot" centers the CONTENT bbox (viewport
