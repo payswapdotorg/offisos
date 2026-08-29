@@ -34,7 +34,8 @@
  */
 
 import { AppApiHandler } from "@offisos/cad-app-shell/app-api";
-import { createOcctAdapterBundle } from "@offisos/cad-app-shell/adapters/occt";
+import { createOcctAdapterBundle, probeOcctEngine } from "@offisos/cad-app-shell/adapters/occt";
+import { createReferenceAdapterBundle } from "@offisos/cad-app-shell/adapters/reference";
 import { createIfcInteropAdapter } from "@offisos/cad-app-shell/adapters/ifc";
 import type {
   CommandQueryRequest,
@@ -51,16 +52,47 @@ export const runtime = "nodejs";
  * within the server process. This is the Web host's document session. The
  * OCCT adapter bundle spawns a disposable Python worker per geometry.prepare
  * call (lazy — no engine process until geometry is actually requested).
+ *
+ * CAD-PARITY-009 (Issue #90): the geometry adapter selection follows the
+ * documented ENGINE-AVAILABILITY pattern at the wiring point (LOCK-003 — the
+ * boundary is the only thing that changes):
+ *  - OFFISOS_GEOMETRY_ENGINE=reference → the in-process reference adapter
+ *    (the deterministic analytic engine — serverless-safe; the parity
+ *    fixture basis the smokes pin);
+ *  - OFFISOS_GEOMETRY_ENGINE=occt → the OCCT subprocess bundle (fails loud
+ *    on engine_unavailable — explicit, never silent);
+ *  - unset → auto: probe the OCCT engine once; fall back to the reference
+ *    adapter when it is unavailable (a serverless deployment without the
+ *    Python subprocess keeps the full 3D workflow — every element's
+ *    geometryEngine provenance records the engine that actually realized
+ *    it, so the fallback is honest, never silent).
  */
-const handler = AppApiHandler.create({
-  // COMPAT-IFC-001: the IFC interop adapter (IfcOpenShell 0.8.5 worker)
-  // is bound alongside the OCCT engines — ifc.* becomes available.
-  adapterBundle: createOcctAdapterBundle({ ifc: createIfcInteropAdapter() }),
-  entityId: "web-workspace",
-  format: "offisos-occt",
-  formatVersion: "1",
-  createdBy: "web-workspace",
-});
+const ENGINE_MODE = process.env.OFFISOS_GEOMETRY_ENGINE ?? "auto";
+
+async function createHandler(): Promise<AppApiHandler> {
+  let bundle;
+  if (ENGINE_MODE === "reference") {
+    bundle = createReferenceAdapterBundle();
+  } else if (ENGINE_MODE === "occt") {
+    bundle = createOcctAdapterBundle({ ifc: createIfcInteropAdapter() });
+  } else {
+    const probe = await probeOcctEngine({ timeoutMs: 15_000 });
+    bundle = probe.available
+      ? createOcctAdapterBundle({ ifc: createIfcInteropAdapter() })
+      : createReferenceAdapterBundle();
+  }
+  return AppApiHandler.create({
+    // COMPAT-IFC-001: the IFC interop adapter (IfcOpenShell 0.8.5 worker)
+    // is bound alongside the OCCT engines — ifc.* becomes available.
+    adapterBundle: bundle,
+    entityId: "web-workspace",
+    format: "offisos-occt",
+    formatVersion: "1",
+    createdBy: "web-workspace",
+  });
+}
+
+const handlerPromise: Promise<AppApiHandler> = createHandler();
 
 /** Detect whether a parsed JSON value is a v1 WireEnvelope. */
 function isWireEnvelope(value: unknown): value is WireEnvelope {
@@ -113,11 +145,13 @@ export async function POST(req: Request): Promise<Response> {
     );
   }
 
+  const handler = await handlerPromise;
   const response = await handler.handle(request);
   return Response.json(response);
 }
 
 export async function GET(): Promise<Response> {
+  const handler = await handlerPromise;
   const response = await handler.handle({
     type: "query",
     name: "document.getState",

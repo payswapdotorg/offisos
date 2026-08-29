@@ -190,6 +190,10 @@ jobs:
           OFFISOS_OCCT_WORKER: ${{ github.workspace }}/app/src/adapters/occt/worker/occt-worker.py
           OFFISOS_IFC_WORKER: ${{ github.workspace }}/app/src/adapters/ifc/worker/ifc-worker.py
           OFFISOS_WEB_URL: http://localhost:3100
+          # CAD-PARITY-009: the parity-fixture basis — the deterministic
+          # reference adapter (the work item's engine-availability pattern;
+          # real-OCCT coverage runs in the workspace-shell app tests).
+          OFFISOS_GEOMETRY_ENGINE: reference
         run: |
           npm run dev -- --webpack -p 3100 &
           DEV_PID=$!

@@ -82,6 +82,52 @@ const MAX_EVALUATION_NODES = 256;
 const MESH_CACHE_CAPACITY = 64;
 /** Cylinder tessellation segment count (fixed → deterministic mesh). */
 const CYLINDER_SEGMENTS = 32;
+
+/**
+ * CAD-PARITY-009 (Issue #90): the FIXED unit-circle sample table for the
+ * cylinder tessellation — cos/sin of the 32 ring angles as EXACT LITERALS.
+ * Runtime Math.cos/Math.sin differ by 1 ulp across V8 builds (Node vs
+ * Electron/Chromium — caught live by the model3d parity fixture: vertex
+ * 3.3258784492101814 vs 3.325878449210182 in the scaled-cylinder ring), so
+ * the deterministic reference engine pins the table once — the mesh (and
+ * therefore meshToken) is bit-identical on EVERY host/runtime (the work
+ * item's cross-host floating-point determinism risk, closed at the source).
+ */
+const CYLINDER_RING_TABLE: readonly (readonly [number, number])[] = [
+  [1.0, 0.0],
+  [0.9807852804032304, 0.19509032201612825],
+  [0.9238795325112867, 0.3826834323650898],
+  [0.8314696123025452, 0.5555702330196022],
+  [0.7071067811865476, 0.7071067811865475],
+  [0.5555702330196023, 0.8314696123025452],
+  [0.38268343236508984, 0.9238795325112867],
+  [0.19509032201612833, 0.9807852804032304],
+  [6.123233995736766e-17, 1.0],
+  [-0.1950903220161282, 0.9807852804032304],
+  [-0.3826834323650897, 0.9238795325112867],
+  [-0.555570233019602, 0.8314696123025455],
+  [-0.7071067811865475, 0.7071067811865476],
+  [-0.8314696123025453, 0.5555702330196022],
+  [-0.9238795325112867, 0.3826834323650899],
+  [-0.9807852804032304, 0.1950903220161286],
+  [-1.0, 1.2246467991473532e-16],
+  [-0.9807852804032304, -0.19509032201612836],
+  [-0.9238795325112868, -0.38268343236508967],
+  [-0.8314696123025455, -0.555570233019602],
+  [-0.7071067811865477, -0.7071067811865475],
+  [-0.5555702330196022, -0.8314696123025452],
+  [-0.38268343236509034, -0.9238795325112865],
+  [-0.19509032201612866, -0.9807852804032303],
+  [-1.8369701987210297e-16, -1.0],
+  [0.1950903220161283, -0.9807852804032304],
+  [0.38268343236509, -0.9238795325112866],
+  [0.5555702330196018, -0.8314696123025455],
+  [0.7071067811865474, -0.7071067811865477],
+  [0.8314696123025452, -0.5555702330196022],
+  [0.9238795325112865, -0.3826834323650904],
+  [0.9807852804032303, -0.19509032201612872],
+];
+
 /** Matrix-class tolerance (absolute, per component). */
 const EPS_ALIGN = 1e-12;
 /** Extrusion profile bounds (mirror the OCCT adapter; COMPAT-CAD-002). */
@@ -420,14 +466,17 @@ function cylinderMesh(c: WorldCylinder): MeshData {
   const top = add3(c.origin, scale3(c.dir, c.height));
   const vertices: number[] = [c.origin[0], c.origin[1], c.origin[2]]; // 0: base center
   vertices.push(top[0], top[1], top[2]); // 1: top center
+  // CAD-PARITY-009: the ring samples come from the FIXED literal table —
+  // never runtime Math.cos/Math.sin (1-ulp divergence across V8 builds would
+  // fork the meshToken per host; the fixture caught exactly that).
   for (let s = 0; s < CYLINDER_SEGMENTS; s++) {
-    const t = (2 * Math.PI * s) / CYLINDER_SEGMENTS;
-    const p = add3(add3(c.origin, scale3(u, c.radius * Math.cos(t))), scale3(v, c.radius * Math.sin(t)));
+    const [ringCos, ringSin] = CYLINDER_RING_TABLE[s]!;
+    const p = add3(add3(c.origin, scale3(u, c.radius * ringCos)), scale3(v, c.radius * ringSin));
     vertices.push(p[0], p[1], p[2]);
   }
   for (let s = 0; s < CYLINDER_SEGMENTS; s++) {
-    const t = (2 * Math.PI * s) / CYLINDER_SEGMENTS;
-    const p = add3(add3(top, scale3(u, c.radius * Math.cos(t))), scale3(v, c.radius * Math.sin(t)));
+    const [ringCos, ringSin] = CYLINDER_RING_TABLE[s]!;
+    const p = add3(add3(top, scale3(u, c.radius * ringCos)), scale3(v, c.radius * ringSin));
     vertices.push(p[0], p[1], p[2]);
   }
   const indices: number[] = [];

@@ -24,7 +24,15 @@
 // preserving the UCS table + the active workplane + the 3D camera + the
 // solids with engine provenance.
 //
-// Reproduce: cd <repo>/apps/web && npm run dev -- -p 3100 &
+// ENGINE BASIS: the pinned fixture is REFERENCE-adapter basis (the work
+// item's engine-availability pattern — the parity suites run over the
+// deterministic analytic engine; real-OCCT coverage runs in the CI
+// workspace-shell app tests + the local desktop default). Start the dev
+// server with OFFISOS_GEOMETRY_ENGINE=reference (the smoke asserts the
+// basis from the engine provenance — an OCCT-basis server is a LOUD
+// mismatch, never a silent divergence).
+//
+// Reproduce: cd <repo>/apps/web && OFFISOS_GEOMETRY_ENGINE=reference npm run dev -- -p 3100 &
 //            then: node --import tsx apps/web/test/model3d-smoke.mjs
 //            (OFFISOS_WEB_URL overrides the base URL, default :3100)
 //            First run: --write-fixture to pin the fixture.
@@ -180,6 +188,7 @@ assert(snap.elements.length === 1, "the box solid exists");
 {
   const p = snap.elements[0].props;
   assert(p.type === "model3d.solid" && p.shape === "box", "the model3d.solid element");
+  assert(p.geometryEngine?.engineId === "reference", `the parity fixture is REFERENCE basis — this server runs '${p.geometryEngine?.engineId}' (start the dev server with OFFISOS_GEOMETRY_ENGINE=reference)`);
   assert(typeof p.meshToken === "string" && p.meshToken.length > 0, "the engine meshToken persisted");
   assert(Array.isArray(p.meshBBox) && p.meshBBox.length === 6, "the engine bbox persisted");
   assert(p.geometryEngine?.engineId === "occt" || p.geometryEngine?.engineId === "reference" || typeof p.geometryEngine?.engineId === "string", "the engine provenance persisted");

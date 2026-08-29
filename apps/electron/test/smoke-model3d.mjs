@@ -39,6 +39,11 @@ const env = {
   DISPLAY: display,
   ELECTRON_DISABLE_SECURITY_WARNINGS: "1",
   ELECTRON_RUN_AS_NODE: "",
+  // CAD-PARITY-009: the parity-fixture basis — the deterministic reference
+  // adapter (the work item's engine-availability pattern: the command/parity
+  // suites run over the reference engine; real-OCCT coverage runs in the CI
+  // workspace-shell app tests + the local desktop default).
+  OFFISOS_GEOMETRY_ENGINE: "reference",
 };
 
 const verbose = !!process.env.OFFISOS_SMOKE_VERBOSE;

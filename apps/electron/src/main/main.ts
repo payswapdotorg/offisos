@@ -976,7 +976,22 @@ async function runWorkspaceSmoke(win: BrowserWindow): Promise<void> {
 }
 
 app.whenReady().then(() => {
-  registerIpc(isImpactSmoke ? createReferenceAdapterBundle() : undefined);
+  // CAD-PARITY-009 (Issue #90): the engine-availability pattern at the wiring
+  // point (LOCK-003). OFFISOS_GEOMETRY_ENGINE=reference forces the in-process
+  // reference adapter (the deterministic analytic engine — the parity-fixture
+  // basis the model3d smoke pins; the impact-smoke precedent), =occt forces
+  // the OCCT subprocess bundle (the desktop default — fails loud on
+  // engine_unavailable), unset keeps the OCCT bundle (the desktop host ships
+  // the engine; every element's geometryEngine provenance records the engine
+  // that actually realized it, so an explicit override is honest, never
+  // silent).
+  const engineOverride =
+    process.env.OFFISOS_GEOMETRY_ENGINE === "reference" || isImpactSmoke
+      ? createReferenceAdapterBundle()
+      : process.env.OFFISOS_GEOMETRY_ENGINE === "occt"
+        ? createOcctAdapterBundle({ ifc: createIfcInteropAdapter() })
+        : undefined;
+  registerIpc(engineOverride);
   const win = createWindow();
 
   const smokeRun = isSmoke

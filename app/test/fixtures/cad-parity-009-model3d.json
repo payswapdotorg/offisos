@@ -1,11 +1,11 @@
 {
-  "saveSha256": "54192e19dedff75dfeb3d17fd0b06a6145236673961ca45b6c57df35dc4600e6",
-  "saveSize": 17995,
+  "saveSha256": "d2e7a95e6a1eb001a73ad90648d3b6dba4c438d01a8e8c2eb5695525820616de",
+  "saveSize": 17361,
   "ucs": 1,
   "sectionPlanes": 1,
   "elements": 4,
-  "sceneSvgSha256": "8f0f43aad2e3aed6312842b2aee1b67921069df47ccc0432d0b1c3413966fdd7",
-  "sectionPreviewSha256": "497f2ce91a5e78ec8e071e8642f82804459f69d7b757917104a29b8f4be04084",
+  "sceneSvgSha256": "629b20714bf0f566302e7de46e94b317c8670ac4fe79408664cb4b6c35f7282a",
+  "sectionPreviewSha256": "2955ff1d95c57a713a1f9eaeafd171db62d4a01695c8a30e72aee5c2a537dc57",
   "echoDigest": "04d6d3903801f9bc6d553d02f6cdf81b5b9610e9d57ae9f67cfcffd8ded08ad6",
   "commandStream": [
     "document.create",
