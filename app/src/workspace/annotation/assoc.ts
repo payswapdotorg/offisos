@@ -13,9 +13,13 @@
  *  - ref anchors resolve on the canonical geometry view: line/ray/xline
  *    start/end/midpoint, circle/arc center, arc start/end, polyline
  *    start/end (first/last vertex);
- *  - a ref whose target element no longer exists DISASSOCIATES (the ref is
- *    dropped, the stored measured value survives — the dimension keeps its
- *    last known state; the echo says so, never a silent repair);
+ *  - a ref whose target element no longer exists DISASSOCIATES (the DEAD
+ *    ref is REMOVED from the stored refs array — the association is
+ *    severed in storage, never left stale; surviving refs stay live; when
+ *    none survive the refs key is REMOVED, the contract's canonical "no
+ *    references" form; the stored measured value survives — the dimension
+ *    keeps its last known state; the echo says so, never a silent repair;
+ *    PR #83 review comment 5460214794);
  *  - dim-radius/dim-diameter keep a self-contained center/radius snapshot
  *    (rendered even when disassociated); a present target refreshes both;
  *  - dim-angular legs reference the line endpoints their ray pointed at
@@ -122,6 +126,21 @@ function ptChanged(a: Pt, b: Pt): boolean {
   return a.x !== b.x || a.y !== b.y;
 }
 
+/** The canonical refs rewrite after reference loss: the stored refs are
+ *  stripped and only LIVE refs are re-attached. When no ref survives, the
+ *  key is ABSENT (the canonical "no references" form — `optRefs` normalizes
+ *  [] to undefined, `annotationToProps` omits the key, and the setProps
+ *  full-record rewrite in `remeasureCascade` therefore REMOVES the stored
+ *  refs: the disassociation is material, not cosmetic). exactOptionalProperty
+ *  Types forbids `refs: undefined`, hence the strip-then-re-attach shape. */
+function withLiveRefs<T extends { readonly refs?: readonly DimRef[] }>(
+  a: T,
+  live: readonly DimRef[],
+): T {
+  const { refs: _severed, ...base } = a;
+  return live.length > 0 ? ({ ...base, refs: live } as T) : (base as T);
+}
+
 /** Re-measure ONE annotation against the current elements. */
 export function remeasureAnnotation(
   a: Annotation,
@@ -152,7 +171,7 @@ export function remeasureAnnotation(
         // The referenced points collapsed — keep the last known state and
         // disassociate (honest: a zero measurement is not representable).
         return {
-          annotation: { ...a, ...(liveRefs.length > 0 ? { refs: liveRefs } : {}) },
+          annotation: withLiveRefs(a, liveRefs),
           changed: liveRefs.length !== refs.length,
           note: "referenced points coincide — dimension disassociated at its last known value",
         };
@@ -162,9 +181,13 @@ export function remeasureAnnotation(
         Math.abs(measured - a.measured) > 1e-9 ||
         liveRefs.length !== refs.length;
       return {
-        annotation: { ...a, p1, p2, measured, ...(liveRefs.length > 0 ? { refs: liveRefs } : {}) },
+        annotation: { ...withLiveRefs(a, liveRefs), p1, p2, measured },
         changed,
-        note: dropped ? "re-measured; missing references dropped" : "re-measured",
+        note: liveRefs.length === 0
+          ? "all references gone — dimension disassociated at its last known value"
+          : dropped
+            ? "re-measured; missing references dropped"
+            : "re-measured",
       };
     }
     case "dim-radius":
@@ -207,11 +230,16 @@ export function remeasureAnnotation(
       const leg1 = byId.get(leg1Ref.id);
       const leg2 = byId.get(leg2Ref.id);
       if (leg1 === undefined || leg2 === undefined) {
+        // PR #83 review comment 5460214794: the DEAD leg refs are removed
+        // explicitly (surviving refs stay; none survive → the key is gone).
+        // The vertex/sector/measurement keep their last known values.
         const live = refs.filter((r) => byId.has(r.id));
         return {
-          annotation: { ...a, ...(live.length >= 2 ? { refs: live } : {}) },
+          annotation: withLiveRefs(a, live),
           changed: live.length !== refs.length,
-          note: "missing leg reference — angular dimension disassociated at its last known value",
+          note: live.length === 0
+            ? "both leg references gone — angular dimension disassociated at its last known value"
+            : "missing leg reference — angular dimension disassociated at its last known value",
         };
       }
       const g1 = lineGeomOf(leg1);

@@ -589,6 +589,183 @@ test("ASSOCIATIVE: deleting the target DISASSOCIATES (typed note, value survives
   assert.equal(r.applied, false);
 });
 
+// ---------------------------------------------------------------------------
+// DISASSOCIATION state-transition regression (PR #83 review comment
+// 5460214794): dead refs must be REMOVED from the stored refs array —
+// including the zero-live-ref case (absent key = the canonical "no
+// references" form) — with the last-known measurement/geometry preserved
+// exactly, and annotation.remeasure a NO-OP afterwards.
+// ---------------------------------------------------------------------------
+
+/** Two disjoint lines so each measured point has its own referenced target:
+ *  lineA (0,0)-(100,0) [end → p1] and lineB (200,0)-(300,0) [start → p2]. */
+async function seedLinearRefs(
+  h: AppApiHandler,
+): Promise<{ lineAId: string; lineBId: string; dimId: string }> {
+  val(await cmd(h, "entity.create", {
+    entities: [
+      { type: "line", layer: "0", x1: 0, y1: 0, x2: 100, y2: 0 },
+      { type: "line", layer: "0", x1: 200, y1: 0, x2: 300, y2: 0 },
+    ],
+  }));
+  const s = await state(h);
+  const lines = s.elements.filter((e) => (e.props as Record<string, unknown>).type === "line");
+  const lineA = lines.find((e) => (e.props as Record<string, unknown>).x1 === 0)!;
+  const lineB = lines.find((e) => (e.props as Record<string, unknown>).x1 === 200)!;
+  val(await cmd(h, "annotation.create", {
+    entities: [{
+      // p1/p2 are re-resolved SERVER-side from the refs at creation:
+      // p1 = lineA.end = (100,0), p2 = lineB.start = (200,0), measured 100.
+      type: "dim-linear", layer: "0", p1: { x: 100, y: 0 }, p2: { x: 200, y: 0 },
+      mode: "aligned", offset: 10,
+      refs: [
+        { id: lineA.id, anchor: "end", to: "p1" },
+        { id: lineB.id, anchor: "start", to: "p2" },
+      ],
+    }],
+  }));
+  return { lineAId: lineA.id, lineBId: lineB.id, dimId: (await annotationsOf(h))[0]!.id };
+}
+
+test("DISASSOCIATION regression: linear dim, BOTH refs deleted — refs key REMOVED, value survives, remeasure no-op", async () => {
+  const h = make();
+  const { lineAId, lineBId, dimId } = await seedLinearRefs(h);
+  const before = await state(h);
+  const r = val<{ applied: boolean; summary: string }>(await cmd(h, "drafting.delete", { ids: [lineAId, lineBId] }));
+  assert.equal(r.applied, true);
+  assert.ok(r.summary.includes("disassociated"), `summary: ${r.summary}`);
+  const after = await state(h);
+  assert.equal(after.version.version_number, before.version.version_number + 1, "ONE atomic revision (delete + cascade)");
+  const dim = after.elements.find((e) => e.id === dimId);
+  assert.ok(dim !== undefined, "the dimension survives disassociation");
+  const p = dim.props as Record<string, unknown>;
+  // The association is severed IN STORAGE: the refs key is GONE (the
+  // canonical "no references" form), not an empty/stale array.
+  assert.ok(!("refs" in p), `the refs key must be removed (got refs=${JSON.stringify(p.refs)})`);
+  // The last-known geometry/measurement survive EXACTLY.
+  assert.deepEqual(p.p1, { x: 100, y: 0 });
+  assert.deepEqual(p.p2, { x: 200, y: 0 });
+  assert.equal(p.measured, 100);
+  // annotation.remeasure on the disassociated dim is a NO-OP.
+  const rem = val<{ applied: boolean; summary: string }>(await cmd(h, "annotation.remeasure", { ids: [dimId] }));
+  assert.equal(rem.applied, false);
+  assert.equal(rem.summary, "all measurements current");
+  // And the record is unchanged by that no-op remeasure.
+  const remState = await state(h);
+  assert.equal(remState.version.version_number, after.version.version_number, "no revision from the no-op remeasure");
+  assert.ok(!("refs" in (remState.elements.find((e) => e.id === dimId)!.props as Record<string, unknown>)));
+});
+
+test("DISASSOCIATION regression: linear dim, ONE ref deleted — dead ref dropped, live ref still tracks, remeasure no-op", async () => {
+  const h = make();
+  const { lineAId, lineBId, dimId } = await seedLinearRefs(h);
+  // Delete ONLY lineB (the p2 target): the dead ref must be dropped from
+  // the stored refs; the surviving lineA ref stays live.
+  val(await cmd(h, "drafting.delete", { ids: [lineBId] }));
+  let p = (await state(h)).elements.find((e) => e.id === dimId)!.props as Record<string, unknown>;
+  assert.deepEqual(p.refs, [{ id: lineAId, anchor: "end", to: "p1" }], "only the LIVE ref remains stored (the dead ref is dropped)");
+  // Last-known p2/measurement survive (p1 unchanged: its ref is live).
+  assert.deepEqual(p.p1, { x: 100, y: 0 });
+  assert.deepEqual(p.p2, { x: 200, y: 0 });
+  assert.equal(p.measured, 100);
+  // The LIVE ref still cascades: move lineA +50 in x → p1 follows, p2 keeps
+  // its last-known position, the measurement re-derives (aligned |200−150|).
+  val(await cmd(h, "entity.modify", { op: "move", ids: [lineAId], dx: 50, dy: 0 }));
+  p = (await state(h)).elements.find((e) => e.id === dimId)!.props as Record<string, unknown>;
+  assert.deepEqual(p.p1, { x: 150, y: 0 }, "the live ref still re-measures");
+  assert.deepEqual(p.p2, { x: 200, y: 0 }, "the lost side keeps its last-known point");
+  assert.equal(p.measured, 50);
+  assert.deepEqual(p.refs, [{ id: lineAId, anchor: "end", to: "p1" }]);
+  // annotation.remeasure is a NO-OP (everything current — partial
+  // disassociation is a stable state, not a repeated edit).
+  const rem = val<{ applied: boolean; summary: string }>(await cmd(h, "annotation.remeasure", { ids: [dimId] }));
+  assert.equal(rem.applied, false);
+  assert.equal(rem.summary, "all measurements current");
+});
+
+/** The orthogonal-legs angular fixture: legA (0,0)-(100,0) [end → leg1],
+ *  legB (0,0)-(0,100) [end → leg2]; vertex (0,0), sector [0, π/2]. */
+async function seedAngularLegs(
+  h: AppApiHandler,
+): Promise<{ legAId: string; legBId: string; dimId: string }> {
+  val(await cmd(h, "entity.create", {
+    entities: [
+      { type: "line", layer: "0", x1: 0, y1: 0, x2: 100, y2: 0 },
+      { type: "line", layer: "0", x1: 0, y1: 0, x2: 0, y2: 100 },
+    ],
+  }));
+  const s = await state(h);
+  const lines = s.elements.filter((e) => (e.props as Record<string, unknown>).type === "line");
+  const legA = lines.find((e) => (e.props as Record<string, unknown>).x2 === 100)!;
+  const legB = lines.find((e) => (e.props as Record<string, unknown>).x2 === 0)!;
+  val(await cmd(h, "annotation.create", {
+    entities: [{
+      type: "dim-angular", layer: "0", vertex: { x: 0, y: 0 },
+      startAngle: 0, endAngle: Math.PI / 2, radius: 40,
+      refs: [
+        { id: legA.id, anchor: "end", to: "leg1" },
+        { id: legB.id, anchor: "end", to: "leg2" },
+      ],
+    }],
+  }));
+  return { legAId: legA.id, legBId: legB.id, dimId: (await annotationsOf(h))[0]!.id };
+}
+
+test("DISASSOCIATION regression: angular dim, ONE leg deleted — dead leg ref dropped, no re-derivation, remeasure no-op", async () => {
+  const h = make();
+  const { legAId, legBId, dimId } = await seedAngularLegs(h);
+  // Delete ONLY legB (the leg2 target).
+  const r = val<{ applied: boolean; summary: string }>(await cmd(h, "drafting.delete", { ids: [legBId] }));
+  assert.ok(r.summary.includes("disassociated"), `summary: ${r.summary}`);
+  let p = (await state(h)).elements.find((e) => e.id === dimId)!.props as Record<string, unknown>;
+  // The DEAD leg ref is removed; the surviving legA ref stays stored.
+  assert.deepEqual(p.refs, [{ id: legAId, anchor: "end", to: "leg1" }], "only the LIVE leg ref remains stored");
+  // Last-known vertex/sector/measurement survive EXACTLY.
+  assert.deepEqual(p.vertex, { x: 0, y: 0 });
+  assert.equal(p.startAngle, 0);
+  assert.equal(p.endAngle, Math.PI / 2);
+  assert.ok(Math.abs((p.measured as number) - Math.PI / 2) < TOL);
+  // Moving the surviving leg does NOT re-derive (the leg PAIR is broken —
+  // one leg alone cannot re-intersect a vertex).
+  val(await cmd(h, "entity.modify", { op: "move", ids: [legAId], dx: 10, dy: 10 }));
+  p = (await state(h)).elements.find((e) => e.id === dimId)!.props as Record<string, unknown>;
+  assert.deepEqual(p.vertex, { x: 0, y: 0 }, "no re-derivation with a missing leg");
+  assert.ok(Math.abs((p.measured as number) - Math.PI / 2) < TOL, "last known measurement survives");
+  assert.deepEqual(p.refs, [{ id: legAId, anchor: "end", to: "leg1" }]);
+  // annotation.remeasure is a NO-OP on the disassociated dim.
+  const rem = val<{ applied: boolean; summary: string }>(await cmd(h, "annotation.remeasure", { ids: [dimId] }));
+  assert.equal(rem.applied, false);
+  assert.equal(rem.summary, "all measurements current");
+});
+
+test("DISASSOCIATION regression: angular dim, BOTH legs deleted — refs key REMOVED, value survives, remeasure no-op", async () => {
+  const h = make();
+  const { legAId, legBId, dimId } = await seedAngularLegs(h);
+  const before = await state(h);
+  const r = val<{ applied: boolean; summary: string }>(await cmd(h, "drafting.delete", { ids: [legAId, legBId] }));
+  assert.equal(r.applied, true);
+  assert.ok(r.summary.includes("disassociated"), `summary: ${r.summary}`);
+  const after = await state(h);
+  assert.equal(after.version.version_number, before.version.version_number + 1, "ONE atomic revision (delete + cascade)");
+  const dim = after.elements.find((e) => e.id === dimId);
+  assert.ok(dim !== undefined, "the dimension survives disassociation");
+  const p = dim.props as Record<string, unknown>;
+  // The association is severed IN STORAGE: the refs key is GONE.
+  assert.ok(!("refs" in p), `the refs key must be removed (got refs=${JSON.stringify(p.refs)})`);
+  // The last-known vertex/sector/measurement survive EXACTLY.
+  assert.deepEqual(p.vertex, { x: 0, y: 0 });
+  assert.equal(p.startAngle, 0);
+  assert.equal(p.endAngle, Math.PI / 2);
+  assert.ok(Math.abs((p.measured as number) - Math.PI / 2) < TOL);
+  // annotation.remeasure on the disassociated dim is a NO-OP.
+  const rem = val<{ applied: boolean; summary: string }>(await cmd(h, "annotation.remeasure", { ids: [dimId] }));
+  assert.equal(rem.applied, false);
+  assert.equal(rem.summary, "all measurements current");
+  const remState = await state(h);
+  assert.equal(remState.version.version_number, after.version.version_number, "no revision from the no-op remeasure");
+  assert.ok(!("refs" in (remState.elements.find((e) => e.id === dimId)!.props as Record<string, unknown>)));
+});
+
 test("NON-associative dims do not cascade (no refs → untouched by unrelated moves)", async () => {
   const h = make();
   const { lineId } = await seedGeometry(h);
