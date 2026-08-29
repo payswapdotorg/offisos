@@ -27,6 +27,7 @@ import { COMMANDS_PROPS } from "./commands-props.js";
 import { COMMANDS_ANNO } from "./commands-anno.js";
 import { COMMANDS_BLOCK } from "./commands-blocks.js";
 import { COMMANDS_PARAMETRICS } from "./commands-parametrics.js";
+import { COMMANDS_LAYOUTS } from "./commands-layouts.js";
 import type {
   AppApiCommandPlanEntry,
   CommandCategory,
@@ -972,6 +973,8 @@ export const WORKSPACE_COMMANDS: readonly WorkspaceCommand[] = [
   ...COMMANDS_BLOCK,
   // --- CAD-PARITY-007 (Issue #86): parametric constraints & patterns ---
   ...COMMANDS_PARAMETRICS,
+  // --- CAD-PARITY-008 (Issue #88): layouts, viewports, page setup, plot ---
+  ...COMMANDS_LAYOUTS,
 ];
 
 function normalize(a: number): number {

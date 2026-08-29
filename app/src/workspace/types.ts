@@ -26,7 +26,7 @@
  */
 
 import type { Vec2 } from "../drafting/precision.js";
-import type { BlockDefinitionRecord, ConstraintRecord, DimStyleRecord, LayerRecord, TextStyleRecord, XrefRecord } from "../contracts/caddocument.js";
+import type { BlockDefinitionRecord, ConstraintRecord, DimStyleRecord, LayerRecord, LayoutRecord, TextStyleRecord, ViewportRecord, XrefRecord } from "../contracts/caddocument.js";
 
 // ---------------------------------------------------------------------------
 // Command categories (mirrors the ribbon/menu information architecture of
@@ -258,6 +258,15 @@ export interface CommandContext {
   /** CAD-PARITY-007: the declared parametric constraint graph
    *  (CONSTRAINTLIST/DELCONSTRAINT builders; empty on legacy contexts). */
   readonly constraints: readonly ConstraintRecord[];
+  /** CAD-PARITY-008: the paper-space layout table (the LAYOUT family, MVIEW
+   *  and PAGESETUP/PLOT builders; empty on legacy contexts). */
+  readonly layouts: readonly LayoutRecord[];
+  /** CAD-PARITY-008: the rectangular layout viewport table. */
+  readonly viewports: readonly ViewportRecord[];
+  /** CAD-PARITY-008: the active layout id (null when no layouts exist). */
+  readonly activeLayoutId: string | null;
+  /** CAD-PARITY-008: the TILEMODE-class editing context ("model" | "paper"). */
+  readonly space: "model" | "paper";
 }
 
 export function defaultCommandContext(overrides?: Partial<CommandContext>): CommandContext {
@@ -276,6 +285,10 @@ export function defaultCommandContext(overrides?: Partial<CommandContext>): Comm
     blocks: [],
     xrefs: [],
     constraints: [],
+    layouts: [],
+    viewports: [],
+    activeLayoutId: null,
+    space: "model",
     ...overrides,
   };
 }

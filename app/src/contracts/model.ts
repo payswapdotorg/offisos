@@ -118,6 +118,13 @@ export interface ModelHistory {
    *  canonical-minimal: emitted only once a constraint identity has actually
    *  been minted, mirroring next_block_sequence). */
   readonly next_constraint_sequence?: number;
+  /** CAD-PARITY-008: monotonic mint counter for `lo-NNNNNN` paper-space
+   *  layout identities (additive-optional; absent on legacy histories —
+   *  the canonical-minimal contract). */
+  readonly next_layout_sequence?: number;
+  /** CAD-PARITY-008: monotonic mint counter for `vp-NNNNNN` layout viewport
+   *  identities (additive-optional; absent on legacy histories). */
+  readonly next_viewport_sequence?: number;
   /** Append-only revision log (revisions[i].revision_number === i + 1). */
   readonly revisions: readonly ModelRevision[];
 }

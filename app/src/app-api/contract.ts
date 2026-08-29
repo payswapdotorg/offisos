@@ -25,6 +25,7 @@ import type { CADDocumentSnapshot, DocumentEdit, Element, VersionMeta } from "..
 import { CADDocument } from "../caddocument/index.js";
 import { deserialize, serialize } from "../caddocument/index.js";
 import { err, ok } from "../contracts/app-api.js";
+import type { ErrResult } from "../contracts/app-api.js";
 import {
   isAdapterFailure,
   isGeometryMetadataProvider,
@@ -125,6 +126,24 @@ import {
   validateConstraintTargets,
 } from "../workspace/constraints/index.js";
 import { applyConstraintPatch } from "../caddocument/workspace.js";
+// CAD-PARITY-008 (additive): the shared layouts/plot core (engine-free — the
+// paper/page-setup grammar, the deterministic model↔paper transform, the
+// canonical Plot IR, the SVG writer and the minimal deterministic PDF
+// writer). The SAME modules both hosts' paper canvases consume (LOCK-004).
+import {
+  DEFAULT_PAGE_SETUP,
+  buildPlotIR,
+  fitViewToRect,
+  modelExtentsOf,
+  plotIRToPDF,
+  plotIRToSVG,
+  plotIRsToPDF,
+  validatePageSetup,
+  viewportRect,
+  windowViewToRect,
+} from "../workspace/layouts/index.js";
+import type { LayoutRecord, PageSetup, ViewportRecord } from "../contracts/caddocument.js";
+import type { PlotIRInput } from "../workspace/layouts/index.js";
 // COMPAT-CAD-002: the pure BIM authoring core (LOCK-018 scanned).
 import {
   buildBimCreate,
@@ -340,6 +359,31 @@ export class AppApiHandler {
         return this.cmdConstraintRemove(command.payload);
       case "constraint.solve":
         return this.cmdConstraintSolve(command.payload);
+      // --- CAD-PARITY-008 (additive): layouts, viewports, plot commands ----
+      case "layout.create":
+        return this.cmdLayoutCreate(command.payload);
+      case "layout.rename":
+        return this.cmdLayoutRename(command.payload);
+      case "layout.clone":
+        return this.cmdLayoutClone(command.payload);
+      case "layout.remove":
+        return this.cmdLayoutRemove(command.payload);
+      case "layout.setPageSetup":
+        return this.cmdLayoutSetPageSetup(command.payload);
+      case "layout.activate":
+        return this.cmdLayoutActivate(command.payload);
+      case "layout.setSpace":
+        return this.cmdLayoutSetSpace(command.payload);
+      case "viewport.create":
+        return this.cmdViewportCreate(command.payload);
+      case "viewport.update":
+        return this.cmdViewportUpdate(command.payload);
+      case "viewport.remove":
+        return this.cmdViewportRemove(command.payload);
+      case "plot.export":
+        return this.cmdPlotExport(command.payload);
+      case "plot.publish":
+        return this.cmdPlotPublish(command.payload);
       // --- COMPAT-CAD-002 (additive): 3D/BIM authoring commands ---
       case "bim.createElements":
         return this.cmdBimCreate(command.payload);
@@ -696,6 +740,11 @@ export class AppApiHandler {
         return this.qConstraintsList();
       case "constraints.diagnostics":
         return this.qConstraintsDiagnostics();
+      // --- CAD-PARITY-008 (additive): the layout/plot queries --------------
+      case "layouts.list":
+        return this.qLayoutsList();
+      case "plot.preview":
+        return this.qPlotPreview(query.payload);
       default: {
         const _exhaustive: never = query.name;
         return err("unknown_query", `unknown query: ${JSON.stringify(_exhaustive)}`);
@@ -2209,6 +2258,565 @@ export class AppApiHandler {
     }
     const result = diagnoseConstraints(this.doc.allElements(), constraints);
     return ok(result);
+  }
+
+  // --- CAD-PARITY-008 (additive): layouts, viewports, plot --------------------
+
+  private static readonly LAYOUTS_NOW = "2026-01-01T00:00:00.000Z";
+
+  /** Resolve a layout reference (id wins; name is the user-facing address;
+   *  when NEITHER is given, the ACTIVE layout — the default target of every
+   *  layout/plot command). Typed bad_id error when nothing resolves. */
+  private resolveLayoutRef(p: { id?: unknown; name?: unknown }): LayoutRecord | ErrResult {
+    const layouts = this.doc.layoutTable;
+    if (typeof p.id === "string" && p.id.length > 0) {
+      const layout = this.doc.layoutById(p.id);
+      if (layout === undefined) return err("bad_id", `layout '${p.id}' does not exist`, false);
+      return layout;
+    }
+    if (typeof p.name === "string" && p.name.length > 0) {
+      const layout = this.doc.layoutByName(p.name);
+      if (layout === undefined) return err("bad_id", `layout '${p.name}' does not exist`, false);
+      return layout;
+    }
+    const activeId = this.doc.draftingSettings.activeLayout;
+    const active = activeId !== undefined ? this.doc.layoutById(activeId) : undefined;
+    const layout = active ?? layouts[0];
+    if (layout === undefined) {
+      return err("bad_id", "no layout exists yet — create one with layout.create (LAYOUTNEW)", false);
+    }
+    return layout;
+  }
+
+  /** The Plot IR input assembled from the CURRENT document state (the SAME
+   *  pure inputs both hosts pass — parity by construction). */
+  private plotIRInputOf(layout: LayoutRecord): PlotIRInput {
+    const settings = this.doc.draftingSettings;
+    return {
+      layout,
+      viewports: this.doc.viewportsOfLayout(layout.id),
+      elements: this.doc.allElements(),
+      layers: this.doc.layerTable,
+      ltypes: this.doc.ltypeTable,
+      textStyles: this.doc.textStyleTable,
+      dimStyles: this.doc.dimStyleTable,
+      ...(settings.standards !== undefined ? { standards: settings.standards } : {}),
+    };
+  }
+
+  /** layout.create — add ONE paper-space layout with the canonical default
+   *  page setup (A3 landscape, 10 mm margins, "fit", as-displayed plot
+   *  style, borders plotted). One revision = one undo entry. */
+  private cmdLayoutCreate(payload: unknown): CommandQueryResponse {
+    const p = payload as { name?: unknown } | null;
+    if (p === null || typeof p !== "object" || typeof p.name !== "string" || p.name.trim().length === 0 || p.name.length > 255) {
+      return err("bad_payload", "layout.create requires a name (non-empty string, max 255 chars)", true);
+    }
+    const name = p.name.trim();
+    if (this.doc.layoutByName(name) !== undefined) {
+      return err("layout_invalid", `layout name '${name}' already exists — layout names are unique`, false);
+    }
+    try {
+      const layout: LayoutRecord = {
+        id: this.doc.mintLayoutId(),
+        name,
+        pageSetup: DEFAULT_PAGE_SETUP,
+        createdAt: AppApiHandler.LAYOUTS_NOW,
+      };
+      this.doc.execute({ type: "addLayout", layout });
+      return ok({ layoutId: layout.id, name, snapshot: this.doc.snapshot() });
+    } catch (e) {
+      return err("layout_invalid", (e as Error).message, false);
+    }
+  }
+
+  /** layout.rename — keep names unique (viewports reference the immutable
+   *  id, so a rename is reference-safe by construction). */
+  private cmdLayoutRename(payload: unknown): CommandQueryResponse {
+    const p = payload as { id?: unknown; name?: unknown; newName?: unknown } | null;
+    if (p === null || typeof p !== "object" || typeof p.newName !== "string" || p.newName.trim().length === 0 || p.newName.length > 255) {
+      return err("bad_payload", "layout.rename requires newName (non-empty string, max 255 chars)", true);
+    }
+    const resolved = this.resolveLayoutRef(p);
+    if ("ok" in resolved && resolved.ok === false) return resolved;
+    const layout = resolved as LayoutRecord;
+    const newName = (p.newName as string).trim();
+    try {
+      this.doc.execute({ type: "updateLayout", layoutId: layout.id, patch: { name: newName } });
+      return ok({ layoutId: layout.id, name: newName, snapshot: this.doc.snapshot() });
+    } catch (e) {
+      return err("layout_invalid", (e as Error).message, false);
+    }
+  }
+
+  /** layout.clone — deep-copy the layout AND its viewports with fresh
+   *  document-minted identities as ONE atomic revision (one undo entry). */
+  private cmdLayoutClone(payload: unknown): CommandQueryResponse {
+    const p = payload as { id?: unknown; name?: unknown; newName?: unknown } | null;
+    if (p === null || typeof p !== "object" || typeof p.newName !== "string" || p.newName.trim().length === 0 || p.newName.length > 255) {
+      return err("bad_payload", "layout.clone requires newName (non-empty string, max 255 chars)", true);
+    }
+    const resolved = this.resolveLayoutRef(p);
+    if ("ok" in resolved && resolved.ok === false) return resolved;
+    const source = resolved as LayoutRecord;
+    const newName = (p.newName as string).trim();
+    if (this.doc.layoutByName(newName) !== undefined) {
+      return err("layout_invalid", `layout name '${newName}' already exists — layout names are unique`, false);
+    }
+    try {
+      const clone: LayoutRecord = {
+        id: this.doc.mintLayoutId(),
+        name: newName,
+        pageSetup: source.pageSetup,
+        createdAt: AppApiHandler.LAYOUTS_NOW,
+      };
+      const sourceViewports = this.doc.viewportsOfLayout(source.id);
+      const edits: DocumentEdit[] = [{ type: "addLayout", layout: clone }];
+      const viewportIds: string[] = [];
+      for (const vp of sourceViewports) {
+        const vpId = this.doc.mintViewportId();
+        viewportIds.push(vpId);
+        edits.push({ type: "addViewport", viewport: { ...vp, id: vpId, layoutId: clone.id } });
+      }
+      this.doc.execute(edits.length === 1 ? edits[0]! : { type: "applyEdits", edits });
+      return ok({
+        layoutId: clone.id,
+        name: newName,
+        clonedViewports: viewportIds.length,
+        snapshot: this.doc.snapshot(),
+      });
+    } catch (e) {
+      return err("layout_invalid", (e as Error).message, false);
+    }
+  }
+
+  /** layout.remove — the EXPLICIT cascade: the layout's viewports and the
+   *  record leave as ONE atomic revision (the xref.detach precedent). The
+   *  last remaining layout is rejected (the last-tab rule); a removed
+   *  ACTIVE layout hands activation to the first remaining layout. */
+  private cmdLayoutRemove(payload: unknown): CommandQueryResponse {
+    const p = payload as { id?: unknown; name?: unknown } | null;
+    const resolved = this.resolveLayoutRef(p ?? {});
+    if ("ok" in resolved && resolved.ok === false) return resolved;
+    const layout = resolved as LayoutRecord;
+    try {
+      const viewports = this.doc.viewportsOfLayout(layout.id);
+      const edits: DocumentEdit[] = viewports.map((v) => ({ type: "removeViewport", viewportId: v.id }) as DocumentEdit);
+      edits.push({ type: "removeLayout", layoutId: layout.id });
+      this.doc.execute({ type: "applyEdits", edits });
+      // Hand the active-layout reference to the first remaining layout when
+      // the removed one was active (non-versioned editor state).
+      const settings = this.doc.draftingSettings;
+      if (settings.activeLayout === layout.id) {
+        const next = this.doc.layoutTable[0];
+        this.doc.setDraftingSettings({
+          ...settings,
+          ...(next !== undefined ? { activeLayout: next.id } : {}),
+          ...(next === undefined ? { space: "model" as const } : {}),
+        });
+      }
+      return ok({ removed: layout.id, removedViewports: viewports.length, snapshot: this.doc.snapshot() });
+    } catch (e) {
+      const message = (e as Error).message;
+      if (message.includes("last remaining layout")) {
+        return err("layout_last", message, false);
+      }
+      return err("layout_invalid", message, false);
+    }
+  }
+
+  /** layout.setPageSetup — patch the embedded page setup (the merged setup
+   *  re-validates as a whole through the shared grammar; a detected no-op
+   *  returns unchanged WITHOUT a revision — honest idempotence). */
+  private cmdLayoutSetPageSetup(payload: unknown): CommandQueryResponse {
+    const p = payload as { id?: unknown; name?: unknown; patch?: unknown } | null;
+    if (p === null || typeof p !== "object" || typeof p.patch !== "object" || p.patch === null) {
+      return err("bad_payload", "layout.setPageSetup requires a patch object", true);
+    }
+    const resolved = this.resolveLayoutRef(p);
+    if ("ok" in resolved && resolved.ok === false) return resolved;
+    const layout = resolved as LayoutRecord;
+    const patch = p.patch as Record<string, unknown>;
+    try {
+      const merged = validatePageSetup({ ...layout.pageSetup, ...patch });
+      const before = canonicalStringify(layout.pageSetup);
+      const after = canonicalStringify(merged);
+      if (before === after) {
+        return ok({ layoutId: layout.id, unchanged: true, snapshot: this.doc.snapshot() });
+      }
+      this.doc.execute({ type: "updateLayout", layoutId: layout.id, patch: { pageSetup: merged } });
+      return ok({ layoutId: layout.id, pageSetup: merged, snapshot: this.doc.snapshot() });
+    } catch (e) {
+      return err("layout_invalid", (e as Error).message, false);
+    }
+  }
+
+  /** layout.activate — the NON-VERSIONED editor context (the active tab +
+   *  the paper space switch; the activeLayer precedent — persisted through
+   *  save/open, no undo entry). */
+  private cmdLayoutActivate(payload: unknown): CommandQueryResponse {
+    const p = payload as { id?: unknown; name?: unknown } | null;
+    if (p === null || typeof p !== "object") {
+      return err("bad_payload", "layout.activate requires a layout id or name", true);
+    }
+    const resolved = this.resolveLayoutRef(p);
+    if ("ok" in resolved && resolved.ok === false) return resolved;
+    const layout = resolved as LayoutRecord;
+    this.doc.setDraftingSettings({ ...this.doc.draftingSettings, activeLayout: layout.id, space: "paper" });
+    return ok({ activeLayoutId: layout.id, space: "paper", snapshot: this.doc.snapshot() });
+  }
+
+  /** layout.setSpace — the TILEMODE-class model/paper context switch
+   *  (non-versioned editor state; MSPACE/PSPACE/TILEMODE all land here). */
+  private cmdLayoutSetSpace(payload: unknown): CommandQueryResponse {
+    const p = payload as { space?: unknown; id?: unknown; name?: unknown } | null;
+    if (p === null || typeof p !== "object" || (p.space !== "model" && p.space !== "paper")) {
+      return err("bad_payload", "layout.setSpace requires space: \"model\" | \"paper\"", true);
+    }
+    const space = p.space as "model" | "paper";
+    let activeLayoutId = this.doc.draftingSettings.activeLayout ?? null;
+    if (space === "paper") {
+      const resolved = this.resolveLayoutRef(p);
+      if ("ok" in resolved && resolved.ok === false) return resolved;
+      activeLayoutId = (resolved as LayoutRecord).id;
+    }
+    this.doc.setDraftingSettings({ ...this.doc.draftingSettings, ...(activeLayoutId !== null ? { activeLayout: activeLayoutId } : {}), space });
+    return ok({ space, activeLayoutId, snapshot: this.doc.snapshot() });
+  }
+
+  /** viewport.create — ONE rectangular layout viewport through the SHARED
+   *  transform: fit (the deterministic model extents), window (an explicit
+   *  model window) or scale (an explicit denominator + camera center). One
+   *  revision = one undo entry; the document mints the `vp-NNNNNN` id. */
+  private cmdViewportCreate(payload: unknown): CommandQueryResponse {
+    const p = payload as {
+      layoutId?: unknown;
+      layoutName?: unknown;
+      corner1?: unknown;
+      corner2?: unknown;
+      view?: unknown;
+      rotationDeg?: unknown;
+      locked?: unknown;
+    } | null;
+    if (p === null || typeof p !== "object") {
+      return err("bad_payload", "viewport.create requires a payload object", true);
+    }
+    // Resolve the target layout (layoutId > layoutName > active).
+    let layout: LayoutRecord | undefined;
+    if (typeof p.layoutId === "string" && p.layoutId.length > 0) {
+      layout = this.doc.layoutById(p.layoutId);
+      if (layout === undefined) return err("bad_id", `layout '${p.layoutId}' does not exist`, false);
+    } else if (typeof p.layoutName === "string" && p.layoutName.length > 0) {
+      layout = this.doc.layoutByName(p.layoutName);
+      if (layout === undefined) return err("bad_id", `layout '${p.layoutName}' does not exist`, false);
+    } else {
+      const resolved = this.resolveLayoutRef({});
+      if ("ok" in resolved && resolved.ok === false) return resolved;
+      layout = resolved as LayoutRecord;
+    }
+    const corner = (v: unknown, which: string): [number, number] | null => {
+      if (!Array.isArray(v) || v.length !== 2 || !v.every((n) => typeof n === "number" && Number.isFinite(n))) return null;
+      void which;
+      return [v[0] as number, v[1] as number];
+    };
+    const c1 = corner(p.corner1, "1");
+    const c2 = corner(p.corner2, "2");
+    const v = p.view as { mode?: unknown; denominator?: unknown; centerX?: unknown; centerY?: unknown; x1?: unknown; y1?: unknown; x2?: unknown; y2?: unknown } | null;
+    if (c1 === null || c2 === null || v === null || typeof v !== "object" || (v.mode !== "fit" && v.mode !== "scale" && v.mode !== "window")) {
+      return err("bad_payload", "viewport.create requires corner1, corner2 and view {mode: fit|scale|window}", true);
+    }
+    try {
+      const rect = viewportRect({
+        id: "pending",
+        layoutId: layout.id,
+        corner1: c1,
+        corner2: c2,
+        camera: { centerX: 0, centerY: 0 },
+        scaleDenominator: 1,
+        rotationDeg: 0,
+      });
+      let camera: { centerX: number; centerY: number };
+      let scaleDenominator: number;
+      if (v.mode === "fit") {
+        const fitted = fitViewToRect(modelExtentsOf(this.doc.allElements()), rect);
+        camera = { centerX: fitted.centerX, centerY: fitted.centerY };
+        scaleDenominator = fitted.scaleDenominator;
+      } else if (v.mode === "window") {
+        if (
+          typeof v.x1 !== "number" || typeof v.y1 !== "number" || typeof v.x2 !== "number" || typeof v.y2 !== "number" ||
+          !Number.isFinite(v.x1) || !Number.isFinite(v.y1) || !Number.isFinite(v.x2) || !Number.isFinite(v.y2)
+        ) {
+          return err("bad_payload", "viewport.create view window requires x1/y1/x2/y2 finite numbers", true);
+        }
+        const win = windowViewToRect(
+          { x1: Math.min(v.x1, v.x2), y1: Math.min(v.y1, v.y2), x2: Math.max(v.x1, v.x2), y2: Math.max(v.y1, v.y2) },
+          rect,
+        );
+        camera = { centerX: win.centerX, centerY: win.centerY };
+        scaleDenominator = win.scaleDenominator;
+      } else {
+        if (typeof v.denominator !== "number" || !Number.isFinite(v.denominator) || v.denominator <= 0) {
+          return err("bad_payload", "viewport.create view scale requires a positive denominator", true);
+        }
+        if (typeof v.centerX !== "number" || typeof v.centerY !== "number" || !Number.isFinite(v.centerX) || !Number.isFinite(v.centerY)) {
+          return err("bad_payload", "viewport.create view scale requires centerX/centerY finite numbers", true);
+        }
+        camera = { centerX: v.centerX, centerY: v.centerY };
+        scaleDenominator = v.denominator;
+      }
+      const rotationDeg = typeof p.rotationDeg === "number" && Number.isFinite(p.rotationDeg) ? p.rotationDeg : 0;
+      const viewport: ViewportRecord = {
+        id: this.doc.mintViewportId(),
+        layoutId: layout.id,
+        corner1: c1,
+        corner2: c2,
+        camera,
+        scaleDenominator,
+        rotationDeg,
+        ...(p.locked === true ? { locked: true } : {}),
+      };
+      this.doc.execute({ type: "addViewport", viewport });
+      return ok({
+        viewportId: viewport.id,
+        layoutId: layout.id,
+        scaleDenominator,
+        camera,
+        snapshot: this.doc.snapshot(),
+      });
+    } catch (e) {
+      return err("layout_invalid", (e as Error).message, false);
+    }
+  }
+
+  /** viewport.update — patch scale/rotation/lock/camera/frame/layer
+   *  overrides. A LOCKED view rejects camera/scale/rotation edits with the
+   *  typed viewport_locked error (the frame still moves — the AutoCAD
+   *  display-lock semantics); layer override ids must reference existing
+   *  layers (state check). */
+  private cmdViewportUpdate(payload: unknown): CommandQueryResponse {
+    const p = payload as { id?: unknown; patch?: unknown } | null;
+    if (p === null || typeof p !== "object" || typeof p.id !== "string" || p.id.length === 0) {
+      return err("bad_payload", "viewport.update requires an id string", true);
+    }
+    if (typeof p.patch !== "object" || p.patch === null) {
+      return err("bad_payload", "viewport.update requires a patch object", true);
+    }
+    const current = this.doc.viewportById(p.id);
+    if (current === undefined) {
+      return err("bad_id", `viewport '${p.id}' does not exist`, false);
+    }
+    const patch = p.patch as Record<string, unknown>;
+    // The display-lock gate: camera/scale/rotation are frozen while locked.
+    if (current.locked === true) {
+      const lockedKeys = ["camera", "scaleDenominator", "rotationDeg"].filter((k) => patch[k] !== undefined);
+      if (lockedKeys.length > 0) {
+        return err(
+          "viewport_locked",
+          `viewport '${p.id}' is locked — the view (camera/scale/rotation) is frozen; unlock it first (the frame still moves)`,
+          false,
+        );
+      }
+    }
+    // Layer override ids must reference existing layers (state check).
+    if (patch.layerOverrides !== undefined) {
+      if (!Array.isArray(patch.layerOverrides)) {
+        return err("bad_payload", "viewport.update layerOverrides must be an array", true);
+      }
+      for (const raw of patch.layerOverrides) {
+        const o = raw as { layerId?: unknown };
+        if (typeof o !== "object" || o === null || typeof o.layerId !== "string" || this.doc.layerById(o.layerId) === undefined) {
+          return err("layout_invalid", `viewport.update: layer override references unknown layer '${String(o?.layerId)}'`, false);
+        }
+      }
+    }
+    try {
+      this.doc.execute({ type: "updateViewport", viewportId: p.id, patch });
+      const updated = this.doc.viewportById(p.id)!;
+      return ok({ viewportId: p.id, viewport: updated, snapshot: this.doc.snapshot() });
+    } catch (e) {
+      return err("layout_invalid", (e as Error).message, false);
+    }
+  }
+
+  /** viewport.remove — delete the viewport record (model geometry is
+   *  untouched — viewports reference, never own). */
+  private cmdViewportRemove(payload: unknown): CommandQueryResponse {
+    const p = payload as { id?: unknown } | null;
+    if (p === null || typeof p !== "object" || typeof p.id !== "string" || p.id.length === 0) {
+      return err("bad_payload", "viewport.remove requires an id string", true);
+    }
+    if (this.doc.viewportById(p.id) === undefined) {
+      return err("bad_id", `viewport '${p.id}' does not exist`, false);
+    }
+    try {
+      this.doc.execute({ type: "removeViewport", viewportId: p.id });
+      return ok({ removed: p.id, snapshot: this.doc.snapshot() });
+    } catch (e) {
+      return err("layout_invalid", (e as Error).message, false);
+    }
+  }
+
+  /** plot.export — the NON-MUTATING deterministic export of ONE layout:
+   *  "svg" (the standalone deterministic SVG), "pdf" (the minimal
+   *  deterministic PDF writer) or "plot-ir" (the canonical IR JSON). A
+   *  CTB/STB plot style declines with a typed plot_unsupported (the named
+   *  reference persists; applying proprietary plot styles is out of the
+   *  bounded slice). */
+  private cmdPlotExport(payload: unknown): CommandQueryResponse {
+    const p = payload as { id?: unknown; name?: unknown; format?: unknown } | null;
+    if (p === null || typeof p !== "object") {
+      return err("bad_payload", "plot.export requires a payload object", true);
+    }
+    if (p.format !== "svg" && p.format !== "pdf" && p.format !== "plot-ir") {
+      return err(
+        "plot_unsupported",
+        `plot format '${String(p.format)}' is not supported — this slice plots svg, pdf and plot-ir (proprietary DWG plotting internals and device-specific drivers are explicit non-goals, Issue #88)`,
+        false,
+      );
+    }
+    const resolved = this.resolveLayoutRef(p);
+    if ("ok" in resolved && resolved.ok === false) return resolved;
+    const layout = resolved as LayoutRecord;
+    if (layout.pageSetup.plotStyleKind !== "none") {
+      return err(
+        "plot_unsupported",
+        `layout '${layout.name}' references the ${layout.pageSetup.plotStyleKind.toUpperCase()} plot style table '${layout.pageSetup.plotStyleTable}' — proprietary CTB/STB plot style application is a typed limitation of this slice; set plotStyleKind "none" to plot as displayed`,
+        false,
+      );
+    }
+    try {
+      const ir = buildPlotIR(this.plotIRInputOf(layout));
+      const hash = createHash("sha256").update(canonicalStringify(ir)).digest("hex");
+      if (p.format === "plot-ir") {
+        const canonical = canonicalStringify(ir);
+        return ok({
+          format: "plot-ir",
+          layoutId: layout.id,
+          layoutName: layout.name,
+          ir,
+          hash,
+          size: canonical.length,
+          sha256: createHash("sha256").update(canonical).digest("hex"),
+        });
+      }
+      if (p.format === "svg") {
+        const svg = plotIRToSVG(ir);
+        return ok({
+          format: "svg",
+          layoutId: layout.id,
+          layoutName: layout.name,
+          text: svg,
+          size: svg.length,
+          sha256: createHash("sha256").update(svg).digest("hex"),
+          irHash: hash,
+        });
+      }
+      const pdf = plotIRToPDF(ir);
+      return ok({
+        format: "pdf",
+        layoutId: layout.id,
+        layoutName: layout.name,
+        bytesBase64: Buffer.from(pdf).toString("base64"),
+        size: pdf.length,
+        sha256: createHash("sha256").update(pdf).digest("hex"),
+        irHash: hash,
+      });
+    } catch (e) {
+      return err("plot_invalid", (e as Error).message, false);
+    }
+  }
+
+  /** plot.publish — the bounded PUBLISH batch: EVERY layout (or the explicit
+   *  id subset) exported as ONE deterministic artifact — a multi-page PDF or
+   *  an SVG set (a canonical JSON manifest). Non-mutating; layout table
+   *  order. */
+  private cmdPlotPublish(payload: unknown): CommandQueryResponse {
+    const p = payload as { format?: unknown; layoutIds?: unknown } | null;
+    if (p === null || typeof p !== "object" || (p.format !== "pdf" && p.format !== "svg")) {
+      return err("bad_payload", "plot.publish requires format: \"pdf\" | \"svg\"", true);
+    }
+    const layouts = this.doc.layoutTable;
+    if (layouts.length === 0) {
+      return err("bad_id", "no layouts exist to publish — create one with layout.create (LAYOUTNEW)", false);
+    }
+    const subset = Array.isArray(p.layoutIds) && p.layoutIds.every((x) => typeof x === "string")
+      ? layouts.filter((l) => (p.layoutIds as string[]).includes(l.id))
+      : layouts;
+    if (subset.length === 0) {
+      return err("bad_id", "plot.publish: none of the given layoutIds exist", false);
+    }
+    for (const layout of subset) {
+      if (layout.pageSetup.plotStyleKind !== "none") {
+        return err(
+          "plot_unsupported",
+          `layout '${layout.name}' references the ${layout.pageSetup.plotStyleKind.toUpperCase()} plot style table '${layout.pageSetup.plotStyleTable}' — proprietary CTB/STB plot style application is a typed limitation of this slice`,
+          false,
+        );
+      }
+    }
+    try {
+      const irs = subset.map((layout) => buildPlotIR(this.plotIRInputOf(layout)));
+      if (p.format === "pdf") {
+        const pdf = plotIRsToPDF(irs);
+        return ok({
+          format: "pdf",
+          pages: irs.map((ir, i) => ({ layoutId: subset[i]!.id, layoutName: subset[i]!.name, primitiveCount: ir.primitiveCount })),
+          pageCount: irs.length,
+          bytesBase64: Buffer.from(pdf).toString("base64"),
+          size: pdf.length,
+          sha256: createHash("sha256").update(pdf).digest("hex"),
+        });
+      }
+      const entries = irs.map((ir, i) => ({
+        layoutId: subset[i]!.id,
+        layoutName: subset[i]!.name,
+        svg: plotIRToSVG(ir),
+      }));
+      const manifest = canonicalStringify({
+        format: "offisos-plot-svg-set",
+        formatVersion: "1",
+        sheets: entries.map((e) => ({ layoutId: e.layoutId, layoutName: e.layoutName, svg: e.svg })),
+      });
+      return ok({
+        format: "svg",
+        pages: entries.map((e, i) => ({ layoutId: e.layoutId, layoutName: e.layoutName, primitiveCount: irs[i]!.primitiveCount })),
+        pageCount: entries.length,
+        text: manifest,
+        size: manifest.length,
+        sha256: createHash("sha256").update(manifest).digest("hex"),
+      });
+    } catch (e) {
+      return err("plot_invalid", (e as Error).message, false);
+    }
+  }
+
+  /** layouts.list (query) — the layout/viewport tables + the non-versioned
+   *  editor context (activeLayout/space). */
+  private qLayoutsList(): CommandQueryResponse {
+    const settings = this.doc.draftingSettings;
+    return ok({
+      layouts: this.doc.layoutTable,
+      viewports: this.doc.viewportTable,
+      activeLayoutId: settings.activeLayout ?? this.doc.layoutTable[0]?.id ?? null,
+      space: settings.space ?? "model",
+    });
+  }
+
+  /** plot.preview (query) — the canonical Plot IR + its hash for ONE layout
+   *  (the SAME representation the export writers and both hosts' paper
+   *  canvases consume — the preview IS the plot, LOCK-004). */
+  private qPlotPreview(payload: unknown): CommandQueryResponse {
+    const p = payload as { id?: unknown; name?: unknown } | null;
+    const resolved = this.resolveLayoutRef(p ?? {});
+    if ("ok" in resolved && resolved.ok === false) return resolved;
+    const layout = resolved as LayoutRecord;
+    try {
+      const ir = buildPlotIR(this.plotIRInputOf(layout));
+      const hash = createHash("sha256").update(canonicalStringify(ir)).digest("hex");
+      return ok({ layoutId: layout.id, layoutName: layout.name, ir, hash });
+    } catch (e) {
+      return err("plot_invalid", (e as Error).message, false);
+    }
   }
 
   /** drafting.snap (query) — deterministic snap resolution against the

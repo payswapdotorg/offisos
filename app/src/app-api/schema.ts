@@ -599,6 +599,177 @@ export const COMMAND_PAYLOAD_SCHEMAS: Readonly<Record<CommandName, object>> = {
     type: "object",
     properties: {},
   },
+  // --- CAD-PARITY-008 (additive): layouts, viewports, plot ---------------
+  "layout.create": {
+    type: "object",
+    properties: {
+      name: { type: "string", minLength: 1, maxLength: 255 },
+    },
+    required: ["name"],
+  },
+  "layout.rename": {
+    type: "object",
+    properties: {
+      id: { type: "string", minLength: 1 },
+      name: { type: "string", minLength: 1 },
+      newName: { type: "string", minLength: 1, maxLength: 255 },
+    },
+    required: ["newName"],
+  },
+  "layout.clone": {
+    type: "object",
+    properties: {
+      id: { type: "string", minLength: 1 },
+      name: { type: "string", minLength: 1 },
+      newName: { type: "string", minLength: 1, maxLength: 255 },
+    },
+    required: ["newName"],
+  },
+  "layout.remove": {
+    type: "object",
+    properties: {
+      id: { type: "string", minLength: 1 },
+      name: { type: "string", minLength: 1 },
+    },
+  },
+  "layout.setPageSetup": {
+    type: "object",
+    properties: {
+      id: { type: "string", minLength: 1 },
+      name: { type: "string", minLength: 1 },
+      patch: {
+        type: "object",
+        minProperties: 1,
+        properties: {
+          paperSize: { type: "string", enum: ["A4", "A3", "A2", "A1", "A0", "CUSTOM"] },
+          widthMm: { type: "number", exclusiveMinimum: 0 },
+          heightMm: { type: "number", exclusiveMinimum: 0 },
+          orientation: { type: "string", enum: ["portrait", "landscape"] },
+          marginsMm: {
+            type: "object",
+            properties: {
+              top: { type: "number", minimum: 0 },
+              right: { type: "number", minimum: 0 },
+              bottom: { type: "number", minimum: 0 },
+              left: { type: "number", minimum: 0 },
+            },
+            required: ["top", "right", "bottom", "left"],
+          },
+          plotScale: { type: "string", minLength: 1 },
+          plotOriginMm: { type: "array", items: { type: "number" }, minItems: 2, maxItems: 2 },
+          centerPlot: { type: "boolean" },
+          plotStyleTable: { type: ["string", "null"], minLength: 1 },
+          plotStyleKind: { type: "string", enum: ["none", "ctb", "stb"] },
+          plotViewports: { type: "boolean" },
+        },
+      },
+    },
+    required: ["patch"],
+  },
+  "layout.activate": {
+    type: "object",
+    properties: {
+      id: { type: "string", minLength: 1 },
+      name: { type: "string", minLength: 1 },
+    },
+  },
+  "layout.setSpace": {
+    type: "object",
+    properties: {
+      space: { type: "string", enum: ["model", "paper"] },
+      id: { type: "string", minLength: 1 },
+      name: { type: "string", minLength: 1 },
+    },
+    required: ["space"],
+  },
+  "viewport.create": {
+    type: "object",
+    properties: {
+      layoutId: { type: "string", minLength: 1 },
+      layoutName: { type: "string", minLength: 1 },
+      corner1: { type: "array", items: { type: "number" }, minItems: 2, maxItems: 2 },
+      corner2: { type: "array", items: { type: "number" }, minItems: 2, maxItems: 2 },
+      view: {
+        type: "object",
+        properties: {
+          mode: { type: "string", enum: ["fit", "scale", "window"] },
+          denominator: { type: "number", exclusiveMinimum: 0 },
+          centerX: { type: "number" },
+          centerY: { type: "number" },
+          x1: { type: "number" },
+          y1: { type: "number" },
+          x2: { type: "number" },
+          y2: { type: "number" },
+        },
+        required: ["mode"],
+      },
+      rotationDeg: { type: "number" },
+      locked: { type: "boolean" },
+    },
+    required: ["corner1", "corner2", "view"],
+  },
+  "viewport.update": {
+    type: "object",
+    properties: {
+      id: { type: "string", minLength: 1 },
+      patch: {
+        type: "object",
+        minProperties: 1,
+        properties: {
+          corner1: { type: "array", items: { type: "number" }, minItems: 2, maxItems: 2 },
+          corner2: { type: "array", items: { type: "number" }, minItems: 2, maxItems: 2 },
+          camera: {
+            type: "object",
+            properties: {
+              centerX: { type: "number" },
+              centerY: { type: "number" },
+            },
+            required: ["centerX", "centerY"],
+          },
+          scaleDenominator: { type: "number", exclusiveMinimum: 0 },
+          rotationDeg: { type: "number" },
+          locked: { type: "boolean" },
+          layerOverrides: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                layerId: { type: "string", minLength: 1 },
+                visible: { type: "boolean" },
+                frozen: { type: "boolean" },
+              },
+              required: ["layerId"],
+            },
+          },
+        },
+      },
+    },
+    required: ["id", "patch"],
+  },
+  "viewport.remove": {
+    type: "object",
+    properties: {
+      id: { type: "string", minLength: 1 },
+    },
+    required: ["id"],
+  },
+  "plot.export": {
+    type: "object",
+    properties: {
+      id: { type: "string", minLength: 1 },
+      name: { type: "string", minLength: 1 },
+      format: { type: "string", enum: ["svg", "pdf", "plot-ir"] },
+    },
+    required: ["format"],
+  },
+  "plot.publish": {
+    type: "object",
+    properties: {
+      format: { type: "string", enum: ["pdf", "svg"] },
+      layoutIds: { type: "array", items: { type: "string", minLength: 1 } },
+    },
+    required: ["format"],
+  },
   "layerState.save": {
     type: "object",
     properties: {
@@ -1194,6 +1365,15 @@ export const QUERY_PAYLOAD_SCHEMAS: Readonly<Record<QueryName, object>> = {
   // CAD-PARITY-007 (additive): the constraints inventory + diagnostics.
   "constraints.list": { type: "object", properties: {} },
   "constraints.diagnostics": { type: "object", properties: {} },
+  // CAD-PARITY-008 (additive): the layout inventory + the plot preview.
+  "layouts.list": { type: "object", properties: {} },
+  "plot.preview": {
+    type: "object",
+    properties: {
+      id: { type: "string", minLength: 1 },
+      name: { type: "string", minLength: 1 },
+    },
+  },
 };
 
 export const WIRE_ENVELOPE_SCHEMA = {
