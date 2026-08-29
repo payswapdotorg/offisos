@@ -40,8 +40,12 @@ export interface Canvas2DContext {
   transform(a: number, b: number, c: number, d: number, e: number, f: number): void;
   setLineDash(segments: readonly number[]): void;
   fillText(text: string, x: number, y: number): void;
-  strokeStyle: string | undefined;
-  fillStyle: string | undefined;
+  /** Stroke/fill style slots. The painter only ever ASSIGNS plain strings;
+   *  the wide `object` member keeps a real DOM CanvasRenderingContext2D
+   *  (whose styles may be CanvasGradient | CanvasPattern) structurally
+   *  assignable to this interface under the DOM lib. */
+  strokeStyle: string | object | undefined;
+  fillStyle: string | object | undefined;
   lineWidth: number;
   font: string;
   textAlign: "left" | "right" | "center" | "start" | "end" | undefined;

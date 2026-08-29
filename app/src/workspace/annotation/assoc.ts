@@ -37,6 +37,7 @@ import {
   annotationToProps,
   ccwSweep,
   linearMeasured,
+  type DimRef,
 } from "./types.js";
 
 // ---------------------------------------------------------------------------
@@ -134,7 +135,7 @@ export function remeasureAnnotation(
       let p1 = a.p1;
       let p2 = a.p2;
       let dropped = false;
-      const liveRefs = [];
+      const liveRefs: DimRef[] = [];
       for (const ref of refs) {
         const target = byId.get(ref.id);
         const anchor = target !== undefined ? resolveAnchor(target, ref.anchor) : null;

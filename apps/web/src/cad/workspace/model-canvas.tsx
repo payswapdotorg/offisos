@@ -15,6 +15,12 @@
  * The engine-free pure core (selection/grips/feedback) is imported from
  * @offisos/cad-app-shell/workspace — the SAME code the Electron renderer
  * uses. No engine ever loads in the browser (LOCK-003/018).
+ *
+ * CAD-PARITY-005 (Issue #82): annotation elements (text/mtext/dimensions/
+ * leaders — including the legacy COMPAT-CAD-001 dims) render, pick and
+ * window-select through the shared annotation core: the style-driven render
+ * primitives painted by the ONE shared canvas painter, with primitive-based
+ * picking — identical output and hit surfaces on both hosts (LOCK-004).
  */
 
 import * as React from "react";
@@ -59,6 +65,18 @@ import {
   transparencyToAlpha,
 } from "@offisos/cad-app-shell/workspace/standards";
 import { Eraser, Move, Copy, MousePointerSquareDashed } from "lucide-react";
+
+// CAD-PARITY-005: the shared annotation core (Issue #82) — the SAME
+// primitive resolution + painter + pick surface the Electron renderer and
+// the App API run (LOCK-004 parity by construction; no engine loads here).
+import {
+  annotationFromElement,
+  annotationPrimitives,
+  annotationStyleContext,
+  pickAnnotationAt,
+  selectAnnotations,
+} from "@offisos/cad-app-shell/workspace/annotation";
+import { paintAnnotationPrimitives } from "@offisos/cad-app-shell/workspace/annotation/paint";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -277,6 +295,15 @@ export function ModelCanvas(props: ModelCanvasProps): React.JSX.Element {
     [settings, snapshot],
   );
 
+  // CAD-PARITY-005: the annotation style context — the user text/dim style
+  // tables + the document annotation scale (DrawingStandards.annotationScale,
+  // 1 when absent). The SAME resolution drives annotation rendering, picking
+  // and window selection on both hosts (LOCK-004).
+  const annotationStyleCtx = React.useMemo(
+    () => annotationStyleContext(snapshot?.textStyles ?? [], snapshot?.dimStyles ?? [], settings?.standards?.annotationScale),
+    [snapshot, settings],
+  );
+
   // CAD-PARITY-003: the canonical entity view over BOTH storage conventions
   // (same module the server-side precision queries run) — used for shared
   // osnap, canonical picking and the modify previews.
@@ -290,7 +317,9 @@ export function ModelCanvas(props: ModelCanvasProps): React.JSX.Element {
 
   /** Deterministic merged pick (CAD-PARITY-003): the shared pickAt over the
    *  canonical entity view, merged with the legacy hitTest (which also covers
-   *  dimension annotations). Closest distance wins; ties break by element id. */
+   *  legacy dimension annotations) and the CAD-PARITY-005 annotation pick
+   *  (primitive-based — the pick surface IS the render surface). Closest
+   *  distance wins; ties break by element id. */
   const pickEntityAt = React.useCallback(
     (world: Vec2): { id: string; d: number } | null => {
       const aperture = 8 / zoom;
@@ -302,14 +331,20 @@ export function ModelCanvas(props: ModelCanvasProps): React.JSX.Element {
       }
       const legacyHits = hitTest(world, aperture, visibleEntities);
       const legacyBest = legacyHits.length > 0 ? { id: legacyHits[0]!.id, d: legacyHits[0]!.distance } : null;
-      if (legacyBest === null) return canonicalBest;
-      if (canonicalBest === null) return legacyBest;
-      if (Math.abs(canonicalBest.d - legacyBest.d) <= 1e-12) {
-        return canonicalBest.id < legacyBest.id ? canonicalBest : legacyBest;
-      }
-      return canonicalBest.d < legacyBest.d ? canonicalBest : legacyBest;
+      // CAD-PARITY-005: annotations pick where they paint (primitives).
+      const annotationPick = pickAnnotationAt(visibleEntities, probe, aperture, annotationStyleCtx);
+      const annotationBest = annotationPick !== null ? { id: annotationPick.id, d: annotationPick.d } : null;
+      let best: { id: string; d: number } | null = null;
+      const consider = (c: { id: string; d: number } | null): void => {
+        if (c === null) return;
+        if (best === null || c.d < best.d - 1e-12 || (Math.abs(c.d - best.d) <= 1e-12 && c.id < best.id)) best = c;
+      };
+      consider(canonicalBest);
+      consider(legacyBest);
+      consider(annotationBest);
+      return best;
     },
-    [zoom, geomEntities, visibleEntities],
+    [zoom, geomEntities, visibleEntities, annotationStyleCtx],
   );
 
   // --- engine-aware interaction -------------------------------------------------
@@ -602,6 +637,17 @@ export function ModelCanvas(props: ModelCanvasProps): React.JSX.Element {
       for (const id of canonicalIds) {
         if (!merged.includes(id)) merged.push(id);
       }
+      // CAD-PARITY-005: annotations select through their render primitives
+      // (window = whole primitive set inside, crossing = any intersection);
+      // deduped by id against the geometry paths.
+      const annotationIds = selectAnnotations(
+        visibleEntities,
+        { mode: rect.mode, min: { x: rect.min[0], y: rect.min[1] }, max: { x: rect.max[0], y: rect.max[1] } },
+        annotationStyleCtx,
+      );
+      for (const id of annotationIds) {
+        if (!merged.includes(id)) merged.push(id);
+      }
       props.onSelectionChange(e.shiftKey ? Array.from(new Set([...selection, ...merged])) : merged);
       return;
     }
@@ -676,10 +722,17 @@ export function ModelCanvas(props: ModelCanvasProps): React.JSX.Element {
     }
 
     const layerById = new Map<string, LayerRecord>(layers.map((l) => [l.id, l] as const));
+    // CAD-PARITY-005: the shared painter takes Pt objects ({x, y}) — the
+    // canvas transform stays tuple-based (Vec2), so adapt once per frame.
+    const toScreenPt = (p: { x: number; y: number }): [number, number] => toScreen([p.x, p.y]);
+    // CAD-PARITY-005: the painter's structural Canvas2DContext accepts the
+    // DOM CanvasRenderingContext2D directly (its style slots are widened
+    // to `string | object` in the core so the DOM lib's gradient/pattern
+    // unions stay assignable).
     for (const el of drawableEntities) {
       // CAD-PARITY-003: canonical geometry first (BOTH storage conventions
       // decode through the bridge — legacy line/polyline/circle/arc/rectangle
-      // included); annotations (dims) fall through to the legacy painter.
+      // included).
       // CAD-PARITY-004: the resolved display (dash/lineweight/alpha) flows
       // through the SAME standards resolution on both hosts.
       const display = displayById.get(el.id);
@@ -698,6 +751,31 @@ export function ModelCanvas(props: ModelCanvasProps): React.JSX.Element {
           alpha: display?.alpha,
         });
         continue;
+      }
+      // CAD-PARITY-005: annotation elements (the 8-type canonical vocabulary
+      // AND the legacy COMPAT-CAD-001 dims — both load through
+      // annotationFromElement) render through the ONE shared painter: the
+      // style-driven primitives painted identically on Web and Electron.
+      // Layer visibility/frozen filtering applies exactly like geometry;
+      // selected annotations render slightly thicker at full alpha (no
+      // emphasis outline by design).
+      if (el.kind === "annotation") {
+        const anno = annotationFromElement(el);
+        if (anno !== null) {
+          const layer = layerById.get(anno.layer);
+          if (layer !== undefined && (layer.frozen === true || !layer.visible)) continue;
+          const primitives = annotationPrimitives(anno, annotationStyleCtx);
+          const selected = selectedSet.has(el.id);
+          paintAnnotationPrimitives(ctx, primitives, {
+            toScreen: toScreenPt,
+            zoom,
+            color: display?.color ?? layer?.color ?? "#111827",
+            weightPx: selected ? (display?.weightPx ?? 1) * 1.8 : (display?.weightPx ?? 1),
+            dash: display?.dash ?? null,
+            alpha: selected ? 1 : (display?.alpha ?? 1),
+          });
+          continue;
+        }
       }
       const entity = parseDraftEntity(el);
       if (entity !== null) {
@@ -776,7 +854,7 @@ export function ModelCanvas(props: ModelCanvasProps): React.JSX.Element {
     if (cursor !== null) {
       drawCrosshair(ctx, toScreen(cursor), w, h);
     }
-  }, [settings, layers, drawableEntities, geomEntityMap, selectedSet, toScreen, pan, zoom, cursor, selectionRect, snapPreview, polylinePending, activeStep, stepBase, singleSelected, grips, hotGrip, constrainedSnapped, command, engineState.values, targetGeoms, geomById, pickEntityAt, displayById, activeDimStyle]);
+  }, [settings, layers, drawableEntities, geomEntityMap, selectedSet, toScreen, pan, zoom, cursor, selectionRect, snapPreview, polylinePending, activeStep, stepBase, singleSelected, grips, hotGrip, constrainedSnapped, command, engineState.values, targetGeoms, geomById, pickEntityAt, displayById, activeDimStyle, annotationStyleCtx]);
 
   // --- mini-toolbar position -------------------------------------------------------------
 

@@ -15,6 +15,12 @@
  * The display resolution (ByLayer chain, dash/lineweight/transparency) runs
  * through the SAME shared standards module the canvas and the App API use
  * (LOCK-004 parity by construction).
+ *
+ * CAD-PARITY-005 (Issue #82): the Properties inspector gained the per-type
+ * ANNOTATION section (text/mtext/dimensions/leaders — value/height/rotation/
+ * alignment/attachment/measured readout/text override/style through
+ * annotation.update), the dim-style editor gained arrowStyle + unitSuffix and
+ * the standards section gained the document annotation scale (DIMSCALE-class).
  */
 
 import * as React from "react";
@@ -52,6 +58,17 @@ import type {
 import type { CommandQueryResponse } from "@offisos/cad-app-shell/contracts/app-api";
 import { geomFromElement } from "@offisos/cad-app-shell/workspace/geometry/bridge";
 import { GEOM_LABEL } from "@offisos/cad-app-shell/workspace/geometry/types";
+// CAD-PARITY-005: the shared annotation core (Issue #82) — the type label
+// vocabulary, the soft element loader and the SAME style-driven label
+// formatting the canvas runs (LOCK-004 parity by construction).
+import {
+  ANNOTATION_LABEL,
+  annotationFromElement,
+  annotationStyleContext,
+  dimensionLabel,
+  type Annotation,
+  type AnnotationStyleContext,
+} from "@offisos/cad-app-shell/workspace/annotation";
 // CAD-PARITY-004: the shared standards module (display resolution, filters,
 // the built-in linetype catalog + style records).
 import {
@@ -93,6 +110,15 @@ async function api(name: string, payload: unknown): Promise<CommandQueryResponse
   return send({ type: "command", name: name as never, payload }) as Promise<CommandQueryResponse>;
 }
 
+/** CAD-PARITY-005: annotation.update transport — content/style/placement
+ *  patches over a batch of annotations as ONE atomic revision (per-type field
+ *  vocabulary validated server-side; null RESETS an optional field — the
+ *  canonical-minimal record convention). Same lazy-send pattern as the other
+ *  wrappers; display/layer edits keep flowing through entity.setDisplay. */
+function annotationUpdate(ids: readonly string[], patch: Record<string, unknown>): Promise<CommandQueryResponse> {
+  return api("annotation.update", { ids: [...ids], patch });
+}
+
 // ---------------------------------------------------------------------------
 // Properties inspector (CAD-PARITY-004 professional).
 // ---------------------------------------------------------------------------
@@ -119,7 +145,7 @@ const NUM_INPUT =
   "w-20 rounded border bg-background px-1 py-0.5 text-right font-mono text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring";
 
 function NumberField(
-  props: { value: number; onCommit: (v: number) => void; step?: number; ariaLabel: string },
+  props: { value: number; onCommit: (v: number) => void; step?: number; ariaLabel: string; disabled?: boolean },
 ): React.JSX.Element {
   const [editing, setEditing] = React.useState<string | null>(null);
   const text = editing ?? String(props.value);
@@ -135,6 +161,7 @@ function NumberField(
       aria-label={props.ariaLabel}
       className={NUM_INPUT}
       value={text}
+      disabled={props.disabled}
       onChange={(e) => setEditing(e.target.value)}
       onBlur={commit}
       onKeyDown={(e) => {
@@ -147,6 +174,319 @@ function NumberField(
 
 const TEXT_INPUT =
   "w-32 rounded border bg-background px-1 py-0.5 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring";
+
+// ---------------------------------------------------------------------------
+// CAD-PARITY-005: the annotation inspector (Issue #82) — the per-type field
+// vocabulary of the professional Properties panel. Every write goes through
+// the annotation.update transport (one atomic revision per field; null RESETS
+// an optional field to its default, keeping records canonical-minimal).
+// ---------------------------------------------------------------------------
+
+const DEG = Math.PI / 180;
+
+const SELECT_INPUT =
+  "rounded border bg-background px-1 py-0.5 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring";
+
+/** The 9 MTEXT attachment corners (AutoCAD vocabulary). */
+const MTEXT_ATTACHMENTS: readonly string[] = [
+  "top-left", "top-center", "top-right",
+  "middle-left", "middle-center", "middle-right",
+  "bottom-left", "bottom-center", "bottom-right",
+];
+
+/** The annotation types carrying a text-content value. */
+const CONTENT_TYPES: readonly string[] = ["text", "mtext", "leader", "mleader"];
+
+/** The style select shared by every annotation type ("Standard" = the
+ *  built-in, resolved code-side; selecting it RESETS the reference; the
+ *  empty value is the multi-selection "choose a style" placeholder). */
+function AnnotationStyleSelect(props: {
+  value: string;
+  dim: boolean;
+  textStyles: readonly TextStyleRecord[];
+  dimStyles: readonly DimStyleRecord[];
+  locked: boolean;
+  onPatch: (patch: Record<string, unknown>, label: string) => void;
+}): React.JSX.Element {
+  const styles = props.dim ? props.dimStyles : props.textStyles;
+  return (
+    <select
+      aria-label={props.dim ? "annotation dim style" : "annotation text style"}
+      className={SELECT_INPUT}
+      value={props.value}
+      disabled={props.locked}
+      onChange={(e) => {
+        const name = e.target.value;
+        if (name.length === 0) return;
+        props.onPatch({ style: name === "Standard" ? null : name }, "set annotation style");
+      }}
+    >
+      {props.value.length === 0 && <option value="">(set…)</option>}
+      <option value="Standard">Standard (built-in)</option>
+      {styles.map((s) => (
+        <option key={s.name} value={s.name}>{s.name}</option>
+      ))}
+    </select>
+  );
+}
+
+/** The single-selection annotation fields (text, mtext, the dimension
+ *  family, leaders and multileaders). */
+function AnnotationRows(props: {
+  anno: Annotation;
+  locked: boolean;
+  textStyles: readonly TextStyleRecord[];
+  dimStyles: readonly DimStyleRecord[];
+  styleCtx: AnnotationStyleContext;
+  onPatch: (patch: Record<string, unknown>, label: string) => void;
+}): React.JSX.Element {
+  const { anno, locked, onPatch } = props;
+  const isDim = anno.type.startsWith("dim-");
+  const styleName = anno.style ?? "Standard";
+  const rows: React.JSX.Element[] = [];
+  rows.push(
+    <PropRow key="type" label="type">
+      <Badge variant="secondary">{ANNOTATION_LABEL[anno.type]}</Badge>
+    </PropRow>,
+  );
+
+  // --- Content entities (text / mtext): value, height, rotation, style. ----
+  if (anno.type === "text" || anno.type === "mtext") {
+    rows.push(
+      <PropRow key="value" label="value">
+        {anno.type === "text" ? (
+          <input
+            aria-label="annotation value"
+            className={TEXT_INPUT}
+            defaultValue={anno.value}
+            disabled={locked}
+            onBlur={(e) => {
+              if (e.target.value !== anno.value && e.target.value.length > 0) onPatch({ value: e.target.value }, "set annotation value");
+            }}
+          />
+        ) : (
+          <textarea
+            aria-label="annotation value"
+            className="w-32 rounded border bg-background px-1 py-0.5 font-mono text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+            rows={3}
+            defaultValue={anno.value}
+            disabled={locked}
+            onBlur={(e) => {
+              if (e.target.value !== anno.value && e.target.value.length > 0) onPatch({ value: e.target.value }, "set annotation value");
+            }}
+          />
+        )}
+      </PropRow>,
+    );
+    rows.push(
+      <PropRow key="height" label="height">
+        <NumberField
+          ariaLabel="annotation height"
+          value={anno.height}
+          disabled={locked}
+          onCommit={(v) => {
+            if (v > 0) onPatch({ height: v }, "set annotation height");
+          }}
+        />
+      </PropRow>,
+      <PropRow key="rotation" label="rotation (°)">
+        <NumberField
+          ariaLabel="annotation rotation degrees"
+          value={Number((anno.rotation / DEG).toFixed(4))}
+          disabled={locked}
+          onCommit={(v) => onPatch({ rotation: v * DEG }, "set annotation rotation")}
+        />
+      </PropRow>,
+    );
+  }
+  if (anno.type === "text") {
+    rows.push(
+      <PropRow key="hAlign" label="horizontal">
+        <select
+          aria-label="annotation horizontal alignment"
+          className={SELECT_INPUT}
+          value={anno.hAlign ?? "left"}
+          disabled={locked}
+          onChange={(e) => onPatch({ hAlign: e.target.value === "left" ? null : e.target.value }, "set annotation alignment")}
+        >
+          <option value="left">left</option>
+          <option value="center">center</option>
+          <option value="right">right</option>
+        </select>
+      </PropRow>,
+      <PropRow key="vAlign" label="vertical">
+        <select
+          aria-label="annotation vertical alignment"
+          className={SELECT_INPUT}
+          value={anno.vAlign ?? "baseline"}
+          disabled={locked}
+          onChange={(e) => onPatch({ vAlign: e.target.value === "baseline" ? null : e.target.value }, "set annotation alignment")}
+        >
+          <option value="baseline">baseline</option>
+          <option value="bottom">bottom</option>
+          <option value="middle">middle</option>
+          <option value="top">top</option>
+        </select>
+      </PropRow>,
+    );
+  }
+  if (anno.type === "mtext") {
+    rows.push(
+      <PropRow key="attachment" label="attachment">
+        <select
+          aria-label="annotation attachment corner"
+          className={SELECT_INPUT}
+          value={anno.attachment ?? "top-left"}
+          disabled={locked}
+          onChange={(e) => onPatch({ attachment: e.target.value === "top-left" ? null : e.target.value }, "set annotation attachment")}
+        >
+          {MTEXT_ATTACHMENTS.map((m) => (
+            <option key={m} value={m}>{m}</option>
+          ))}
+        </select>
+      </PropRow>,
+    );
+  }
+
+  // --- Dimensions: measured (read-only document truth) + text override. ----
+  if (anno.type === "dim-linear" || anno.type === "dim-radius" || anno.type === "dim-diameter" || anno.type === "dim-angular") {
+    rows.push(
+      <PropRow key="measured" label="measured">
+        <code className="font-mono text-[11px]">{dimensionLabel(anno, props.styleCtx)}</code>
+      </PropRow>,
+      <PropRow key="override" label="text override">
+        <input
+          aria-label="annotation text override"
+          className={TEXT_INPUT}
+          defaultValue={anno.textOverride ?? ""}
+          placeholder="(none)"
+          disabled={locked}
+          onBlur={(e) => {
+            const v = e.target.value;
+            if (v !== (anno.textOverride ?? "")) onPatch({ textOverride: v.length === 0 ? null : v }, "set annotation text override");
+          }}
+        />
+      </PropRow>,
+    );
+  }
+
+  // --- Leaders / multileaders: content + the optional text height. ---------
+  if (anno.type === "leader" || anno.type === "mleader") {
+    rows.push(
+      <PropRow key="value" label={anno.type === "leader" ? "value" : "content"}>
+        <input
+          aria-label="annotation content"
+          className={TEXT_INPUT}
+          defaultValue={anno.value ?? ""}
+          placeholder="(none)"
+          disabled={locked}
+          onBlur={(e) => {
+            const v = e.target.value;
+            if (v !== (anno.value ?? "")) onPatch({ value: v.length === 0 ? null : v }, "set annotation content");
+          }}
+        />
+      </PropRow>,
+      <PropRow key="height" label="height">
+        <input
+          type="number"
+          aria-label="annotation height"
+          title="Text height (blank = the Standard dim text height)"
+          className={NUM_INPUT}
+          defaultValue={anno.height ?? ""}
+          placeholder="2.5"
+          disabled={locked}
+          onBlur={(e) => {
+            const raw = e.target.value.trim();
+            if (raw.length === 0) {
+              if (anno.height !== undefined) onPatch({ height: null }, "reset annotation height");
+              return;
+            }
+            const v = Number(raw);
+            if (Number.isFinite(v) && v > 0 && v !== anno.height) onPatch({ height: v }, "set annotation height");
+          }}
+        />
+      </PropRow>,
+    );
+  }
+
+  // --- Style reference (every annotation type). ----------------------------
+  rows.push(
+    <PropRow key="style" label="style">
+      <AnnotationStyleSelect
+        value={styleName}
+        dim={isDim}
+        textStyles={props.textStyles}
+        dimStyles={props.dimStyles}
+        locked={locked}
+        onPatch={onPatch}
+      />
+    </PropRow>,
+  );
+  return <>{rows}</>;
+}
+
+/** The multi-selection annotation fields — only the fields that apply to
+ *  EVERY selected annotation (the server validates the per-type vocabulary;
+ *  mixed dim/content selections show a note instead). */
+function AnnotationMultiRows(props: {
+  annos: readonly Annotation[];
+  locked: boolean;
+  textStyles: readonly TextStyleRecord[];
+  dimStyles: readonly DimStyleRecord[];
+  onPatch: (patch: Record<string, unknown>, label: string) => void;
+}): React.JSX.Element {
+  const allDims = props.annos.every((a) => a.type.startsWith("dim-"));
+  const allContent = props.annos.every((a) => CONTENT_TYPES.includes(a.type));
+  if (!allDims && !allContent) {
+    return (
+      <p className="text-[11px] text-muted-foreground">
+        Mixed annotation types — shared-field editing needs one kind (all dimensions or all text/leaders); edit individually with a single selection.
+      </p>
+    );
+  }
+  return (
+    <>
+      {allDims ? (
+        <PropRow label="text override">
+          <input
+            aria-label="annotation text override"
+            className={TEXT_INPUT}
+            defaultValue=""
+            placeholder="(none)"
+            disabled={props.locked}
+            onBlur={(e) => {
+              const v = e.target.value;
+              if (v.length > 0) props.onPatch({ textOverride: v }, "set annotation text override");
+            }}
+          />
+        </PropRow>
+      ) : (
+        <PropRow label="value">
+          <input
+            aria-label="annotation value"
+            className={TEXT_INPUT}
+            defaultValue=""
+            disabled={props.locked}
+            onBlur={(e) => {
+              const v = e.target.value;
+              if (v.length > 0) props.onPatch({ value: v }, "set annotation value");
+            }}
+          />
+        </PropRow>
+      )}
+      <PropRow label="style">
+        <AnnotationStyleSelect
+          value=""
+          dim={allDims}
+          textStyles={props.textStyles}
+          dimStyles={props.dimStyles}
+          locked={props.locked}
+          onPatch={props.onPatch}
+        />
+      </PropRow>
+    </>
+  );
+}
 
 /** The display-property editors shared by the single- and multi-selection
  *  views (CHPROP-class writes through entity.setDisplay). */
@@ -263,6 +603,17 @@ function PropertiesPanel(props: PalettesProps): React.JSX.Element {
     () => elements.filter((el) => props.selection.includes(el.id)),
     [elements, props.selection],
   );
+  // CAD-PARITY-005: the annotation style context — the SAME style tables +
+  // document annotation scale the canvas and the render core run (the
+  // measured readout formats identically to the painted label).
+  const annotationStyleCtx = React.useMemo(
+    () => annotationStyleContext(
+      props.snapshot?.textStyles ?? [],
+      props.snapshot?.dimStyles ?? [],
+      props.snapshot?.draftingSettings?.standards?.annotationScale,
+    ),
+    [props.snapshot],
+  );
 
   // --- No selection: the current drafting environment (AutoCAD-class). ----
   if (selected.length === 0) {
@@ -323,6 +674,13 @@ function PropertiesPanel(props: PalettesProps): React.JSX.Element {
       const layerId = (el.props as Record<string, unknown>).layer;
       return typeof layerId === "string" && layerById.get(layerId)?.locked === true;
     });
+    // CAD-PARITY-005: the annotation subset (soft load — legacy dims too);
+    // annotation.update patches apply to the annotation ids only.
+    const annoViews: { el: Element; anno: Annotation }[] = [];
+    for (const el of selected) {
+      const anno = annotationFromElement(el);
+      if (anno !== null) annoViews.push({ el, anno });
+    }
     const first = drafting[0];
     const fo = first !== undefined ? displayOverridesOf(first.props as Record<string, unknown>) : null;
     const commonLayer =
@@ -335,6 +693,7 @@ function PropertiesPanel(props: PalettesProps): React.JSX.Element {
         <div className="p-3">
           <PropSection title={`Selection — ${selected.length} entities`}>
             <PropRow label="drafting entities"><span>{drafting.length}</span></PropRow>
+            {annoViews.length > 0 && <PropRow label="annotations"><span>{annoViews.length}</span></PropRow>}
             {locked && <PropRow label="state"><Badge variant="destructive" className="h-4 px-1 text-[9px]">locked layer — read-only</Badge></PropRow>}
           </PropSection>
           {drafting.length > 0 && fo !== null && (
@@ -348,6 +707,19 @@ function PropertiesPanel(props: PalettesProps): React.JSX.Element {
                 transparency={null}
                 layerId={commonLayer}
                 locked={locked}
+              />
+            </PropSection>
+          )}
+          {annoViews.length > 0 && (
+            <PropSection title={`Common annotation properties — ${annoViews.length}`}>
+              <AnnotationMultiRows
+                annos={annoViews.map((v) => v.anno)}
+                locked={locked}
+                textStyles={props.snapshot?.textStyles ?? []}
+                dimStyles={props.snapshot?.dimStyles ?? []}
+                onPatch={(patch, label) =>
+                  props.onCommitEdit(label, () => annotationUpdate(annoViews.map((v) => v.el.id), patch))
+                }
               />
             </PropSection>
           )}
@@ -369,6 +741,9 @@ function PropertiesPanel(props: PalettesProps): React.JSX.Element {
       return bimSetProperties(el.id, patch);
     });
   const canonicalGeom = el.kind === "geometry" && p.drafting === true ? geomFromElement(el) : null;
+  // CAD-PARITY-005: the annotation view of the selected element (soft load —
+  // the 8-type canonical vocabulary AND the legacy COMPAT-CAD-001 dims).
+  const anno = annotationFromElement(el);
   const layerId = typeof p.layer === "string" ? p.layer : null;
   const layer = layerId !== null ? layerById.get(layerId) : undefined;
   const locked = layer?.locked === true && p.drafting === true;
@@ -433,7 +808,7 @@ function PropertiesPanel(props: PalettesProps): React.JSX.Element {
           </PropSection>
         )}
 
-        {p.drafting === true && (
+        {p.drafting === true && anno === null && (
           <PropSection title="Geometry">
             {p.type === "circle" && Array.isArray(p.center) && (
               <PropRow label="radius">
@@ -456,6 +831,28 @@ function PropertiesPanel(props: PalettesProps): React.JSX.Element {
               <PropRow label="vertices"><span>{(p.points as unknown[]).length}</span></PropRow>
             )}
             {canonicalGeom !== null && <CanonicalGeometryRows geom={canonicalGeom} p={p} setDraft={setDraft} />}
+          </PropSection>
+        )}
+
+        {/* CAD-PARITY-005: the per-type annotation fields (content/placement/
+            style — annotation.update, one atomic revision per field; the
+            measured value is the READ-ONLY stored document truth, formatted
+            through the SAME style context the canvas paints). */}
+        {anno !== null && (
+          <PropSection title="Annotation">
+            {locked && (
+              <PropRow label="state">
+                <Badge variant="destructive" className="h-4 px-1 text-[9px]">layer “{layer?.name}” locked — read-only</Badge>
+              </PropRow>
+            )}
+            <AnnotationRows
+              anno={anno}
+              locked={locked}
+              textStyles={props.snapshot?.textStyles ?? []}
+              dimStyles={props.snapshot?.dimStyles ?? []}
+              styleCtx={annotationStyleCtx}
+              onPatch={(patch, label) => props.onCommitEdit(label, () => annotationUpdate([el.id], patch))}
+            />
           </PropSection>
         )}
 
@@ -959,6 +1356,19 @@ function StylesPanel(props: PalettesProps): React.JSX.Element {
               onCommit={(v) => setSettings({ standards: { linetypeScale: v } }, "set linetype scale")}
             />
           </PropRow>
+          {/* CAD-PARITY-005: the document annotation scale (DIMSCALE-class —
+              multiplies every dimension annotation's text height and arrow
+              size: field × style.scale × this). Positive values only;
+              empty/invalid entries never write. */}
+          <PropRow label="annotation scale">
+            <NumberField
+              ariaLabel="annotation scale"
+              value={settings?.standards?.annotationScale ?? 1}
+              onCommit={(v) => {
+                if (v > 0) setSettings({ standards: { annotationScale: v } }, "set annotation scale");
+              }}
+            />
+          </PropRow>
           <PropRow label="default lineweight">
             <select
               aria-label="default lineweight"
@@ -1181,7 +1591,7 @@ function StylesPanel(props: PalettesProps): React.JSX.Element {
           </div>
           <ul aria-label="dimension styles list" className="px-1">
             {dimStyles.map((s: DimStyleRecord) => (
-              <li key={s.name} className="flex items-center gap-1 rounded px-1 py-0.5 text-[11px] hover:bg-muted/50">
+              <li key={s.name} className="flex flex-wrap items-center gap-1 rounded px-1 py-0.5 text-[11px] hover:bg-muted/50">
                 <span className="min-w-0 w-20 truncate">{s.name}</span>
                 {([
                   { key: "textHeight", label: "text", step: 0.1 },
@@ -1215,6 +1625,37 @@ function StylesPanel(props: PalettesProps): React.JSX.Element {
                     <option key={p} value={p}>{p}</option>
                   ))}
                 </select>
+                {/* CAD-PARITY-005: the rendered arrowhead kind ("closed" is
+                    the default — selecting it sends the null RESET so records
+                    stay canonical-minimal) and the measurement unit suffix
+                    (empty sends the null RESET). */}
+                <select
+                  aria-label={`${s.name} arrow style`}
+                  title="Arrowhead kind (closed filled / architectural tick / none)"
+                  className="w-14 rounded border bg-background px-0.5 py-0.5 text-[10px]"
+                  value={s.arrowStyle ?? "closed"}
+                  onChange={(e) =>
+                    commit("update dim style", () =>
+                      api("dimStyle.update", { name: s.name, patch: { arrowStyle: e.target.value === "closed" ? null : e.target.value } }))}
+                >
+                  <option value="closed">closed</option>
+                  <option value="tick">tick</option>
+                  <option value="none">none</option>
+                </select>
+                <input
+                  aria-label={`${s.name} unit suffix`}
+                  title={'Unit suffix appended to formatted measurements (e.g. " mm")'}
+                  className="w-14 rounded border bg-background px-0.5 py-0.5 text-[10px]"
+                  defaultValue={s.unitSuffix ?? ""}
+                  placeholder="(none)"
+                  onBlur={(e) => {
+                    const v = e.target.value;
+                    if (v !== (s.unitSuffix ?? "")) {
+                      commit("update dim style", () =>
+                        api("dimStyle.update", { name: s.name, patch: { unitSuffix: v.length === 0 ? null : v } }));
+                    }
+                  }}
+                />
                 <Button
                   size="sm"
                   variant="ghost"
