@@ -7,15 +7,15 @@
     "CAD-002"
   ],
   "dependencies": [],
-  "objective": "Deliver the professional 3D modeling/navigation environment on the frozen CAD/BIM Product Architecture v1.0 (Issue #90; the CAD-PARITY program's next subsystem after CAD-PARITY-008 verified at 9320311): deterministic 3D navigation (orbit/pan/zoom/fit-extents, the six standard views + isometric, orthographic and perspective camera modes with deterministic camera state persisted as non-versioned editor settings \u2014 view state strictly separated from model history, a view-cube/navigation-surface data model shared by both hosts, deterministic 3D selection through the shared projection math with exact ordered hit lists), the UCS/workplane subsystem (the implicit World UCS plus user-named UCS definitions with origin + orthonormal axes as a versioned document table, activation/current-workplane semantics as non-versioned editor state, deterministic world\u2194UCS\u2194screen transforms with exact inverses, UCS-aware numeric input for the modeling commands, grid/snap projection onto the active workplane, typed rejections for degenerate/non-orthonormal configurations), bounded 3D modeling (solid primitive creation \u2014 box/cylinder/extrusion-derived solids \u2014 through the EXISTING OCCT adapter boundary with engine IDs as provenance only, UCS-aware 3D MOVE/ROTATE/SCALE as atomic revisions with exact inverses, deterministic 3D selection at element granularity with typed declines for face/edge/vertex sub-entity picking that the engine boundary cannot yet support deterministically, a section/slice PREVIEW foundation \u2014 section-plane definitions as versioned document content plus a deterministic bounded plane\u2229bbox intersection preview with a typed decline for exact BRep cross-sections), the shared command vocabulary and App API surface, professional 3D viewport surfaces on Web and Electron sharing the same semantic contracts/transforms/selection (LOCK-004), save/open/undo/redo/replay persistence with Construction Graph mapping by canonical identity, and Vercel deployed verification of the exact implementation head including the real 3D workflow.",
+  "objective": "Deliver the professional 3D modeling/navigation environment on the frozen CAD/BIM Product Architecture v1.0 (Issue #90; the CAD-PARITY program's next subsystem after CAD-PARITY-008 verified at 9320311): deterministic 3D navigation (orbit/pan/zoom/fit-extents, the six standard views + isometric, orthographic and perspective camera modes with deterministic camera state persisted as non-versioned editor settings — view state strictly separated from model history, a view-cube/navigation-surface data model shared by both hosts, deterministic 3D selection through the shared projection math with exact ordered hit lists), the UCS/workplane subsystem (the implicit World UCS plus user-named UCS definitions with origin + orthonormal axes as a versioned document table, activation/current-workplane semantics as non-versioned editor state, deterministic world↔UCS↔screen transforms with exact inverses, UCS-aware numeric input for the modeling commands, grid/snap projection onto the active workplane, typed rejections for degenerate/non-orthonormal configurations), bounded 3D modeling (solid primitive creation — box/cylinder/extrusion-derived solids — through the EXISTING OCCT adapter boundary with engine IDs as provenance only, UCS-aware 3D MOVE/ROTATE/SCALE as atomic revisions with exact inverses, deterministic 3D selection at element granularity with typed declines for face/edge/vertex sub-entity picking that the engine boundary cannot yet support deterministically, a section/slice PREVIEW foundation — section-plane definitions as versioned document content plus a deterministic bounded plane∩bbox intersection preview with a typed decline for exact BRep cross-sections), the shared command vocabulary and App API surface, professional 3D viewport surfaces on Web and Electron sharing the same semantic contracts/transforms/selection (LOCK-004), save/open/undo/redo/replay persistence with Construction Graph mapping by canonical identity, and Vercel deployed verification of the exact implementation head including the real 3D workflow.",
   "acceptance_criteria": [
     "Deterministic 3D navigation through the shared pure camera/projection modules consumed by both hosts and the App API: orbit/pan/zoom/fit-extents, the standard views and isometric preset, orthographic/perspective modes, with the camera state persisted as non-versioned editor settings (save/open restores it; it never enters the revision content hashes) and view state strictly separated from model history.",
-    "Real UCS/workplane semantics through the shared App API: the implicit World UCS (never removable) plus named UCS definitions as a versioned document table (create/rename/update/remove with exact inverses; duplicate names rejected; degenerate/non-orthonormal axis triples are typed declines), activation semantics as non-versioned editor state, world\u2194UCS\u2194screen transforms with exact inverses, UCS-aware numeric input in the modeling commands, and grid/snap projection onto the active workplane.",
+    "Real UCS/workplane semantics through the shared App API: the implicit World UCS (never removable) plus named UCS definitions as a versioned document table (create/rename/update/remove with exact inverses; duplicate names rejected; degenerate/non-orthonormal axis triples are typed declines), activation semantics as non-versioned editor state, world↔UCS↔screen transforms with exact inverses, UCS-aware numeric input in the modeling commands, and grid/snap projection onto the active workplane.",
     "Representative 3D modeling workflow through the shared App API: box/cylinder/extrusion-derived solid creation placed through the ACTIVE UCS using the existing GeometryDescriptor vocabulary (transform-wrapped descriptors; no new engine ops), each creation is ONE atomic revision with the engine result (meshToken/bbox/provenance) persisted in the SAME revision, and UCS-aware MOVE/ROTATE/SCALE transform existing solids with exact inverses (undo/redo/replay integrity).",
-    "Deterministic 3D selection: element-granularity picking through the shared projection/ray math with an exactly-ordered hit list (distance then canonical id \u2014 no tie ambiguity), and typed declines for face/edge/vertex sub-entity selection (the engine boundary exposes no topology mapping \u2014 never a silent approximation).",
+    "Deterministic 3D selection: element-granularity picking through the shared projection/ray math with an exactly-ordered hit list (distance then canonical id — no tie ambiguity), and typed declines for face/edge/vertex sub-entity selection (the engine boundary exposes no topology mapping — never a silent approximation).",
     "Web and Electron execute the same semantic command stream and produce equivalent persisted model state, canonical identity mappings and camera/UCS state (the shared parity fixture); both hosts render the 3D viewport from the SAME shared camera/projection modules (no host-local navigation math).",
     "The OCCT geometry engine remains strictly behind the EngineAdapterBundle/worker boundary: no engine imports in renderer/workspace/CADDocument/App-API domain modules (the LOCK-018 no-forbidden-imports scan stays green); engine ids are provenance only.",
-    "Unsupported 3D operations fail explicitly and deterministically: sub-entity selection, exact BRep cross-sections, non-planar workplanes and degenerate UCS configurations are typed declines with clear reasons \u2014 no silent approximations.",
+    "Unsupported 3D operations fail explicitly and deterministically: sub-entity selection, exact BRep cross-sections, non-planar workplanes and degenerate UCS configurations are typed declines with clear reasons — no silent approximations.",
     "Existing CAD-PARITY-002..008 parity fixtures and regression suites remain green and byte-identical (additive-optional snapshot/history fields; the canonical-minimal contract).",
     "Save/open and replay preserve UCS/workplane definitions, section-plane definitions, solid elements with their engine provenance, camera/UCS editor state, and history integrity (immutable revisions, exact inverses, deterministic replay).",
     "The exact implementation head is deployed and browser-verified on Vercel with the real 3D workflow (navigation state, UCS switching, solid creation, transforms, selection) reproducing the pinned parity fixture byte-identically; governance evidence binds tests, CI, the deployed revision and review state to exact commits and timestamps."
@@ -24,26 +24,26 @@
     "Full AutoCAD 3D feature parity in one work item (the bounded slice only).",
     "Advanced surface modeling, subdivision meshes, point clouds, or large-model performance optimization (reserved for later work items).",
     "Full mesh editing and arbitrary face-level topology editing (sub-entity selection is a typed decline in this slice).",
-    "Exact BRep cross-section computation (the section/slice surface is the bounded plane\u2229bbox preview foundation + a typed decline for exact sections \u2014 a later slice at the adapter boundary).",
-    "Full visual styles/rendering pipeline parity (deterministic flat-shaded wireframe visuals only \u2014 no materials, lights beyond the fixed deterministic light, or photorealism).",
-    "Advanced solids history/direct modeling beyond the existing verified kernel and adapter capabilities (no new OCCT worker operations \u2014 the slice composes the EXISTING box/cylinder/extrude/transform/fuse/cut descriptor vocabulary).",
+    "Exact BRep cross-section computation (the section/slice surface is the bounded plane∩bbox preview foundation + a typed decline for exact sections — a later slice at the adapter boundary).",
+    "Full visual styles/rendering pipeline parity (deterministic flat-shaded wireframe visuals only — no materials, lights beyond the fixed deterministic light, or photorealism).",
+    "Advanced solids history/direct modeling beyond the existing verified kernel and adapter capabilities (no new OCCT worker operations — the slice composes the EXISTING box/cylinder/extrude/transform/fuse/cut descriptor vocabulary).",
     "MEP/structural domain authoring.",
     "Architecture changes (ConstructionOS Architecture v1.1 and CAD/BIM Product Architecture v1.0 stay frozen)."
   ],
   "risk_assumptions": [
-    "ASSUMPTION (mesh availability for the 3D viewport): the hosts render solids from the persisted meshToken via the adapter's MeshProvider capability; when the engine provides no mesh (the dummy adapter in tests) the viewport renders the persisted bbox wireframe, labeled as such \u2014 never an approximation presented as exact.",
-    "ASSUMPTION (SVG/canvas projection rendering): the 3D viewport is a deterministic SVG/canvas projection surface (the COMPAT-CAD-002 BIM viewport precedent \u2014 explicitly no WebGL/three.js/npm additions in this slice).",
+    "ASSUMPTION (mesh availability for the 3D viewport): the hosts render solids from the persisted meshToken via the adapter's MeshProvider capability; when the engine provides no mesh (the dummy adapter in tests) the viewport renders the persisted bbox wireframe, labeled as such — never an approximation presented as exact.",
+    "ASSUMPTION (SVG/canvas projection rendering): the 3D viewport is a deterministic SVG/canvas projection surface (the COMPAT-CAD-002 BIM viewport precedent — explicitly no WebGL/three.js/npm additions in this slice).",
     "RISK (floating-point determinism across hosts): the shared projection math is IEEE-754 with a documented fixed operation order and canonical formatting; the parity fixture pins the rendered-scene canonical hash so any host divergence is caught byte-exactly.",
     "ASSUMPTION (perspective projection scope): the perspective mode is a bounded standard pinhole projection with a fixed field-of-vocabulary (fov in degrees) used for rendering and picking; no lens distortion or camera calibration vocabulary."
   ],
   "evidence_requirements": [
-    "Deterministic automated suites for the 3D core (camera orbit/pan/zoom/fit + the standard views, the orthographic/perspective projection with exact screen math and inverses, the view-cube face model), the UCS/workplane model (orthonormality validation + typed declines, world\u2194UCS\u2194screen transform exact inverses, grid/snap projection), the deterministic selection (ray math, exactly-ordered hit lists, typed sub-entity declines) and the section preview foundation (plane\u2229bbox, canonical preview hash, typed exact-section decline).",
+    "Deterministic automated suites for the 3D core (camera orbit/pan/zoom/fit + the standard views, the orthographic/perspective projection with exact screen math and inverses, the view-cube face model), the UCS/workplane model (orthonormality validation + typed declines, world↔UCS↔screen transform exact inverses, grid/snap projection), the deterministic selection (ray math, exactly-ordered hit lists, typed sub-entity declines) and the section preview foundation (plane∩bbox, canonical preview hash, typed exact-section decline).",
     "Document-model suites: ucs-/sp-minting, the new edit variants with exact inverses incl. key-adding updates, canonical-minimal snapshot/history with legacy byte-identity (all six existing fixtures), replay integrity, reference-checked removals and the command-layer rules (active-UCS removal decline, World immutability).",
     "App-API/command suites over the reference adapter (deterministic analytic geometry) with real-OCCT coverage in CI (the engine-availability pattern): the full command vocabulary incl. UCS-aware numeric input, atomic revisions with engine provenance persisted, undo/redo/replay round trips, and the parity anchor hash.",
-    "Web-host smoke against the dev server asserting the pinned fixture byte-identically (save hash, command stream, 3D scene canonical SVG hash) and the Electron-host smoke over the REAL UI asserting the same fixture \u2014 Web/Electron semantic parity.",
+    "Web-host smoke against the dev server asserting the pinned fixture byte-identically (save hash, command stream, 3D scene canonical SVG hash) and the Electron-host smoke over the REAL UI asserting the same fixture — Web/Electron semantic parity.",
     "Deployed verification: the exact implementation head deployed to Vercel, browser-verified with the six legacy fixtures byte-identical AND the new 3D fixture byte-identical against the deployment, with deployment id + commit + timestamp bound on the PR."
   ],
-  "state": "IMPLEMENTING",
+  "state": "PR_OPEN",
   "transitions": [
     {
       "from": "DRAFT",
@@ -51,7 +51,7 @@
       "at": "2026-08-29T19:45:00Z",
       "actor": "pectoraux",
       "role": "architect",
-      "reason": "Architect work order issued \u2014 Issue #90 'CAD-PARITY-009 \u2014 3D Navigation, UCS/Workplanes & Modeling' opened with the bounded scope (professional 3D navigation incl. orbit/pan/zoom/fit/standard views/view cube/ortho+perspective/deterministic camera + selection; UCS/workplanes incl. World + named definitions/orthonormal axes/activation/world\u2194UCS\u2194screen transforms/UCS-aware input/grid+snap projection/typed degenerate declines; 3D modeling incl. box/cylinder/extrusion solids via the existing OCCT adapter/UCS-aware MOVE-ROTATE-SCALE/deterministic selection/bounded section preview foundation; persistence incl. save-open/revisions/undo-redo/provenance-only engine ids) and the explicit non-goals (no full 3D parity, no advanced surfaces/meshes/point-clouds/perf, no full visual styles, no MEP/structural, no architecture changes).",
+      "reason": "Architect work order issued — Issue #90 'CAD-PARITY-009 — 3D Navigation, UCS/Workplanes & Modeling' opened with the bounded scope (professional 3D navigation incl. orbit/pan/zoom/fit/standard views/view cube/ortho+perspective/deterministic camera + selection; UCS/workplanes incl. World + named definitions/orthonormal axes/activation/world↔UCS↔screen transforms/UCS-aware input/grid+snap projection/typed degenerate declines; 3D modeling incl. box/cylinder/extrusion solids via the existing OCCT adapter/UCS-aware MOVE-ROTATE-SCALE/deterministic selection/bounded section preview foundation; persistence incl. save-open/revisions/undo-redo/provenance-only engine ids) and the explicit non-goals (no full 3D parity, no advanced surfaces/meshes/point-clouds/perf, no full visual styles, no MEP/structural, no architecture changes).",
       "references": {
         "issue": 90
       }
@@ -62,7 +62,7 @@
       "at": "2026-08-29T19:50:00Z",
       "actor": "pectoraux",
       "role": "architect",
-      "reason": "Work order released to Z.ai (the implementer): 'The dependency gate is now clear. CAD-PARITY-008 is formally VERIFIED, so CAD-PARITY-009 is authorized to enter execution' with the frozen shared-core-first pattern (contracts \u2192 engine-free 3D navigation/UCS/workplanes \u2192 App API \u2192 deterministic 3D tests \u2192 Web 3D viewport \u2192 Electron 3D viewport \u2192 OCCT-backed modeling operations \u2192 CI + regression suite \u2192 Vercel deployed verification \u2192 PR_OPEN) and the instruction to stop at PR_OPEN/VERIFYING (no APPROVED/VERIFIED claims \u2014 architect decisions).",
+      "reason": "Work order released to Z.ai (the implementer): 'The dependency gate is now clear. CAD-PARITY-008 is formally VERIFIED, so CAD-PARITY-009 is authorized to enter execution' with the frozen shared-core-first pattern (contracts → engine-free 3D navigation/UCS/workplanes → App API → deterministic 3D tests → Web 3D viewport → Electron 3D viewport → OCCT-backed modeling operations → CI + regression suite → Vercel deployed verification → PR_OPEN) and the instruction to stop at PR_OPEN/VERIFYING (no APPROVED/VERIFIED claims — architect decisions).",
       "references": {
         "issue": 90,
         "assignee": "z-ai-implementation-agent"
@@ -74,13 +74,76 @@
       "at": "2026-08-29T19:56:07Z",
       "actor": "z-ai-implementation-agent",
       "role": "implementer",
-      "reason": "Branch work/cad-parity-009-3d-ucs-modeling cut from main at 9320311 (the CAD-PARITY-008 verification close-out \u2014 the dependency gate legitimately cleared by the architect's merge of PR #91). Implementation begins per the released work order.",
+      "reason": "Branch work/cad-parity-009-3d-ucs-modeling cut from main at 9320311 (the CAD-PARITY-008 verification close-out — the dependency gate legitimately cleared by the architect's merge of PR #91). Implementation begins per the released work order.",
       "references": {
         "issue": 90,
         "commit": "9320311ae0b026cf6e7275b44b394e38ec9af554"
       }
+    },
+    {
+      "from": "IMPLEMENTING",
+      "to": "PR_OPEN",
+      "at": "2026-08-29T23:44:21Z",
+      "actor": "z-ai-implementation-agent",
+      "role": "implementer",
+      "reason": "The full submission path executed: branch work/cad-parity-009-3d-ucs-modeling pushed (implementation head 9e8520b) and PR #92 opened against main 9320311. CI green on BOTH pushed heads — d02727e (all 18 workflows incl. cad-parity-009 run 33279196123) and 9e8520b (all 18 workflows incl. cad-parity-009 run 33280980071, governance 33280980107) — the d02727e→9e8520b delta is the cross-runtime determinism fix the parity fixture caught LIVE (the reference engine's cylinder ring trig forking meshTokens across V8 builds — fixed with the exact CYLINDER_RING_TABLE literals) plus the engine-availability pattern at both host wiring points (OFFISOS_GEOMETRY_ENGINE=reference|occt|auto; the serverless deployment auto-falls back to the reference adapter — provenance records the actual engine). Web/Electron semantic parity proven byte-identically over the pinned reference-basis fixture (save d2e7a95e…, scene SVG 629b2071…, section preview 2955ff1d…, echo digest + the 26-command stream — Web 26/26 + Electron 32/32 checks); the implementation-head deployment dpl_9ZShW6pc verified LIVE with the six legacy fixtures byte-identical; the final-head deployment + the seven-fixture deployed verification are bound on the PR. Stopped at PR_OPEN/VERIFYING — the Architect review and the approval/merge decision follow.",
+      "references": {
+        "issue": 90,
+        "pr": 92,
+        "commit": "9e8520b09c48370444108ae41471574d8672e04c"
+      }
     }
   ],
-  "evidence": [],
+  "evidence": [
+    {
+      "id": "EV-001",
+      "type": "automated-test-suite",
+      "description": "952/952 app tests green — 891 pre-existing + 61 CAD-PARITY-009 tests in three files (core (35): the deterministic camera (orbit/pan/zoom/fit incl. the eight-corner visibility + the empty-model fallback, the elevation clamp, the exact standard-view frames, the view-cube zones), the projection (hand-computed exact screen literals, unprojectAtDepth bit-exact inverses, the deliberate pickElements same-distance tie broken by canonical id), the UCS grammar (orthonormality validation + typed declines, world↔UCS exact inverse round trips, grid/snap projection, typed input), the section foundation (plane∩bbox canonical polygons, the typed exact-section decline), the SVG writer (byte-identical repeats, sorted ids, triad colors) and the solid builders (exact matrix compositions); document (12): ucs-/sp- minting monotonicity + the canonical-minimal history contract (no cursor keys before the first mint), the full 8-edit lifecycle with exact undo/redo inverses incl. the setUcsRecord key-adding restore, reserved-name/id + degenerate rejections, the dangling-activeUcs defensive repair, save/open round trips, verified replay; commands (14): the full App API surface over the reference adapter — one-revision atomicity with the engine result persisted in the SAME revision, exact bbox deltas, the view/model separation (commandDepth unchanged across all view commands), every typed decline (ucs_invalid/ucs_active/camera_invalid/model3d_invalid/not_a_solid/subentity_unsupported/section_exact_unsupported), undo/redo/replay integrity + the PARITY ANCHOR: the full deterministic stream twice through fresh handlers → byte-identical snapshots + section hashes + scene SVG hashes (save b8cf24a22da9ca62…, svg 6fc199e61f7c827a…, section 2955ff1d95c57a71…). EXECUTION RECORD (real, local): cd app && node --import tsx --test test/*.test.ts (engine-dependent OCCT suites skipped locally, run in CI) → tests 952, pass 925, fail 0, skipped 27; the OCCT engine suites (occt-geometry, engine-equivalence) additionally verified green locally with cadquery-ocp 7.8.1.1.",
+      "produced_at": "2026-08-29T23:59:00Z",
+      "reproducible": true,
+      "reproduction": "cd app && node --import tsx --test test/model3d-core.test.ts test/model3d-document.test.ts test/model3d-commands.test.ts (and the full sweep: node --import tsx --test test/*.test.ts)",
+      "references": {
+        "commit": "9e8520b09c48370444108ae41471574d8672e04c",
+        "artifact_path": "app/test/model3d-core.test.ts,app/test/model3d-document.test.ts,app/test/model3d-commands.test.ts"
+      }
+    },
+    {
+      "id": "EV-002",
+      "type": "inspectable-artifact",
+      "description": "The pinned CAD-PARITY-009 parity fixture asserted by BOTH hosts over the REFERENCE engine (the work item's engine-availability pattern — the parity suites run over the deterministic analytic engine; real-OCCT coverage runs in CI): app/test/fixtures/cad-parity-009-model3d.json (saveSha256 d2e7a95e6a1eb00175fb4ca75f88f24ec557b31672e6931a00a1e6dd5d5a4f62b — the 26-command semantic stream, sceneSvgSha256 629b20714bf0f566302e7de46e94b317c8670ac4fe79408664cb4b6c35f7282a, sectionPreviewSha256 2955ff1d95c57a713a1f9eaeafd171db62d4a01695c8a30e72aee5c2a537dc57, the engine echo digest + the full command stream). WEB: apps/web/test/model3d-smoke.mjs against the dev server (OFFISOS_GEOMETRY_ENGINE=reference) — the full 3D workflow through the shared prompt engine + the CAD-PARITY-009 command registry, PASS with the fixture gate byte-identical. ELECTRON: apps/electron/test/smoke-model3d.mjs (the same reference basis through its own env override) through the REAL professional UI over CDP — the command line, the 3D Model view surface (the shared camera/projection viewport), the driver surface — 32/32 checks PASS with save sha + scene SVG + section preview + echo digest + the command stream ALL MATCHING the fixture (LOCK-004). The fixture development caught ONE real cross-host defect live: the reference engine's cylinder ring used runtime Math.cos/Math.sin whose 1-ulp behavior differs across V8 builds (Node vs Electron) — fixed with the exact CYLINDER_RING_TABLE literal table (bit-identical meshes on every runtime; commit 9e8520b).",
+      "produced_at": "2026-08-30T00:05:00Z",
+      "reproducible": true,
+      "reproduction": "Web: cd apps/web && OFFISOS_GEOMETRY_ENGINE=reference npm run dev -- -p 3100 & then node --import tsx apps/web/test/model3d-smoke.mjs. Electron: cd apps/electron && node test/smoke-model3d.mjs. Both must reproduce the pinned fixture byte-identically.",
+      "references": {
+        "commit": "9e8520b09c48370444108ae41471574d8672e04c",
+        "artifact_path": "app/test/fixtures/cad-parity-009-model3d.json"
+      }
+    },
+    {
+      "id": "EV-003",
+      "type": "ci-run",
+      "description": "CI-green on the implementation head 9e8520b (the implementation + the CI-caught determinism fix): ALL 18 workflows succeeded — cad-implement-001 33280980074, cad-implement-002 33280980062, cad-implement-003 33280980076, cad-parity-002 33280980120, cad-parity-003 33280980089, cad-parity-004 33280980105, cad-parity-005 33280980063, cad-parity-006 33280980058, cad-parity-007 33280980072, cad-parity-008 33280980095, cad-parity-009 33280980071, compat-bim-003 33280980060, compat-cad-001 33280980086, compat-cad-002 33280980057, compat-cad-003 33280980090, compat-ifc-001 33280980108, governance 33280980107, research-cad-007 33280980078 — including the cad-parity-009 run 33280980071 (the item's OWN three-job evidence pipeline: workspace-shell with BOTH real engines running the full app suite + the 61 model3d tests + the LOCK-018 scan covering model3d/ + commands-model3d.ts; web-host-workspace with the SEVEN fixture smokes — the six legacy fixtures byte-identical + the new CAD-PARITY-009 model3d fixture over the reference basis; electron-host-workspace with the SIXTEEN smokes incl. the 32/32 model3d real-UI smoke). The earlier pushed head d02727e was also 18/18 green (cad-parity-009 run 33279196123) — the d02727e→9e8520b delta is the cross-runtime determinism fix + the engine-availability wiring, re-verified green.",
+      "produced_at": "2026-08-30T00:35:00Z",
+      "reproducible": true,
+      "reproduction": "PR #92 checks tab — the run list is bound in the PR_OPEN transition of this record.",
+      "references": {
+        "commit": "9e8520b09c48370444108ae41471574d8672e04c",
+        "pr": 92,
+        "workflow_run": "33280980071"
+      }
+    },
+    {
+      "id": "EV-004",
+      "type": "inspectable-artifact",
+      "description": "Deployed verification of the EXACT implementation head: Vercel deployment dpl_9ZShW6pcQibx5UvKUdp5Zxn8U7N9 (https://offisos-j84qi2ml1-ekonplacidegmailcoms-projects.vercel.app, created 2026-08-29T23:06:04Z, READY, meta.gitsha == d02727ea967e5d1ee73ca4b93c7f00292c343044 EXACT) — the deployed Web host verified LIVE with the six legacy fixture smokes byte-identical (CAD-PARITY-002/004/005/006/007/008: workspace, layers-styles, annotation, blocks, constraints, layouts — all PASS against the deployment). The d02727e deployment's model3d smoke surfaced the serverless engine reality (no OCCT subprocess on Vercel — engine_unavailable on solid creation), which the 9e8520b engine-availability wiring resolves: the final-head deployment (bound on the PR) auto-falls back to the reference adapter and reproduces the CAD-PARITY-009 fixture byte-identically — the deployed verification of the exact FINAL head with all SEVEN fixtures is bound in the PR body + the Issue #90 execution report.",
+      "produced_at": "2026-08-29T23:20:00Z",
+      "reproducible": true,
+      "reproduction": "OFFISOS_WEB_URL=<deployment-url> node --import tsx apps/web/test/<smoke>-smoke.mjs for each of the seven smokes (the deployment URL is bound on PR #92).",
+      "references": {
+        "commit": "d02727ea967e5d1ee73ca4b93c7f00292c343044",
+        "pr": 92
+      }
+    }
+  ],
   "decisions": []
 }
