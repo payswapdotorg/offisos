@@ -331,6 +331,39 @@ export function drawGeomEmphasis(
 }
 
 // ---------------------------------------------------------------------------
+// CAD-PARITY-006 (Issue #84): block/xref instance content.
+// ---------------------------------------------------------------------------
+
+/** The diagnostic rendering of an unresolved reference / missing definition:
+ *  a gray dashed rectangle + the label string (the honest placeholder —
+ *  never a silent blank). Pure drawing, view-transform aware. */
+export function drawInstancePlaceholder(
+  ctx: CanvasRenderingContext2D,
+  box: { readonly minX: number; readonly minY: number; readonly maxX: number; readonly maxY: number },
+  label: string,
+  toScreen: (p: Vec2) => [number, number],
+): void {
+  const a = toScreen([box.minX, box.minY]);
+  const b = toScreen([box.maxX, box.maxY]);
+  const x = Math.min(a[0], b[0]);
+  const y = Math.min(a[1], b[1]);
+  const w = Math.max(1, Math.abs(b[0] - a[0]));
+  const h = Math.max(1, Math.abs(b[1] - a[1]));
+  ctx.save();
+  ctx.strokeStyle = "#94a3b8";
+  ctx.lineWidth = 1;
+  ctx.setLineDash([6, 4]);
+  ctx.strokeRect(x, y, w, h);
+  ctx.setLineDash([]);
+  ctx.fillStyle = "#64748b";
+  ctx.font = "11px sans-serif";
+  ctx.textAlign = "left";
+  ctx.textBaseline = "alphabetic";
+  ctx.fillText(label, x + 4, y + 14);
+  ctx.restore();
+}
+
+// ---------------------------------------------------------------------------
 // Drafting entities (COMPAT-CAD-001 rendering, unchanged semantics).
 // ---------------------------------------------------------------------------
 

@@ -21,6 +21,14 @@
  * window-select through the shared annotation core: the style-driven render
  * primitives painted by the ONE shared canvas painter, with primitive-based
  * picking — identical output and hit surfaces on both hosts (LOCK-004).
+ *
+ * CAD-PARITY-006 (Issue #84): block/xref INSTANCE elements render, pick and
+ * bounds-check through their DERIVED content — the ONE shared expansion
+ * (workspace/blocks): expanded geometry draws through the same
+ * drawCanonicalEntity path with per-entity layer display resolution,
+ * materialized text through the same annotation painter, unresolved
+ * references as the honest dashed placeholder box. Clicking derived content
+ * selects the WHOLE instance (AutoCAD semantics).
  */
 
 import * as React from "react";
@@ -51,7 +59,7 @@ import {
 } from "@offisos/cad-app-shell/workspace/precision-2d";
 import { bbox as geomBBox } from "@offisos/cad-app-shell/workspace/geometry/entities";
 import { closestOn } from "@offisos/cad-app-shell/workspace/geometry/entities";
-import type { Geom } from "@offisos/cad-app-shell/workspace/geometry/types";
+import { propsToGeom, type Geom } from "@offisos/cad-app-shell/workspace/geometry/types";
 import { constrainCursor, type DraftingAids } from "@offisos/cad-app-shell/workspace/feedback";
 // CAD-PARITY-004: the shared standards module — the SAME display resolution
 // the Electron renderer and the App API run (LOCK-004 parity).
@@ -71,12 +79,26 @@ import { Eraser, Move, Copy, MousePointerSquareDashed } from "lucide-react";
 // the App API run (LOCK-004 parity by construction; no engine loads here).
 import {
   annotationFromElement,
+  annotationPickDistance,
   annotationPrimitives,
   annotationStyleContext,
+  makeText,
   pickAnnotationAt,
   selectAnnotations,
+  type TextAnnotation,
 } from "@offisos/cad-app-shell/workspace/annotation";
 import { paintAnnotationPrimitives } from "@offisos/cad-app-shell/workspace/annotation/paint";
+// CAD-PARITY-006 (Issue #84): the shared blocks core — the instance
+// vocabulary checks + the ONE shared expansion (render, pick and bounds read
+// the SAME derived view; no engine loads here — LOCK-003/018/004).
+import {
+  expandedBounds,
+  expandInstanceElement,
+  isBlockRefElement,
+  isXrefRefElement,
+  type BlockTable,
+  type ExpandedEntity,
+} from "@offisos/cad-app-shell/workspace/blocks";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -88,6 +110,7 @@ import {
   drawGeomEmphasis,
   drawGrid,
   drawGrips,
+  drawInstancePlaceholder,
   drawPendingPolyline,
   drawRubberBand,
   drawSelectionRect,
@@ -129,6 +152,18 @@ interface DragState {
 
 function toEntityPick(el: Element): EntityPick {
   return { id: el.id, kind: el.kind, props: el.props as Record<string, unknown> };
+}
+
+/** CAD-PARITY-006: soft-load the materialized text view of one expanded
+ *  entity (the CAD-PARITY-005 text constructor — the SAME annotation
+ *  pipeline the canvas runs for text elements; malformed derived props read
+ *  as "renders nothing", never throw). */
+function expandedTextOf(props: Record<string, unknown>): TextAnnotation | null {
+  try {
+    return makeText(props);
+  } catch {
+    return null;
+  }
 }
 
 /** Representative bounds points of a canonical entity (ZOOMEXTENTS /
@@ -304,6 +339,29 @@ export function ModelCanvas(props: ModelCanvasProps): React.JSX.Element {
     [snapshot, settings],
   );
 
+  // CAD-PARITY-006: the document block/xref tables — the lookup view the
+  // shared expansion resolves definitions and reference records through.
+  const blockTable = React.useMemo<BlockTable>(
+    () => ({
+      blockDefById: (id: string) => (snapshot?.blockDefs ?? []).find((b) => b.id === id),
+      xrefById: (id: string) => (snapshot?.xrefs ?? []).find((x) => x.id === id),
+    }),
+    [snapshot],
+  );
+
+  /** CAD-PARITY-006: the DERIVED content of every block/xref instance (the
+   *  ONE shared expansion — render, pick and bounds all read this view, so a
+   *  definition edit changes every instance on the next expansion; malformed
+   *  instance props expand to their honest placeholder, never throw). */
+  const expandedInstances = React.useMemo(() => {
+    const map = new Map<string, readonly ExpandedEntity[]>();
+    for (const el of snapshot?.elements ?? []) {
+      if (!isBlockRefElement(el) && !isXrefRefElement(el)) continue;
+      map.set(el.id, expandInstanceElement(el, blockTable) ?? []);
+    }
+    return map;
+  }, [snapshot, blockTable]);
+
   // CAD-PARITY-003: the canonical entity view over BOTH storage conventions
   // (same module the server-side precision queries run) — used for shared
   // osnap, canonical picking and the modify previews.
@@ -314,6 +372,34 @@ export function ModelCanvas(props: ModelCanvasProps): React.JSX.Element {
     return map;
   }, [geomEntities]);
   const geomById = React.useCallback((id: string): Geom | null => geomEntityMap.get(id)?.geom ?? null, [geomEntityMap]);
+
+  /** CAD-PARITY-006: the pick distance of one instance's DERIVED content —
+   *  geometry through the canonical closestOn (the precision-2d pick
+   *  semantics), text through the annotation primitive hit boxes,
+   *  placeholders by their box. Null when nothing draws within the
+   *  aperture. Deterministic. */
+  const expandedInstancePickDistance = React.useCallback(
+    (entities: readonly ExpandedEntity[], probe: { x: number; y: number }, aperture: number): number | null => {
+      let best: number | null = null;
+      for (const entity of entities) {
+        let d: number | null = null;
+        if (entity.kind === "geometry") {
+          const geom = propsToGeom(entity.props);
+          if (geom !== null) d = closestOn(geom, probe).d;
+        } else if (entity.kind === "text") {
+          const anno = expandedTextOf(entity.props);
+          if (anno !== null) d = annotationPickDistance(annotationPrimitives(anno, annotationStyleCtx), probe);
+        } else {
+          const dx = Math.max(entity.box.minX - probe.x, 0, probe.x - entity.box.maxX);
+          const dy = Math.max(entity.box.minY - probe.y, 0, probe.y - entity.box.maxY);
+          d = Math.hypot(dx, dy);
+        }
+        if (d !== null && d <= aperture && (best === null || d < best)) best = d;
+      }
+      return best;
+    },
+    [annotationStyleCtx],
+  );
 
   /** Deterministic merged pick (CAD-PARITY-003): the shared pickAt over the
    *  canonical entity view, merged with the legacy hitTest (which also covers
@@ -334,6 +420,20 @@ export function ModelCanvas(props: ModelCanvasProps): React.JSX.Element {
       // CAD-PARITY-005: annotations pick where they paint (primitives).
       const annotationPick = pickAnnotationAt(visibleEntities, probe, aperture, annotationStyleCtx);
       const annotationBest = annotationPick !== null ? { id: annotationPick.id, d: annotationPick.d } : null;
+      // CAD-PARITY-006: block/xref instances pick by their DERIVED content —
+      //  the closest expanded entity within the aperture selects the WHOLE
+      //  instance (AutoCAD semantics: clicking block content selects the
+      //  insert; ties break by element id like every other candidate).
+      let instanceBest: { id: string; d: number } | null = null;
+      for (const el of visibleEntities) {
+        const expanded = expandedInstances.get(el.id);
+        if (expanded === undefined) continue;
+        const d = expandedInstancePickDistance(expanded, probe, aperture);
+        if (d === null) continue;
+        if (instanceBest === null || d < instanceBest.d - 1e-12 || (Math.abs(d - instanceBest.d) <= 1e-12 && el.id < instanceBest.id)) {
+          instanceBest = { id: el.id, d };
+        }
+      }
       let best: { id: string; d: number } | null = null;
       const consider = (c: { id: string; d: number } | null): void => {
         if (c === null) return;
@@ -342,9 +442,10 @@ export function ModelCanvas(props: ModelCanvasProps): React.JSX.Element {
       consider(canonicalBest);
       consider(legacyBest);
       consider(annotationBest);
+      consider(instanceBest);
       return best;
     },
-    [zoom, geomEntities, visibleEntities, annotationStyleCtx],
+    [zoom, geomEntities, visibleEntities, annotationStyleCtx, expandedInstances, expandedInstancePickDistance],
   );
 
   // --- engine-aware interaction -------------------------------------------------
@@ -374,6 +475,20 @@ export function ModelCanvas(props: ModelCanvasProps): React.JSX.Element {
     let maxX = -Infinity;
     let maxY = -Infinity;
     for (const el of elements) {
+      // CAD-PARITY-006: block/xref instances contribute their DERIVED content
+      // bounds (the same shared expansion the paint loop runs — the zoom fits
+      // what actually renders, placeholders included).
+      const expanded = expandedInstances.get(el.id);
+      if (expanded !== undefined) {
+        const bb = expandedBounds(expanded);
+        if (bb !== null) {
+          minX = Math.min(minX, bb.minX);
+          minY = Math.min(minY, bb.minY);
+          maxX = Math.max(maxX, bb.maxX);
+          maxY = Math.max(maxY, bb.maxY);
+        }
+        continue;
+      }
       const entity = parseDraftEntity(el);
       const p = el.props as Record<string, unknown>;
       const points: Vec2[] = [];
@@ -729,7 +844,91 @@ export function ModelCanvas(props: ModelCanvasProps): React.JSX.Element {
     // DOM CanvasRenderingContext2D directly (its style slots are widened
     // to `string | object` in the core so the DOM lib's gradient/pattern
     // unions stay assignable).
+
+    // CAD-PARITY-006: the resolved display of one DERIVED instance entity —
+    // the SAME standards resolution (ByLayer chain, dash/lineweight px,
+    // transparency + locked-layer fade) the displayById memo runs for
+    // standalone entities, resolved from the CONTENT's own layer. Rendering
+    // never throws (an unresolvable display falls back to the layer color,
+    // solid, hairline).
+    const resolveDerivedDisplay = (
+      props: Record<string, unknown>,
+    ): { dash: readonly number[] | null; weightPx: number; alpha: number; color: string } => {
+      const layerId = typeof props.layer === "string" ? props.layer : "0";
+      const layer = layerById.get(layerId);
+      if (layer === undefined) return { dash: null, weightPx: 1, alpha: 1, color: "#111827" };
+      try {
+        const resolved = resolveDisplay(displayOverridesOf(props), layer, settings?.standards, snapshot?.ltypes ?? []);
+        let alpha = transparencyToAlpha(resolved.transparency);
+        if (layer.locked === true) alpha *= LOCKED_LAYER_FADE_ALPHA;
+        return {
+          dash: resolved.dash.length > 0 ? dashToDevicePx(resolved.dash, zoom) : null,
+          weightPx: lineweightToDevicePx(resolved.lineweight, zoom, lweightDisplay),
+          alpha,
+          color: resolved.color,
+        };
+      } catch {
+        return { dash: null, weightPx: 1, alpha: layer.locked === true ? LOCKED_LAYER_FADE_ALPHA : 1, color: layer.color };
+      }
+    };
+
+    // CAD-PARITY-006 (Issue #84): paint one block/xref instance's DERIVED
+    // content — geometry through the same drawCanonicalEntity path, text
+    // through the same annotation painter, placeholders as the dashed box.
+    // Each entity's OWN layer visibility gates it exactly like a standalone
+    // entity (the instance's own layer already gated entry into
+    // drawableEntities); the whole instance highlights when selected.
+    const drawExpandedInstance = (el: Element, entities: readonly ExpandedEntity[]): void => {
+      const selected = selectedSet.has(el.id);
+      for (const entity of entities) {
+        if (entity.kind === "placeholder") {
+          drawInstancePlaceholder(ctx, entity.box, entity.label, toScreen);
+          continue;
+        }
+        if (entity.kind === "text") {
+          const anno = expandedTextOf(entity.props);
+          if (anno === null) continue;
+          const layer = layerById.get(anno.layer);
+          if (layer !== undefined && (layer.frozen === true || !layer.visible)) continue;
+          const derived = resolveDerivedDisplay(entity.props);
+          paintAnnotationPrimitives(ctx, annotationPrimitives(anno, annotationStyleCtx), {
+            toScreen: toScreenPt,
+            zoom,
+            color: derived.color,
+            weightPx: selected ? derived.weightPx * 1.8 : derived.weightPx,
+            dash: derived.dash,
+            alpha: selected ? 1 : derived.alpha,
+          });
+          continue;
+        }
+        const geom = propsToGeom(entity.props);
+        if (geom === null) continue;
+        const layerId = typeof entity.props.layer === "string" ? entity.props.layer : "0";
+        const layer = layerById.get(layerId);
+        if (layer !== undefined && (layer.frozen === true || !layer.visible)) continue;
+        const derived = resolveDerivedDisplay(entity.props);
+        drawCanonicalEntity(ctx, geom, {
+          color: derived.color,
+          selected,
+          toScreen,
+          zoom,
+          viewport: { w, h },
+          dash: derived.dash,
+          weightPx: derived.weightPx,
+          alpha: derived.alpha,
+        });
+      }
+    };
+
     for (const el of drawableEntities) {
+      // CAD-PARITY-006: block/xref INSTANCE elements render their DERIVED
+      // content through the ONE shared expansion (definition → instance
+      // propagation: a definition edit changes every instance here).
+      const expanded = expandedInstances.get(el.id);
+      if (expanded !== undefined) {
+        drawExpandedInstance(el, expanded);
+        continue;
+      }
       // CAD-PARITY-003: canonical geometry first (BOTH storage conventions
       // decode through the bridge — legacy line/polyline/circle/arc/rectangle
       // included).
@@ -854,7 +1053,7 @@ export function ModelCanvas(props: ModelCanvasProps): React.JSX.Element {
     if (cursor !== null) {
       drawCrosshair(ctx, toScreen(cursor), w, h);
     }
-  }, [settings, layers, drawableEntities, geomEntityMap, selectedSet, toScreen, pan, zoom, cursor, selectionRect, snapPreview, polylinePending, activeStep, stepBase, singleSelected, grips, hotGrip, constrainedSnapped, command, engineState.values, targetGeoms, geomById, pickEntityAt, displayById, activeDimStyle, annotationStyleCtx]);
+  }, [settings, layers, drawableEntities, geomEntityMap, selectedSet, toScreen, pan, zoom, cursor, selectionRect, snapPreview, polylinePending, activeStep, stepBase, singleSelected, grips, hotGrip, constrainedSnapped, command, engineState.values, targetGeoms, geomById, pickEntityAt, displayById, activeDimStyle, annotationStyleCtx, expandedInstances, lweightDisplay]);
 
   // --- mini-toolbar position -------------------------------------------------------------
 
@@ -877,9 +1076,15 @@ export function ModelCanvas(props: ModelCanvasProps): React.JSX.Element {
           points.push([entity.center[0] - entity.radius, entity.center[1] - entity.radius], [entity.center[0] + entity.radius, entity.center[1] + entity.radius]);
         } else if (entity.type === "rectangle") points.push(entity.corner1, entity.corner2);
       } else {
+        // CAD-PARITY-006: instances contribute their DERIVED content bounds
+        // (the same shared expansion the paint loop runs).
+        const expanded = expandedInstances.get(el.id);
+        const instanceBox = expanded !== undefined ? expandedBounds(expanded) : null;
         // CAD-PARITY-003 canonical entities (bounds of the canonical view).
         const geom = geomEntityMap.get(el.id)?.geom;
-        if (geom !== undefined) {
+        if (instanceBox !== null) {
+          points.push([instanceBox.minX, instanceBox.minY], [instanceBox.maxX, instanceBox.maxY]);
+        } else if (geom !== undefined) {
           points.push(...canonicalBoundsPoints(geom));
         } else if (props.type === "bim.wall") {
           points.push(props.start as unknown as Vec2, props.end as unknown as Vec2);
@@ -897,7 +1102,7 @@ export function ModelCanvas(props: ModelCanvasProps): React.JSX.Element {
     if (!Number.isFinite(minX)) return null;
     const top = toScreen([minX, maxY]);
     return { left: top[0], top: Math.max(8, top[1] - 44) };
-  }, [activeStep, selection, selectionRect, snapshot, selectedSet, toScreen, geomEntityMap]);
+  }, [activeStep, selection, selectionRect, snapshot, selectedSet, toScreen, geomEntityMap, expandedInstances]);
 
   return (
     <div className="relative h-full w-full">
