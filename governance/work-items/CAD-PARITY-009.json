@@ -1,0 +1,86 @@
+{
+  "id": "CAD-PARITY-009",
+  "title": "3D Navigation, UCS/Workplanes & Modeling: the bounded professional 3D environment",
+  "issue": 90,
+  "architecture_version": "1.1",
+  "requirements": [
+    "CAD-002"
+  ],
+  "dependencies": [],
+  "objective": "Deliver the professional 3D modeling/navigation environment on the frozen CAD/BIM Product Architecture v1.0 (Issue #90; the CAD-PARITY program's next subsystem after CAD-PARITY-008 verified at 9320311): deterministic 3D navigation (orbit/pan/zoom/fit-extents, the six standard views + isometric, orthographic and perspective camera modes with deterministic camera state persisted as non-versioned editor settings \u2014 view state strictly separated from model history, a view-cube/navigation-surface data model shared by both hosts, deterministic 3D selection through the shared projection math with exact ordered hit lists), the UCS/workplane subsystem (the implicit World UCS plus user-named UCS definitions with origin + orthonormal axes as a versioned document table, activation/current-workplane semantics as non-versioned editor state, deterministic world\u2194UCS\u2194screen transforms with exact inverses, UCS-aware numeric input for the modeling commands, grid/snap projection onto the active workplane, typed rejections for degenerate/non-orthonormal configurations), bounded 3D modeling (solid primitive creation \u2014 box/cylinder/extrusion-derived solids \u2014 through the EXISTING OCCT adapter boundary with engine IDs as provenance only, UCS-aware 3D MOVE/ROTATE/SCALE as atomic revisions with exact inverses, deterministic 3D selection at element granularity with typed declines for face/edge/vertex sub-entity picking that the engine boundary cannot yet support deterministically, a section/slice PREVIEW foundation \u2014 section-plane definitions as versioned document content plus a deterministic bounded plane\u2229bbox intersection preview with a typed decline for exact BRep cross-sections), the shared command vocabulary and App API surface, professional 3D viewport surfaces on Web and Electron sharing the same semantic contracts/transforms/selection (LOCK-004), save/open/undo/redo/replay persistence with Construction Graph mapping by canonical identity, and Vercel deployed verification of the exact implementation head including the real 3D workflow.",
+  "acceptance_criteria": [
+    "Deterministic 3D navigation through the shared pure camera/projection modules consumed by both hosts and the App API: orbit/pan/zoom/fit-extents, the standard views and isometric preset, orthographic/perspective modes, with the camera state persisted as non-versioned editor settings (save/open restores it; it never enters the revision content hashes) and view state strictly separated from model history.",
+    "Real UCS/workplane semantics through the shared App API: the implicit World UCS (never removable) plus named UCS definitions as a versioned document table (create/rename/update/remove with exact inverses; duplicate names rejected; degenerate/non-orthonormal axis triples are typed declines), activation semantics as non-versioned editor state, world\u2194UCS\u2194screen transforms with exact inverses, UCS-aware numeric input in the modeling commands, and grid/snap projection onto the active workplane.",
+    "Representative 3D modeling workflow through the shared App API: box/cylinder/extrusion-derived solid creation placed through the ACTIVE UCS using the existing GeometryDescriptor vocabulary (transform-wrapped descriptors; no new engine ops), each creation is ONE atomic revision with the engine result (meshToken/bbox/provenance) persisted in the SAME revision, and UCS-aware MOVE/ROTATE/SCALE transform existing solids with exact inverses (undo/redo/replay integrity).",
+    "Deterministic 3D selection: element-granularity picking through the shared projection/ray math with an exactly-ordered hit list (distance then canonical id \u2014 no tie ambiguity), and typed declines for face/edge/vertex sub-entity selection (the engine boundary exposes no topology mapping \u2014 never a silent approximation).",
+    "Web and Electron execute the same semantic command stream and produce equivalent persisted model state, canonical identity mappings and camera/UCS state (the shared parity fixture); both hosts render the 3D viewport from the SAME shared camera/projection modules (no host-local navigation math).",
+    "The OCCT geometry engine remains strictly behind the EngineAdapterBundle/worker boundary: no engine imports in renderer/workspace/CADDocument/App-API domain modules (the LOCK-018 no-forbidden-imports scan stays green); engine ids are provenance only.",
+    "Unsupported 3D operations fail explicitly and deterministically: sub-entity selection, exact BRep cross-sections, non-planar workplanes and degenerate UCS configurations are typed declines with clear reasons \u2014 no silent approximations.",
+    "Existing CAD-PARITY-002..008 parity fixtures and regression suites remain green and byte-identical (additive-optional snapshot/history fields; the canonical-minimal contract).",
+    "Save/open and replay preserve UCS/workplane definitions, section-plane definitions, solid elements with their engine provenance, camera/UCS editor state, and history integrity (immutable revisions, exact inverses, deterministic replay).",
+    "The exact implementation head is deployed and browser-verified on Vercel with the real 3D workflow (navigation state, UCS switching, solid creation, transforms, selection) reproducing the pinned parity fixture byte-identically; governance evidence binds tests, CI, the deployed revision and review state to exact commits and timestamps."
+  ],
+  "non_goals": [
+    "Full AutoCAD 3D feature parity in one work item (the bounded slice only).",
+    "Advanced surface modeling, subdivision meshes, point clouds, or large-model performance optimization (reserved for later work items).",
+    "Full mesh editing and arbitrary face-level topology editing (sub-entity selection is a typed decline in this slice).",
+    "Exact BRep cross-section computation (the section/slice surface is the bounded plane\u2229bbox preview foundation + a typed decline for exact sections \u2014 a later slice at the adapter boundary).",
+    "Full visual styles/rendering pipeline parity (deterministic flat-shaded wireframe visuals only \u2014 no materials, lights beyond the fixed deterministic light, or photorealism).",
+    "Advanced solids history/direct modeling beyond the existing verified kernel and adapter capabilities (no new OCCT worker operations \u2014 the slice composes the EXISTING box/cylinder/extrude/transform/fuse/cut descriptor vocabulary).",
+    "MEP/structural domain authoring.",
+    "Architecture changes (ConstructionOS Architecture v1.1 and CAD/BIM Product Architecture v1.0 stay frozen)."
+  ],
+  "risk_assumptions": [
+    "ASSUMPTION (mesh availability for the 3D viewport): the hosts render solids from the persisted meshToken via the adapter's MeshProvider capability; when the engine provides no mesh (the dummy adapter in tests) the viewport renders the persisted bbox wireframe, labeled as such \u2014 never an approximation presented as exact.",
+    "ASSUMPTION (SVG/canvas projection rendering): the 3D viewport is a deterministic SVG/canvas projection surface (the COMPAT-CAD-002 BIM viewport precedent \u2014 explicitly no WebGL/three.js/npm additions in this slice).",
+    "RISK (floating-point determinism across hosts): the shared projection math is IEEE-754 with a documented fixed operation order and canonical formatting; the parity fixture pins the rendered-scene canonical hash so any host divergence is caught byte-exactly.",
+    "ASSUMPTION (perspective projection scope): the perspective mode is a bounded standard pinhole projection with a fixed field-of-vocabulary (fov in degrees) used for rendering and picking; no lens distortion or camera calibration vocabulary."
+  ],
+  "evidence_requirements": [
+    "Deterministic automated suites for the 3D core (camera orbit/pan/zoom/fit + the standard views, the orthographic/perspective projection with exact screen math and inverses, the view-cube face model), the UCS/workplane model (orthonormality validation + typed declines, world\u2194UCS\u2194screen transform exact inverses, grid/snap projection), the deterministic selection (ray math, exactly-ordered hit lists, typed sub-entity declines) and the section preview foundation (plane\u2229bbox, canonical preview hash, typed exact-section decline).",
+    "Document-model suites: ucs-/sp-minting, the new edit variants with exact inverses incl. key-adding updates, canonical-minimal snapshot/history with legacy byte-identity (all six existing fixtures), replay integrity, reference-checked removals and the command-layer rules (active-UCS removal decline, World immutability).",
+    "App-API/command suites over the reference adapter (deterministic analytic geometry) with real-OCCT coverage in CI (the engine-availability pattern): the full command vocabulary incl. UCS-aware numeric input, atomic revisions with engine provenance persisted, undo/redo/replay round trips, and the parity anchor hash.",
+    "Web-host smoke against the dev server asserting the pinned fixture byte-identically (save hash, command stream, 3D scene canonical SVG hash) and the Electron-host smoke over the REAL UI asserting the same fixture \u2014 Web/Electron semantic parity.",
+    "Deployed verification: the exact implementation head deployed to Vercel, browser-verified with the six legacy fixtures byte-identical AND the new 3D fixture byte-identical against the deployment, with deployment id + commit + timestamp bound on the PR."
+  ],
+  "state": "IMPLEMENTING",
+  "transitions": [
+    {
+      "from": "DRAFT",
+      "to": "READY",
+      "at": "2026-08-29T19:45:00Z",
+      "actor": "pectoraux",
+      "role": "architect",
+      "reason": "Architect work order issued \u2014 Issue #90 'CAD-PARITY-009 \u2014 3D Navigation, UCS/Workplanes & Modeling' opened with the bounded scope (professional 3D navigation incl. orbit/pan/zoom/fit/standard views/view cube/ortho+perspective/deterministic camera + selection; UCS/workplanes incl. World + named definitions/orthonormal axes/activation/world\u2194UCS\u2194screen transforms/UCS-aware input/grid+snap projection/typed degenerate declines; 3D modeling incl. box/cylinder/extrusion solids via the existing OCCT adapter/UCS-aware MOVE-ROTATE-SCALE/deterministic selection/bounded section preview foundation; persistence incl. save-open/revisions/undo-redo/provenance-only engine ids) and the explicit non-goals (no full 3D parity, no advanced surfaces/meshes/point-clouds/perf, no full visual styles, no MEP/structural, no architecture changes).",
+      "references": {
+        "issue": 90
+      }
+    },
+    {
+      "from": "READY",
+      "to": "ASSIGNED",
+      "at": "2026-08-29T19:50:00Z",
+      "actor": "pectoraux",
+      "role": "architect",
+      "reason": "Work order released to Z.ai (the implementer): 'The dependency gate is now clear. CAD-PARITY-008 is formally VERIFIED, so CAD-PARITY-009 is authorized to enter execution' with the frozen shared-core-first pattern (contracts \u2192 engine-free 3D navigation/UCS/workplanes \u2192 App API \u2192 deterministic 3D tests \u2192 Web 3D viewport \u2192 Electron 3D viewport \u2192 OCCT-backed modeling operations \u2192 CI + regression suite \u2192 Vercel deployed verification \u2192 PR_OPEN) and the instruction to stop at PR_OPEN/VERIFYING (no APPROVED/VERIFIED claims \u2014 architect decisions).",
+      "references": {
+        "issue": 90,
+        "assignee": "z-ai-implementation-agent"
+      }
+    },
+    {
+      "from": "ASSIGNED",
+      "to": "IMPLEMENTING",
+      "at": "2026-08-29T19:56:07Z",
+      "actor": "z-ai-implementation-agent",
+      "role": "implementer",
+      "reason": "Branch work/cad-parity-009-3d-ucs-modeling cut from main at 9320311 (the CAD-PARITY-008 verification close-out \u2014 the dependency gate legitimately cleared by the architect's merge of PR #91). Implementation begins per the released work order.",
+      "references": {
+        "issue": 90,
+        "commit": "9320311ae0b026cf6e7275b44b394e38ec9af554"
+      }
+    }
+  ],
+  "evidence": [],
+  "decisions": []
+}
