@@ -141,7 +141,7 @@
       "references": {
         "commit": "e1540b52b5eaa45d3d1548066d758c5cb6b361e0",
         "pr": 89,
-        "workflow_run": 33265513873
+        "workflow_run": "33265513873"
       }
     }
   ],
