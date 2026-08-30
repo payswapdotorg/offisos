@@ -4,13 +4,7 @@
   "issue": 12,
   "objective": "Establish repository-backed controls that preserve the frozen architecture while enabling deliberate evolution through explicit Architecture Change Requests, stronger protected-path enforcement, revision-bound verification, and auditable governance reconciliation.",
   "architecture_version": "1.0",
-  "requirements": [
-    "FLOW-001",
-    "FLOW-002",
-    "FLOW-003",
-    "FLOW-004",
-    "FLOW-005"
-  ],
+  "requirements": ["FLOW-001","FLOW-002","FLOW-003","FLOW-004","FLOW-005"],
   "dependencies": ["ARCH-WF-001"],
   "acceptance_criteria": [
     "A canonical ACR identifier, template and lifecycle are repository-backed and reproducible.",
@@ -41,7 +35,7 @@
     "A reproducible example covering architecture-change approval and one covering a historical merged-record reconciliation.",
     "Evidence that existing normal lifecycle and VERIFIED gating behavior remains unchanged."
   ],
-  "state": "READY",
+  "state": "ASSIGNED",
   "transitions": [
     {
       "from": "DRAFT",
@@ -51,6 +45,15 @@
       "role": "architect",
       "reason": "Issue #12 is now activated as the governance-controls work item required to resolve the P011 historical merge defect without weakening the frozen workflow controls.",
       "references": {"issue": 12}
+    },
+    {
+      "from": "READY",
+      "to": "ASSIGNED",
+      "at": "2026-08-30T17:58:00Z",
+      "actor": "pectoraux",
+      "role": "architect",
+      "reason": "Dependency ARCH-WF-001 is VERIFIED. ARCH-WF-002 is assigned to the logical implementation agent z-ai-implementation-agent; GitHub does not expose that logical agent as a repository user, so the assignment is recorded authoritatively in the governance ledger. The repository-wide governance suite currently fails only on the pre-existing CAD-PARITY-011 historical defect that ARCH-WF-002 is explicitly tasked to reconcile; that failure is intentionally not suppressed.",
+      "references": {"issue": 12,"assignee":"z-ai-implementation-agent","commit":"55777addd8c38d44a97743300a662583aee0cb02"}
     }
   ]
 }
