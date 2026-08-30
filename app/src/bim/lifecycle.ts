@@ -77,7 +77,15 @@ function metaPatch(entity: BimEntity, meta: BimElementMeta | undefined): Record<
 }
 
 /** The generic single-element meta edit: merge the stored overlay with the
- *  patch function, validate, return the atomic update batch. */
+ *  patch function, validate, return the atomic edit batch.
+ *
+ *  Wire semantics: when the merged overlay is NON-EMPTY the edit is ONE
+ *  updateElement carrying the canonical "meta" key. When the overlay becomes
+ *  EMPTY (the last key cleared) the edit is a FULL setProps of the stored
+ *  props minus the meta key — updateElement patches cannot EXPRESS key
+ *  removal (an undefined value is not representable in canonical JSON; the
+ *  document's inverse machinery uses the same setProps approach for added
+ *  keys), and the absence of "meta" is the canonical form (never a null). */
 function editMeta(
   elements: readonly Element[],
   elementId: string,
@@ -89,13 +97,26 @@ function editMeta(
   const entity = requireBimEntity(map, elementId, op);
   const before = storedMeta(entity);
   const after = patchMeta(before);
-  const patch = metaPatch(entity, after);
   if (before === undefined && after === undefined) {
     return { status: "no-op", reason: `${op}: element '${elementId}' carries no meta overlay to edit` };
   }
   if (JSON.stringify(before) === JSON.stringify(after)) {
     return { status: "no-op", reason: `${op}: element '${elementId}' already carries the requested state` };
   }
+  if (after === undefined) {
+    // The overlay cleared entirely: the full stored props minus the meta key
+    // (non-canonical extras like realized-geometry provenance are preserved).
+    const stored = elements.find((el) => el.id === elementId)!.props as Record<string, unknown>;
+    const cleared: Record<string, unknown> = { ...stored };
+    delete cleared.meta;
+    return {
+      status: "applied",
+      edit: { type: "setProps", elementId, patch: cleared },
+      summary: summary(entity, before),
+      meta: undefined,
+    };
+  }
+  const patch = metaPatch(entity, after);
   return {
     status: "applied",
     edit: { type: "updateElement", elementId, patch },

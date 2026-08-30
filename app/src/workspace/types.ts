@@ -214,6 +214,19 @@ export interface CommandDefaults {
   readonly windowWidth: number;
   readonly windowHeight: number;
   readonly windowSill: number;
+  // CAD-PARITY-011 (Issue #97): the Archicad-class authoring defaults.
+  /** Default roof ridge height above the eaves base (mm). */
+  readonly roofHeight: number;
+  /** Default stair run width across the run (mm). */
+  readonly stairWidth: number;
+  /** Default stair riser count per flight. */
+  readonly stairStepCount: number;
+  /** Default stair tread depth (mm). */
+  readonly stairTread: number;
+  /** Default stair top landing length; 0 = no landing (mm). */
+  readonly stairLandingLength: number;
+  /** Default railing handrail height above the walking surface (mm). */
+  readonly railingHeight: number;
 }
 
 export const DEFAULT_COMMAND_DEFAULTS: Readonly<CommandDefaults> = {
@@ -226,6 +239,13 @@ export const DEFAULT_COMMAND_DEFAULTS: Readonly<CommandDefaults> = {
   windowWidth: 1200,
   windowHeight: 1500,
   windowSill: 900,
+  // CAD-PARITY-011 (Issue #97).
+  roofHeight: 1500,
+  stairWidth: 1200,
+  stairStepCount: 16,
+  stairTread: 280,
+  stairLandingLength: 0,
+  railingHeight: 900,
 };
 
 /**

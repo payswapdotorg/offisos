@@ -306,6 +306,13 @@ export class AppApiHandler {
     return new AppApiHandler(options, doc, options.adapterBundle);
   }
 
+  /** The handler's document (CAD-PARITY-011: host/test read access to the
+   *  immutable history for graph bridging — the document stays the single
+   *  authority; this exposes reading, never mutation). */
+  get document(): CADDocument {
+    return this.doc;
+  }
+
   /** Process a command/query request. Idempotent for commands with a key. */
   async handle(request: CommandQueryRequest): Promise<CommandQueryResponse> {
     if (request.type === "command" && request.idempotencyKey !== undefined) {

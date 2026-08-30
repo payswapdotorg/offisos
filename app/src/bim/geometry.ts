@@ -566,20 +566,56 @@ export function railingSolid(railing: RailingEntity, ctx: BimGeometryContext): G
   const pw = BIM_RAILING_POST_WIDTH;
   const railT = BIM_RAILING_RAIL_THICKNESS;
   const railH = railing.height;
+  const rise = stairRise(stair, ctx);
+  const pitch = rise / stair.tread; // the rail underside slope (z per along).
+  if (stair.tread <= pw) {
+    throw new Error(
+      `railing '${railing.id}': the host stair tread (${stair.tread}) must exceed the canonical post width (${pw}) — adjacent posts would overlap (the bounded railing geometry)`,
+    );
+  }
+  if (railH - (pw / 2) * pitch <= 0) {
+    throw new Error(
+      `railing '${railing.id}': handrail height ${railH} is too low for the host stair pitch ${pitch} (the post top edge at the trailing side would not clear the walking surface)`,
+    );
+  }
   const parts: GeometryDescriptor[] = [];
-  // Posts at every step boundary i = 0..n: plan square centered on the edge
-  // line (±pw/2 along the run AND across), z ∈ [stepTop(i), stepTop(i)+railH].
+  // Posts at every step boundary i = 0..n — TRAPEZOID posts whose TOP EDGE
+  // lies IN the rail underside plane (the single continuous plane through
+  // all segments' bottoms): a flat-top post would PENETRATE the incoming
+  // rail segment over its trailing half. The trapezoid profile (in the
+  // (along, z) plane) is identical for every post: base at the walking
+  // surface, top edge sloped by the pitch, centered on the boundary; the
+  // profile-averaged height is exactly railH → post volume = pw²·railH (the
+  // closed form). Realized as ONE extrude + ONE rigid transform placing the
+  // (along, z, across) frame onto (d̂, ẑ, d̂×ẑ).
+  const acrossDir: readonly [number, number, number] = [dy, -dx, 0]; // d̂ × ẑ = −n̂.
   for (let i = 0; i <= n; i++) {
     const p = edge(i * stair.tread);
-    const a: Vec2 = [p[0] + dx * (-pw / 2) + nx * (-pw / 2), p[1] + dy * (-pw / 2) + ny * (-pw / 2)];
-    const b: Vec2 = [p[0] + dx * (pw / 2) + nx * (-pw / 2), p[1] + dy * (pw / 2) + ny * (-pw / 2)];
-    const c: Vec2 = [p[0] + dx * (pw / 2) + nx * (pw / 2), p[1] + dy * (pw / 2) + ny * (pw / 2)];
-    const d: Vec2 = [p[0] + dx * (-pw / 2) + nx * (pw / 2), p[1] + dy * (-pw / 2) + ny * (pw / 2)];
+    // The extrude origin: on the edge line at the boundary, +n̂·pw/2 across
+    // (the extrusion runs along −n̂ for the span pw).
+    const origin: readonly [number, number, number] = [
+      p[0] + nx * (pw / 2),
+      p[1] + ny * (pw / 2),
+      stairStepTopZ(stair, ctx, i),
+    ];
     parts.push({
-      shape: "extrude",
-      profile: [[a[0], a[1]], [b[0], b[1]], [c[0], c[1]], [d[0], d[1]]],
-      height: railH,
-      base: [0, 0, stairStepTopZ(stair, ctx, i)],
+      shape: "transform",
+      matrix: [
+        dx, 0, acrossDir[0], origin[0],
+        dy, 0, acrossDir[1], origin[1],
+        0, 1, acrossDir[2], origin[2],
+        0, 0, 0, 1,
+      ],
+      target: {
+        shape: "extrude",
+        profile: [
+          [-pw / 2, 0],
+          [pw / 2, 0],
+          [pw / 2, railH + (pw / 2) * pitch],
+          [-pw / 2, railH - (pw / 2) * pitch],
+        ],
+        height: pw,
+      },
     });
   }
   // Handrail segments k = 0..n−1: box(pw across, railT thick, ℓ long along
@@ -588,7 +624,6 @@ export function railingSolid(railing: RailingEntity, ctx: BimGeometryContext): G
   // The box corner (0,0,0) maps to the segment's bottom-near corner: at
   // boundary k on the edge line, shifted −n̂3·pw/2 (centered across), z =
   // stepTop(k) + railH.
-  const rise = stairRise(stair, ctx);
   const slopeLen = Math.sqrt(stair.tread * stair.tread + rise * rise);
   const uHat: readonly [number, number, number] = [
     (dx * stair.tread) / slopeLen,
@@ -871,15 +906,18 @@ export function bimWorldBBox(entity: BimEntity, ctx: BimGeometryContext): WorldB
       const railT = BIM_RAILING_RAIL_THICKNESS;
       const runLength = stair.stepCount * stair.tread;
       // EXACT bbox: the posts span boundary ± pw/2 along the run (boundary 0
-      // and boundary n) and edge ± pw/2 across; the rails stay inside. The
-      // z span runs from the post bases (stepTop(0)) to the top rail's
-      // top-far corner: stepTop(n) + railH + railT·(tread/ℓ) — the rail
-      // thickness is perpendicular to the slope, so its vertical component
-      // is railT·cos(pitch) = railT·tread/ℓ.
+      // and boundary n) and edge ± pw/2 across; the rail segments' bottom
+      // start corners jut BACKWARD by railT·(rise/ℓ) along the run (the
+      // perpendicular thickness tilts back-down). The z span runs from the
+      // post bases (stepTop(0)) to the highest of the top rail's top-far
+      // corner (stepTop(n) + railH + railT·(tread/ℓ)) and the last post's
+      // leading top corner (stepTop(n) + railH + (pw/2)·pitch).
       const rise = stairRise(stair, ctx);
       const slopeLen = Math.sqrt(stair.tread * stair.tread + rise * rise);
-      const railTop = stairStepTopZ(stair, ctx, stair.stepCount) + entity.height + (railT * stair.tread) / slopeLen;
-      const alongs: readonly [number, number][] = [[-pw / 2, across - pw / 2], [-pw / 2, across + pw / 2], [runLength + pw / 2, across - pw / 2], [runLength + pw / 2, across + pw / 2]];
+      const railTop = stairStepTopZ(stair, ctx, stair.stepCount) + entity.height +
+        Math.max((railT * stair.tread) / slopeLen, (pw / 2) * (rise / stair.tread));
+      const backJut = Math.max(pw / 2, (railT * rise) / slopeLen);
+      const alongs: readonly [number, number][] = [[-backJut, across - pw / 2], [-backJut, across + pw / 2], [runLength + pw / 2, across - pw / 2], [runLength + pw / 2, across + pw / 2]];
       const pts: readonly Vec2[] = alongs.map(([along, ac]) => [
         stair.start[0] + dx * along + nx * ac,
         stair.start[1] + dy * along + ny * ac,
