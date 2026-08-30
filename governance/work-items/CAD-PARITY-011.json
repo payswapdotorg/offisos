@@ -1,169 +1,30 @@
 {
-  "id": "CAD-PARITY-011",
-  "title": "Archicad-class BIM authoring expansion",
-  "issue": 97,
-  "architecture_version": "1.1",
-  "requirements": [
-    "CAD-BIM-001",
-    "CAD-BIM-003",
-    "CAD-BIM-004",
-    "CAD-BIM-005"
+  "id":"CAD-PARITY-011",
+  "title":"Archicad-class BIM authoring expansion",
+  "issue":97,
+  "architecture_version":"1.1",
+  "requirements":["CAD-BIM-001","CAD-BIM-003","CAD-BIM-004","CAD-BIM-005"],
+  "dependencies":["CAD-PARITY-010","COMPAT-BIM-003","RESEARCH-CAD-007","COMPAT-CAD-003"],
+  "objective":"Expand the verified CAD/BIM product into the next bounded Archicad-class architectural authoring layer: richer architectural building elements and deterministic relationships, classification/property semantics, and bounded renovation/design-option lifecycle state, while preserving the frozen ConstructionOS/CAD architecture.",
+  "acceptance_criteria":["Deterministic representative workflows create and edit supported roof, stair and railing elements with canonical host/story relationships.","Existing space/zone semantics remain valid and participate in supported vertical and lifecycle relationships.","Classification and structured property edits persist through save/open/replay and map through Construction Graph using canonical identities.","Renovation state and bounded design-option membership are deterministic, persisted, and do not require destructive duplication of model content.","Web and Electron produce equivalent semantic streams and canonical serialized results for the pinned P011 fixture.","Real OCCT coverage exists for supported new geometry; reference/dummy adapters return typed deterministic declines for unsupported operations.","Existing CAD-PARITY-002..010, BIM, IFC, documentation, governance and real-engine regression suites remain green and previous fixtures remain byte-identical.","No protected architecture files are modified.","The exact implementation head is CI-verified and deployed/browser-verified on Vercel.","Governance evidence binds tests, CI, deployments, review state, exact revisions and timestamps."],
+  "non_goals":["Full Archicad/Revit family-system parity.","Advanced MEP/structural authoring.","Full terrain/mesh/point-cloud authoring.","Full freeform roof/shell editing with arbitrary complex topology.","General-purpose stair/railing constraint solving.","Full renovation/design-option history parity beyond the bounded canonical states.","Project scheduling, 4D or cost-planning workflows.","Architecture changes without an ACR."],
+  "risk_assumptions":["CAD-PARITY-010 is VERIFIED on main at governance verification commit 3c476b51239d0e29b8174451fdc0ea365010978e, following implementation merge d26387a28469df0b7da4018403ab56726629241d.","COMPAT-BIM-003, RESEARCH-CAD-007 and COMPAT-CAD-003 are VERIFIED and provide the existing BIM/component/feasibility baseline.","P011 composes with, rather than replaces, the already-verified component/material subsystem.","Native geometry and IFC engines remain isolated behind the established adapter/worker boundary.","Unsupported architectural element operations must be explicit typed declines rather than fabricated geometry or silent approximation."],
+  "evidence_requirements":["Deterministic unit and workflow suites for roofs, stairs, railings, host/story relationships, classification/properties and lifecycle semantics.","Web/Electron parity fixtures covering representative architectural element creation/editing and lifecycle state.","Real-OCCT coverage through the existing EngineAdapterBundle/worker boundary plus explicit reference-engine declines where unsupported.","Regression proof that CAD-PARITY-002..010 fixtures remain green and byte-identical.","Exact-head Vercel deployment and real-browser verification of the representative P011 workflows.","Governance evidence bound to exact implementation revisions and CI/deployment identities."],
+  "state":"APPROVED",
+  "transitions":[
+    {"from":"DRAFT","to":"READY","at":"2026-08-30T12:46:06Z","actor":"pectoraux","role":"architect","reason":"Architect released CAD-PARITY-011 as the next roadmap work item after CAD-PARITY-010 verification. Scope was derived from the frozen Phase 5 BIM roadmap and the repository's already-verified BIM/component foundations, avoiding duplication of completed component/material work.","references":{"issue":97}},
+    {"from":"READY","to":"ASSIGNED","at":"2026-08-30T12:46:37Z","actor":"pectoraux","role":"architect","reason":"Dependency gates are verified on main. The work item is assigned to the logical implementation agent z-ai-implementation-agent; GitHub does not expose that logical agent as a repository user, so the assignment is recorded authoritatively in the governance ledger.","references":{"issue":97,"assignee":"z-ai-implementation-agent","commit":"3c476b51239d0e29b8174451fdc0ea365010978e"}},
+    {"from":"ASSIGNED","to":"IMPLEMENTING","at":"2026-08-30T13:16:19Z","actor":"z-ai-implementation-agent","role":"implementer","reason":"Implementation branch work/cad-parity-011-archicad-authoring cut from main at 8392951 and implementation begins per Issue #97.","references":{"issue":97,"commit":"83929518d3eb177b37ce22f857aa3b3c7b435900"}},
+    {"from":"IMPLEMENTING","to":"PR_OPEN","at":"2026-08-30T15:03:46Z","actor":"z-ai-implementation-agent","role":"implementer","reason":"PR #99 opened with the CAD-PARITY-011 implementation; final implementation evidence is bound to 6c21766 and the final governance-record head is 104aaf8.","references":{"issue":97,"pr":99,"commit":"104aaf8e3b632b62c3deb72625ae94cca61c9162","evidence":["EV-001","EV-002","EV-003"]}},
+    {"from":"PR_OPEN","to":"VERIFYING","at":"2026-08-30T16:15:16Z","actor":"z-ai-implementation-agent","role":"implementer","reason":"Complete implementation evidence submitted for Architect review.","references":{"pr":99,"evidence":["EV-001","EV-002","EV-003"]}},
+    {"from":"VERIFYING","to":"ARCHITECT_REVIEW","at":"2026-08-30T17:12:00Z","actor":"pectoraux","role":"architect","reason":"Independent Architect review completed against Issue #97, the frozen architecture, actual PR #99 diff, exact-head CI, exact-head Vercel deployments, deployed browser evidence, regression fixtures, and governance validation.","references":{"pr":99,"evidence":["EV-001","EV-002","EV-003"],"commit":"104aaf8e3b632b62c3deb72625ae94cca61c9162"}},
+    {"from":"ARCHITECT_REVIEW","to":"APPROVED","at":"2026-08-30T17:12:30Z","actor":"pectoraux","role":"architect","reason":"DEC-001 APPROVED: PR #99 satisfies the P011 acceptance bar within frozen ConstructionOS Architecture v1.1. No blocking defect or architecture violation was found. GitHub formal approving review is unavailable because the connected Architect identity is also the PR author; approval is therefore recorded as the governance decision. Post-merge verification remains required before VERIFIED.","references":{"pr":99,"decision":"DEC-001","evidence":["EV-001","EV-002","EV-003"]}}
   ],
-  "dependencies": [
-    "CAD-PARITY-010",
-    "COMPAT-BIM-003",
-    "RESEARCH-CAD-007",
-    "COMPAT-CAD-003"
+  "evidence":[
+    {"id":"EV-001","type":"automated-test-suite","description":"Full P011 implementation suite at implementation head 6c21766: 1106 tests / 1079 pass / 0 fail / 27 engine-gated skips; tsc clean; LOCK-018 4/4; governance validate 313/313; governance tool suite 58/58.","produced_at":"2026-08-30T16:13:00Z","reproducible":true,"reproduction":"Run the documented app typecheck/test/forbidden-imports suites and governance validation from PR #99.","references":{"commit":"6c21766d782e32e5edab7ded09893b1321204cb4","pr":99}},
+    {"id":"EV-002","type":"ci-run","description":"All 20 PR-head workflows succeeded on implementation head 6c21766, including cad-parity-011 and the complete P002..P010 regression matrix; all 20 workflows also succeeded on final record head 104aaf8, including cad-parity-011 run 33321957779 and governance run 33321957828.","produced_at":"2026-08-30T16:53:19Z","reproducible":true,"reproduction":"Inspect PR #99 Actions results for implementation head 6c21766 and final record head 104aaf8.","references":{"commit":"104aaf8e3b632b62c3deb72625ae94cca61c9162","pr":99,"workflow_run":"33321957779"}},
+    {"id":"EV-003","type":"inspectable-artifact","description":"Exact-head Vercel deployment dpl_EmMNQ9PL7vdD43wr8be7MZnTwE2B serves final head 104aaf8. All nine fixture smokes pass byte-identically, including the pinned P011 fixture c4cc742b… (30 commands, 50 echo lines) and untouched P002..P010 fixtures. Deployed browser verification exercised the P011 BIM workbench, authoring forms, lifecycle panel, Build geometry typed outcomes, active-option skip semantics, classification validation, and explicit typed declines.","produced_at":"2026-08-30T16:50:00Z","reproducible":true,"reproduction":"Run the nine fixture smokes against the exact deployment and exercise the deployed P011 BIM workbench representative workflow.","references":{"commit":"104aaf8e3b632b62c3deb72625ae94cca61c9162","pr":99}},
+    {"id":"EV-004","type":"decision-record","description":"Architect independent review of PR #99 found no blocking defect or architecture violation; formal GitHub approving review was unavailable because the connected Architect identity is also the PR author. Approval is therefore recorded as DEC-001 in the canonical governance ledger. Post-merge verification remains outstanding.","produced_at":"2026-08-30T17:12:30Z","reproducible":true,"reproduction":"Inspect PR #99 diff/comments and the P011 governance record.","references":{"commit":"104aaf8e3b632b62c3deb72625ae94cca61c9162","pr":99}}
   ],
-  "objective": "Expand the verified CAD/BIM product into the next bounded Archicad-class architectural authoring layer: richer architectural building elements and deterministic relationships, classification/property semantics, and bounded renovation/design-option lifecycle state, while preserving the frozen ConstructionOS/CAD architecture.",
-  "acceptance_criteria": [
-    "Deterministic representative workflows create and edit supported roof, stair and railing elements with canonical host/story relationships.",
-    "Existing space/zone semantics remain valid and participate in supported vertical and lifecycle relationships.",
-    "Classification and structured property edits persist through save/open/replay and map through Construction Graph using canonical identities.",
-    "Renovation state and bounded design-option membership are deterministic, persisted, and do not require destructive model duplication.",
-    "Web and Electron produce equivalent semantic streams and canonical serialized results for the pinned P011 fixture.",
-    "Real OCCT coverage exists for supported new geometry; reference/dummy adapters return typed deterministic declines for unsupported operations.",
-    "Existing CAD-PARITY-002..010, BIM, IFC, documentation, governance and real-engine regression suites remain green and previous fixtures remain byte-identical.",
-    "No protected architecture files are modified.",
-    "The exact implementation head is CI-verified and deployed/browser-verified on Vercel.",
-    "Governance evidence binds tests, CI, deployments, review state, exact revisions and timestamps."
-  ],
-  "non_goals": [
-    "Full Archicad/Revit family-system parity.",
-    "Advanced MEP/structural authoring.",
-    "Full terrain/mesh/point-cloud authoring.",
-    "Full freeform roof/shell editing with arbitrary complex topology.",
-    "General-purpose stair/railing constraint solving.",
-    "Full renovation/design-option history parity beyond the bounded canonical states.",
-    "Project scheduling, 4D or cost-planning workflows.",
-    "Architecture changes without an ACR."
-  ],
-  "risk_assumptions": [
-    "CAD-PARITY-010 is VERIFIED on main at merge commit 3c476b51239d0e29b8174451fdc0ea365010978e.",
-    "COMPAT-BIM-003, RESEARCH-CAD-007 and COMPAT-CAD-003 are VERIFIED and provide the existing BIM/component/feasibility baseline.",
-    "P011 composes with, rather than replaces, the already-verified component/material subsystem.",
-    "Native geometry and IFC engines remain isolated behind the established adapter/worker boundary.",
-    "Unsupported architectural element operations must be explicit typed declines rather than fabricated geometry or silent approximation."
-  ],
-  "evidence_requirements": [
-    "Deterministic unit and workflow suites for roofs, stairs, railings, host/story relationships, classification/properties and lifecycle semantics.",
-    "Web/Electron parity fixtures covering representative architectural element creation/editing and lifecycle state.",
-    "Real-OCCT coverage through the existing EngineAdapterBundle/worker boundary plus explicit reference-engine declines where unsupported.",
-    "Regression proof that CAD-PARITY-002..010 fixtures remain green and byte-identical.",
-    "Exact-head Vercel deployment and real-browser verification of the representative P011 workflows.",
-    "Governance evidence bound to exact implementation revisions and CI/deployment identities."
-  ],
-  "state": "VERIFYING",
-  "transitions": [
-    {
-      "from": "DRAFT",
-      "to": "READY",
-      "at": "2026-08-30T12:46:06Z",
-      "actor": "pectoraux",
-      "role": "architect",
-      "reason": "Architect released CAD-PARITY-011 as the next roadmap work item after CAD-PARITY-010 verification. Scope was derived from the frozen Phase 5 BIM roadmap and the repository's already-verified BIM/component foundations, avoiding duplication of completed component/material work.",
-      "references": {
-        "issue": 97
-      }
-    },
-    {
-      "from": "READY",
-      "to": "ASSIGNED",
-      "at": "2026-08-30T12:46:37Z",
-      "actor": "pectoraux",
-      "role": "architect",
-      "reason": "Dependency gates are verified on main. The work item is assigned to the logical implementation agent z-ai-implementation-agent; GitHub does not expose that logical agent as a repository user, so the assignment is recorded authoritatively in the governance ledger.",
-      "references": {
-        "issue": 97,
-        "assignee": "z-ai-implementation-agent",
-        "commit": "3c476b51239d0e29b8174451fdc0ea365010978e"
-      }
-    },
-    {
-      "from": "ASSIGNED",
-      "to": "IMPLEMENTING",
-      "at": "2026-08-30T13:16:19Z",
-      "actor": "z-ai-implementation-agent",
-      "role": "implementer",
-      "reason": "Implementation branch work/cad-parity-011-archicad-authoring cut from main at 8392951 and implementation begins per Issue #97 (the bounded Archicad-class authoring expansion: roofs, stairs, railings, host/story relationships, classification/properties, spaces/zones, renovation/design-option lifecycle).",
-      "references": {
-        "issue": 97,
-        "commit": "83929518d3eb177b37ce22f857aa3b3c7b435900"
-      }
-    },
-    {
-      "from": "IMPLEMENTING",
-      "to": "PR_OPEN",
-      "at": "2026-08-30T15:03:46Z",
-      "actor": "z-ai-implementation-agent",
-      "role": "implementer",
-      "reason": "PR #99 opened with the CAD-PARITY-011 implementation (shared core → App API command/query surface → deterministic suites → Web host → Electron host → CI). The PR opened at head ee3d14c; the strict-tsc test fix 6c21766 (the P011 OCCT suite's realize() parameter through the adapter factory types) was pushed 15:11:32Z and re-ran the full CI matrix; all implementation evidence below is bound to the final implementation head 6c21766.",
-      "references": {
-        "issue": 97,
-        "pr": 99,
-        "commit": "6c21766d782e32e5edab7ded09893b1321204cb4",
-        "evidence": [
-          "EV-001",
-          "EV-002",
-          "EV-003"
-        ]
-      }
-    },
-    {
-      "from": "PR_OPEN",
-      "to": "VERIFYING",
-      "at": "2026-08-30T16:15:16Z",
-      "actor": "z-ai-implementation-agent",
-      "role": "implementer",
-      "reason": "Complete implementation evidence submitted for Architect review.",
-      "references": {
-        "pr": 99,
-        "evidence": [
-          "EV-001",
-          "EV-002",
-          "EV-003"
-        ]
-      }
-    }
-  ],
-  "evidence": [
-    {
-      "id": "EV-001",
-      "type": "automated-test-suite",
-      "description": "Full P011 implementation suite at implementation head 6c21766: 1106 tests / 1079 pass / 0 fail / 27 engine-gated skips (the P010 baseline 1057 + 49 new P011 tests: elements 16, geometry 13, workflow 13, real-OCCT 7 incl. the cross-engine volume agreements); tsc --noEmit clean; LOCK-018 forbidden-import scan 4/4 (src/bim incl. the new meta/lifecycle/relationships modules); governance validate 313/313 (the subordinate spec/<product>/requirements.md registries now resolve additively) and the governance tool's own suite 58/58.",
-      "produced_at": "2026-08-30T16:13:00Z",
-      "reproducible": true,
-      "reproduction": "cd app && npm run typecheck && npm test && npm run test:forbidden-imports; npm run governance -- validate; npm test (repo root, the governance tool suite).",
-      "references": {
-        "commit": "6c21766d782e32e5edab7ded09893b1321204cb4",
-        "pr": 99
-      }
-    },
-    {
-      "id": "EV-002",
-      "type": "ci-run",
-      "description": "All 20 PR-head workflows succeeded on implementation head 6c21766 (runs created 2026-08-30T15:11:35Z, last completed 15:34:03Z), including the dedicated cad-parity-011 pipeline run 33318946075 — the three-job pattern: the workspace deterministic suite (OCCT 7.8.1.1 + ifcopenshell 0.8.5 toolchains + the P011 cross-engine suites), the web host (Next.js 16 + ALL NINE workspace smokes + ALL NINE parity fixtures), the electron host (build + 18 smokes incl. the new BIM P011 real-UI smoke) — plus governance validation run 33318946013 and the full CAD-PARITY-002..010 / BIM / IFC / research / implement regression matrix.",
-      "produced_at": "2026-08-30T15:34:03Z",
-      "reproducible": true,
-      "reproduction": "Inspect PR #99 Actions results for implementation head 6c21766.",
-      "references": {
-        "commit": "6c21766d782e32e5edab7ded09893b1321204cb4",
-        "pr": 99,
-        "workflow_run": "33318946075"
-      }
-    },
-    {
-      "id": "EV-003",
-      "type": "inspectable-artifact",
-      "description": "The exact-head Vercel deployment dpl_AN2LGEzA4uZZaSXqBGq1SCCq3LEp (githubCommitSha == 6c21766, PR 99) READY at https://offisos-fm2vdlvbu-ekonplacidegmailcoms-projects.vercel.app (created 2026-08-30T15:38:35Z); ALL NINE fixture smokes pass against the deployment byte-identically (workspace a48a29a8…, layers/styles f92be229…, annotation a14ce71c…, blocks a7d7ff4c…, constraints cd9f3f61…, layouts 139ff4df…, model3d d2e7a95e…, model3d-p010 59ba5025… and the NEW pinned bim-p011 fixture — save sha c4cc742b…, 30 commands, 50 echo lines); the deployed real-UI browser verification exercised the P011 golden path: the BIM workbench rendering the authored model (12 elements — stories/walls/spaces/roof/stair/railings/zone/option group — with the iso·orthographic camera derived from the model bbox and the wireframe viewport), the P011 authoring tabs (Story…Option group), the lifecycle panel applying renovation status through bim.setRenovation, the Build geometry action reporting typed counts + skips + engine provenance (reference@1.1.0, the honest serverless OCCT-unavailable fallback), the deterministic ACTIVE-OPTION build behavior (built 8 → 7 with wall-b explicitly skipped-but-preserved when the active option changes), the classification applies-to gate rejecting a Wall code on a stair with a typed bim_invalid, and typed validation errors surfaced in the UI banner (never silent; the serverless in-memory document is per lambda instance, and every cross-instance command landed as a precise typed decline rather than a silent approximation).",
-      "produced_at": "2026-08-30T16:10:00Z",
-      "reproducible": true,
-      "reproduction": "Run the nine fixture smokes with OFFISOS_WEB_URL=https://offisos-fm2vdlvbu-ekonplacidegmailcoms-projects.vercel.app; open https://offisos-fm2vdlvbu-ekonplacidegmailcoms-projects.vercel.app in a browser and exercise the BIM workbench.",
-      "references": {
-        "commit": "6c21766d782e32e5edab7ded09893b1321204cb4",
-        "pr": 99
-      }
-    }
-  ],
-  "decisions": []
+  "decisions":[{"id":"DEC-001","status":"approved","decided_at":"2026-08-30T17:12:30Z","decided_by":"pectoraux","role":"architect","rationale":"PR #99 satisfies the bounded P011 architecture and acceptance criteria. The actual diff preserves the EngineAdapterBundle/worker boundary, canonical identity/provenance rules, shared Web/Electron semantics, deterministic behavior and prior fixture compatibility. CI and Vercel evidence are green on the final record head, and the deployed real-UI workflow was verified.","evidence_refs":["EV-001","EV-002","EV-003","EV-004"],"remediation_required":null}]
 }
