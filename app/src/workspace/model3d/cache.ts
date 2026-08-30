@@ -167,6 +167,20 @@ export class TessellationCache {
     return keys.length;
   }
 
+  /** Drop every entry of one descriptor (all quality presets). Called by the
+   *  App API when a modeling edit changes or removes an element's geometry —
+   *  eager invalidation tied to the canonical geometry state. Returns the
+   *  number dropped. */
+  invalidateDescriptor(descriptor: GeometryDescriptor): number {
+    const suffix = `:${descriptorCacheKey(descriptor)}`;
+    const keys: string[] = [];
+    for (const key of this.entries.keys()) {
+      if (key.endsWith(suffix)) keys.push(key);
+    }
+    for (const key of keys) this.invalidate(key);
+    return keys.length;
+  }
+
   /** The exact counters (deterministic evidence). */
   stats(): TessellationCacheStats {
     return {

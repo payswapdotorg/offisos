@@ -272,6 +272,20 @@ export interface MeshQualityKnobs {
   readonly angularDeflection: number;
 }
 
+/** The closed quality-preset table (the adapter-side and core-side
+ *  resolution of the SAME vocabulary — defined HERE so neither side owns it
+ *  alone). `full` matches the worker's default prepare tessellation. */
+export const MESH_QUALITY_PRESETS: Readonly<Record<MeshQualityPreset, MeshQualityKnobs>> = {
+  low: { linearDeflection: 0.8, angularDeflection: 0.9 },
+  medium: { linearDeflection: 0.4, angularDeflection: 0.7 },
+  full: { linearDeflection: 0.1, angularDeflection: 0.5 },
+};
+
+/** Resolve a preset to its concrete knobs. */
+export function meshQualityKnobs(quality: MeshQualityPreset): MeshQualityKnobs {
+  return MESH_QUALITY_PRESETS[quality];
+}
+
 /** The bounded per-mesh vertex budget the LOD surface enforces (typed
  *  engine failure beyond — never an unbounded mesh). */
 export const MESH_LOD_MAX_VERTICES = 150_000;

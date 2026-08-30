@@ -311,10 +311,12 @@ export function rayTriangle(
 }
 
 /** The perpendicular distance between a ray and a segment, with the closest
- *  points — the deterministic edge-pick primitive. Both parameters are
- *  clamped to their domains (s ≥ 0 on the ray; t ∈ [0, 1] on the segment),
- *  then re-solved in clamped order (the standard clamped least-squares
- *  solution). Returns null when the segment is degenerate. */
+ *  points — the deterministic edge-pick primitive. The clamped least-squares
+ *  solve: minimize |O + s·d − (A + t·AB)|² over s ≥ 0 (the ray) and
+ *  t ∈ [0, 1] (the segment); each clamped parameter is re-solved against
+ *  the other (the standard clamped solution). The parallel case minimizes
+ *  over the overlapping ray-parameter span directly. Returns null when the
+ *  segment is degenerate or the direction is zero. */
 export function raySegmentDistance(
   origin: Vec3,
   direction: Vec3,
@@ -330,27 +332,45 @@ export function raySegmentDistance(
   const dAo = v3Dot(direction, ao);
   const abAo = v3Dot(ab, ao);
   const denom = dD * abLen2 - dAb * dAb;
+  let s: number;
+  let t: number;
   if (Math.abs(denom) < 1e-15) {
-    // Parallel: the nearest ray point to the segment's origin.
-    const s = Math.max(0, -dAo / dD);
-    const rayPoint: Vec3 = [origin[0] + direction[0] * s, origin[1] + direction[1] * s, origin[2] + direction[2] * s];
-    const segPoint: Vec3 = [a[0], a[1], a[2]];
-    const delta = v3Sub(rayPoint, segPoint);
-    return { distance: Math.sqrt(v3Dot(delta, delta)), rayPoint, segPoint };
-  }
-  // Unclamped solution.
-  let s = (dAo * abLen2 - dAb * abAo) / denom;
-  let t = (abAo * dD - dAo * dAb) / denom;
-  if (t < 0) t = 0;
-  else if (t > 1) t = 1;
-  // Re-solve s for the clamped t (s ≥ 0).
-  s = (abAo + t * abLen2) / dAb;
-  if (s < 0) {
-    s = 0;
-    // Re-solve t for the clamped s.
-    t = -abAo / abLen2;
+    // Parallel: the segment covers ray parameters [lo, hi] (u = the start's
+    // projection, w = the extent along the ray). Align within the overlap
+    // with [0, ∞); clamp to the nearest endpoint otherwise.
+    const u = dAo / dD;
+    const w = dAb / dD;
+    const lo = Math.min(u, u + w);
+    const hi = Math.max(u, u + w);
+    if (hi <= 0) {
+      // The whole segment is at/behind the ray origin: the nearest ray
+      // point is the origin; the nearest segment point is the hi endpoint.
+      s = 0;
+      t = w >= 0 ? 1 : 0;
+    } else if (lo >= 0) {
+      // The whole segment is ahead: align with the lo endpoint.
+      s = lo;
+      t = w >= 0 ? 0 : 1;
+    } else {
+      // The span straddles the ray origin: align at s = 0.
+      s = 0;
+      t = Math.min(1, Math.max(0, -u / w));
+    }
+  } else {
+    // The unclamped stationary point.
+    s = (dAo * abLen2 - dAb * abAo) / denom;
+    t = (dAo * dAb - abAo * dD) / denom;
     if (t < 0) t = 0;
     else if (t > 1) t = 1;
+    // Re-solve s for the clamped t (∂/∂s: s·dD = dAo + t·dAb).
+    s = (dAo + t * dAb) / dD;
+    if (s < 0) {
+      s = 0;
+      // Re-solve t for the clamped s (∂/∂t: t·abLen2 = s·dAb − abAo).
+      t = -abAo / abLen2;
+      if (t < 0) t = 0;
+      else if (t > 1) t = 1;
+    }
   }
   const rayPoint: Vec3 = [origin[0] + direction[0] * s, origin[1] + direction[1] * s, origin[2] + direction[2] * s];
   const segPoint: Vec3 = [a[0] + ab[0] * t, a[1] + ab[1] * t, a[2] + ab[2] * t];
