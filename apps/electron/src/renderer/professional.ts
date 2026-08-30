@@ -615,6 +615,11 @@ export interface ProfessionalDriver {
   pressEscape(): Promise<void>;
   pickPoint(x: number, y: number): Promise<void>;
   setSelection(ids: string[]): Promise<void>;
+  /** CAD-PARITY-011 (Issue #97): set the ACTIVE STORY (the Navigator's
+   *  story context for BIM authoring commands — the same state the UI sets
+   *  when a story is created or picked; the smoke drives it explicitly to
+   *  reproduce the pinned stream's story switching). */
+  setActiveStory(id: string | null): void;
   refresh(): Promise<void>;
   commandLog(): string[];
   /** CAD-PARITY-009 (Issue #90): the 3D Model view surface — the view
@@ -6541,6 +6546,11 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
       await command("document.setSelection", { ids });
       state.selection = [...ids];
       renderModel();
+    },
+    setActiveStory(id: string | null): void {
+      // CAD-PARITY-011: pure UI context state (the same field the story
+      // creation/picking paths maintain) — no document revision.
+      state.activeStoryId = id;
     },
     async refresh(): Promise<void> {
       await refresh();

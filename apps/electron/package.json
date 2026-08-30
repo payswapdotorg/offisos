@@ -22,7 +22,8 @@
     "smoke:annotation": "node test/smoke-annotation.mjs",
     "smoke:blocks": "node test/smoke-blocks.mjs",
     "smoke:constraints": "node test/smoke-constraints.mjs",
-    "smoke:layouts": "node test/smoke-layouts.mjs"
+    "smoke:layouts": "node test/smoke-layouts.mjs",
+    "smoke:bim-p011": "node test/smoke-bim-p011.mjs"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",

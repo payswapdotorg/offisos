@@ -206,9 +206,9 @@ await runScript(
     { event: { type: "typed", text: "STAIR" } },
     { event: { type: "typed", text: "1000,4500" } },
     { event: { type: "typed", text: "5000,4500" } },
-    { event: { type: "entity", entity: pickOf(ff) } },
+    { event: { type: "typed", text: "P" } },
   ],
-  { activeStoryId: gf },
+  { activeStoryId: gf, currentSelection: [pickOf(ff)] },
 );
 assert(byType("bim.stair").length === 1, "one stair authored");
 const stairId = byType("bim.stair")[0];
@@ -216,28 +216,36 @@ const stairId = byType("bim.stair")[0];
 // --- 5. the RAILINGS (registry) — hosted on the stair -------------------------
 
 step("RAILING ×2 through the shared command registry (hosted on the stair)");
-await runScript([
-  { event: { type: "typed", text: "RAILING" } },
-  { event: { type: "entity", entity: pickOf(stairId) } },
-  { event: { type: "enter" } }, // side <left>
-]);
-await runScript([
-  { event: { type: "typed", text: "RAILING" } },
-  { event: { type: "entity", entity: pickOf(stairId) } },
-  { event: { type: "typed", text: "right" } },
-]);
+await runScript(
+  [
+    { event: { type: "typed", text: "RAILING" } },
+    { event: { type: "typed", text: "P" } },
+    { event: { type: "enter" } }, // side <left>
+  ],
+  { currentSelection: [pickOf(stairId)] },
+);
+await runScript(
+  [
+    { event: { type: "typed", text: "RAILING" } },
+    { event: { type: "typed", text: "P" } },
+    { event: { type: "typed", text: "right" } },
+  ],
+  { currentSelection: [pickOf(stairId)] },
+);
 assert(byType("bim.railing").length === 2, "two railings authored (deterministic propagation)");
 
 // --- 6. the ZONE (registry) — grouping the spaces -----------------------------
 
 step("ZONE through the shared command registry (grouping both spaces)");
-await runScript([
-  { event: { type: "typed", text: "ZONE" } },
-  { event: { type: "typed", text: "Daylit wing" } },
-  { event: { type: "entity", entity: pickOf("space-office") } },
-  { event: { type: "entity", entity: pickOf("space-hall") } },
-  { event: { type: "enter" } },
-]);
+await runScript(
+  [
+    { event: { type: "typed", text: "ZONE" } },
+    { event: { type: "typed", text: "Daylit wing" } },
+    { event: { type: "typed", text: "P" } },
+    { event: { type: "enter" } },
+  ],
+  { currentSelection: [pickOf("space-office"), pickOf("space-hall")] },
+);
 assert(byType("bim.zone").length === 1, "one zone authored");
 
 // --- 7. the OPTION GROUP (registry) -------------------------------------------
@@ -283,7 +291,7 @@ await runScript(
   [
     { event: { type: "typed", text: "RENOVATE" } },
     { event: { type: "typed", text: "to-be-demolished" } },
-    { event: { type: "entity", entity: pickOf(wallId) } },
+    { event: { type: "typed", text: "P" } },
     { event: { type: "enter" } },
   ],
   { currentSelection: [pickOf(wallId)] },
