@@ -29,9 +29,20 @@
  *       when the before/after content is a narrowly content-checked legal
  *       lifecycle transition of that record (status edge + exactly the gate
  *       instruments, each role-correct — registry-lifecycle.ts); waived
- *       transitions are reported explicitly as REGISTRY LIFECYCLE. In
- *       --paths-file strict mode there is no before/after content, so
- *       registry-record modifications fail closed.
+ *       transitions are reported explicitly as REGISTRY LIFECYCLE. A NEWLY
+ *       CREATED record under those patterns must satisfy the CREATION
+ *       TRAVERSAL: its introduction commit must be born at the INITIAL
+ *       lifecycle status (ACR → PROPOSED, reconciliation → STAGED) and every
+ *       later change to the same record within the checked range must itself
+ *       be a legal lifecycle transition — a record born mid-lifecycle
+ *       (already APPROVED / IMPLEMENTED / DECIDED) or advanced by anything
+ *       other than the legal edges is a violation, because the transition
+ *       guard only sees before/after pairs for pre-existing paths (demo
+ *       fixtures, demo: true, are exempt but inert). Lawful creations are
+ *       reported explicitly as REGISTRY ADDITION, with the traversed edges
+ *       when the same change advanced the record. In --paths-file strict
+ *       mode there is no record content or history, so registry-record
+ *       modifications AND additions fail closed.
  *
  *   check-verified-revisions [--base <git-ref>] [--root <dir>]
  *       Revision-bound verification drift audit (ARCH-WF-002): for every
@@ -155,6 +166,19 @@ function main(): void {
           registry: loadAcrRegistry(root),
           citedAcrs: acrOption.split(",").map((s) => s.trim()).filter((s) => s.length > 0),
         };
+    // Reads (and JSON-parses) a registry record's content at a git ref;
+    // undefined when the path is absent or not parseable (fail closed).
+    const readRecordAt = (ref: string, path: string): unknown | undefined => {
+      try {
+        const content = execSync(`git show ${JSON.stringify(`${ref}:${path}`)}`, {
+          cwd: root,
+          encoding: "utf8",
+        });
+        return JSON.parse(content) as unknown;
+      } catch {
+        return undefined;
+      }
+    };
     const check =
       base === undefined
         ? protectedPathsCheckResult(changedPaths, manifest, routing === undefined ? {} : { acrRouting: routing })
@@ -168,24 +192,35 @@ function main(): void {
               }
             },
             ...(routing === undefined ? {} : { acrRouting: routing }),
-            // Registry lifecycle verification (ARCH-WF-002 remediation): for a
-            // modified path under a lifecycle-managed registry pattern, read the
-            // before (base) and after (HEAD) record content so the change can be
-            // authorized as a narrowly content-checked legal lifecycle transition.
+            // Registry lifecycle verification (ARCH-WF-002 remediation): for
+            // lifecycle-managed registry patterns, the record content is read
+            // so the change can be authorized by the narrowly content-checked
+            // rules — a MODIFICATION of an existing record needs the before
+            // (base) and after (HEAD) pair checked as a legal lifecycle
+            // transition; a NEWLY CREATED record needs its full commit-range
+            // traversal (creation at the initial status + every later
+            // intra-change step as a legal transition — the round-3 creation
+            // invariant).
             registryLifecycle: {
-              readRecordPair: (path) => {
-                const read = (ref: string): unknown | undefined => {
-                  try {
-                    const content = execSync(
-                      `git show ${JSON.stringify(`${ref}:${path}`)}`,
-                      { cwd: root, encoding: "utf8" },
-                    );
-                    return JSON.parse(content) as unknown;
-                  } catch {
-                    return undefined;
-                  }
-                };
-                return { before: read(base!), after: read("HEAD") };
+              readRecordPair: (path) => ({
+                before: readRecordAt(base!, path),
+                after: readRecordAt("HEAD", path),
+              }),
+              readRecordHistory: (path) => {
+                try {
+                  const log = execSync(
+                    `git log --full-history --format=%H --reverse ${JSON.stringify(`${base}..HEAD`)} -- ${JSON.stringify(path)}`,
+                    { cwd: root, encoding: "utf8" },
+                  );
+                  const commits = log.split("\n").map((l) => l.trim()).filter((l) => l.length > 0);
+                  return commits.map((commit) => ({
+                    commit,
+                    before: readRecordAt(`${commit}^`, path),
+                    after: readRecordAt(commit, path),
+                  }));
+                } catch {
+                  return undefined;
+                }
               },
             },
           });
