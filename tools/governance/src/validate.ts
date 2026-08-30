@@ -5,7 +5,7 @@
 import { join } from "node:path";
 import Ajv from "ajv";
 import addFormats from "ajv-formats";
-import { loadWorkItems, parseRequirementIds, readJson } from "./loaders.js";
+import { loadWorkItems, loadRequirementIds, readJson } from "./loaders.js";
 import { validateStateMachineDefinition } from "./state-machine.js";
 import { validateWorkItem } from "./rules.js";
 import type {
@@ -95,7 +95,7 @@ export function validateRepository(root: string): ValidateOutcome {
   // ------------------------------------------------------------------
   // Requirement IDs from spec/requirements.md.
   // ------------------------------------------------------------------
-  const requirementIds = parseRequirementIds(join(root, "spec", "requirements.md"));
+  const requirementIds = loadRequirementIds(root);
   checks.push(
     requirementIds.size > 0
       ? pass("requirements/parsable", `Parsed ${requirementIds.size} requirement IDs from spec/requirements.md.`)
