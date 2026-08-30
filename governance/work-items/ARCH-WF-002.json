@@ -43,7 +43,7 @@
     "A reproducible example covering architecture-change approval and one covering a historical merged-record reconciliation.",
     "Evidence that existing normal lifecycle and VERIFIED gating behavior remains unchanged."
   ],
-  "state": "VERIFYING",
+  "state": "IMPLEMENTING",
   "transitions": [
     {
       "from": "DRAFT",
@@ -184,6 +184,19 @@
           "EV-006",
           "EV-007"
         ]
+      }
+    },
+    {
+      "from": "VERIFYING",
+      "to": "IMPLEMENTING",
+      "at": "2026-08-30T20:06:59Z",
+      "actor": "pectoraux",
+      "role": "architect",
+      "reason": "Architect ruling on PR #101 (delivered through the session channel; GitHub cannot carry a formal REQUEST_CHANGES review because the repository owner authored the PR): CHANGES REQUESTED again — not approved for merge. The circular-authorization defect is substantially addressed and the lifecycle guard is much stronger, but another governance bypass was found: lifecycle bypass at record creation. The protected-path rule intentionally allows additions under governance/acr/** and governance/reconciliations/** (correct for creating proposals/staged reconciliations), but the validator does not require newly created REAL records to begin at their initial lifecycle states. A PR can therefore create governance/acr/ACR-004.json with status APPROVED (review and approval included) or even IMPLEMENTED; because the file did not exist on main, the protected-path check treats it as an allowed registry addition and the lifecycle-transition guard never sees a before/after pair, so there is no requirement that the record actually traversed PROPOSED → ENDORSED → APPROVED → IMPLEMENTED. The same bypass exists for reconciliations: a newly created real reconciliation can be introduced directly as DECIDED rather than STAGED → DECIDED. This is especially important because ACR-9xx/demo records are explicitly reserved for demonstration, meaning the validator needs a real-record bootstrap invariant rather than relying on the demo fixtures.",
+      "failure_reason": "Creation-time lifecycle bypass: newly created non-demo registry records are not required to be born at their initial lifecycle states. Required correction — new ACR record → must be PROPOSED; new reconciliation → must be STAGED; then lifecycle-managed modifications may perform only the narrowly checked legal transitions. The fix must operate at the canonical validation/protected-path boundary, not merely in the PR template. Deterministic tests must prove: new real ACR with status APPROVED → BLOCKED; new real ACR with status IMPLEMENTED → BLOCKED; new real reconciliation DECIDED → BLOCKED; new real ACR with status PROPOSED → ALLOWED; new reconciliation with STAGED → ALLOWED; existing record legal lifecycle edge → ALLOWED; existing record arbitrary modification → BLOCKED. The prior circularity finding is resolved conceptually, but creation-time lifecycle bypass remains a governance integrity defect. No VERIFIED, no P012, and no merge until this is closed.",
+      "references": {
+        "pr": 101,
+        "issue": 12
       }
     }
   ],
