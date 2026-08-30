@@ -43,7 +43,7 @@
     "A reproducible example covering architecture-change approval and one covering a historical merged-record reconciliation.",
     "Evidence that existing normal lifecycle and VERIFIED gating behavior remains unchanged."
   ],
-  "state": "IMPLEMENTING",
+  "state": "VERIFYING",
   "transitions": [
     {
       "from": "DRAFT",
@@ -153,6 +153,38 @@
         "pr": 101,
         "issue": 12
       }
+    },
+    {
+      "from": "IMPLEMENTING",
+      "to": "PR_OPEN",
+      "at": "2026-08-30T19:44:50Z",
+      "actor": "z-ai-implementation-agent",
+      "role": "implementer",
+      "reason": "CHANGES REQUESTED remediation complete and pushed to the open PR #101 (heads 5c7d55f the ruling record, 8eb7abb the registry lifecycle rule, 308c4de the docs). The circular ACR authorization is broken by the finite, explicit registry lifecycle rule: the two registry patterns (governance/acr/**, governance/reconciliations/**) are lifecycle-managed (a manifest change routed through ACR-003), and a modification of an EXISTING registry record is waived ONLY when it is a narrowly content-checked legal lifecycle transition — same identity, a legal status edge (single-gate or monotone composition), changed top-level fields EXACTLY {status} plus the edge's gate instruments, every instrument newly added with its authorizing role and required verdict (tools/governance/src/registry-lifecycle.ts). An ACR's own lifecycle advancement is now authorized by the lifecycle rules themselves — never by another ACR. New proposals/staging stay allowed; arbitrary existing-record edits (prose, authorized_paths, evidence, citations, instrument replacement, key removal, id changes, deletions) remain blocked — proven by deterministic tests including the authorized_paths-smuggling and git-level tamper cases; protected implementation changes still require an approved ACR; the normal VERIFIED gate is untouched.",
+      "references": {
+        "issue": 12,
+        "pr": 101,
+        "commit": "308c4de7b7ea533a6cb9932e1e2b1e79849ac5b4",
+        "evidence": [
+          "EV-006",
+          "EV-007"
+        ]
+      }
+    },
+    {
+      "from": "PR_OPEN",
+      "to": "VERIFYING",
+      "at": "2026-08-30T19:44:50Z",
+      "actor": "z-ai-implementation-agent",
+      "role": "implementer",
+      "reason": "Remediation evidence submitted for Architect re-review. The dry run (scratch clone) proves the previously-deadlocking flow end-to-end: the two architect acts applied → validate 371/371 exit 0 (the three P011 failures converted to [RECONCILED] passes) AND check-protected on the acts diff passes with the two modifications explicitly reported as REGISTRY LIFECYCLE transitions; the post-merge ACR-003 → IMPLEMENTED advancement passes the same way; the full PR diff with ACR-003 approved routes the three implementation paths; the authorized_paths tamper on the existing record stays a violation with the precise 'ordinary modification' reason. Governance CI remains red by design on exactly the three P011 historical failures until the Architect acts.",
+      "references": {
+        "pr": 101,
+        "evidence": [
+          "EV-006",
+          "EV-007"
+        ]
+      }
     }
   ],
   "evidence": [
@@ -217,6 +249,31 @@
         "commit": "b728e37",
         "pr": 101,
         "workflow_run": "33329929180"
+      }
+    },
+    {
+      "id": "EV-006",
+      "type": "automated-test-suite",
+      "description": "The remediation suites at remediation head 308c4de (implementation commit 8eb7abb): 160/160 deterministic tests — 41 new (registry-lifecycle.test.ts: every legal ACR edge incl. the composed PROPOSED→APPROVED the documented architect act uses; the reconciliation decision; the BLOCKED proofs the ruling explicitly requires — authorized_paths edits with and without a transition, prose amendments, evidence/citation changes, instrument replacement, key removal, id changes, deletions, status jumps, backwards moves, role violations; the integration cases incl. fail-closed strict mode, explicit never-silent reporting, the preserved ACR-routing general channel; and three git-level end-to-end tests replaying the ruling's scenario against the real CLI: PROPOSED→APPROVED passes as REGISTRY LIFECYCLE, the authorized_paths tamper stays a violation, the deletion stays a violation). Every pre-existing test unchanged and passing. tsc clean; validate 368/371 with exactly the three intentionally-preserved CAD-PARITY-011 historical failures; drift audit green. The dry run over a scratch clone: the two architect acts → validate 371/371 exit 0 + check-protected --base HEAD~1 --acr ACR-003 PASS with both modifications explicitly REGISTRY LIFECYCLE; ACR-003 → IMPLEMENTED post-merge advancement PASS; the full PR diff with ACR-003 approved routes the three implementation paths; the authorized_paths tamper FAIL with the 'ordinary modification (fields changed (authorized_paths))' reason.",
+      "produced_at": "2026-08-30T19:44:50Z",
+      "reproducible": true,
+      "reproduction": "npm ci && npm run typecheck && npm test && npm run governance -- validate && npm run governance -- check-verified-revisions; the dry run: clone the branch head, apply the two documented acts (ACR-003 PROPOSED→APPROVED + review + approval; REC-CAD-PARITY-011 STAGED→DECIDED + decision fields), commit, then npm run governance -- validate (371/371) and npm run governance -- check-protected --base HEAD~1 --acr ACR-003 (PASS, REGISTRY LIFECYCLE ×2).",
+      "references": {
+        "commit": "308c4de7b7ea533a6cb9932e1e2b1e79849ac5b4",
+        "pr": 101
+      }
+    },
+    {
+      "id": "EV-007",
+      "type": "ci-run",
+      "description": "Governance CI run 33331657817 on remediation head 308c4de: the deterministic suite green at 160/160 (the 41 new lifecycle tests running in CI) and validate red only on the three known CAD-PARITY-011 historical failures (368/371) — the same designed acceptance-target state, unchanged by the remediation. The run completed 2026-08-30T19:43:46Z.",
+      "produced_at": "2026-08-30T19:43:46Z",
+      "reproducible": true,
+      "reproduction": "Inspect the Actions results for remediation head 308c4de (governance run 33331657817): the test step reports # tests 160 / # pass 160; the validate step lists exactly the three work-item/CAD-PARITY-011 FAIL lines.",
+      "references": {
+        "commit": "308c4de7b7ea533a6cb9932e1e2b1e79849ac5b4",
+        "pr": 101,
+        "workflow_run": "33331657817"
       }
     }
   ],
