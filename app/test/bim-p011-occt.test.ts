@@ -15,6 +15,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createOcctGeometryAdapter } from "../src/adapters/occt/index.js";
 import { createReferenceGeometryAdapter } from "../src/adapters/reference/index.js";
+import type { GeometryMetadataProvider } from "../src/contracts/geometry.js";
 import { engineSkip } from "./engine-availability.js";
 import { bimGeometryContext, bimSolidDescriptor, railingVolume, roofVolume, stairVolume } from "../src/bim/geometry.js";
 import {
@@ -39,8 +40,10 @@ const FF = entity(makeStory({ name: "FF", level: 3000, height: 3000 }), "story-f
 const OCCT = createOcctGeometryAdapter();
 const REF = createReferenceGeometryAdapter();
 
+type P011GeometryAdapter = ReturnType<typeof createOcctGeometryAdapter> | ReturnType<typeof createReferenceGeometryAdapter>;
+
 async function realize(
-  adapter: { prepareGeometry(el: { id: string; kind: string; engineId: null; props: Record<string, unknown> }): Promise<{ meshToken: string }>; describeGeometryMetadata(t: string): Promise<{ volume: number } | null> },
+  adapter: P011GeometryAdapter & Partial<GeometryMetadataProvider>,
   descriptor: unknown,
 ): Promise<{ meshToken: string; volume: number }> {
   const result = await adapter.prepareGeometry({ id: "p011", kind: "bim", engineId: null, props: descriptor as Record<string, unknown> });
