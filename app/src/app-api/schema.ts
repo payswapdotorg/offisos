@@ -1121,6 +1121,13 @@ export const COMMAND_PAYLOAD_SCHEMAS: Readonly<Record<CommandName, object>> = {
                 "bim.material",
                 "bim.grid",
                 "bim.referencePlane",
+                // CAD-PARITY-011 (additive, Issue #97): the Archicad-class
+                // authoring entities.
+                "bim.roof",
+                "bim.stair",
+                "bim.railing",
+                "bim.zone",
+                "bim.optionGroup",
               ],
             },
             name: { type: "string" },
@@ -1162,6 +1169,51 @@ export const COMMAND_PAYLOAD_SCHEMAS: Readonly<Record<CommandName, object>> = {
             properties: { type: "object" },
             uLines: { type: "array", minItems: 1, maxItems: 64, items: { type: "number" } },
             vLines: { type: "array", minItems: 1, maxItems: 64, items: { type: "number" } },
+            // CAD-PARITY-011 (additive, Issue #97): the Archicad-class
+            // authoring entity fields (validated strictly by the handler —
+            // the schema is the coarse wire shape).
+            ridgeAxis: { type: "string", enum: ["x", "y"] },
+            topStoryId: { type: "string" },
+            direction: { $ref: "#/$defs/vec2" },
+            stepCount: { type: "integer", minimum: 2, maximum: 24 },
+            tread: { type: "number", exclusiveMinimum: 0 },
+            landingLength: { type: "number", minimum: 0 },
+            side: { type: "string", enum: ["left", "right"] },
+            spaceIds: { type: "array", minItems: 1, maxItems: 64, items: { type: "string" } },
+            options: { type: "array", minItems: 2, maxItems: 8, items: { type: "string" } },
+            activeOption: { type: "string" },
+            meta: {
+              type: "object",
+              properties: {
+                classificationRef: { type: "string" },
+                propertySets: {
+                  type: "array",
+                  maxItems: 8,
+                  items: {
+                    type: "object",
+                    properties: {
+                      name: { type: "string" },
+                      properties: {
+                        type: "array",
+                        maxItems: 32,
+                        items: {
+                          type: "object",
+                          properties: {
+                            key: { type: "string" },
+                            value: {},
+                          },
+                          required: ["key", "value"],
+                        },
+                      },
+                    },
+                    required: ["name", "properties"],
+                  },
+                },
+                renovationStatus: { type: "string", enum: ["existing", "new", "to-be-demolished"] },
+                optionGroupId: { type: "string" },
+                option: { type: "string" },
+              },
+            },
           },
           required: ["type"],
         },
@@ -1230,6 +1282,72 @@ export const COMMAND_PAYLOAD_SCHEMAS: Readonly<Record<CommandName, object>> = {
     properties: {
       ids: { type: "array", minItems: 1, items: { type: "string" } },
     },
+  },
+  // CAD-PARITY-011 (additive, Issue #97): the meta/lifecycle command
+  // surface — classification, structured property sets, renovation state,
+  // design-option membership and the active option.
+  "bim.setClassification": {
+    type: "object",
+    properties: {
+      elementId: { type: "string" },
+      classificationRef: { type: ["string", "null"] },
+    },
+    required: ["elementId", "classificationRef"],
+  },
+  "bim.setPropertySets": {
+    type: "object",
+    properties: {
+      elementId: { type: "string" },
+      propertySets: {
+        type: "array",
+        maxItems: 8,
+        items: {
+          type: "object",
+          properties: {
+            name: { type: "string" },
+            properties: {
+              type: "array",
+              maxItems: 32,
+              items: {
+                type: "object",
+                properties: {
+                  key: { type: "string" },
+                  value: {},
+                },
+                required: ["key", "value"],
+              },
+            },
+          },
+          required: ["name", "properties"],
+        },
+      },
+    },
+    required: ["elementId", "propertySets"],
+  },
+  "bim.setRenovation": {
+    type: "object",
+    properties: {
+      elementId: { type: "string" },
+      status: { type: "string", enum: ["existing", "new", "to-be-demolished"] },
+    },
+    required: ["elementId", "status"],
+  },
+  "bim.setOptionMembership": {
+    type: "object",
+    properties: {
+      elementId: { type: "string" },
+      optionGroupId: { type: ["string", "null"] },
+      option: { type: ["string", "null"] },
+    },
+    required: ["elementId", "optionGroupId", "option"],
+  },
+  "bim.setActiveOption": {
+    type: "object",
+    properties: {
+      optionGroupId: { type: "string" },
+      option: { type: "string" },
+    },
+    required: ["optionGroupId", "option"],
   },
   // COMPAT-CAD-003 (additive): construction documentation commands.
   "docs.createViews": {
@@ -1522,6 +1640,16 @@ export const QUERY_PAYLOAD_SCHEMAS: Readonly<Record<QueryName, object>> = {
       preset: { type: "string", enum: ["iso", "top", "front", "right"] },
     },
     required: ["preset"],
+  },
+  // CAD-PARITY-011 (additive, Issue #97): the classification/options/
+  // lifecycle queries.
+  "bim.getClassification": { type: "object", properties: {} },
+  "bim.getOptions": { type: "object", properties: {} },
+  "bim.getLifecycle": {
+    type: "object",
+    properties: {
+      elementId: { type: "string" },
+    },
   },
   // COMPAT-CAD-003 (additive): documentation queries.
   "docs.listViews": { type: "object", properties: {} },

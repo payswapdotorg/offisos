@@ -14,3 +14,9 @@ export * from "./editops.js";
 export * from "./commands.js";
 export * from "./semantics.js";
 export * from "./camera.js";
+// CAD-PARITY-011 (additive, Issue #97): the cross-cutting semantic meta
+// overlay, the vertical-relationship validators and the dedicated
+// lifecycle/classification edit builders.
+export * from "./meta.js";
+export * from "./relationships.js";
+export * from "./lifecycle.js";
