@@ -1,0 +1,62 @@
+{
+  "id": "CAD-PARITY-010",
+  "title": "Solids, surfaces, meshes, booleans, sections and large-model performance",
+  "issue": 93,
+  "architecture_version": "1.1",
+  "requirements": [
+    "CAD-002"
+  ],
+  "dependencies": [
+    "CAD-PARITY-009"
+  ],
+  "objective": "Advance the frozen CAD/BIM product from the bounded P009 3D environment into a substantially deeper modeling kernel and viewport layer: richer solid boolean workflows, bounded surface and mesh representations, exact section/slice computation where the existing adapter can support it, deterministic topology-aware semantics where provenance can be reconciled, and large-model performance infrastructure, while preserving the frozen ConstructionOS/CAD architecture and the shared Web/Electron semantic boundary.",
+  "acceptance_criteria": [
+    "P009 camera/UCS/workplane/navigation semantics remain the single shared foundation; no host-specific duplicate 3D math is introduced.",
+    "Representative solid workflows support boolean union/intersection/difference through the existing adapter/worker architecture with explicit typed failures and deterministic persisted results.",
+    "Surface and mesh representations are introduced only with engine-neutral contracts, explicit ownership/provenance, deterministic serialization, and honest unsupported behavior for operations outside the bounded implementation.",
+    "Section/slice computation is upgraded from the P009 bbox foundation to exact adapter-backed geometry where deterministically supportable; unsupported exact sections remain typed failures rather than approximations.",
+    "Topology-aware face/edge/vertex selection is added only where canonical mapping and deterministic ordering can be proven; engine GlobalIds remain provenance and never canonical identity.",
+    "Web and Electron share semantic model/selection/section/boolean streams and produce equivalent persisted state and deterministic visual artifacts.",
+    "Large-model handling includes bounded tessellation, caching/invalidation, progressive viewport update semantics, and measurable performance budgets without moving engine imports across the existing boundary.",
+    "All existing CAD-PARITY-002..009 fixtures remain green and byte-identical unless a documented migration is genuinely required and explicitly reviewed.",
+    "Save/open/replay, Construction Graph mapping, undo/redo, and provenance remain valid across all new modeling forms.",
+    "The exact final implementation head is verified on CI and on a Vercel deployment, including representative boolean/section/topology/performance workflows."
+  ],
+  "non_goals": [
+    "Arbitrary freeform NURBS surface editing in one slice.",
+    "Full mesh sculpting/subdivision editing.",
+    "Point-cloud authoring.",
+    "GPU-specific renderer replacement or mandatory WebGL/three.js adoption.",
+    "Photorealistic rendering/material/light pipelines.",
+    "Unlimited topology/history reconstruction beyond what can be deterministically mapped.",
+    "MEP/structural specialized authoring, which remains later scope.",
+    "Architecture changes without an explicit ACR."
+  ],
+  "risk_assumptions": [
+    "The existing OCCT worker can expose additional boolean/section/topology capabilities without changing the public EngineAdapterBundle semantics.",
+    "Reference/dummy behavior may decline advanced operations but must use typed deterministic failure classes rather than fabricate geometry.",
+    "Large-model performance work will preserve semantic determinism even where visual delivery is progressive or cached.",
+    "Canonical identities remain document-owned; adapter topology identifiers are provenance mappings only."
+  ],
+  "evidence_requirements": [
+    "Deterministic unit suites for booleans, sectioning, topology mapping, mesh/surface serialization, cache invalidation, and performance-budget instrumentation.",
+    "Web/Electron semantic parity fixtures covering representative solid, boolean, section, topology-selection and large-model workflows.",
+    "Real-OCCT coverage through the existing adapter/worker boundary plus explicit reference-engine declines where unsupported.",
+    "Regression proof that CAD-PARITY-002..009 fixtures remain green and byte-identical.",
+    "Vercel deployed verification of the exact implementation head plus real-browser evidence for the representative 3D workflows."
+  ],
+  "state": "READY",
+  "transitions": [
+    {
+      "from": "DRAFT",
+      "to": "READY",
+      "at": "2026-08-30T08:20:00Z",
+      "actor": "pectoraux",
+      "role": "architect",
+      "reason": "Architect work order prepared from the frozen CAD-PARITY roadmap: CAD-PARITY-010 is the next roadmap item after CAD-PARITY-009, covering deeper solids/surfaces/meshes, booleans, exact sections where supported, topology-aware selection where deterministic, and large-model performance.",
+      "references": {
+        "issue": 93
+      }
+    }
+  ]
+}
