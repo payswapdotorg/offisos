@@ -1,0 +1,210 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "reconciliation.schema.json",
+  "title": "ConstructionOS historical governance reconciliation record",
+  "description": "Schema for records in governance/reconciliations/. One file per reconciled work item, named <WORK-ITEM-ID>.json. A reconciliation is an Architect-owned, ACR-sanctioned overlay for an already-merged work item whose immutable historical ledger contains a specific, enumerated governance defect. It never modifies the original record; it cites the original events verbatim (tamper evidence) and waives exactly the enumerated violations — nothing else. STAGED means the facts are complete but the Architect decision is pending and no waivers are active. DECIDED activates the waivers. The mechanism is owned by ARCH-WF-002; see governance/README.md (Historical governance reconciliation).",
+  "type": "object",
+  "required": [
+    "id",
+    "work_item",
+    "status",
+    "problem",
+    "defects",
+    "acr"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^REC-[A-Z][A-Z0-9]*(-[A-Z0-9]+)*-[0-9]{3}$",
+      "description": "Canonical reconciliation identifier: REC-<work-item-id>."
+    },
+    "work_item": {
+      "type": "string",
+      "pattern": "^[A-Z][A-Z0-9]*(-[A-Z0-9]+)*-[0-9]{3}$",
+      "description": "The work item whose historical ledger is reconciled. Must be in MERGED or VERIFIED state. Must equal the file name stem."
+    },
+    "status": {
+      "type": "string",
+      "enum": ["STAGED", "DECIDED"],
+      "description": "STAGED: facts and defect citations complete, Architect decision pending — no waivers are active and the underlying ledger failures remain visible. DECIDED: the Architect decision is recorded and the enumerated waivers are active."
+    },
+    "demo": {
+      "type": "boolean",
+      "default": false,
+      "description": "true marks a demonstration fixture with synthetic references (a worked example of the mechanism). Demo reconciliations must reference demo work items and demo ACRs."
+    },
+    "disclaimer": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Required when demo=true."
+    },
+    "problem": {
+      "type": "string",
+      "minLength": 10,
+      "description": "Honest description of the historical defect: what actually happened, with timestamps and commits."
+    },
+    "defects": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["rule", "violation", "original", "explanation"],
+        "additionalProperties": false,
+        "properties": {
+          "rule": {
+            "type": "string",
+            "enum": ["transition-legality", "temporal-ordering", "decisions"],
+            "description": "The validator rule whose failure is reconciled. Only these three rules are reconcilable, and only for the enumerated violation kinds below — no other failure class can ever be waived."
+          },
+          "violation": {
+            "type": "string",
+            "enum": ["unauthorized-role", "precedes-previous", "no-prior-approved-decision"]
+          },
+          "transition": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "1-based transition index in the work item's transitions array (matching the validator's human-facing numbering). Required for transition-scoped defects."
+          },
+          "state_entry": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The state being entered for decision-rule defects (e.g. MERGED). Required for rule=decisions."
+          },
+          "original": {
+            "type": "object",
+            "required": ["from", "to", "at", "actor", "role"],
+            "additionalProperties": false,
+            "properties": {
+              "from": { "type": "string", "minLength": 1 },
+              "to": { "type": "string", "minLength": 1 },
+              "at": { "type": "string", "format": "date-time" },
+              "actor": { "type": "string", "minLength": 1 },
+              "role": { "type": "string", "minLength": 1 }
+            },
+            "description": "The original transition facts, cited verbatim from the work-item record. If the historical record is ever edited, this citation stops matching and the reconciliation fails — tamper evidence."
+          },
+          "explanation": {
+            "type": "string",
+            "minLength": 10,
+            "description": "Why this specific historical violation occurred and why the physical repository history shows the defect was process-recording, not substance."
+          }
+        },
+        "allOf": [
+          {
+            "if": { "properties": { "rule": { "const": "transition-legality" } } },
+            "then": {
+              "properties": { "violation": { "const": "unauthorized-role" } },
+              "required": ["transition"]
+            }
+          },
+          {
+            "if": { "properties": { "rule": { "const": "temporal-ordering" } } },
+            "then": {
+              "properties": { "violation": { "const": "precedes-previous" } },
+              "required": ["transition"]
+            }
+          },
+          {
+            "if": { "properties": { "rule": { "const": "decisions" } } },
+            "then": {
+              "properties": { "violation": { "const": "no-prior-approved-decision" } },
+              "required": ["state_entry"]
+            }
+          }
+        ]
+      }
+    },
+    "evidence": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/evidence" },
+      "description": "Evidence the reconciliation decision rests on (the physical git topology, the ledger facts, post-merge verification). Required when DECIDED; each item must be reproducible and revision-bound."
+    },
+    "acr": {
+      "type": "string",
+      "pattern": "^ACR-[0-9]{3}$",
+      "description": "The ACR sanctioning this reconciliation. Must exist; must be APPROVED or IMPLEMENTED before the reconciliation may be DECIDED."
+    },
+    "decided_by": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Architect who decided the reconciliation. Required when DECIDED."
+    },
+    "role": {
+      "type": "string",
+      "enum": ["architect"],
+      "description": "Only the Architect decides reconciliations."
+    },
+    "decided_at": { "type": "string", "format": "date-time" },
+    "rationale": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The Architect's determination: why the historical record is accepted as reconciled."
+    },
+    "remediation": {
+      "type": "string",
+      "minLength": 1,
+      "description": "What the reconciliation requires or concludes (e.g. the item may proceed to VERIFIED only through the normal architect-verified path)."
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "status": { "const": "DECIDED" } } },
+      "then": {
+        "required": ["decided_by", "role", "decided_at", "rationale", "remediation", "evidence"]
+      }
+    },
+    {
+      "if": { "properties": { "status": { "const": "STAGED" } } },
+      "then": {
+        "not": {
+          "anyOf": [
+            { "required": ["decided_by"] },
+            { "required": ["decided_at"] },
+            { "required": ["rationale"] },
+            { "required": ["remediation"] }
+          ]
+        }
+      }
+    }
+  ],
+  "definitions": {
+    "evidence": {
+      "type": "object",
+      "required": ["id", "type", "description", "produced_at", "reproducible", "references"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "pattern": "^EV-[0-9]{3}$" },
+        "type": {
+          "type": "string",
+          "enum": [
+            "automated-test-suite",
+            "ci-run",
+            "benchmark-artifact",
+            "reproducible-script",
+            "inspectable-artifact",
+            "screenshot",
+            "narrative-claim",
+            "demo",
+            "implementation-status"
+          ]
+        },
+        "description": { "type": "string", "minLength": 3 },
+        "produced_at": { "type": "string", "format": "date-time" },
+        "reproducible": { "type": "boolean" },
+        "reproduction": { "type": "string", "minLength": 1 },
+        "references": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "pr": { "type": "integer", "minimum": 1 },
+            "commit": { "type": "string", "pattern": "^[0-9a-f]{7,40}$" },
+            "workflow_run": { "type": "string", "minLength": 1 },
+            "artifact_path": { "type": "string", "minLength": 1 },
+            "path": { "type": "string", "minLength": 1 }
+          }
+        }
+      }
+    }
+  }
+}

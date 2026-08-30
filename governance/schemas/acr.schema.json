@@ -1,0 +1,188 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "acr.schema.json",
+  "title": "ConstructionOS Architecture Change Request record",
+  "description": "Schema for every record in governance/acr/. One file per ACR, named <ID>.json (e.g. ACR-003.json). The ACR lifecycle is: PROPOSED -> ENDORSED (Architect review) -> APPROVED (Product Owner approval) -> IMPLEMENTED, with REJECTED as a terminal alternative. The validator enforces lifecycle coherence, role ownership, ordering and reference resolution; see spec/architecture-lock.md Section 3 (Architecture changes) and governance/README.md.",
+  "type": "object",
+  "required": [
+    "id",
+    "title",
+    "status",
+    "requested_by",
+    "requested_at",
+    "problem",
+    "evidence",
+    "impact",
+    "alternatives",
+    "recommendation",
+    "migration_plan",
+    "compatibility",
+    "security_impact",
+    "affected_requirements",
+    "affected_work_items",
+    "architecture_version_from",
+    "architecture_version_to",
+    "authorized_paths"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^ACR-[0-9]{3}$",
+      "description": "Canonical ACR identifier. Sequential: ACR-001 and ACR-002 are the historical markdown ACRs in governance/architecture-changes/; machine-readable records start at ACR-003. ACR-9xx is reserved for demo fixtures."
+    },
+    "demo": {
+      "type": "boolean",
+      "default": false,
+      "description": "true marks a demonstration fixture with synthetic references. Demo ACRs are excluded from real routing and may not be referenced by real work-item records."
+    },
+    "disclaimer": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Required when demo=true. States that the record is synthetic and makes no claim about real work."
+    },
+    "title": { "type": "string", "minLength": 3 },
+    "status": {
+      "type": "string",
+      "enum": ["PROPOSED", "ENDORSED", "APPROVED", "IMPLEMENTED", "REJECTED"],
+      "description": "Lifecycle status. PROPOSED: registered with full analysis. ENDORSED: Architect review recorded (verdict endorsed). APPROVED: Product Owner approval recorded after Architect endorsement. IMPLEMENTED: the approved change has landed via the referenced implementing work item. REJECTED: terminal."
+    },
+    "requested_by": {
+      "type": "string",
+      "minLength": 1,
+      "description": "GitHub username or agent identifier that requested the change."
+    },
+    "requested_at": { "type": "string", "format": "date-time" },
+    "problem": {
+      "type": "string",
+      "minLength": 10,
+      "description": "Problem statement with evidence (spec/architecture-lock.md Section 3)."
+    },
+    "evidence": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 3 },
+      "description": "Evidence items backing the problem statement (issue references, CI runs, ledger facts)."
+    },
+    "impact": {
+      "type": "string",
+      "minLength": 10,
+      "description": "Current architecture impact."
+    },
+    "alternatives": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 3 },
+      "description": "Alternatives considered."
+    },
+    "recommendation": {
+      "type": "string",
+      "minLength": 10,
+      "description": "Recommended change."
+    },
+    "migration_plan": {
+      "type": "string",
+      "minLength": 10,
+      "description": "Migration plan."
+    },
+    "compatibility": {
+      "type": "string",
+      "minLength": 10,
+      "description": "Compatibility / backward-impact analysis."
+    },
+    "security_impact": {
+      "type": "string",
+      "minLength": 10,
+      "description": "Security impact analysis."
+    },
+    "affected_requirements": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "pattern": "^[A-Z][A-Z0-9]*(-[A-Z0-9]+)*-[0-9]{3}$"
+      },
+      "description": "Requirement IDs from spec/requirements.md (or subordinate product registries) affected by this change. Every ID must resolve."
+    },
+    "affected_work_items": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[A-Z][A-Z0-9]*(-[A-Z0-9]+)*-[0-9]{3}$"
+      },
+      "description": "Work-item IDs whose governance is affected. Every ID must resolve to a registered work-item record (non-demo for real ACRs)."
+    },
+    "architecture_version_from": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Architecture version the change applies to. Must be registered in governance/architecture-versions.json."
+    },
+    "architecture_version_to": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Architecture version the change produces. Equal to _from for control changes that do not create a new version; different values create a new immutable version that must be registered once the ACR is APPROVED (spec/architecture-lock.md Section 3)."
+    },
+    "authorized_paths": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "description": "Exact repository paths this ACR authorizes changing while it is APPROVED or IMPLEMENTED, used by check-protected --acr routing. Paths must be unique. An approved ACR only routes the exact paths it enumerates; everything else stays protected."
+    },
+    "review": {
+      "type": "object",
+      "required": ["reviewed_by", "role", "reviewed_at", "verdict", "rationale"],
+      "additionalProperties": false,
+      "properties": {
+        "reviewed_by": { "type": "string", "minLength": 1 },
+        "role": { "type": "string", "enum": ["architect"], "description": "Only the Architect records ACR review." },
+        "reviewed_at": { "type": "string", "format": "date-time" },
+        "verdict": { "type": "string", "enum": ["endorsed", "rejected"] },
+        "rationale": { "type": "string", "minLength": 1 }
+      },
+      "description": "Architect review of the request. Required from ENDORSED onwards. Must precede the Product Owner approval."
+    },
+    "approval": {
+      "type": "object",
+      "required": ["approved_by", "role", "approved_at", "decision", "rationale"],
+      "additionalProperties": false,
+      "properties": {
+        "approved_by": { "type": "string", "minLength": 1 },
+        "role": { "type": "string", "enum": ["product-owner"], "description": "Only the Product Owner authorizes architecture changes." },
+        "approved_at": { "type": "string", "format": "date-time" },
+        "decision": { "type": "string", "enum": ["approved", "rejected"] },
+        "rationale": { "type": "string", "minLength": 1 }
+      },
+      "description": "Product Owner approval. Required from APPROVED onwards."
+    },
+    "implementation": {
+      "type": "object",
+      "required": ["work_item", "references"],
+      "additionalProperties": false,
+      "properties": {
+        "work_item": {
+          "type": "string",
+          "pattern": "^[A-Z][A-Z0-9]*(-[A-Z0-9]+)*-[0-9]{3}$",
+          "description": "The work item that implemented this ACR. That record must reference this ACR in its acr field (bidirectional integrity)."
+        },
+        "references": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "pr": { "type": "integer", "minimum": 1 },
+            "commit": { "type": "string", "pattern": "^[0-9a-f]{7,40}$" }
+          }
+        }
+      },
+      "description": "Implementation tracking. Required for IMPLEMENTED status."
+    },
+    "related_issue": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "GitHub issue carrying the request, when one exists."
+    },
+    "provenance": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Optional note documenting where the request originated (e.g. an earlier markdown proposal commit)."
+    }
+  }
+}

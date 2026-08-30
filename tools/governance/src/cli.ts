@@ -5,11 +5,12 @@
  * Commands:
  *   validate [--root <dir>]
  *       Validate the canonical state machine, the architecture-version
- *       registry, the protected-path manifest and every work-item record in
+ *       registry, the protected-path manifest, the ACR registry, the
+ *       reconciliation registry and every work-item record in
  *       governance/work-items/. Writes governance-report.json and exits
  *       non-zero on any violation.
  *
- *   check-protected (--base <git-ref> | --paths-file <file>) [--root <dir>]
+ *   check-protected (--base <git-ref> | --paths-file <file>) [--acr <ids>] [--root <dir>]
  *       Check changed paths against the protected-path manifest.
  *       --base computes changed paths via `git diff --name-only
  *       <base>...HEAD` and applies bootstrap semantics (changes to paths or
@@ -17,16 +18,29 @@
  *       violations; brand-new protected files are the bootstrap case).
  *       --paths-file reads one path per line and applies strict semantics
  *       (every matching path is a violation).
+ *       --acr cites one or more ACR ids (comma-separated, repeatable) that
+ *       the change is routed through (ARCH-WF-002). A protected change is
+ *       waived only when a cited ACR is APPROVED/IMPLEMENTED, real, and
+ *       enumerates the exact path in authorized_paths; every other protected
+ *       change remains a violation.
  *
- * All checks are deterministic and offline.
+ *   check-verified-revisions [--base <git-ref>] [--root <dir>]
+ *       Revision-bound verification drift audit (ARCH-WF-002): for every
+ *       VERIFIED work item, compare its verification binding revision with
+ *       the current tree; bound paths that changed after the binding
+ *       revision make the verification stale (fail). Requires local git
+ *       history (full clone).
+ *
+ * All checks are deterministic and offline (git operations are local).
  */
 import { readFileSync, writeFileSync } from "node:fs";
 import { execSync } from "node:child_process";
 import { resolve } from "node:path";
 import { validateRepository } from "./validate.js";
 import { protectedPathsCheckResult } from "./protected-paths.js";
-import { readJson } from "./loaders.js";
-import type { CheckResult, ProtectedPathsFile } from "./types.js";
+import { computeVerifiedRevisionAudit } from "./revision-binding.js";
+import { loadAcrs, loadWorkItems, readJson } from "./loaders.js";
+import type { AcrRecord, CheckResult, ProtectedPathsFile } from "./types.js";
 
 function printCheck(check: CheckResult): void {
   const tag = check.status === "pass" ? "[PASS]" : "[FAIL]";
@@ -49,13 +63,18 @@ function usage(): never {
     [
       "Usage:",
       "  npm run governance -- validate [--root <dir>]",
-      "  npm run governance -- check-protected (--paths-file <file> | --base <git-ref>) [--root <dir>]",
+      "  npm run governance -- check-protected (--paths-file <file> | --base <git-ref>) [--acr ACR-003,ACR-004] [--root <dir>]",
+      "  npm run governance -- check-verified-revisions [--base <git-ref>] [--root <dir>]",
     ].join("\n"),
   );
   process.exit(2);
 }
 
-function parseArgs(args: string[]): Map<string, string> {
+/**
+ * Parses args where later occurrences of a repeated key accumulate into a
+ * comma-joined value (for --acr), and all other keys keep last-wins semantics.
+ */
+function parseArgs(args: string[], multiKeys: Set<string> = new Set()): Map<string, string> {
   const options = new Map<string, string>();
   for (let i = 0; i < args.length; i++) {
     const arg = args[i]!;
@@ -63,15 +82,25 @@ function parseArgs(args: string[]): Map<string, string> {
     const key = arg.slice(2);
     const value = args[i + 1];
     if (value === undefined || value.startsWith("--")) usage();
-    options.set(key, value);
+    if (multiKeys.has(key)) {
+      options.set(key, options.has(key) ? `${options.get(key)},${value}` : value);
+    } else {
+      options.set(key, value);
+    }
     i++;
   }
   return options;
 }
 
+function loadAcrRegistry(root: string): Map<string, AcrRecord> {
+  const registry = new Map<string, AcrRecord>();
+  for (const { record } of loadAcrs(root)) registry.set(record.id, record);
+  return registry;
+}
+
 function main(): void {
   const [command, ...rest] = process.argv.slice(2);
-  const options = parseArgs(rest);
+  const options = parseArgs(rest, new Set(["acr"]));
   const root = resolve(options.get("root") ?? process.cwd());
 
   if (command === "validate") {
@@ -87,6 +116,7 @@ function main(): void {
   if (command === "check-protected") {
     const pathsFile = options.get("paths-file");
     const base = options.get("base");
+    const acrOption = options.get("acr");
     if (pathsFile === undefined && base === undefined) {
       console.error("At least one of --paths-file or --base is required.");
       usage();
@@ -110,9 +140,15 @@ function main(): void {
     // branch; brand-new protected files where nothing existed before are the
     // documented bootstrap case. Without a base ref, strict mode: every
     // matching path is a violation.
+    const routing = acrOption === undefined
+      ? undefined
+      : {
+          registry: loadAcrRegistry(root),
+          citedAcrs: acrOption.split(",").map((s) => s.trim()).filter((s) => s.length > 0),
+        };
     const check =
       base === undefined
-        ? protectedPathsCheckResult(changedPaths, manifest)
+        ? protectedPathsCheckResult(changedPaths, manifest, routing === undefined ? {} : { acrRouting: routing })
         : protectedPathsCheckResult(changedPaths, manifest, {
             existsOnBase: (path) => {
               try {
@@ -122,7 +158,40 @@ function main(): void {
                 return false;
               }
             },
+            ...(routing === undefined ? {} : { acrRouting: routing }),
           });
+    printCheck(check);
+    process.exit(printSummary([check]));
+  }
+
+  if (command === "check-verified-revisions") {
+    const base = options.get("base") ?? "HEAD";
+    const records = loadWorkItems(root).map((l) => l.record);
+    const git = {
+      revParse(ref: string): string | undefined {
+        try {
+          const out = execSync(`git rev-parse --verify ${JSON.stringify(ref)}^{commit}`, {
+            cwd: root,
+            encoding: "utf8",
+            stdio: ["ignore", "pipe", "ignore"],
+          }).trim();
+          return out.length > 0 ? out : undefined;
+        } catch {
+          return undefined;
+        }
+      },
+      diffNames(from: string, to: string): string[] {
+        try {
+          return execSync(`git diff --name-only ${from} ${JSON.stringify(to)}`, {
+            cwd: root,
+            encoding: "utf8",
+          }).split("\n").filter((l) => l.trim().length > 0);
+        } catch {
+          return [];
+        }
+      },
+    };
+    const { check } = computeVerifiedRevisionAudit(records, git, base);
     printCheck(check);
     process.exit(printSummary([check]));
   }

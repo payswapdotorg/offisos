@@ -8,8 +8,10 @@
 import { readFileSync, readdirSync, existsSync } from "node:fs";
 import { join, basename } from "node:path";
 import type {
+  AcrRecord,
   ArchitectureVersionsFile,
   ProtectedPathsFile,
+  ReconciliationRecord,
   WorkItemRecord,
   WorkflowStates,
 } from "./types.js";
@@ -120,6 +122,85 @@ export function loadRequirementIds(root: string): Set<string> {
     }
   }
   return ids;
+}
+
+// ---------------------------------------------------------------------------
+// ACR registry (governance/acr/, ARCH-WF-002 — Issue #12).
+// ---------------------------------------------------------------------------
+
+export interface LoadedAcr {
+  file: string;
+  record: AcrRecord;
+}
+
+/**
+ * Loads every machine-readable ACR record from governance/acr/.
+ *
+ * Only files named ACR-NNN.json are registry records; TEMPLATE.json and any
+ * other documentation files in the directory are skipped. ACR-001 and ACR-002
+ * predate the machine-readable lifecycle and remain markdown documents in
+ * governance/architecture-changes/ (legacy resolution, see
+ * legacyAcrMarkdownExists).
+ */
+export function loadAcrs(root: string): LoadedAcr[] {
+  const dir = join(root, "governance", "acr");
+  if (!existsSync(dir)) return [];
+  const files = readdirSync(dir)
+    .filter((f) => /^ACR-[0-9]{3}\.json$/.test(f))
+    .sort();
+  return files.map((file) => ({
+    file,
+    record: readJson<AcrRecord>(join(dir, file)),
+  }));
+}
+
+/**
+ * Resolves a legacy (pre-registry) ACR id against the historical markdown
+ * documents in governance/architecture-changes/ (ACR-001, ACR-002). Those
+ * documents remain valid historical records; the machine-readable lifecycle
+ * starts at ACR-003.
+ */
+export function legacyAcrMarkdownExists(root: string, acrId: string): boolean {
+  const dir = join(root, "governance", "architecture-changes");
+  if (!existsSync(dir)) return false;
+  const prefix = `${acrId}-`;
+  return readdirSync(dir).some((f) => f.startsWith(prefix) && f.endsWith(".md"));
+}
+
+/** Resolves an ACR id against the JSON registry or the legacy markdown ACRs. */
+export function acrIdResolvable(
+  root: string,
+  acrId: string,
+  registry: Map<string, AcrRecord>,
+): boolean {
+  if (registry.has(acrId)) return true;
+  return legacyAcrMarkdownExists(root, acrId);
+}
+
+// ---------------------------------------------------------------------------
+// Reconciliation registry (governance/reconciliations/, ARCH-WF-002 — Issue #12).
+// ---------------------------------------------------------------------------
+
+export interface LoadedReconciliation {
+  file: string;
+  record: ReconciliationRecord;
+}
+
+/**
+ * Loads every historical reconciliation record from
+ * governance/reconciliations/. Files are named after the reconciled work item
+ * (<WORK-ITEM-ID>.json); one reconciliation record per work item.
+ */
+export function loadReconciliations(root: string): LoadedReconciliation[] {
+  const dir = join(root, "governance", "reconciliations");
+  if (!existsSync(dir)) return [];
+  const files = readdirSync(dir)
+    .filter((f) => f.endsWith(".json"))
+    .sort();
+  return files.map((file) => ({
+    file,
+    record: readJson<ReconciliationRecord>(join(dir, file)),
+  }));
 }
 
 export { basename };

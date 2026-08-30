@@ -135,6 +135,9 @@ export interface ArchitectureVersionEntry {
   declared_in?: string[];
   locked_at?: string;
   protected_paths_manifest?: string;
+  /** ACR ids that produced this version; must resolve to registry records or legacy markdown ACRs. */
+  change_requests?: string[];
+  superseded_by?: string;
 }
 
 export interface ArchitectureVersionsFile {
@@ -152,6 +155,121 @@ export interface ProtectedPathsFile {
   notes?: string;
   architecture_version: string;
   patterns: ProtectedPathPattern[];
+}
+
+// ---------------------------------------------------------------------------
+// Architecture Change Request records (governance/acr/, ARCH-WF-002).
+// ---------------------------------------------------------------------------
+
+export type AcrStatus = "PROPOSED" | "ENDORSED" | "APPROVED" | "IMPLEMENTED" | "REJECTED";
+
+export interface AcrReviewRecord {
+  reviewed_by: string;
+  role: string;
+  reviewed_at: string;
+  verdict: "endorsed" | "rejected";
+  rationale: string;
+}
+
+export interface AcrApprovalRecord {
+  approved_by: string;
+  role: string;
+  approved_at: string;
+  decision: "approved" | "rejected";
+  rationale: string;
+}
+
+export interface AcrImplementationRecord {
+  work_item: string;
+  references?: { pr?: number; commit?: string };
+}
+
+export interface AcrRecord {
+  id: string;
+  demo?: boolean;
+  disclaimer?: string;
+  title: string;
+  status: AcrStatus;
+  requested_by: string;
+  requested_at: string;
+  problem: string;
+  evidence: string[];
+  impact: string;
+  alternatives: string[];
+  recommendation: string;
+  migration_plan: string;
+  compatibility: string;
+  security_impact: string;
+  affected_requirements: string[];
+  affected_work_items: string[];
+  architecture_version_from: string;
+  architecture_version_to: string;
+  authorized_paths: string[];
+  review?: AcrReviewRecord;
+  approval?: AcrApprovalRecord;
+  implementation?: AcrImplementationRecord;
+  related_issue?: number;
+  provenance?: string;
+}
+
+// ---------------------------------------------------------------------------
+// Historical reconciliation records (governance/reconciliations/, ARCH-WF-002).
+// ---------------------------------------------------------------------------
+
+export type ReconciliationStatus = "STAGED" | "DECIDED";
+
+export type ReconcilableRule = "transition-legality" | "temporal-ordering" | "decisions";
+
+export type ReconcilableViolation =
+  | "unauthorized-role"
+  | "precedes-previous"
+  | "no-prior-approved-decision";
+
+export interface ReconciliationDefectCitation {
+  rule: ReconcilableRule;
+  violation: ReconcilableViolation;
+  transition?: number;
+  state_entry?: string;
+  original: {
+    from: string;
+    to: string;
+    at: string;
+    actor: string;
+    role: string;
+  };
+  explanation: string;
+}
+
+export interface ReconciliationRecord {
+  id: string;
+  work_item: string;
+  status: ReconciliationStatus;
+  demo?: boolean;
+  disclaimer?: string;
+  problem: string;
+  defects: ReconciliationDefectCitation[];
+  evidence?: EvidenceRecord[];
+  acr: string;
+  decided_by?: string;
+  role?: string;
+  decided_at?: string;
+  rationale?: string;
+  remediation?: string;
+}
+
+/**
+ * A validated DECIDED reconciliation as consumed by the work-item rule engine
+ * (ARCH-WF-002). Only these activate waivers, and only for the enumerated
+ * violation keys. The type lives here (not in reconciliation.ts) so rules.ts
+ * can consume it without an import cycle.
+ */
+export interface ActiveReconciliation {
+  id: string;
+  workItem: string;
+  acr: string;
+  decidedBy: string;
+  decidedAt: string;
+  waivedKeys: Set<string>;
 }
 
 export interface CheckResult {

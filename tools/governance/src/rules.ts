@@ -12,9 +12,22 @@
  *    before a later approval can take effect;
  *  - requirements, dependencies and architecture versions must resolve
  *    against repository-backed registries.
+ *
+ * ARCH-WF-002 additions:
+ *  - an Architect-owned, ACR-sanctioned reconciliation may waive exactly
+ *    three narrow historical violation classes on an already-merged record
+ *    (unauthorized-role, precedes-previous, missing prior approved decision
+ *    at a state entry) — never anything else, and never silently: waived
+ *    violations are annotated in the report;
+ *  - ACR references (record.acr, transition references.acr) must resolve and
+ *    transitions operating under an ACR require it approved beforehand;
+ *  - the transition into VERIFIED must be revision-bound (cite the exact
+ *    implementation commit it verified).
  */
 import type {
+  ActiveReconciliation,
   ArchitectureVersionsFile,
+  AcrRecord,
   CheckResult,
   DecisionRecord,
   EvidenceRecord,
@@ -30,6 +43,126 @@ export interface WorkItemContext {
   requirementIds: Set<string>;
   /** Registry of non-demo records by id. */
   registry: Map<string, WorkItemRecord>;
+  /** All ACR records (demo included) by id; used for ACR reference integrity (ARCH-WF-002). */
+  acrRegistry?: Map<string, AcrRecord>;
+  /** Legacy markdown ACR ids (ACR-001, ACR-002) that resolve without a registry record. */
+  legacyAcrIds?: Set<string>;
+  /** Validated DECIDED reconciliations by work-item id; only these activate waivers (ARCH-WF-002). */
+  activeReconciliations?: Map<string, ActiveReconciliation>;
+}
+
+/** A single rule violation, optionally carrying its reconcilable-violation key. */
+interface ViolationEntry {
+  key?: string;
+  message: string;
+}
+
+/**
+ * Emits a check result after applying any active reconciliation waivers.
+ * Waived violations are removed from the failure set but explicitly annotated
+ * in the details — the reconciliation is auditable, never silent.
+ */
+function emitWithWaivers(
+  recordId: string,
+  checkId: string,
+  passDescription: string,
+  failDescription: string,
+  entries: ViolationEntry[],
+  ctx: WorkItemContext,
+): CheckResult {
+  const active = ctx.activeReconciliations?.get(recordId);
+  const waived =
+    active === undefined
+      ? []
+      : entries.filter((e) => e.key !== undefined && active.waivedKeys.has(e.key));
+  const remaining =
+    active === undefined || waived.length === 0
+      ? entries
+      : entries.filter((e) => e.key === undefined || !active.waivedKeys.has(e.key));
+
+  if (remaining.length > 0) {
+    const details = remaining.map((e) => e.message);
+    for (const e of waived) {
+      details.push(
+        `[RECONCILED] ${e.message} — waived by ${active!.id} (architect decision by ${active!.decidedBy} at ${active!.decidedAt}, sanctioned by ${active!.acr}).`,
+      );
+    }
+    return fail(checkId, failDescription, details);
+  }
+  if (waived.length > 0) {
+    const details = waived.map(
+      (e) =>
+        `[RECONCILED] ${e.message} — waived by ${active!.id} (architect decision by ${active!.decidedBy} at ${active!.decidedAt}, sanctioned by ${active!.acr}).`,
+    );
+    return {
+      id: checkId,
+      description: `${passDescription} (${waived.length} historical violation(s) reconciled by ${active!.id}.)`,
+      status: "pass",
+      details,
+    };
+  }
+  return pass(checkId, passDescription);
+}
+
+/**
+ * Collects the raw reconcilable violations of a record: the three narrow
+ * classes a reconciliation may waive. Keys are stable:
+ *
+ *   transition-legality/t<N>/unauthorized-role
+ *   temporal-ordering/t<N>/precedes-previous
+ *   decisions/entry:<STATE>/no-prior-approved-decision
+ *
+ * Computed against the RAW ledger (no waivers applied) so reconciliation
+ * citation checks are state-independent.
+ */
+export function collectReconcilableViolations(
+  record: WorkItemRecord,
+  machine: WorkflowStates,
+): Map<string, string> {
+  const violations = new Map<string, string>();
+
+  for (const [index, transition] of record.transitions.entries()) {
+    const label = `transition #${index + 1} (${transition.from} -> ${transition.to})`;
+    const def = findTransitionDef(machine, transition.from, transition.to);
+    if (def !== undefined && !def.actors.includes(transition.role)) {
+      violations.set(
+        `transition-legality/t${index + 1}/unauthorized-role`,
+        `${label}: role '${transition.role}' is not authorized (allowed: ${def.actors.join(", ")}).`,
+      );
+    }
+  }
+
+  let previousAt: number | undefined;
+  for (const [index, transition] of record.transitions.entries()) {
+    const at = parseDate(transition.at);
+    if (at === undefined) continue;
+    if (previousAt !== undefined && at < previousAt) {
+      violations.set(
+        `temporal-ordering/t${index + 1}/precedes-previous`,
+        `transition #${index + 1}: timestamp precedes the previous transition.`,
+      );
+    }
+    previousAt = at;
+  }
+
+  const decisions = record.decisions ?? [];
+  for (const targetState of ["MERGED", "VERIFIED"]) {
+    const requirement = machine.state_entry_requirements[targetState]?.requires_last_decision;
+    if (requirement === undefined) continue;
+    const entryTransition = [...record.transitions].reverse().find((t) => t.to === targetState);
+    if (entryTransition === undefined) continue;
+    const at = parseDate(entryTransition.at);
+    if (at === undefined) continue;
+    const priorDecisions = decisions.filter((d) => parseDate(d.decided_at)! <= at);
+    if (priorDecisions.length === 0) {
+      violations.set(
+        `decisions/entry:${targetState}/no-prior-approved-decision`,
+        `entering ${targetState} requires a prior recorded decision; none exists at or before that transition.`,
+      );
+    }
+  }
+
+  return violations;
 }
 
 function parseDate(value: string): number | undefined {
@@ -114,30 +247,32 @@ export function validateWorkItem(record: WorkItemRecord, ctx: WorkItemContext): 
 
   // ------------------------------------------------------------------
   // Transition legality, authorization and required fields/references.
+  // Reconcilable: unauthorized-role on a specific transition (ARCH-WF-002).
   // ------------------------------------------------------------------
-  const legalityDetails: string[] = [];
+  const legalityEntries: ViolationEntry[] = [];
   for (const [index, transition] of record.transitions.entries()) {
     const label = `transition #${index + 1} (${transition.from} -> ${transition.to})`;
     const def = findTransitionDef(machine, transition.from, transition.to);
     if (def === undefined) {
-      legalityDetails.push(`${label}: not a legal transition in the state machine.`);
+      legalityEntries.push({ message: `${label}: not a legal transition in the state machine.` });
       continue;
     }
     if (!def.actors.includes(transition.role)) {
-      legalityDetails.push(
-        `${label}: role '${transition.role}' is not authorized (allowed: ${def.actors.join(", ")}).`,
-      );
+      legalityEntries.push({
+        key: `transition-legality/t${index + 1}/unauthorized-role`,
+        message: `${label}: role '${transition.role}' is not authorized (allowed: ${def.actors.join(", ")}).`,
+      });
     }
     for (const required of def.requires) {
       const value = (transition as unknown as Record<string, unknown>)[required];
       if (typeof value !== "string" || value.trim().length === 0) {
-        legalityDetails.push(`${label}: missing required field '${required}'.`);
+        legalityEntries.push({ message: `${label}: missing required field '${required}'.` });
       }
     }
     const referenceFields = def.reference_fields ?? [];
     for (const field of referenceFields) {
       if (!referenceFieldPresent(transition.references, field)) {
-        legalityDetails.push(`${label}: missing required reference '${field}'.`);
+        legalityEntries.push({ message: `${label}: missing required reference '${field}'.` });
       }
     }
     // Reference integrity: evidence and decision ids must exist in this record.
@@ -145,14 +280,14 @@ export function validateWorkItem(record: WorkItemRecord, ctx: WorkItemContext): 
       const evidenceIds = new Set((record.evidence ?? []).map((e) => e.id));
       for (const evidenceId of transition.references.evidence) {
         if (!evidenceIds.has(evidenceId)) {
-          legalityDetails.push(`${label}: references unknown evidence '${evidenceId}'.`);
+          legalityEntries.push({ message: `${label}: references unknown evidence '${evidenceId}'.` });
         }
       }
     }
     if (transition.references?.decision !== undefined) {
       const decision = (record.decisions ?? []).find((d) => d.id === transition.references!.decision);
       if (decision === undefined) {
-        legalityDetails.push(`${label}: references unknown decision '${transition.references.decision}'.`);
+        legalityEntries.push({ message: `${label}: references unknown decision '${transition.references.decision}'.` });
       }
     }
     // State entry requirement: required reference on transitions entering a state.
@@ -160,36 +295,50 @@ export function validateWorkItem(record: WorkItemRecord, ctx: WorkItemContext): 
     if (entryReqs?.requires_transition_reference !== undefined) {
       const field = entryReqs.requires_transition_reference;
       if (!referenceFieldPresent(transition.references, field)) {
-        legalityDetails.push(`${label}: entering '${transition.to}' requires reference '${field}'.`);
+        legalityEntries.push({ message: `${label}: entering '${transition.to}' requires reference '${field}'.` });
       }
     }
   }
   results.push(
-    legalityDetails.length === 0
-      ? pass(`work-item/${id}/transition-legality`, "All transitions are legal, authorized and carry required references.")
-      : fail(`work-item/${id}/transition-legality`, "One or more transitions are illegal, unauthorized or incomplete.", legalityDetails),
+    emitWithWaivers(
+      id,
+      `work-item/${id}/transition-legality`,
+      "All transitions are legal, authorized and carry required references.",
+      "One or more transitions are illegal, unauthorized or incomplete.",
+      legalityEntries,
+      ctx,
+    ),
   );
 
   // ------------------------------------------------------------------
   // Temporal ordering: transitions must not travel back in time.
+  // Reconcilable: a specific transition preceding its predecessor (ARCH-WF-002).
   // ------------------------------------------------------------------
-  const temporalDetails: string[] = [];
+  const temporalEntries: ViolationEntry[] = [];
   let previousAt: number | undefined;
   for (const [index, transition] of record.transitions.entries()) {
     const at = parseDate(transition.at);
     if (at === undefined) {
-      temporalDetails.push(`transition #${index + 1}: '${transition.at}' is not a valid date-time.`);
+      temporalEntries.push({ message: `transition #${index + 1}: '${transition.at}' is not a valid date-time.` });
       continue;
     }
     if (previousAt !== undefined && at < previousAt) {
-      temporalDetails.push(`transition #${index + 1}: timestamp precedes the previous transition.`);
+      temporalEntries.push({
+        key: `temporal-ordering/t${index + 1}/precedes-previous`,
+        message: `transition #${index + 1}: timestamp precedes the previous transition.`,
+      });
     }
     previousAt = at;
   }
   results.push(
-    temporalDetails.length === 0
-      ? pass(`work-item/${id}/temporal-ordering`, "Transition timestamps are valid and monotonically ordered.")
-      : fail(`work-item/${id}/temporal-ordering`, "Transition timestamps are invalid or out of order.", temporalDetails),
+    emitWithWaivers(
+      id,
+      `work-item/${id}/temporal-ordering`,
+      "Transition timestamps are valid and monotonically ordered.",
+      "Transition timestamps are invalid or out of order.",
+      temporalEntries,
+      ctx,
+    ),
   );
 
   // ------------------------------------------------------------------
@@ -286,21 +435,23 @@ export function validateWorkItem(record: WorkItemRecord, ctx: WorkItemContext): 
 
   // ------------------------------------------------------------------
   // Decisions: integrity, remediation, linkage and re-verification policy.
+  // Reconcilable: the missing-prior-approved-decision entry gate for a
+  // specific state (ARCH-WF-002). Everything else is never waivable.
   // ------------------------------------------------------------------
-  const decisionDetails: string[] = [];
+  const decisionEntries: ViolationEntry[] = [];
   const decisions = record.decisions ?? [];
   const decisionIds = new Set<string>();
   for (const d of decisions) {
-    if (decisionIds.has(d.id)) decisionDetails.push(`duplicate decision id '${d.id}'.`);
+    if (decisionIds.has(d.id)) decisionEntries.push({ message: `duplicate decision id '${d.id}'.` });
     decisionIds.add(d.id);
     if (d.role !== machine.decision_rules.deciding_role) {
-      decisionDetails.push(`decision '${d.id}' was issued by role '${d.role}'; only '${machine.decision_rules.deciding_role}' may decide.`);
+      decisionEntries.push({ message: `decision '${d.id}' was issued by role '${d.role}'; only '${machine.decision_rules.deciding_role}' may decide.` });
     }
     if (machine.decision_rules.remediation_required_for.includes(d.status) && (d.remediation_required ?? "").trim().length === 0) {
-      decisionDetails.push(`decision '${d.id}' (${d.status}) must record remediation_required.`);
+      decisionEntries.push({ message: `decision '${d.id}' (${d.status}) must record remediation_required.` });
     }
     for (const ref of d.evidence_refs ?? []) {
-      if (!evidenceIds.has(ref)) decisionDetails.push(`decision '${d.id}' references unknown evidence '${ref}'.`);
+      if (!evidenceIds.has(ref)) decisionEntries.push({ message: `decision '${d.id}' references unknown evidence '${ref}'.` });
     }
   }
   // Decision timestamps must be ordered.
@@ -308,11 +459,11 @@ export function validateWorkItem(record: WorkItemRecord, ctx: WorkItemContext): 
   for (const d of decisions) {
     const at = parseDate(d.decided_at);
     if (at === undefined) {
-      decisionDetails.push(`decision '${d.id}': invalid decided_at '${d.decided_at}'.`);
+      decisionEntries.push({ message: `decision '${d.id}': invalid decided_at '${d.decided_at}'.` });
       continue;
     }
     if (previousDecisionAt !== undefined && at < previousDecisionAt) {
-      decisionDetails.push(`decision '${d.id}': decided_at precedes the previous decision.`);
+      decisionEntries.push({ message: `decision '${d.id}': decided_at precedes the previous decision.` });
     }
     previousDecisionAt = at;
   }
@@ -331,10 +482,11 @@ export function validateWorkItem(record: WorkItemRecord, ctx: WorkItemContext): 
       return windowEnd === undefined || at <= windowEnd;
     });
     if (!returned) {
-      decisionDetails.push(
-        `decision '${d.id}' (${d.status}) was not followed by a transition to IMPLEMENTING before the next approval; ` +
+      decisionEntries.push({
+        message:
+          `decision '${d.id}' (${d.status}) was not followed by a transition to IMPLEMENTING before the next approval; ` +
           "rejected work must return to IMPLEMENTING before re-approval (re-verification policy).",
-      );
+      });
     }
   }
   // Decision-transition binding: approvals referenced by transitions into
@@ -345,11 +497,11 @@ export function validateWorkItem(record: WorkItemRecord, ctx: WorkItemContext): 
       const decision = decisions.find((d) => d.id === transition.references!.decision);
       const at = parseDate(transition.at);
       if (decision === undefined) {
-        decisionDetails.push(`transition into ${transition.to} references unknown decision '${transition.references.decision}'.`);
+        decisionEntries.push({ message: `transition into ${transition.to} references unknown decision '${transition.references.decision}'.` });
       } else if (decision.status !== "approved") {
-        decisionDetails.push(`transition into ${transition.to} references decision '${decision.id}' with status '${decision.status}'.`);
+        decisionEntries.push({ message: `transition into ${transition.to} references decision '${decision.id}' with status '${decision.status}'.` });
       } else if (at !== undefined && parseDate(decision.decided_at)! > at) {
-        decisionDetails.push(`transition into ${transition.to} predates the approval decision '${decision.id}' it cites.`);
+        decisionEntries.push({ message: `transition into ${transition.to} predates the approval decision '${decision.id}' it cites.` });
       }
     }
   }
@@ -365,15 +517,23 @@ export function validateWorkItem(record: WorkItemRecord, ctx: WorkItemContext): 
     const priorDecisions = decisions.filter((d) => parseDate(d.decided_at)! <= at);
     const lastPrior = priorDecisions[priorDecisions.length - 1];
     if (lastPrior === undefined) {
-      decisionDetails.push(`entering ${targetState} requires a prior recorded decision; none exists at or before that transition.`);
+      decisionEntries.push({
+        key: `decisions/entry:${targetState}/no-prior-approved-decision`,
+        message: `entering ${targetState} requires a prior recorded decision; none exists at or before that transition.`,
+      });
     } else if (lastPrior.status !== requirement) {
-      decisionDetails.push(`entering ${targetState} requires the last prior decision to be '${requirement}'; found '${lastPrior.id}' (${lastPrior.status}).`);
+      decisionEntries.push({ message: `entering ${targetState} requires the last prior decision to be '${requirement}'; found '${lastPrior.id}' (${lastPrior.status}).` });
     }
   }
   results.push(
-    decisionDetails.length === 0
-      ? pass(`work-item/${id}/decisions`, "Decisions are integral, remediable and consistent with the transition history.")
-      : fail(`work-item/${id}/decisions`, "Decision rules violated.", decisionDetails),
+    emitWithWaivers(
+      id,
+      `work-item/${id}/decisions`,
+      "Decisions are integral, remediable and consistent with the transition history.",
+      "Decision rules violated.",
+      decisionEntries,
+      ctx,
+    ),
   );
 
   // ------------------------------------------------------------------
@@ -388,6 +548,96 @@ export function validateWorkItem(record: WorkItemRecord, ctx: WorkItemContext): 
       ? pass(`work-item/${id}/demo-marking`, record.demo === true ? "Demo fixture properly marked and disclaimed." : "Real (non-demo) record.")
       : fail(`work-item/${id}/demo-marking`, "Demo marking rules violated.", demoDetails),
   );
+
+  // ------------------------------------------------------------------
+  // ACR references (ARCH-WF-002): record.acr and transition references.acr
+  // must resolve against the ACR registry (or the legacy markdown ACRs), demo
+  // marking must be consistent, and a transition operating under an ACR
+  // (e.g. acr_resolved) requires that ACR approved no later than the
+  // transition itself.
+  // ------------------------------------------------------------------
+  const acrRefs: Array<{ source: string; acr: string; transitionAt?: string }> = [];
+  if (record.acr !== undefined) {
+    acrRefs.push({ source: "record acr field", acr: record.acr });
+  }
+  for (const [index, transition] of record.transitions.entries()) {
+    const acr = transition.references?.acr;
+    if (acr !== undefined) {
+      acrRefs.push({
+        source: `transition #${index + 1} (${transition.from} -> ${transition.to})`,
+        acr,
+        transitionAt: transition.at,
+      });
+    }
+  }
+  if (acrRefs.length > 0) {
+    const acrDetails: string[] = [];
+    const acrRegistry = ctx.acrRegistry ?? new Map<string, AcrRecord>();
+    const legacyAcrIds = ctx.legacyAcrIds ?? new Set<string>();
+    for (const ref of acrRefs) {
+      const acrRecord = acrRegistry.get(ref.acr);
+      if (acrRecord === undefined && !legacyAcrIds.has(ref.acr)) {
+        acrDetails.push(
+          `${ref.source} references ACR '${ref.acr}' which resolves neither in governance/acr/ nor in the legacy markdown ACRs.`,
+        );
+        continue;
+      }
+      if (record.demo === true) {
+        if (acrRecord !== undefined && acrRecord.demo !== true) {
+          acrDetails.push(`demo record '${id}' references real ACR '${ref.acr}'; demo fixtures may not consume real authorization.`);
+        }
+      } else if (acrRecord !== undefined && acrRecord.demo === true) {
+        acrDetails.push(`real record '${id}' references demo ACR '${ref.acr}'.`);
+      }
+      if (ref.transitionAt !== undefined && acrRecord !== undefined) {
+        const transitionAt = parseDate(ref.transitionAt);
+        if (acrRecord.status !== "APPROVED" && acrRecord.status !== "IMPLEMENTED") {
+          acrDetails.push(
+            `${ref.source} cites ACR '${ref.acr}' which is ${acrRecord.status}; a work item may only resume under an APPROVED or IMPLEMENTED ACR.`,
+          );
+        } else if (acrRecord.approval !== undefined && transitionAt !== undefined && parseDate(acrRecord.approval.approved_at)! > transitionAt) {
+          acrDetails.push(
+            `${ref.source} cites ACR '${ref.acr}' at ${ref.transitionAt}, before its product-owner approval (${acrRecord.approval.approved_at}).`,
+          );
+        }
+      }
+    }
+    results.push(
+      acrDetails.length === 0
+        ? pass(`work-item/${id}/acr-references`, `All ${acrRefs.length} ACR reference(s) resolve and satisfy their gates.`)
+        : fail(`work-item/${id}/acr-references`, "ACR reference rules violated.", acrDetails),
+    );
+  }
+
+  // ------------------------------------------------------------------
+  // Revision-bound verification (ARCH-WF-002): the transition into VERIFIED
+  // must bind to the exact implementation revision it verified — either the
+  // transition references the commit, or it cites at least one evidence item
+  // carrying a commit reference. Verification can then be invalidated by
+  // later material changes (see the check-verified-revisions command).
+  // ------------------------------------------------------------------
+  const lastVerifyTransition = [...record.transitions].reverse().find((t) => t.to === "VERIFIED");
+  if (lastVerifyTransition !== undefined) {
+    const transitionCommit = lastVerifyTransition.references?.commit;
+    const cited = lastVerifyTransition.references?.evidence ?? [];
+    const commitBoundCitations = cited.filter((evidenceId) => {
+      const item = evidence.find((e) => e.id === evidenceId);
+      return item !== undefined && item.references?.commit !== undefined;
+    });
+    const bound = transitionCommit !== undefined || commitBoundCitations.length > 0;
+    const binding = transitionCommit ?? commitBoundCitations.join(", ");
+    results.push(
+      bound
+        ? pass(`work-item/${id}/revision-binding`, `The verification is bound to an exact implementation revision (${binding}).`)
+        : fail(
+            `work-item/${id}/revision-binding`,
+            "The transition into VERIFIED is not revision-bound.",
+            [
+              "The verify transition must reference the implementation commit (references.commit) or cite at least one evidence item carrying a commit reference (LOCK-004 revision binding); verification of one revision never justifies a different revision.",
+            ],
+          ),
+    );
+  }
 
   return results;
 }
