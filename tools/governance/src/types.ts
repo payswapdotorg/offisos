@@ -157,6 +157,21 @@ export interface ProtectedPathPattern {
    * existing protected tree are violations too (ARCH-WF-002).
    */
   additions?: "allowed";
+  /**
+   * Registry lifecycle management (ARCH-WF-002 remediation, Issue #12):
+   * marks a registry tree whose EXISTING records may only change through
+   * their own machine-checkable lifecycle transitions — "acr" for
+   * governance/acr/** (PROPOSED → ENDORSED → APPROVED → IMPLEMENTED, or →
+   * REJECTED), "reconciliation" for governance/reconciliations/**
+   * (STAGED → DECIDED). A modification of an existing record is waived ONLY
+   * when it is a narrowly content-checked legal transition (status edge +
+   * exactly the gate instruments, each role-correct; see
+   * tools/governance/src/registry-lifecycle.ts). Every other modification
+   * of an existing record remains a protected-path violation. This breaks
+   * the circular authorization (an ACR's own lifecycle advancement can
+   * never require another ACR) without making the registries mutable.
+   */
+  lifecycle?: "acr" | "reconciliation";
 }
 
 export interface ProtectedPathsFile {

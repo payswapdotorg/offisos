@@ -1,5 +1,5 @@
 {
-  "notes": "Architecture-controlled paths for Architecture v1.1. Changes to these locations are protected: they require an Architecture Change Request (governance/acr/) and must not be carried silently by an implementation PR. The check-protected command fails the build when a changed file matches a pattern below unless the change is explicitly routed through an APPROVED ACR that enumerates the exact path (check-protected --acr, and the PR's ACR-Routing line; the routing mechanism is owned by ARCH-WF-002). Patterns marked additions=allowed are registry trees whose new-file registrations are the normal flow; modifications and deletions of existing files remain protected. This manifest is itself architecture-controlled.",
+  "notes": "Architecture-controlled paths for Architecture v1.1. Changes to these locations are protected: they require an Architecture Change Request (governance/acr/) and must not be carried silently by an implementation PR. The check-protected command fails the build when a changed file matches a pattern below unless the change is explicitly routed through an APPROVED ACR that enumerates the exact path (check-protected --acr, and the PR's ACR-Routing line; the routing mechanism is owned by ARCH-WF-002). Patterns marked additions=allowed are registry trees whose new-file registrations are the normal flow; modifications and deletions of existing files remain protected. Patterns additionally marked lifecycle=acr|reconciliation are lifecycle-managed registry trees: a modification of an EXISTING record is authorized only when it is a narrowly content-checked legal lifecycle transition of that record (status edge plus exactly the gate instruments, each role-correct — tools/governance/src/registry-lifecycle.ts); arbitrary edits to existing records remain violations. This manifest is itself architecture-controlled.",
   "architecture_version": "1.1",
   "patterns": [
     {
@@ -36,13 +36,15 @@
     },
     {
       "pattern": "governance/acr/**",
-      "reason": "Architecture Change Request registry: the machine-readable ACR lifecycle and its records are architecture-controlled. Additions (new ACR proposals) are the normal flow; modifying or deleting existing records requires an approved ACR.",
-      "additions": "allowed"
+      "reason": "Architecture Change Request registry: the machine-readable ACR lifecycle and its records are architecture-controlled. Additions (new ACR proposals) are the normal flow; an existing record may only change through its own legal lifecycle transition (PROPOSED → ENDORSED → APPROVED → IMPLEMENTED, or → REJECTED — narrowly content-checked); every other modification or deletion requires an approved ACR.",
+      "additions": "allowed",
+      "lifecycle": "acr"
     },
     {
       "pattern": "governance/reconciliations/**",
-      "reason": "Historical governance reconciliation records are architecture-controlled (Architect-owned waivers over immutable ledgers). Staging a new reconciliation is the normal flow; modifying or deleting records requires an approved ACR.",
-      "additions": "allowed"
+      "reason": "Historical governance reconciliation records are architecture-controlled (Architect-owned waivers over immutable ledgers). Staging a new reconciliation is the normal flow; an existing record may only change through its own legal decision transition (STAGED → DECIDED — narrowly content-checked, architect role); every other modification or deletion requires an approved ACR.",
+      "additions": "allowed",
+      "lifecycle": "reconciliation"
     },
     {
       "pattern": "governance/schemas/**",

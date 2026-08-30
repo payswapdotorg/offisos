@@ -159,6 +159,26 @@ function main(): void {
               }
             },
             ...(routing === undefined ? {} : { acrRouting: routing }),
+            // Registry lifecycle verification (ARCH-WF-002 remediation): for a
+            // modified path under a lifecycle-managed registry pattern, read the
+            // before (base) and after (HEAD) record content so the change can be
+            // authorized as a narrowly content-checked legal lifecycle transition.
+            registryLifecycle: {
+              readRecordPair: (path) => {
+                const read = (ref: string): unknown | undefined => {
+                  try {
+                    const content = execSync(
+                      `git show ${JSON.stringify(`${ref}:${path}`)}`,
+                      { cwd: root, encoding: "utf8" },
+                    );
+                    return JSON.parse(content) as unknown;
+                  } catch {
+                    return undefined;
+                  }
+                };
+                return { before: read(base!), after: read("HEAD") };
+              },
+            },
           });
     printCheck(check);
     process.exit(printSummary([check]));

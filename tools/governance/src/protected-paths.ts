@@ -15,6 +15,10 @@
  */
 import type { AcrRecord, CheckResult, ProtectedPathsFile, ProtectedPathPattern } from "./types.js";
 import { fail, pass } from "./state-machine.js";
+import {
+  isLegalRegistryLifecycleTransition,
+  type RegistryLifecycleKind,
+} from "./registry-lifecycle.js";
 
 /**
  * Converts a protected-path pattern to a RegExp.
@@ -42,6 +46,8 @@ export interface ProtectedPathViolation {
   reason: string;
   /** True when the matched pattern allows pure additions (registry trees). */
   additionsAllowed?: boolean;
+  /** Present when the matched pattern is a lifecycle-managed registry tree. */
+  lifecycle?: RegistryLifecycleKind;
 }
 
 export interface ProtectedCheckOptions {
@@ -60,6 +66,7 @@ export function matchProtectedPath(path: string, patterns: ProtectedPathPattern[
         pattern: entry.pattern,
         reason: entry.reason,
         ...(entry.additions === "allowed" ? { additionsAllowed: true } : {}),
+      ...(entry.lifecycle !== undefined ? { lifecycle: entry.lifecycle } : {}),
       };
     }
   }
@@ -114,6 +121,20 @@ export interface RoutingRefusal {
   reason: string;
 }
 
+/** A registry record advanced through its own legal lifecycle transition. */
+export interface RegistryLifecyclePath {
+  path: string;
+  pattern: string;
+  kind: RegistryLifecycleKind;
+  edge: string;
+  instruments: string[];
+}
+
+/** Reads the (before, after) JSON record pair for a registry path. */
+export type RecordPairReader = (
+  path: string,
+) => { before?: unknown; after?: unknown } | undefined;
+
 export interface AcrRoutingOptions {
   /** All ACR records by id (governance/acr/). */
   registry: Map<string, AcrRecord>;
@@ -123,11 +144,20 @@ export interface AcrRoutingOptions {
 
 export interface RoutedCheckOptions extends ProtectedCheckOptions {
   acrRouting?: AcrRoutingOptions;
+  /**
+   * Registry lifecycle verification (ARCH-WF-002 remediation): resolves the
+   * before/after record content for modified paths under lifecycle-managed
+   * registry patterns. A modification is waived only when it is a narrowly
+   * content-checked legal lifecycle transition. Without a reader the check
+   * fails closed: unverifiable modifications stay violations.
+   */
+  registryLifecycle?: { readRecordPair?: RecordPairReader };
 }
 
 export interface RoutedCheckOutcome {
   violations: ProtectedPathViolation[];
   routed: RoutedPath[];
+  lifecycled: RegistryLifecyclePath[];
   refusals: RoutingRefusal[];
 }
 
@@ -148,6 +178,7 @@ export function checkProtectedPathsWithRouting(
   const routing = options.acrRouting;
   const violations: ProtectedPathViolation[] = [];
   const routed: RoutedPath[] = [];
+  const lifecycled: RegistryLifecyclePath[] = [];
   const refusals = new Map<string, RoutingRefusal>();
 
   const evaluateAcr = (acrId: string): { ok: boolean; acr?: AcrRecord } => {
@@ -199,7 +230,43 @@ export function checkProtectedPathsWithRouting(
       continue;
     }
 
-    // Protected change: explicit ACR routing only.
+    // Protected change. Three authorization channels, in order of
+    // specificity:
+    //   1. the registry lifecycle rule — the record's OWN machine-checkable
+    //      lifecycle transition (narrowly content-checked; breaks the
+    //      circular authorization an ACR-record path change would otherwise
+    //      create);
+    //   2. explicit ACR routing — an approved ACR enumerating the exact path
+    //      (the general channel; it can authorize registry-record amendments
+    //      and deletions when the ACR explicitly enumerates them);
+    //   3. otherwise: violation (with the lifecycle-aware reason when the
+    //      pattern is lifecycle-managed).
+    let lifecycleFailure: string | undefined;
+    if (violation.lifecycle !== undefined && pathExists) {
+      const reader = options.registryLifecycle?.readRecordPair;
+      const pair = reader === undefined ? undefined : reader(trimmed);
+      if (pair !== undefined && pair.after !== undefined) {
+        const outcome = isLegalRegistryLifecycleTransition(violation.lifecycle, pair.before, pair.after);
+        if (outcome.ok) {
+          lifecycled.push({
+            path: trimmed,
+            pattern: violation.pattern,
+            kind: violation.lifecycle,
+            edge: outcome.edge!,
+            instruments: outcome.instruments!,
+          });
+          continue;
+        }
+        lifecycleFailure = outcome.reason;
+      } else if (reader === undefined) {
+        lifecycleFailure =
+          "Lifecycle-managed registry record modified, but no before/after reader is available (strict mode): the transition cannot be verified and fails closed.";
+      } else {
+        lifecycleFailure =
+          "the record is unreadable or deleted on one side of the change; deletions of registry records are not lifecycle transitions";
+      }
+    }
+
     let routedBy: RoutedPath | undefined = undefined;
     if (routing !== undefined) {
       for (const acrId of routing.citedAcrs) {
@@ -226,12 +293,14 @@ export function checkProtectedPathsWithRouting(
 
     if (routedBy !== undefined) {
       routed.push(routedBy);
+    } else if (lifecycleFailure !== undefined) {
+      violations.push({ ...violation, reason: `${violation.reason} ${lifecycleFailure}` });
     } else {
       violations.push(violation);
     }
   }
 
-  return { violations, routed, refusals: [...refusals.values()] };
+  return { violations, routed, lifecycled, refusals: [...refusals.values()] };
 }
 
 export function protectedPathsCheckResult(
@@ -240,17 +309,22 @@ export function protectedPathsCheckResult(
   options: RoutedCheckOptions = {},
 ): CheckResult {
   const outcome = checkProtectedPathsWithRouting(changedPaths, manifest, options);
+  const lifecycleDetails = outcome.lifecycled.map(
+    (l) =>
+      `'${l.path}' matches protected pattern '${l.pattern}' — REGISTRY LIFECYCLE transition ${l.edge} (instruments: ${l.instruments.join(", ")}) authorized by the ${l.kind} lifecycle rules; arbitrary edits to existing registry records remain protected.`,
+  );
   if (outcome.violations.length === 0) {
     const routedDetails = outcome.routed.map(
       (r) =>
         `'${r.path}' matches protected pattern '${r.pattern}' (${r.reason}) — ROUTED via ${r.acr} (product-owner approval by ${r.approvedBy} at ${r.approvedAt}).`,
     );
+    const allDetails = [...routedDetails, ...lifecycleDetails];
     const description =
-      outcome.routed.length > 0
-        ? `No unrouted protected-path change (${changedPaths.length} path(s) checked; ${outcome.routed.length} explicitly ACR-routed).`
+      outcome.routed.length > 0 || outcome.lifecycled.length > 0
+        ? `No unauthorized protected-path change (${changedPaths.length} path(s) checked; ${outcome.routed.length} explicitly ACR-routed, ${outcome.lifecycled.length} registry lifecycle transition(s)).`
         : `No changed path touches architecture-controlled artifacts (${changedPaths.length} path(s) checked).`;
-    return routedDetails.length > 0
-      ? { id: "protected-paths/check", description, status: "pass", details: routedDetails }
+    return allDetails.length > 0
+      ? { id: "protected-paths/check", description, status: "pass", details: allDetails }
       : pass("protected-paths/check", description);
   }
   const details = outcome.violations.map(
@@ -267,6 +341,7 @@ export function protectedPathsCheckResult(
       `'${r.path}' matches protected pattern '${r.pattern}' — ROUTED via ${r.acr} (product-owner approval by ${r.approvedBy} at ${r.approvedAt}).`,
     );
   }
+  details.push(...lifecycleDetails);
   return fail(
     "protected-paths/check",
     "Changed paths touch architecture-controlled artifacts without an approved ACR covering them.",
