@@ -216,6 +216,42 @@ function validateWallHost(pick: EntityPick): string | null {
   return null;
 }
 
+/** CAD-PARITY-011: host validators for the Archicad-class authoring
+ *  commands (typed, actionable — the command-line boundary). */
+function validateStoryHost(pick: EntityPick): string | null {
+  if ((pick.props as Record<string, unknown>).type !== "bim.story") {
+    return "Pick must be a story — select a bim.story element.";
+  }
+  return null;
+}
+
+function validateStairHost(pick: EntityPick): string | null {
+  if ((pick.props as Record<string, unknown>).type !== "bim.stair") {
+    return "Host must be a stair — select a bim.stair element.";
+  }
+  return null;
+}
+
+function validateSpaceHost(pick: EntityPick): string | null {
+  if ((pick.props as Record<string, unknown>).type !== "bim.space") {
+    return "Zone members must be spaces — select bim.space elements.";
+  }
+  return null;
+}
+
+function validateBimLifecyclePick(pick: EntityPick): string | null {
+  const type = (pick.props as Record<string, unknown>).type;
+  const eligible = [
+    "bim.wall", "bim.slab", "bim.roof", "bim.stair", "bim.railing",
+    "bim.opening", "bim.door", "bim.window", "bim.space", "bim.zone",
+    "bim.componentInstance",
+  ];
+  if (typeof type !== "string" || !eligible.includes(type)) {
+    return "Renovation status applies to building/spatial BIM elements only.";
+  }
+  return null;
+}
+
 function wallStoryId(wall: EntityPick): string | null {
   const storyId = (wall.props as Record<string, unknown>).storyId;
   return typeof storyId === "string" ? storyId : null;
@@ -641,6 +677,287 @@ export const WORKSPACE_COMMANDS: readonly WorkspaceCommand[] = [
           },
         ],
         [`WINDOW: on wall '${host.id}' at ${trimNum(distance)} from the wall start (width ${ctx.defaults.windowWidth}).`],
+      );
+    },
+  },
+
+  // --- CAD-PARITY-011 (additive, Issue #97): Archicad-class authoring
+  // commands (ribbon: BIM) ---------------------------------------------------
+
+  {
+    id: "roof",
+    name: "ROOF",
+    aliases: ["RF"],
+    label: "Roof",
+    description: "Create a gable roof on the active story from two footprint corners (ridge axis + ridge height).",
+    category: "bim",
+    ribbonTab: "BIM",
+    steps: [
+      { id: "corner1", kind: "point", prompt: "Specify roof first corner:" },
+      { id: "corner2", kind: "point", prompt: "Specify roof opposite corner:" },
+      { id: "ridgeAxis", kind: "text", prompt: "Ridge axis <x> (x or y — the plan axis the ridge runs parallel to):", defaultValue: "x" },
+      { id: "height", kind: "number", prompt: "Ridge height above the eaves base <default>:", defaultValue: 0 },
+    ],
+    build: (values, ctx) => {
+      if (ctx.activeStoryId === null) {
+        throw new Error("ROOF requires an active story — create one with STORY or select it in the Navigator.");
+      }
+      const corner1 = pointValue(values, "corner1");
+      const corner2 = pointValue(values, "corner2");
+      const axis = textValue(values, "ridgeAxis", "x").trim().toLowerCase();
+      if (axis !== "x" && axis !== "y") {
+        throw new Error("ROOF ridge axis must be 'x' or 'y' (the plan axis the ridge runs parallel to).");
+      }
+      const typedHeight = numberValue(values, "height", 0);
+      const height = typedHeight > 0 ? typedHeight : ctx.defaults.roofHeight;
+      return plan(
+        [
+          {
+            name: "bim.createElements",
+            payload: {
+              entities: [
+                {
+                  type: "bim.roof",
+                  storyId: ctx.activeStoryId,
+                  corner1: [corner1[0], corner1[1]],
+                  corner2: [corner2[0], corner2[1]],
+                  ridgeAxis: axis,
+                  height,
+                },
+              ],
+            },
+          },
+        ],
+        [
+          `ROOF: (${fmtPoint(corner1)}) → (${fmtPoint(corner2)}), ridge ∥ ${axis}, ridge height ${trimNum(height)} on story '${ctx.activeStoryId}'.`,
+        ],
+      );
+    },
+  },
+  {
+    id: "stair",
+    name: "STAIR",
+    aliases: ["STR"],
+    label: "Stair",
+    description: "Create a stair from the active story to a picked top story (start point + run direction; width/tread/risers from BIM defaults).",
+    category: "bim",
+    ribbonTab: "BIM",
+    steps: [
+      { id: "start", kind: "point", prompt: "Specify stair start point (run centerline, bottom):" },
+      { id: "direction", kind: "point", prompt: "Specify run direction (a point in the run direction):" },
+      { id: "topStory", kind: "entity", prompt: "Select the TOP story the stair lands on:", validate: validateStoryHost },
+    ],
+    build: (values, ctx) => {
+      if (ctx.activeStoryId === null) {
+        throw new Error("STAIR requires an active story — create one with STORY or select it in the Navigator.");
+      }
+      const start = pointValue(values, "start");
+      const dirPoint = pointValue(values, "direction");
+      const vx = dirPoint[0] - start[0];
+      const vy = dirPoint[1] - start[1];
+      const vlen = Math.sqrt(vx * vx + vy * vy);
+      if (vlen <= 1e-9) {
+        throw new Error("STAIR direction must differ from the start point (the direction pick defines the run heading).");
+      }
+      const topStory = entitiesValue(values, "topStory")[0];
+      if (topStory === undefined) throw new Error("STAIR requires the top story.");
+      const topStoryId = topStory.id;
+      if (topStoryId === ctx.activeStoryId) {
+        throw new Error("STAIR top story must be a DIFFERENT story above the active story.");
+      }
+      // The direction pick defines the run HEADING — normalized to the unit
+      // vector the entity requires (the picked length carries no meaning).
+      const direction: [number, number] = [vx / vlen, vy / vlen];
+      return plan(
+        [
+          {
+            name: "bim.createElements",
+            payload: {
+              entities: [
+                {
+                  type: "bim.stair",
+                  storyId: ctx.activeStoryId,
+                  topStoryId,
+                  start: [start[0], start[1]],
+                  direction,
+                  width: ctx.defaults.stairWidth,
+                  stepCount: ctx.defaults.stairStepCount,
+                  tread: ctx.defaults.stairTread,
+                  ...(ctx.defaults.stairLandingLength > 0 ? { landingLength: ctx.defaults.stairLandingLength } : {}),
+                },
+              ],
+            },
+          },
+        ],
+        [
+          `STAIR: from (${fmtPoint(start)}) toward (${fmtPoint(dirPoint)}) on story '${ctx.activeStoryId}' → story '${topStoryId}', width ${ctx.defaults.stairWidth}, ${ctx.defaults.stairStepCount} risers, tread ${ctx.defaults.stairTread}.`,
+        ],
+      );
+    },
+  },
+  {
+    id: "railing",
+    name: "RAILING",
+    aliases: ["RAL"],
+    label: "Railing",
+    description: "Create a railing on a host stair (side + handrail height from BIM defaults).",
+    category: "bim",
+    ribbonTab: "BIM",
+    steps: [
+      { id: "host", kind: "entity", prompt: "Select host stair:", validate: validateStairHost },
+      { id: "side", kind: "text", prompt: "Side <left> (left or right, facing the run direction):", defaultValue: "left" },
+    ],
+    build: (values, ctx) => {
+      const host = entitiesValue(values, "host")[0];
+      if (host === undefined) throw new Error("RAILING requires a host stair.");
+      const side = textValue(values, "side", "left").trim().toLowerCase();
+      if (side !== "left" && side !== "right") {
+        throw new Error("RAILING side must be 'left' or 'right' (facing the host stair's run direction).");
+      }
+      return plan(
+        [
+          {
+            name: "bim.createElements",
+            payload: {
+              entities: [
+                {
+                  type: "bim.railing",
+                  hostId: host.id,
+                  side,
+                  height: ctx.defaults.railingHeight,
+                },
+              ],
+            },
+          },
+        ],
+        [
+          `RAILING: on stair '${host.id}' (${side} side), handrail height ${ctx.defaults.railingHeight}.`,
+        ],
+      );
+    },
+  },
+  {
+    id: "zone",
+    name: "ZONE",
+    aliases: ["ZN"],
+    label: "Zone",
+    description: "Create a zone grouping one or more spaces (name + space selection).",
+    category: "bim",
+    ribbonTab: "BIM",
+    steps: [
+      { id: "name", kind: "text", prompt: "Zone name <Zone N+1>:", defaultValue: "" },
+      { id: "spaces", kind: "entity", prompt: "Select member spaces (Enter to finish):", multiple: true, optional: true, minInputs: 1, validate: validateSpaceHost },
+    ],
+    build: (values, ctx) => {
+      const typedName = textValue(values, "name", "").trim();
+      const name = typedName.length > 0 ? typedName : `Zone ${ctx.storyCount + 1}`;
+      const spaces = entitiesValue(values, "spaces");
+      if (spaces.length === 0) {
+        throw new Error("ZONE requires at least one member space (a zone groups spaces).");
+      }
+      return plan(
+        [
+          {
+            name: "bim.createElements",
+            payload: {
+              entities: [
+                {
+                  type: "bim.zone",
+                  name,
+                  spaceIds: spaces.map((s) => s.id),
+                },
+              ],
+            },
+          },
+        ],
+        [
+          `ZONE: '${name}' grouping ${spaces.length} space(s): ${spaces.map((s) => s.id).join(", ")}.`,
+        ],
+      );
+    },
+  },
+  {
+    id: "optiongroup",
+    name: "OPTION",
+    aliases: ["OPT"],
+    label: "Option group",
+    description: "Create a design-option group (name + comma-separated options + the active option).",
+    category: "bim",
+    ribbonTab: "BIM",
+    steps: [
+      { id: "name", kind: "text", prompt: "Option group name:", defaultValue: "" },
+      { id: "options", kind: "text", prompt: "Options (comma-separated, ≥ 2):", defaultValue: "" },
+      { id: "active", kind: "text", prompt: "Active option (must be one of the declared options):", defaultValue: "" },
+    ],
+    build: (values) => {
+      const name = textValue(values, "name", "").trim();
+      if (name.length === 0) throw new Error("OPTION requires a group name.");
+      const options = textValue(values, "options", "")
+        .split(",")
+        .map((o) => o.trim())
+        .filter((o) => o.length > 0);
+      if (options.length < 2) {
+        throw new Error("OPTION requires at least 2 distinct option names (comma-separated).");
+      }
+      const active = textValue(values, "active", "").trim();
+      if (!options.includes(active)) {
+        throw new Error(`OPTION active option '${active}' must be one of the declared options (${options.join(", ")}).`);
+      }
+      return plan(
+        [
+          {
+            name: "bim.createElements",
+            payload: {
+              entities: [
+                {
+                  type: "bim.optionGroup",
+                  name,
+                  options,
+                  activeOption: active,
+                },
+              ],
+            },
+          },
+        ],
+        [
+          `OPTION: group '${name}' with options ${options.join(", ")} (active: '${active}'). Use bim.setOptionMembership on elements and bim.setActiveOption to switch.`,
+        ],
+      );
+    },
+  },
+  {
+    id: "renovate",
+    name: "RENOVATE",
+    aliases: ["REN"],
+    label: "Renovation status",
+    description: "Set the renovation status (existing | new | to-be-demolished) of the selected BIM elements.",
+    category: "bim",
+    ribbonTab: "BIM",
+    steps: [
+      { id: "status", kind: "text", prompt: "Renovation status <new> (existing | new | to-be-demolished):", defaultValue: "new" },
+      { id: "objects", kind: "entity", prompt: "Select BIM elements (Enter to use the current selection):", multiple: true, optional: true, validate: validateBimLifecyclePick },
+    ],
+    build: (values, ctx) => {
+      const status = textValue(values, "status", "new").trim().toLowerCase();
+      if (status !== "existing" && status !== "new" && status !== "to-be-demolished") {
+        throw new Error("RENOVATE status must be 'existing', 'new' or 'to-be-demolished'.");
+      }
+      let picks = entitiesValue(values, "objects");
+      if (picks.length === 0) {
+        picks = ctx.currentSelection.filter(isBimPick);
+      }
+      if (picks.length === 0) {
+        throw new Error("RENOVATE requires at least one BIM element (select elements or use the current selection).");
+      }
+      const appApi = picks.map((pick) => ({
+        name: "bim.setRenovation" as const,
+        payload: { elementId: pick.id, status },
+      }));
+      return plan(
+        appApi,
+        [
+          `RENOVATE: ${picks.length} element(s) → '${status}': ${picks.map((p) => p.id).join(", ")}.`,
+        ],
       );
     },
   },

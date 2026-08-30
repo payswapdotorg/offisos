@@ -5,7 +5,7 @@
  * from the repository. It never performs network calls, so results are
  * reproducible from a given commit.
  */
-import { readFileSync, readdirSync } from "node:fs";
+import { readFileSync, readdirSync, existsSync } from "node:fs";
 import { join, basename } from "node:path";
 import type {
   ArchitectureVersionsFile,
@@ -57,10 +57,67 @@ export function loadWorkItems(root: string): LoadedWorkItem[] {
 export function parseRequirementIds(specRequirementsPath: string): Set<string> {
   const ids = new Set<string>();
   const markdown = readFileSync(specRequirementsPath, "utf8");
-  const pattern = /^\|\s*([A-Z][A-Z0-9]*(?:-[A-Z0-9]+)*-[0-9]{3})\s*\|/gm;
+  const tablePattern = /^\|\s*([A-Z][A-Z0-9]*(?:-[A-Z0-9]+)*-[0-9]{3})\s*\|/gm;
   let match: RegExpExecArray | null;
-  while ((match = pattern.exec(markdown)) !== null) {
+  while ((match = tablePattern.exec(markdown)) !== null) {
     if (match[1]) ids.add(match[1]);
+  }
+  return ids;
+}
+
+/**
+ * Extracts requirement IDs from a SUBORDORDINATE product requirements
+ * registry (spec/<product>/requirements.md).
+ *
+ * CAD-PARITY-011 (Issue #97): the CAD/BIM product requirements registry
+ * (spec/cad-bim/requirements.md) stores requirements as markdown bullet
+ * rows: `- CAD-BIM-001 description.` — a separate ID namespace from the
+ * ConstructionOS system requirements. The root registry stays authoritative
+ * for cross-domain governance; this loader makes the subordinate product
+ * namespaces resolvable for work-item requirement references WITHOUT
+ * duplicating them into the root file (the product registries own their IDs).
+ *
+ * The bullet form: an optional bold/italic-free list marker, the ID, then a
+ * space and the description text.
+ */
+export function parseSubRequirementIds(subRequirementsPath: string): Set<string> {
+  const ids = new Set<string>();
+  const markdown = readFileSync(subRequirementsPath, "utf8");
+  const bulletPattern = /^-\s+([A-Z][A-Z0-9]*(?:-[A-Z0-9]+)*-[0-9]{3})\s/mg;
+  let match: RegExpExecArray | null;
+  while ((match = bulletPattern.exec(markdown)) !== null) {
+    if (match[1]) ids.add(match[1]);
+  }
+  // Subordinate registries may also use the root table form — accept both.
+  const tablePattern = /^\|\s*([A-Z][A-Z0-9]*(?:-[A-Z0-9]+)*-[0-9]{3})\s*\|/gm;
+  while ((match = tablePattern.exec(markdown)) !== null) {
+    if (match[1]) ids.add(match[1]);
+  }
+  return ids;
+}
+
+/**
+ * Loads the resolvable requirement-ID set for the whole spec tree: the root
+ * spec/requirements.md PLUS every subordinate product registry
+ * (spec/&lt;product&gt;/requirements.md — currently spec/cad-bim/requirements.md,
+ * the CAD/BIM Product Requirements v1.0 namespace of CAD-P-, CAD-2D-,
+ * CAD-3D-, CAD-BIM- and CAD-DOC- prefixed IDs).
+ *
+ * Additive (CAD-PARITY-011, Issue #97): the P011 work-item record references
+ * the CAD-BIM-* product requirements; before this loader the validator only
+ * resolved the root namespace, so those references failed resolution. This
+ * widens the resolvable set with legitimately-specified IDs — no check is
+ * weakened (unknown IDs still fail).
+ */
+export function loadRequirementIds(root: string): Set<string> {
+  const ids = parseRequirementIds(join(root, "spec", "requirements.md"));
+  const specDir = join(root, "spec");
+  for (const entry of readdirSync(specDir, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const sub = join(specDir, entry.name, "requirements.md");
+    if (existsSync(sub)) {
+      for (const id of parseSubRequirementIds(sub)) ids.add(id);
+    }
   }
   return ids;
 }

@@ -643,6 +643,48 @@ export async function bimGetComponents(): Promise<CommandQueryResponse> {
   return query("bim.getComponents", {});
 }
 
+// --- CAD-PARITY-011 (Issue #97): the meta/lifecycle command surface --------
+
+/** Set (or clear with null) the canonical classification reference. */
+export async function bimSetClassification(elementId: string, classificationRef: string | null): Promise<CommandQueryResponse> {
+  return command("bim.setClassification", { elementId, classificationRef });
+}
+
+/** Replace the structured property sets wholesale ([] clears). */
+export async function bimSetPropertySets(elementId: string, propertySets: unknown[]): Promise<CommandQueryResponse> {
+  return command("bim.setPropertySets", { elementId, propertySets });
+}
+
+/** Set the bounded renovation lifecycle status. */
+export async function bimSetRenovation(elementId: string, status: string): Promise<CommandQueryResponse> {
+  return command("bim.setRenovation", { elementId, status });
+}
+
+/** Set (or clear with nulls) the design-option membership pair. */
+export async function bimSetOptionMembership(elementId: string, optionGroupId: string | null, option: string | null): Promise<CommandQueryResponse> {
+  return command("bim.setOptionMembership", { elementId, optionGroupId, option });
+}
+
+/** Set the ACTIVE option of an option group. */
+export async function bimSetActiveOption(optionGroupId: string, option: string): Promise<CommandQueryResponse> {
+  return command("bim.setActiveOption", { optionGroupId, option });
+}
+
+/** The canonical classification table (the closed vocabulary). */
+export async function bimGetClassification(): Promise<CommandQueryResponse> {
+  return query("bim.getClassification", {});
+}
+
+/** The option-group registry with members per option + active flags. */
+export async function bimGetOptions(): Promise<CommandQueryResponse> {
+  return query("bim.getOptions", {});
+}
+
+/** The lifecycle (renovation + option) state of the BIM elements. */
+export async function bimGetLifecycle(elementId?: string): Promise<CommandQueryResponse> {
+  return query("bim.getLifecycle", elementId === undefined ? {} : { elementId });
+}
+
 /** Extract a BimOpResult from an ok response (defensive). */
 export function unwrapBimOp(res: CommandQueryResponse): BimOpResult | null {
   if (!res.ok) return null;

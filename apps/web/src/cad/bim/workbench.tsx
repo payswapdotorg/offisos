@@ -51,6 +51,11 @@ import {
   bimOp,
   bimSetProperties,
   bimSetSettings,
+  // CAD-PARITY-011 (Issue #97): the lifecycle command surface.
+  bimSetClassification,
+  bimSetOptionMembership,
+  bimSetActiveOption,
+  bimSetRenovation,
   canRedo,
   canUndo,
   createDoc,
@@ -79,7 +84,20 @@ import type { WorldBox } from "@/cad/bim/projection";
 
 // --- constants + helpers ------------------------------------------------------
 
-type AuthorType = "story" | "wall" | "slab" | "opening" | "door" | "window" | "space";
+type AuthorType =
+  | "story"
+  | "wall"
+  | "slab"
+  | "opening"
+  | "door"
+  | "window"
+  | "space"
+  // CAD-PARITY-011 (Issue #97): the Archicad-class authoring entities.
+  | "roof"
+  | "stair"
+  | "railing"
+  | "zone"
+  | "optionGroup";
 
 const AUTHOR_TYPES: readonly { id: AuthorType; label: string }[] = [
   { id: "story", label: "Story" },
@@ -89,6 +107,12 @@ const AUTHOR_TYPES: readonly { id: AuthorType; label: string }[] = [
   { id: "door", label: "Door" },
   { id: "window", label: "Window" },
   { id: "space", label: "Space" },
+  // CAD-PARITY-011 (Issue #97).
+  { id: "roof", label: "Roof" },
+  { id: "stair", label: "Stair" },
+  { id: "railing", label: "Railing" },
+  { id: "zone", label: "Zone" },
+  { id: "optionGroup", label: "Option group" },
 ];
 
 const CAMERA_PRESETS: readonly ("iso" | "top" | "front" | "right")[] = ["iso", "top", "front", "right"];
@@ -219,6 +243,17 @@ export function BimWorkbench(): React.JSX.Element {
   const [doorForm, setDoorForm] = React.useState({ id: "", openingId: "", swing: "left" as "left" | "right", leafThickness: "40", name: "Door" });
   const [windowForm, setWindowForm] = React.useState({ id: "", openingId: "", name: "Window" });
   const [spaceForm, setSpaceForm] = React.useState({ id: "", storyId: "", name: "Living", footprint: "0,0 6000,0 6000,5600 0,5600", height: "3000", baseOffset: "0" });
+  // CAD-PARITY-011 (Issue #97): the Archicad-class authoring forms.
+  const [roofForm, setRoofForm] = React.useState({ id: "", storyId: "", name: "Main roof", c1x: "-300", c1y: "-300", c2x: "6300", c2y: "5900", ridgeAxis: "x" as "x" | "y", height: "1500", baseOffset: "0", topStoryId: "" });
+  const [stairForm, setStairForm] = React.useState({ id: "", storyId: "", topStoryId: "", name: "Main stair", sx: "1000", sy: "1000", dirx: "1", diry: "0", width: "1200", stepCount: "16", tread: "280", baseOffset: "0", landingLength: "0" });
+  const [railingForm, setRailingForm] = React.useState({ id: "", hostId: "", name: "Railing", side: "left" as "left" | "right", height: "900" });
+  const [zoneForm, setZoneForm] = React.useState({ id: "", name: "Daylit wing", spaceIds: "" });
+  const [optionGroupForm, setOptionGroupForm] = React.useState({ id: "", name: "Facade options", options: "Glazed, Solid", activeOption: "Glazed", description: "" });
+  // The lifecycle panel state (CAD-PARITY-011).
+  const [renewStatus, setRenewStatus] = React.useState<"existing" | "new" | "to-be-demolished">("new");
+  const [classifRef, setClassifRef] = React.useState("");
+  const [memberGroupId, setMemberGroupId] = React.useState("");
+  const [memberOption, setMemberOption] = React.useState("");
   const [move, setMove] = React.useState({ dx: "0", dy: "0", dz: "1000" });
 
   // property editor (one element at a time)
@@ -306,6 +341,23 @@ export function BimWorkbench(): React.JSX.Element {
   const effectiveSpaceStoryId = React.useMemo(
     () => (stories.some((s) => s.id === spaceForm.storyId) ? spaceForm.storyId : (stories[0]?.id ?? "")),
     [stories, spaceForm.storyId],
+  );
+  // CAD-PARITY-011: effective host/story ids for the new authoring forms.
+  const effectiveRoofStoryId = React.useMemo(
+    () => (stories.some((s) => s.id === roofForm.storyId) ? roofForm.storyId : (stories[0]?.id ?? "")),
+    [stories, roofForm.storyId],
+  );
+  const effectiveStairStoryId = React.useMemo(
+    () => (stories.some((s) => s.id === stairForm.storyId) ? stairForm.storyId : (stories[0]?.id ?? "")),
+    [stories, stairForm.storyId],
+  );
+  const stairIds = React.useMemo(
+    () => bimData.entities.filter((e) => e.type === "bim.stair").map((e) => e.id),
+    [bimData.entities],
+  );
+  const effectiveRailingHostId = React.useMemo(
+    () => (stairIds.some((id) => id === railingForm.hostId) ? railingForm.hostId : (stairIds[0] ?? "")),
+    [stairIds, railingForm.hostId],
   );
   const effectiveHostId = React.useMemo(
     () => (walls.some((w) => w.id === openingForm.hostId) ? openingForm.hostId : (walls[0]?.id ?? "")),
@@ -588,11 +640,106 @@ export function BimWorkbench(): React.JSX.Element {
           );
           break;
         }
+        // --- CAD-PARITY-011 (Issue #97): the Archicad-class authoring cases. ---
+        case "roof": {
+          if (effectiveRoofStoryId === "") throw new Error("author a story first (no story to host the roof)");
+          const dirx0 = toNum(roofForm.c2x, "roof corner2.x") - toNum(roofForm.c1x, "roof corner1.x");
+          const diry0 = toNum(roofForm.c2y, "roof corner2.y") - toNum(roofForm.c1y, "roof corner1.y");
+          if (dirx0 === 0 || diry0 === 0) throw new Error("roof corners must span a non-degenerate area");
+          void submitCreate(
+            {
+              type: "bim.roof",
+              ...(roofForm.id.trim() !== "" ? { id: roofForm.id.trim() } : {}),
+              storyId: effectiveRoofStoryId,
+              name: roofForm.name,
+              corner1: [toNum(roofForm.c1x, "roof corner1.x"), toNum(roofForm.c1y, "roof corner1.y")],
+              corner2: [toNum(roofForm.c2x, "roof corner2.x"), toNum(roofForm.c2y, "roof corner2.y")],
+              ridgeAxis: roofForm.ridgeAxis,
+              height: toNum(roofForm.height, "roof height"),
+              baseOffset: toNum(roofForm.baseOffset, "roof baseOffset"),
+              ...(roofForm.topStoryId.trim() !== "" ? { topStoryId: roofForm.topStoryId.trim() } : {}),
+            },
+            "roof",
+          );
+          break;
+        }
+        case "stair": {
+          if (effectiveStairStoryId === "") throw new Error("author a story first (the stair starts on it)");
+          if (stairForm.topStoryId.trim() === "") throw new Error("pick the TOP story the stair lands on");
+          if (stairForm.topStoryId.trim() === effectiveStairStoryId) throw new Error("the top story must be a DIFFERENT story above the start story");
+          const dirLen = Math.hypot(toNum(stairForm.dirx, "stair dir x"), toNum(stairForm.diry, "stair dir y"));
+          if (dirLen <= 1e-9) throw new Error("the run direction must be a non-zero vector (it is normalized to the heading)");
+          void submitCreate(
+            {
+              type: "bim.stair",
+              ...(stairForm.id.trim() !== "" ? { id: stairForm.id.trim() } : {}),
+              storyId: effectiveStairStoryId,
+              topStoryId: stairForm.topStoryId.trim(),
+              name: stairForm.name,
+              start: [toNum(stairForm.sx, "stair start x"), toNum(stairForm.sy, "stair start y")],
+              direction: [toNum(stairForm.dirx, "stair dir x") / dirLen, toNum(stairForm.diry, "stair dir y") / dirLen],
+              width: toNum(stairForm.width, "stair width"),
+              stepCount: toNum(stairForm.stepCount, "stair stepCount"),
+              tread: toNum(stairForm.tread, "stair tread"),
+              baseOffset: toNum(stairForm.baseOffset, "stair baseOffset"),
+              ...(toNum(stairForm.landingLength, "stair landingLength") > 0 ? { landingLength: toNum(stairForm.landingLength, "stair landingLength") } : {}),
+            },
+            "stair",
+          );
+          break;
+        }
+        case "railing": {
+          const host = effectiveRailingHostId;
+          if (host === "") throw new Error("author a stair first (railings derive from their host stair)");
+          void submitCreate(
+            {
+              type: "bim.railing",
+              ...(railingForm.id.trim() !== "" ? { id: railingForm.id.trim() } : {}),
+              hostId: host,
+              name: railingForm.name,
+              side: railingForm.side,
+              height: toNum(railingForm.height, "railing height"),
+            },
+            "railing",
+          );
+          break;
+        }
+        case "zone": {
+          const spaceIds = zoneForm.spaceIds.split(/[\s,]+/).map((x) => x.trim()).filter((x) => x.length > 0);
+          if (spaceIds.length === 0) throw new Error("a zone groups ≥ 1 space — enter space ids (comma/space separated)");
+          void submitCreate(
+            {
+              type: "bim.zone",
+              ...(zoneForm.id.trim() !== "" ? { id: zoneForm.id.trim() } : {}),
+              name: zoneForm.name,
+              spaceIds,
+            },
+            "zone",
+          );
+          break;
+        }
+        case "optionGroup": {
+          const options = optionGroupForm.options.split(",").map((x) => x.trim()).filter((x) => x.length > 0);
+          if (options.length < 2) throw new Error("an option group declares ≥ 2 options (comma-separated)");
+          if (!options.includes(optionGroupForm.activeOption)) throw new Error("the active option must be one of the declared options");
+          void submitCreate(
+            {
+              type: "bim.optionGroup",
+              ...(optionGroupForm.id.trim() !== "" ? { id: optionGroupForm.id.trim() } : {}),
+              name: optionGroupForm.name,
+              options,
+              activeOption: optionGroupForm.activeOption,
+              ...(optionGroupForm.description.trim() !== "" ? { description: optionGroupForm.description } : {}),
+            },
+            "optionGroup",
+          );
+          break;
+        }
       }
     } catch (e) {
       setError(`[create ${authorType}] ${(e as Error).message}`);
     }
-  }, [authorType, storyForm, wallForm, slabForm, openingForm, doorForm, windowForm, spaceForm, submitCreate, effectiveStoryId, effectiveSlabStoryId, effectiveSpaceStoryId, effectiveHostId, effectiveDoorOpeningId, effectiveWindowOpeningId]);
+  }, [authorType, storyForm, wallForm, slabForm, openingForm, doorForm, windowForm, spaceForm, roofForm, stairForm, railingForm, zoneForm, optionGroupForm, submitCreate, effectiveStoryId, effectiveSlabStoryId, effectiveSpaceStoryId, effectiveHostId, effectiveDoorOpeningId, effectiveWindowOpeningId, effectiveRoofStoryId, effectiveStairStoryId, effectiveRailingHostId]);
 
   const onSeed = React.useCallback(() => {
     void (async () => {
@@ -602,6 +749,78 @@ export function BimWorkbench(): React.JSX.Element {
       }
     })();
   }, [run]);
+
+  // --- CAD-PARITY-011 (Issue #97): the lifecycle panel actions. ---
+  const onRenovate = React.useCallback(() => {
+    void (async () => {
+      if (selection.length === 0) {
+        setError("[setRenovation] select BIM elements first");
+        return;
+      }
+      for (const id of selection) {
+        const res = await bimSetRenovation(id, renewStatus);
+        if (!res.ok) {
+          setError(`[setRenovation ${id}] ${res.code}: ${res.message}`);
+          return;
+        }
+      }
+      setStatus(`renovation status '${renewStatus}' applied to ${selection.length} element(s)`);
+      await refresh();
+    })();
+  }, [selection, renewStatus, refresh]);
+
+  const onClassify = React.useCallback(() => {
+    void (async () => {
+      if (selection.length !== 1) {
+        setError("[setClassification] select exactly one BIM element");
+        return;
+      }
+      const ref = classifRef.trim();
+      const res = await bimSetClassification(selection[0]!, ref === "" ? null : ref);
+      if (!res.ok) {
+        setError(`[setClassification] ${res.code}: ${res.message}`);
+        return;
+      }
+      setStatus(ref === "" ? "classification cleared" : `classified as '${ref}'`);
+      await refresh();
+    })();
+  }, [selection, classifRef, refresh]);
+
+  const onSetMembership = React.useCallback(() => {
+    void (async () => {
+      if (selection.length !== 1) {
+        setError("[setOptionMembership] select exactly one BIM element");
+        return;
+      }
+      const groupId = memberGroupId.trim();
+      const option = memberOption.trim();
+      const res = await bimSetOptionMembership(selection[0]!, groupId === "" ? null : groupId, option === "" ? null : option);
+      if (!res.ok) {
+        setError(`[setOptionMembership] ${res.code}: ${res.message}`);
+        return;
+      }
+      setStatus(groupId === "" ? "option membership cleared" : `option membership → '${groupId}' / '${option}'`);
+      await refresh();
+    })();
+  }, [selection, memberGroupId, memberOption, refresh]);
+
+  const onSetActiveOption = React.useCallback(() => {
+    void (async () => {
+      const groupId = memberGroupId.trim();
+      const option = memberOption.trim();
+      if (groupId === "" || option === "") {
+        setError("[setActiveOption] pick a group and an option above first");
+        return;
+      }
+      const res = await bimSetActiveOption(groupId, option);
+      if (!res.ok) {
+        setError(`[setActiveOption] ${res.code}: ${res.message}`);
+        return;
+      }
+      setStatus(`active option of '${groupId}' → '${option}'`);
+      await refresh();
+    })();
+  }, [memberGroupId, memberOption, refresh]);
 
   const onMove = React.useCallback(
     (op: "bim.move" | "bim.copy") => {
@@ -1054,6 +1273,101 @@ export function BimWorkbench(): React.JSX.Element {
                     </div>
                   </>
                 )}
+                {authorType === "roof" && (
+                  <>
+                    <Field label="id (optional)"><input className={INP} aria-label="roof id" value={roofForm.id} onChange={(e) => setRoofForm((f) => ({ ...f, id: e.target.value }))} /></Field>
+                    <Field label="story">
+                      <select className={INP} aria-label="roof story" value={effectiveRoofStoryId} onChange={(e) => setRoofForm((f) => ({ ...f, storyId: e.target.value }))}>
+                        {stories.length === 0 && <option value="">— author a story first —</option>}
+                        {stories.map((st) => <option key={st.id} value={st.id}>{st.id}</option>)}
+                      </select>
+                    </Field>
+                    <Field label="name"><input className={INP} aria-label="roof name" value={roofForm.name} onChange={(e) => setRoofForm((f) => ({ ...f, name: e.target.value }))} /></Field>
+                    <Field label="ridge axis">
+                      <select className={INP} aria-label="roof ridge axis" value={roofForm.ridgeAxis} onChange={(e) => setRoofForm((f) => ({ ...f, ridgeAxis: e.target.value as "x" | "y" }))}>
+                        <option value="x">x (ridge ∥ X)</option>
+                        <option value="y">y (ridge ∥ Y)</option>
+                      </select>
+                    </Field>
+                    <Field label="ridge height (mm)"><input className={INP} aria-label="roof height" value={roofForm.height} onChange={(e) => setRoofForm((f) => ({ ...f, height: e.target.value }))} /></Field>
+                    <Field label="baseOffset (mm)"><input className={INP} aria-label="roof baseOffset" value={roofForm.baseOffset} onChange={(e) => setRoofForm((f) => ({ ...f, baseOffset: e.target.value }))} /></Field>
+                    <Field label="corner 1 (x,y)"><input className={INP} aria-label="roof corner1 x" value={roofForm.c1x} onChange={(e) => setRoofForm((f) => ({ ...f, c1x: e.target.value }))} /></Field>
+                    <Field label=""><input className={INP} aria-label="roof corner1 y" value={roofForm.c1y} onChange={(e) => setRoofForm((f) => ({ ...f, c1y: e.target.value }))} /></Field>
+                    <Field label="corner 2 (x,y)"><input className={INP} aria-label="roof corner2 x" value={roofForm.c2x} onChange={(e) => setRoofForm((f) => ({ ...f, c2x: e.target.value }))} /></Field>
+                    <Field label=""><input className={INP} aria-label="roof corner2 y" value={roofForm.c2y} onChange={(e) => setRoofForm((f) => ({ ...f, c2y: e.target.value }))} /></Field>
+                    <Field label="spans to story (optional)">
+                      <select className={INP} aria-label="roof top story" value={roofForm.topStoryId} onChange={(e) => setRoofForm((f) => ({ ...f, topStoryId: e.target.value }))}>
+                        <option value="">— no declared span —</option>
+                        {stories.filter((st) => st.id !== effectiveRoofStoryId).map((st) => <option key={st.id} value={st.id}>{st.id}</option>)}
+                      </select>
+                    </Field>
+                  </>
+                )}
+                {authorType === "stair" && (
+                  <>
+                    <Field label="id (optional)"><input className={INP} aria-label="stair id" value={stairForm.id} onChange={(e) => setStairForm((f) => ({ ...f, id: e.target.value }))} /></Field>
+                    <Field label="name"><input className={INP} aria-label="stair name" value={stairForm.name} onChange={(e) => setStairForm((f) => ({ ...f, name: e.target.value }))} /></Field>
+                    <Field label="start story">
+                      <select className={INP} aria-label="stair start story" value={effectiveStairStoryId} onChange={(e) => setStairForm((f) => ({ ...f, storyId: e.target.value }))}>
+                        {stories.length === 0 && <option value="">— author stories first —</option>}
+                        {stories.map((st) => <option key={st.id} value={st.id}>{st.id}</option>)}
+                      </select>
+                    </Field>
+                    <Field label="top story">
+                      <select className={INP} aria-label="stair top story" value={stairForm.topStoryId} onChange={(e) => setStairForm((f) => ({ ...f, topStoryId: e.target.value }))}>
+                        <option value="">— pick the landing story —</option>
+                        {stories.filter((st) => st.id !== effectiveStairStoryId).map((st) => <option key={st.id} value={st.id}>{st.id}</option>)}
+                      </select>
+                    </Field>
+                    <Field label="start (x,y)"><input className={INP} aria-label="stair start x" value={stairForm.sx} onChange={(e) => setStairForm((f) => ({ ...f, sx: e.target.value }))} /></Field>
+                    <Field label=""><input className={INP} aria-label="stair start y" value={stairForm.sy} onChange={(e) => setStairForm((f) => ({ ...f, sy: e.target.value }))} /></Field>
+                    <Field label="direction (x,y)"><input className={INP} aria-label="stair direction x" value={stairForm.dirx} onChange={(e) => setStairForm((f) => ({ ...f, dirx: e.target.value }))} /></Field>
+                    <Field label=""><input className={INP} aria-label="stair direction y" value={stairForm.diry} onChange={(e) => setStairForm((f) => ({ ...f, diry: e.target.value }))} /></Field>
+                    <Field label="width (mm)"><input className={INP} aria-label="stair width" value={stairForm.width} onChange={(e) => setStairForm((f) => ({ ...f, width: e.target.value }))} /></Field>
+                    <Field label="risers (2–24)"><input className={INP} aria-label="stair step count" value={stairForm.stepCount} onChange={(e) => setStairForm((f) => ({ ...f, stepCount: e.target.value }))} /></Field>
+                    <Field label="tread (mm)"><input className={INP} aria-label="stair tread" value={stairForm.tread} onChange={(e) => setStairForm((f) => ({ ...f, tread: e.target.value }))} /></Field>
+                    <Field label="baseOffset (mm)"><input className={INP} aria-label="stair baseOffset" value={stairForm.baseOffset} onChange={(e) => setStairForm((f) => ({ ...f, baseOffset: e.target.value }))} /></Field>
+                    <Field label="landing (mm, 0=none)"><input className={INP} aria-label="stair landing length" value={stairForm.landingLength} onChange={(e) => setStairForm((f) => ({ ...f, landingLength: e.target.value }))} /></Field>
+                  </>
+                )}
+                {authorType === "railing" && (
+                  <>
+                    <Field label="id (optional)"><input className={INP} aria-label="railing id" value={railingForm.id} onChange={(e) => setRailingForm((f) => ({ ...f, id: e.target.value }))} /></Field>
+                    <Field label="host stair">
+                      <select className={INP} aria-label="railing host stair" value={effectiveRailingHostId} onChange={(e) => setRailingForm((f) => ({ ...f, hostId: e.target.value }))}>
+                        {stairIds.length === 0 && <option value="">— author a stair first —</option>}
+                        {stairIds.map((id) => <option key={id} value={id}>{id}</option>)}
+                      </select>
+                    </Field>
+                    <Field label="name"><input className={INP} aria-label="railing name" value={railingForm.name} onChange={(e) => setRailingForm((f) => ({ ...f, name: e.target.value }))} /></Field>
+                    <Field label="side">
+                      <select className={INP} aria-label="railing side" value={railingForm.side} onChange={(e) => setRailingForm((f) => ({ ...f, side: e.target.value as "left" | "right" }))}>
+                        <option value="left">left (facing the run)</option>
+                        <option value="right">right (facing the run)</option>
+                      </select>
+                    </Field>
+                    <Field label="handrail height (mm)"><input className={INP} aria-label="railing height" value={railingForm.height} onChange={(e) => setRailingForm((f) => ({ ...f, height: e.target.value }))} /></Field>
+                  </>
+                )}
+                {authorType === "zone" && (
+                  <>
+                    <Field label="id (optional)"><input className={INP} aria-label="zone id" value={zoneForm.id} onChange={(e) => setZoneForm((f) => ({ ...f, id: e.target.value }))} /></Field>
+                    <Field label="name"><input className={INP} aria-label="zone name" value={zoneForm.name} onChange={(e) => setZoneForm((f) => ({ ...f, name: e.target.value }))} /></Field>
+                    <div className="col-span-2">
+                      <span className="text-xs text-muted-foreground block mb-0.5">member space ids (comma/space separated, ≥ 1)</span>
+                      <input className="w-full border rounded px-2 py-1 text-xs font-mono bg-transparent" aria-label="zone space ids" value={zoneForm.spaceIds} onChange={(e) => setZoneForm((f) => ({ ...f, spaceIds: e.target.value }))} />
+                    </div>
+                  </>
+                )}
+                {authorType === "optionGroup" && (
+                  <>
+                    <Field label="id (optional)"><input className={INP} aria-label="option group id" value={optionGroupForm.id} onChange={(e) => setOptionGroupForm((f) => ({ ...f, id: e.target.value }))} /></Field>
+                    <Field label="name"><input className={INP} aria-label="option group name" value={optionGroupForm.name} onChange={(e) => setOptionGroupForm((f) => ({ ...f, name: e.target.value }))} /></Field>
+                    <Field label="options (comma-sep, ≥ 2)"><input className={INP} aria-label="option group options" value={optionGroupForm.options} onChange={(e) => setOptionGroupForm((f) => ({ ...f, options: e.target.value }))} /></Field>
+                    <Field label="active option"><input className={INP} aria-label="option group active option" value={optionGroupForm.activeOption} onChange={(e) => setOptionGroupForm((f) => ({ ...f, activeOption: e.target.value }))} /></Field>
+                    <Field label="description (optional)"><input className={INP} aria-label="option group description" value={optionGroupForm.description} onChange={(e) => setOptionGroupForm((f) => ({ ...f, description: e.target.value }))} /></Field>
+                  </>
+                )}
               </div>
 
               <div className="flex flex-wrap gap-2 mt-2">
@@ -1067,6 +1381,44 @@ export function BimWorkbench(): React.JSX.Element {
                 >
                   Seed demo building
                 </Button>
+              </div>
+
+              <Separator className="my-2" />
+
+              {/* CAD-PARITY-011 (Issue #97): the lifecycle panel — renovation
+                  status, classification, design-option membership + the
+                  active option (one versioned edit each; explicit typed
+                  errors surface below). */}
+              <div className="grid grid-cols-2 gap-2">
+                <div className="col-span-2 text-xs font-semibold text-muted-foreground">
+                  Lifecycle &amp; classification (CAD-PARITY-011)
+                </div>
+                <div className="flex items-center gap-1">
+                  <select className={INP} aria-label="renovation status" value={renewStatus} onChange={(e) => setRenewStatus(e.target.value as typeof renewStatus)}>
+                    <option value="existing">existing</option>
+                    <option value="new">new</option>
+                    <option value="to-be-demolished">to-be-demolished</option>
+                  </select>
+                  <Button size="sm" variant="outline" disabled={busy || selection.length === 0} onClick={onRenovate} title="apply the renovation status to every selected BIM element">
+                    Renovate ({selection.length})
+                  </Button>
+                </div>
+                <div className="flex items-center gap-1">
+                  <input className={INP} aria-label="classification code" placeholder="OFFISOS-ARCH-…" value={classifRef} onChange={(e) => setClassifRef(e.target.value)} />
+                  <Button size="sm" variant="outline" disabled={busy || selection.length !== 1} onClick={onClassify} title="set (empty = clear) the canonical classification of the selected element">
+                    Classify
+                  </Button>
+                </div>
+                <div className="col-span-2 flex items-center gap-1">
+                  <input className={INP} aria-label="option group id" placeholder="option group id" value={memberGroupId} onChange={(e) => setMemberGroupId(e.target.value)} />
+                  <input className={INP} aria-label="option name" placeholder="option" value={memberOption} onChange={(e) => setMemberOption(e.target.value)} />
+                  <Button size="sm" variant="outline" disabled={busy || selection.length !== 1} onClick={onSetMembership} title="set/clear the design-option membership of the selected element">
+                    Membership
+                  </Button>
+                  <Button size="sm" variant="outline" disabled={busy} onClick={onSetActiveOption} title="make the option the group's ACTIVE option">
+                    Set active
+                  </Button>
+                </div>
               </div>
             </div>
 

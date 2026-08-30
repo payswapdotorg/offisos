@@ -396,11 +396,31 @@ interface WorldPrism {
   readonly zMax: number;
 }
 
+/** CAD-PARITY-011: an AFFINE image of a Z-prism — a planar polygon in an
+ *  arbitrary orthonormal frame (origin + unit axes u, v) extruded along the
+ *  unit direction w (u × v = ±w for rigid/uniform images). Produced when a
+ *  prism meets a rigid-or-uniform-scale transform: the image is a TRUE prism
+ *  in the new frame with EXACT volume (shoelace(profile) · span — rigid maps
+ *  preserve volume; uniform scale scales it by s³, applied by scaling the
+ *  profile and span), EXACT bbox (the world vertices' AABB) and an EXACT
+ *  mesh (the prism tessellation mapped through the frame — fixed operation
+ *  order: origin + u·px + v·py + w·z). */
+interface WorldAffinePrism {
+  readonly profile: readonly (readonly [number, number])[];
+  readonly origin: V3;
+  readonly u: V3; // unit
+  readonly v: V3; // unit
+  readonly w: V3; // unit
+  readonly zMin: number;
+  readonly zMax: number;
+}
+
 type Part =
   | { readonly kind: "cells"; readonly cells: readonly Cell[] }
   | { readonly kind: "cylinder"; readonly cylinder: WorldCylinder }
   | { readonly kind: "poly"; readonly poly: Polyhedron }
-  | { readonly kind: "prism"; readonly prism: WorldPrism };
+  | { readonly kind: "prism"; readonly prism: WorldPrism }
+  | { readonly kind: "affinePrism"; readonly prism: WorldAffinePrism };
 
 interface Solid {
   readonly parts: readonly Part[];
@@ -546,6 +566,62 @@ function prismMesh(p: WorldPrism): MeshData {
   return { vertices, indices };
 }
 
+/** CAD-PARITY-011: the affine-prism tessellation — the SAME deterministic
+ *  structure as prismMesh (CCW-normalized in the LOCAL frame; cap fans +
+ *  side quads) with world points computed in the FIXED operation order
+ *  origin + u·px + v·py + w·z (bit-identical on every host). */
+function affinePrismMesh(p: WorldAffinePrism): MeshData {
+  const n = p.profile.length;
+  const profile = [...p.profile];
+  let signed = 0;
+  for (let i = 0; i < n; i++) {
+    const a = profile[i]!;
+    const b = profile[(i + 1) % n]!;
+    signed += a[0] * b[1] - b[0] * a[1];
+  }
+  if (signed < 0) profile.reverse();
+  const point = (px: number, py: number, z: number): V3 => [
+    p.origin[0] + p.u[0]! * px + p.v[0]! * py + p.w[0]! * z,
+    p.origin[1] + p.u[1]! * px + p.v[1]! * py + p.w[1]! * z,
+    p.origin[2] + p.u[2]! * px + p.v[2]! * py + p.w[2]! * z,
+  ];
+  const vertices: number[] = [];
+  for (const [x, y] of profile) {
+    const q = point(x, y, p.zMin);
+    vertices.push(q[0], q[1], q[2]);
+  }
+  for (const [x, y] of profile) {
+    const q = point(x, y, p.zMax);
+    vertices.push(q[0], q[1], q[2]);
+  }
+  const indices: number[] = [];
+  for (let i = 1; i < n - 1; i++) {
+    indices.push(0, i + 1, i);
+    indices.push(n, n + i, n + i + 1);
+  }
+  for (let i = 0; i < n; i++) {
+    const i2 = (i + 1) % n;
+    indices.push(i, i2, n + i2, i, n + i2, n + i);
+  }
+  return { vertices, indices };
+}
+
+/** CAD-PARITY-011: the world vertices of an affine prism (profile points at
+ *  both span ends — the exact vertex set of the part; fixed op order). */
+function affinePrismVertices(p: WorldAffinePrism): V3[] {
+  const out: V3[] = [];
+  for (const z of [p.zMin, p.zMax]) {
+    for (const [x, y] of p.profile) {
+      out.push([
+        p.origin[0] + p.u[0]! * x + p.v[0]! * y + p.w[0]! * z,
+        p.origin[1] + p.u[1]! * x + p.v[1]! * y + p.w[1]! * z,
+        p.origin[2] + p.u[2]! * x + p.v[2]! * y + p.w[2]! * z,
+      ]);
+    }
+  }
+  return out;
+}
+
 function concatMesh(a: MeshData, b: MeshData): MeshData {
   const offset = a.vertices.length / 3;
   return {
@@ -565,6 +641,10 @@ function partVolume(part: Part): number {
     case "poly":
       return part.poly.volume;
     case "prism":
+      return shoelaceMagnitude(part.prism.profile) * (part.prism.zMax - part.prism.zMin);
+    case "affinePrism":
+      // Rigid/uniform images of prisms: the frame is orthonormal, so the
+      // volume is the LOCAL prism volume (profile already carries the scale).
       return shoelaceMagnitude(part.prism.profile) * (part.prism.zMax - part.prism.zMin);
   }
 }
@@ -603,6 +683,17 @@ function partBBox(part: Part): readonly [number, number, number, number, number,
       }
       return [minX, minY, part.prism.zMin, maxX, maxY, part.prism.zMax];
     }
+    case "affinePrism": {
+      // CAD-PARITY-011: the exact AABB over the world vertices.
+      const out: [number, number, number, number, number, number] = [Infinity, Infinity, Infinity, -Infinity, -Infinity, -Infinity];
+      for (const c of affinePrismVertices(part.prism)) {
+        for (let i = 0; i < 3; i++) {
+          out[i] = Math.min(out[i]!, c[i]!);
+          out[i + 3] = Math.max(out[i + 3]!, c[i]!);
+        }
+      }
+      return out;
+    }
   }
 }
 
@@ -625,6 +716,8 @@ function partMesh(part: Part): MeshData {
       return polyMesh(part.poly);
     case "prism":
       return prismMesh(part.prism);
+    case "affinePrism":
+      return affinePrismMesh(part.prism);
   }
 }
 
@@ -709,6 +802,175 @@ function subtractCell(a: Cell, b: Cell): Cell[] {
   return out;
 }
 
+// ---------------------------------------------------------------------------
+// CAD-PARITY-011 (Issue #97): the exact convex separation test for fuses.
+// Two convex parts whose AABBs overlap are DISJOINT-OR-TOUCHING iff some
+// axis separates their vertex projections with zero-measure overlap
+// (maxA <= minB or maxB <= minA — touching counts, a measure-zero
+// intersection keeps fused volumes exactly additive). The candidate axes
+// are the face normals of both parts plus the cross products of their edge
+// directions (the complete separating-axis set for convex polytopes).
+// Cylinders and concave profiles never enter the test (conservative
+// decline — honest, never an approximation).
+// ---------------------------------------------------------------------------
+
+/** A profile polygon is convex iff every consecutive turn has the same
+ *  orientation (collinear runs allowed; any sign flip is concave). */
+function profileIsConvex(profile: readonly (readonly [number, number])[]): boolean {
+  const n = profile.length;
+  if (n < 3) return false;
+  let sign = 0;
+  for (let i = 0; i < n; i++) {
+    const a = profile[i]!;
+    const b = profile[(i + 1) % n]!;
+    const c = profile[(i + 2) % n]!;
+    const cross = (b[0] - a[0]) * (c[1] - b[1]) - (b[1] - a[1]) * (c[0] - b[0]);
+    if (cross > 1e-9) {
+      if (sign < 0) return false;
+      sign = 1;
+    } else if (cross < -1e-9) {
+      if (sign > 0) return false;
+      sign = -1;
+    }
+  }
+  return true;
+}
+
+/** All vertices of a part (null for cylinders — outside the SAT class). */
+function partVertices(part: Part): V3[] | null {
+  switch (part.kind) {
+    case "cells": {
+      const out: V3[] = [];
+      for (const c of part.cells) out.push(...cellCorners(c));
+      return out;
+    }
+    case "poly":
+      return [...part.poly.corners];
+    case "prism": {
+      const out: V3[] = [];
+      for (const z of [part.prism.zMin, part.prism.zMax]) {
+        for (const [x, y] of part.prism.profile) out.push([x, y, z]);
+      }
+      return out;
+    }
+    case "affinePrism":
+      return affinePrismVertices(part.prism);
+    case "cylinder":
+      return null;
+  }
+}
+
+/** The face normals AND edge directions of a part (null for cylinders). */
+function partNormalsAndEdges(part: Part): { normals: V3[]; edges: V3[] } | null {
+  switch (part.kind) {
+    case "cells":
+      return {
+        normals: [[1, 0, 0], [0, 1, 0], [0, 0, 1]],
+        edges: [[1, 0, 0], [0, 1, 0], [0, 0, 1]],
+      };
+    case "poly": {
+      // The parallelepiped's 3 edge axes (canonical corner order: e0 = c1−c0,
+      // e1 = c3−c0, e2 = c4−c0 — matches BOX_INDICES).
+      const c = part.poly.corners;
+      const sub = (a: V3, b: V3): V3 => [a[0]! - b[0]!, a[1]! - b[1]!, a[2]! - b[2]!];
+      const e0 = sub(c[1]!, c[0]!);
+      const e1 = sub(c[3]!, c[0]!);
+      const e2 = sub(c[4]!, c[0]!);
+      return { normals: [e0, e1, e2], edges: [e0, e1, e2] };
+    }
+    case "prism": {
+      const normals: V3[] = [];
+      const edges: V3[] = [];
+      const n = part.prism.profile.length;
+      for (let i = 0; i < n; i++) {
+        const a = part.prism.profile[i]!;
+        const b = part.prism.profile[(i + 1) % n]!;
+        const ex = b[0] - a[0];
+        const ey = b[1] - a[1];
+        edges.push([ex, ey, 0]);
+        normals.push([-ey, ex, 0]);
+      }
+      normals.push([0, 0, 1]);
+      edges.push([0, 0, 1]);
+      return { normals, edges };
+    }
+    case "affinePrism": {
+      const normals: V3[] = [];
+      const edges: V3[] = [];
+      const pr = part.prism;
+      const n = pr.profile.length;
+      const mapDir = (x: number, y: number): V3 => [
+        pr.u[0]! * x + pr.v[0]! * y,
+        pr.u[1]! * x + pr.v[1]! * y,
+        pr.u[2]! * x + pr.v[2]! * y,
+      ];
+      for (let i = 0; i < n; i++) {
+        const a = pr.profile[i]!;
+        const b = pr.profile[(i + 1) % n]!;
+        const ex = b[0] - a[0];
+        const ey = b[1] - a[1];
+        edges.push(mapDir(ex, ey));
+        // The in-plane edge normal (−ey, ex) mapped through the frame.
+        normals.push(mapDir(-ey, ex));
+      }
+      normals.push(pr.w);
+      edges.push(pr.w);
+      return { normals, edges };
+    }
+    case "cylinder":
+      return null;
+  }
+}
+
+const SAT_EPS = 1e-12;
+
+/** The exact convex separating-axis classification: true when the two parts
+ *  are convex and separated-or-touching (zero-volume intersection — the
+ *  fuse stays exactly additive); false when they positively overlap, when
+ *  either is non-convex, or when either is a cylinder (conservative). */
+function convexPairSeparatedOrTouching(pa: Part, pb: Part): boolean {
+  if (pa.kind === "cylinder" || pb.kind === "cylinder") return false;
+  if (pa.kind === "prism" && !profileIsConvex(pa.prism.profile)) return false;
+  if (pb.kind === "prism" && !profileIsConvex(pb.prism.profile)) return false;
+  if (pa.kind === "affinePrism" && !profileIsConvex(pa.prism.profile)) return false;
+  if (pb.kind === "affinePrism" && !profileIsConvex(pb.prism.profile)) return false;
+  const va = partVertices(pa);
+  const vb = partVertices(pb);
+  const axesA = partNormalsAndEdges(pa);
+  const axesB = partNormalsAndEdges(pb);
+  if (va === null || vb === null || axesA === null || axesB === null) return false;
+  const axes: V3[] = [...axesA.normals, ...axesB.normals];
+  for (const ea of axesA.edges) {
+    for (const eb of axesB.edges) {
+      const cx = ea[1]! * eb[2]! - ea[2]! * eb[1]!;
+      const cy = ea[2]! * eb[0]! - ea[0]! * eb[2]!;
+      const cz = ea[0]! * eb[1]! - ea[1]! * eb[0]!;
+      const norm = Math.sqrt(cx * cx + cy * cy + cz * cz);
+      if (norm > SAT_EPS) axes.push([cx, cy, cz]);
+    }
+  }
+  for (const u of axes) {
+    let minA = Infinity;
+    let maxA = -Infinity;
+    let minB = Infinity;
+    let maxB = -Infinity;
+    for (const v of va) {
+      const t = u[0]! * v[0]! + u[1]! * v[1]! + u[2]! * v[2]!;
+      if (t < minA) minA = t;
+      if (t > maxA) maxA = t;
+    }
+    for (const v of vb) {
+      const t = u[0]! * v[0]! + u[1]! * v[1]! + u[2]! * v[2]!;
+      if (t < minB) minB = t;
+      if (t > maxB) maxB = t;
+    }
+    // Touching counts as separated (zero-volume intersection — the volumes
+    // stay exactly additive under the concatenated-parts model).
+    if (maxA <= minB || maxB <= minA) return true;
+  }
+  return false;
+}
+
 // --- recursive evaluation -----------------------------------------------------
 
 interface EvalState {
@@ -767,8 +1029,15 @@ function evalDescriptor(descriptor: unknown, state: EvalState): Solid {
     case "fuse": {
       const a = evalDescriptor(d.a, state);
       const b = evalDescriptor(d.b, state);
-      // Exact only when every cross part pair has disjoint AABBs (touching
-      // allowed — measure-zero boundary). Conservative and honest.
+      // Exact only when every cross part pair is DISJOINT-OR-TOUCHING (a
+      // measure-zero intersection keeps the volumes additive — the honest
+      // concatenated-parts model). CAD-PARITY-011 refines the check: a pair
+      // with overlapping AABBs is separated by the exact convex SEPARATING-
+      // AXIS test when both parts are convex (cells, parallelepipeds, and
+      // prisms/affine prisms with convex profiles) — SAT over the parts'
+      // face normals + edge-direction cross products classifies
+      // zero-volume-intersection pairs exactly (touching counts); concave
+      // profiles and cylinders keep the conservative AABB decline.
       for (const pa of a.parts) {
         const ba = partBBox(pa);
         for (const pb of b.parts) {
@@ -777,8 +1046,8 @@ function evalDescriptor(descriptor: unknown, state: EvalState): Solid {
             ba[0] < bb[3] && bb[0] < ba[3] &&
             ba[1] < bb[4] && bb[1] < ba[4] &&
             ba[2] < bb[5] && bb[2] < ba[5];
-          if (overlap) {
-            decline("fuse with overlapping operand bounding boxes (disjoint operands only; the reference engine never approximates a boolean)");
+          if (overlap && !convexPairSeparatedOrTouching(pa, pb)) {
+            decline("fuse with positively-overlapping operands (the reference engine fuses only disjoint-or-touching parts; it never approximates a boolean)");
           }
         }
       }
@@ -924,29 +1193,81 @@ function transformSolid(solid: Solid, m: Matrix4): Solid {
         break;
       }
       case "prism": {
-        // COMPAT-CAD-002: EXACT only under a Z-PRESERVING affine map —
+        // COMPAT-CAD-002: EXACT under a Z-PRESERVING affine map —
         // x' = m00·x + m01·y + m03, y' = m10·x + m11·y + m13 (no z term),
         // z' = m22·z + m23 (no x/y term). The profile maps by the planar
         // 2×2, the span maps linearly; volume scales by |det2D · m22|.
-        // Anything that tilts the extrusion axis leaves the exactness class.
-        if (
+        // CAD-PARITY-011: a RIGID-OR-UNIFORM map goes to the exact affine
+        // prism part instead (the image is a true prism in the new frame).
+        // Anything else leaves the exactness class (typed decline).
+        const zPreserving = !(
           Math.abs(m[2]!) > EPS_ALIGN || Math.abs(m[6]!) > EPS_ALIGN ||
           Math.abs(m[8]!) > EPS_ALIGN || Math.abs(m[9]!) > EPS_ALIGN ||
           Math.abs(m[10]!) <= EPS_ALIGN
-        ) {
-          decline("non-Z-preserving affine transform of an extrusion (the image is not a Z prism; the reference engine never approximates)");
+        );
+        if (zPreserving) {
+          const g = m[10]!;
+          const pr = part.prism;
+          const z0 = g * pr.zMin + m[11]!;
+          const z1 = g * pr.zMax + m[11]!;
+          const profile = pr.profile.map((p) => [
+            m[0]! * p[0] + m[1]! * p[1] + m[3]!,
+            m[4]! * p[0] + m[5]! * p[1] + m[7]!,
+          ] as [number, number]);
+          parts.push({
+            kind: "prism",
+            prism: { profile, zMin: Math.min(z0, z1), zMax: Math.max(z0, z1) },
+          });
+          break;
         }
-        const g = m[10]!;
+        if (!cls.rigidOrUniform) {
+          decline("non-Z-preserving, non-rigid affine transform of an extrusion (the image is neither a Z prism nor a rigid/uniform prism image; the reference engine never approximates)");
+        }
+        const s = cls.uniformScale;
         const pr = part.prism;
-        const z0 = g * pr.zMin + m[11]!;
-        const z1 = g * pr.zMax + m[11]!;
-        const profile = pr.profile.map((p) => [
-          m[0]! * p[0] + m[1]! * p[1] + m[3]!,
-          m[4]! * p[0] + m[5]! * p[1] + m[7]!,
-        ] as [number, number]);
+        // The frame images of the basis vectors, normalized back to unit
+        // length (|M·e| = s for uniform scale); the profile and span scale by s
+        // so the volume scales by s³ exactly (shoelace(s·profile)·s·span).
+        const u = scale3(matDir(m, [1, 0, 0]), 1 / s);
+        const v = scale3(matDir(m, [0, 1, 0]), 1 / s);
+        const w = scale3(matDir(m, [0, 0, 1]), 1 / s);
+        const z0 = s * pr.zMin;
+        const z1 = s * pr.zMax;
         parts.push({
-          kind: "prism",
-          prism: { profile, zMin: Math.min(z0, z1), zMax: Math.max(z0, z1) },
+          kind: "affinePrism",
+          prism: {
+            profile: pr.profile.map((p) => [s * p[0], s * p[1]] as [number, number]),
+            origin: matVec(m, [0, 0, 0]),
+            u,
+            v,
+            w,
+            zMin: Math.min(z0, z1),
+            zMax: Math.max(z0, z1),
+          },
+        });
+        break;
+      }
+      case "affinePrism": {
+        // CAD-PARITY-011: compose another rigid-or-uniform map onto the
+        // frame (frames stay orthonormal; profile/span rescale by s). The
+        // non-rigid case declines (the image of a prism under a general
+        // affine map is not a prism in any orthonormal frame).
+        if (!cls.rigidOrUniform) {
+          decline("non-rigid, non-uniform affine transform of an affine prism (the image is not a prism; the reference engine never approximates)");
+        }
+        const s2 = cls.uniformScale;
+        const ap = part.prism;
+        parts.push({
+          kind: "affinePrism",
+          prism: {
+            profile: ap.profile.map((p) => [s2 * p[0], s2 * p[1]] as [number, number]),
+            origin: matVec(m, ap.origin),
+            u: scale3(matDir(m, ap.u), 1 / s2),
+            v: scale3(matDir(m, ap.v), 1 / s2),
+            w: scale3(matDir(m, ap.w), 1 / s2),
+            zMin: Math.min(s2 * ap.zMin, s2 * ap.zMax),
+            zMax: Math.max(s2 * ap.zMin, s2 * ap.zMax),
+          },
         });
         break;
       }

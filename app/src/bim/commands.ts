@@ -30,6 +30,12 @@ import {
   type ComponentDefEntity,
 } from "./components.js";
 import { assertOpeningFits } from "./editops.js";
+import {
+  assertEntityMetaReferences,
+  assertRoofStoryRelationship,
+  assertStairStoryRelationship,
+} from "./relationships.js";
+import { makeOptionGroup, makeRailing, makeRoof, makeStair, makeZone } from "./elements.js";
 
 export { moveBimElements, copyBimElements, deleteBimElements, setBimProperties } from "./editops.js";
 export type { BimEditOutcome } from "./editops.js";
@@ -206,6 +212,50 @@ export function buildBimCreate(
         entity = plane;
         break;
       }
+      // --- CAD-PARITY-011 (additive, Issue #97): the bounded Archicad-class
+      // authoring entities. Validation order per batch item: strict
+      // constructor first, then reference resolution (existing ∪
+      // earlier-in-batch), then the vertical/host relationships. ---
+      case "bim.roof": {
+        const roof = withId(makeRoof(input), input.id);
+        resolveStory(roof.storyId, index);
+        if (roof.topStoryId !== undefined) resolveStory(roof.topStoryId, index);
+        assertRoofStoryRelationship(roof, (id) => knownEntities.get(id));
+        entity = roof;
+        break;
+      }
+      case "bim.stair": {
+        const stair = withId(makeStair(input), input.id);
+        resolveStory(stair.storyId, index);
+        resolveStory(stair.topStoryId, index);
+        assertStairStoryRelationship(stair, (id) => knownEntities.get(id));
+        entity = stair;
+        break;
+      }
+      case "bim.railing": {
+        const railing = withId(makeRailing(input), input.id);
+        const host = resolveEntity(railing.hostId);
+        if (host.type !== "bim.stair") {
+          throw new Error(`entities[${index}]: railing.hostId '${railing.hostId}' must reference a stair (got '${host.type}' — stair hosting is the supported set in this slice)`);
+        }
+        entity = railing;
+        break;
+      }
+      case "bim.zone": {
+        const zone = withId(makeZone(input), input.id);
+        for (const [j, spaceId] of zone.spaceIds.entries()) {
+          const space = resolveEntity(spaceId);
+          if (space.type !== "bim.space") {
+            throw new Error(`entities[${index}]: zone.spaceIds[${j}] '${spaceId}' must reference a space (got '${space.type}')`);
+          }
+        }
+        entity = zone;
+        break;
+      }
+      case "bim.optionGroup": {
+        entity = withId(makeOptionGroup(input), input.id);
+        break;
+      }
       default:
         throw new Error(`entities[${index}]: unknown BIM element type ${JSON.stringify(type)}`);
     }
@@ -217,6 +267,9 @@ export function buildBimCreate(
       knownEntities.set(entity.id, entity);
       explicitIds.push(entity.id);
     }
+    // CAD-PARITY-011: the meta overlay's cross-ELEMENT references (option
+    // group membership) resolve against existing ∪ earlier-in-batch.
+    assertEntityMetaReferences(entity, (id) => knownEntities.get(id), `entities[${index}]`);
     // Note: same-batch references require an EXPLICIT id on the referenced
     // entity (document-minted identities only exist after apply — callers
     // cannot know them in advance, so referencing them is impossible by

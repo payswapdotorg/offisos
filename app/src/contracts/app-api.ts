@@ -58,6 +58,14 @@ export type CommandName =
   | "bim.setProperties"
   | "bim.setSettings"
   | "bim.buildGeometry"
+  // --- CAD-PARITY-011 (additive, Issue #97): classification, structured
+  // property sets, renovation lifecycle, design-option membership and the
+  // active option — the dedicated meta/lifecycle command surface. ---
+  | "bim.setClassification"
+  | "bim.setPropertySets"
+  | "bim.setRenovation"
+  | "bim.setOptionMembership"
+  | "bim.setActiveOption"
   // --- COMPAT-CAD-003 (additive, api-contract.md §8): documentation ---
   | "docs.createViews"
   | "docs.updateView"
@@ -262,6 +270,12 @@ export type QueryName =
   | "bim.getComponents"
   | "bim.getSemantics"
   | "bim.camera"
+  // CAD-PARITY-011 (additive, Issue #97): the canonical classification
+  // table, the option-group registry with active states and members, and
+  // the lifecycle (renovation + option) state of the BIM elements.
+  | "bim.getClassification"
+  | "bim.getOptions"
+  | "bim.getLifecycle"
   // COMPAT-CAD-003 (additive): documentation views, geometry and exports.
   | "docs.listViews"
   | "docs.getViewGeometry"

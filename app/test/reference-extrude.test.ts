@@ -63,17 +63,31 @@ test("extrude: Z-preserving affine transform stays exact", () => {
   assert.deepEqual(bbox, [2000, 0, 200, 5000, 4000, 2700]);
 });
 
-test("extrude: tilting transforms are typed declines (never approximated)", () => {
-  // Rotation about X: z mixes into y → the image is not a Z prism.
+test("extrude: NON-RIGID tilting transforms are typed declines; rigid tilts are exact affine prisms (CAD-PARITY-011)", () => {
+  // Rotation about X: z mixes into y → the image is not a Z prism, but it IS
+  // a rigid image — since CAD-PARITY-011 the reference engine realizes it
+  // EXACTLY as an affine prism (volume preserved, exact bbox/mesh) instead
+  // of declining (the exactness class expanded where determinism exists).
   const matrix = [
     1, 0, 0, 0,
     0, 0, -1, 0,
     0, 1, 0, 0,
     0, 0, 0, 1,
   ];
+  const tilted = evaluateDescriptorAnalytically({ shape: "transform", matrix, target: { shape: "extrude", profile: RECT, height: 100 } });
+  // RECT spans 4000×3000, height 100 → the volume is preserved exactly.
+  assert.ok(Math.abs(tilted.volume - 4000 * 3000 * 100) <= 1e-6, `rigid tilt must preserve the prism volume exactly (got ${tilted.volume})`);
+  // A NON-RIGID tilt (shear: x' = x + z) leaves the exactness class — the
+  // typed decline, never an approximation.
+  const shear = [
+    1, 0, 1, 0,
+    0, 1, 0, 0,
+    0, 0, 1, 0,
+    0, 0, 0, 1,
+  ];
   assert.throws(
-    () => evaluateDescriptorAnalytically({ shape: "transform", matrix, target: { shape: "extrude", profile: RECT, height: 100 } }),
-    /non-Z-preserving affine transform of an extrusion/,
+    () => evaluateDescriptorAnalytically({ shape: "transform", matrix: shear, target: { shape: "extrude", profile: RECT, height: 100 } }),
+    /non-rigid/,
   );
   // cut of prisms is outside the cut exactness class (cells only).
   assert.throws(

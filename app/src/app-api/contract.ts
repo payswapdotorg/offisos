@@ -233,6 +233,19 @@ import {
   type MaterialEntity,
   type ReferencePlaneEntity,
 } from "../bim/index.js";
+// CAD-PARITY-011 (Issue #97): the meta/lifecycle edit builders, the
+// classification table and the effective renovation state.
+import {
+  setBimActiveOption,
+  setBimClassification,
+  setBimOptionMembership,
+  setBimPropertySets,
+  setBimRenovation,
+  BIM_CLASSIFICATION_TABLE,
+  BIM_CLASSIFICATION_CODES,
+  effectiveRenovationStatus,
+  type BimElementMeta,
+} from "../bim/index.js";
 // COMPAT-IFC-001: the pure IFC/openBIM core + the optional interop adapter
 // capability (LOCK-018 — the engine stays behind the adapter boundary).
 import {
@@ -291,6 +304,13 @@ export class AppApiHandler {
   static create(options: AppApiHandlerOptions): AppApiHandler {
     const doc = CADDocument.empty(options.entityId, options.format, options.formatVersion, options.createdBy);
     return new AppApiHandler(options, doc, options.adapterBundle);
+  }
+
+  /** The handler's document (CAD-PARITY-011: host/test read access to the
+   *  immutable history for graph bridging — the document stays the single
+   *  authority; this exposes reading, never mutation). */
+  get document(): CADDocument {
+    return this.doc;
   }
 
   /** Process a command/query request. Idempotent for commands with a key. */
@@ -510,6 +530,18 @@ export class AppApiHandler {
         return this.cmdBimSetSettings(command.payload);
       case "bim.buildGeometry":
         return await this.cmdBimBuildGeometry(command.payload);
+      // --- CAD-PARITY-011 (additive, Issue #97): the meta/lifecycle command
+      // surface (classification, property sets, renovation, options). ---
+      case "bim.setClassification":
+        return this.cmdBimSetClassification(command.payload);
+      case "bim.setPropertySets":
+        return this.cmdBimSetPropertySets(command.payload);
+      case "bim.setRenovation":
+        return this.cmdBimSetRenovation(command.payload);
+      case "bim.setOptionMembership":
+        return this.cmdBimSetOptionMembership(command.payload);
+      case "bim.setActiveOption":
+        return this.cmdBimSetActiveOption(command.payload);
       // --- COMPAT-CAD-003 (additive): documentation commands ---
       case "docs.createViews":
         return this.cmdDocsCreateViews(command.payload);
@@ -814,6 +846,14 @@ export class AppApiHandler {
       // --- COMPAT-CAD-002 (additive): BIM queries ---
       case "bim.getBuilding":
         return this.qBimGetBuilding();
+      // --- CAD-PARITY-011 (additive, Issue #97): classification/options/
+      // lifecycle queries. ---
+      case "bim.getClassification":
+        return this.qBimGetClassification();
+      case "bim.getOptions":
+        return this.qBimGetOptions();
+      case "bim.getLifecycle":
+        return this.qBimGetLifecycle(query.payload);
       // --- COMPAT-BIM-003 (additive): component/material/coordination ---
       case "bim.getComponents":
         return this.qBimGetComponents();
@@ -4898,14 +4938,40 @@ export class AppApiHandler {
     }
     const ids = p !== null && typeof p === "object" && Array.isArray(p.ids) ? (p.ids as string[]) : null;
     const elements = this.doc.allElements();
-    const entities = elements
+    const allEntities = elements
       .map((el) => elementToBimEntityOrNull(el))
-      .filter((x): x is NonNullable<typeof x> => x !== null)
-      .filter((entity) => ids === null || ids.includes(entity.id));
-    if (entities.length === 0) {
+      .filter((x): x is NonNullable<typeof x> => x !== null);
+    // CAD-PARITY-011: the DETERMINISTIC ACTIVE-OPTION behavior — elements
+    // whose option-group membership is INACTIVE (their group's activeOption
+    // differs from their option) are excluded from geometry realization with
+    // an explicit reason (never deleted, never silently built). The group
+    // registry resolves over the FULL document, not the addressed subset.
+    const optionGroups = new Map(
+      allEntities
+        .filter((x) => x.type === "bim.optionGroup")
+        .map((g) => [g.id, g] as const),
+    );
+    const entities: NonNullable<ReturnType<typeof elementToBimEntityOrNull>>[] = [];
+    const inactiveSkipped: { elementId: string; reason: string }[] = [];
+    for (const entity of allEntities) {
+      if (ids !== null && !ids.includes(entity.id)) continue;
+      const meta = entity.meta;
+      if (meta?.optionGroupId !== undefined && meta.option !== undefined) {
+        const group = optionGroups.get(meta.optionGroupId);
+        if (group !== undefined && group.type === "bim.optionGroup" && group.activeOption !== meta.option) {
+          inactiveSkipped.push({
+            elementId: entity.id,
+            reason: `design-option member of group '${group.id}' option '${meta.option}' — the active option is '${group.activeOption}' (excluded from the build; set the active option or clear the membership to build it)`,
+          });
+          continue;
+        }
+      }
+      entities.push(entity);
+    }
+    if (entities.length === 0 && inactiveSkipped.length === 0) {
       return err("bad_payload", "bim.buildGeometry found no BIM elements to build", true);
     }
-    const ctx = bimGeometryContext(entities);
+    const ctx = bimGeometryContext(allEntities);
     interface BuildResult {
       readonly elementId: string;
       readonly meshToken: string;
@@ -4960,7 +5026,7 @@ export class AppApiHandler {
         return err("edit_failed", (e as Error).message, false);
       }
     }
-    return ok({ built: results.length, results, skipped, snapshot: this.doc.snapshot() });
+    return ok({ built: results.length, results, skipped: [...skipped, ...inactiveSkipped], snapshot: this.doc.snapshot() });
   }
 
   /** bim.getBuilding (query) — the story→elements structure with semantic
@@ -4999,9 +5065,259 @@ export class AppApiHandler {
         walls,
         slabs: hosted("bim.slab").map((slab) => extractElementSemanticsSafe(elements.find((el) => el.id === slab.id)!)!),
         spaces: hosted("bim.space").map((space) => extractElementSemanticsSafe(elements.find((el) => el.id === space.id)!)!),
+        // CAD-PARITY-011 (additive, Issue #97): the Archicad-class authoring
+        // inventory — roofs and stairs hosted on the story (stairs also
+        // report their top story), with hosted railings nested under their
+        // stair (the stair→railing host relationship).
+        roofs: hosted("bim.roof").map((roof) => extractElementSemanticsSafe(elements.find((el) => el.id === roof.id)!)!),
+        stairs: hosted("bim.stair").map((stair) => ({
+          ...extractElementSemanticsSafe(elements.find((el) => el.id === stair.id)!)!,
+          railings: entities
+            .filter((x) => x.type === "bim.railing" && x.hostId === stair.id)
+            .sort((a, b) => (a.id < b.id ? -1 : 1))
+            .map((railing) => extractElementSemanticsSafe(elements.find((el) => el.id === railing.id)!)!),
+        })),
       };
     });
-    return ok({ stories: building, bimSettings: this.doc.bimSettings });
+    // CAD-PARITY-011: the zones (with their member spaces' semantics) and
+    // the option groups (registry + active state), deterministically ordered.
+    const zones = entities
+      .filter((x) => x.type === "bim.zone")
+      .sort((a, b) => (a.id < b.id ? -1 : 1))
+      .map((zone) => ({
+        ...extractElementSemanticsSafe(elements.find((el) => el.id === zone.id)!)!,
+        spaces: zone.spaceIds.map(
+          (spaceId) => extractElementSemanticsSafe(elements.find((el) => el.id === spaceId)!)!,
+        ),
+      }));
+    const optionGroups = entities
+      .filter((x) => x.type === "bim.optionGroup")
+      .sort((a, b) => (a.id < b.id ? -1 : 1))
+      .map((group) => ({
+        ...extractElementSemanticsSafe(elements.find((el) => el.id === group.id)!)!,
+        members: entities
+          .filter((x) => x.meta?.optionGroupId === group.id)
+          .sort((a, b) => (a.id < b.id ? -1 : 1))
+          .map((member) => ({
+            elementId: member.id,
+            type: member.type,
+            option: member.meta?.option,
+          })),
+      }));
+    return ok({ stories: building, zones, optionGroups, bimSettings: this.doc.bimSettings });
+  }
+
+  // --- CAD-PARITY-011 (additive, Issue #97): the meta/lifecycle commands ---
+
+  /** The shared single-element lifecycle edit runner: validate + apply ONE
+   *  atomic updateElement batch (one versioned command, one revision, one
+   *  undo entry — the editops precedent). */
+  private runBimLifecycleEdit(
+    payload: unknown,
+    op: string,
+    build: (elements: readonly Element[], elementId: string) => ReturnType<typeof setBimClassification>,
+    requiredFields: string,
+  ): CommandQueryResponse {
+    const p = payload as { elementId?: unknown } | null;
+    if (p === null || typeof p !== "object" || typeof p.elementId !== "string" || p.elementId.length === 0) {
+      return err("bad_payload", `bim.${op} requires ${requiredFields}`, true);
+    }
+    try {
+      const outcome = build(this.doc.allElements(), p.elementId);
+      if (outcome.status === "no-op") {
+        return ok({ applied: false, reason: outcome.reason, snapshot: this.doc.snapshot() });
+      }
+      this.doc.execute(outcome.edit);
+      return ok({ applied: true, summary: outcome.summary, snapshot: this.doc.snapshot() });
+    } catch (e) {
+      const message = (e as Error).message;
+      if (message.includes("not supported on") || message.includes("outside the supported set")) {
+        return err("bim_unsupported", message, false);
+      }
+      return err("bim_invalid", message, false);
+    }
+  }
+
+  /** bim.setClassification — set (or clear with null) the canonical
+   *  classification reference of one BIM element. */
+  private cmdBimSetClassification(payload: unknown): CommandQueryResponse {
+    const p = payload as { classificationRef?: unknown } | null;
+    const ref = (p as { classificationRef?: unknown } | null)?.classificationRef;
+    if (ref !== null && typeof ref !== "string") {
+      return err("bad_payload", "bim.setClassification requires elementId + classificationRef (string or null)", true);
+    }
+    return this.runBimLifecycleEdit(
+      payload,
+      "setClassification",
+      (elements, elementId) => setBimClassification(elements, elementId, ref as string | null),
+      "elementId + classificationRef (string or null)",
+    );
+  }
+
+  /** bim.setPropertySets — replace the structured property sets of one
+   *  BIM element wholesale ([] clears them). */
+  private cmdBimSetPropertySets(payload: unknown): CommandQueryResponse {
+    const p = payload as { propertySets?: unknown } | null;
+    if (!Array.isArray((p as { propertySets?: unknown } | null)?.propertySets)) {
+      return err("bad_payload", "bim.setPropertySets requires elementId + a propertySets array", true);
+    }
+    return this.runBimLifecycleEdit(
+      payload,
+      "setPropertySets",
+      (elements, elementId) => setBimPropertySets(elements, elementId, (p as { propertySets: unknown }).propertySets),
+      "elementId + a propertySets array",
+    );
+  }
+
+  /** bim.setRenovation — set the bounded renovation lifecycle state of one
+   *  BIM element (existing | new | to-be-demolished; eligible types only). */
+  private cmdBimSetRenovation(payload: unknown): CommandQueryResponse {
+    const p = payload as { status?: unknown } | null;
+    if (typeof (p as { status?: unknown } | null)?.status !== "string") {
+      return err("bad_payload", "bim.setRenovation requires elementId + status ('existing' | 'new' | 'to-be-demolished')", true);
+    }
+    return this.runBimLifecycleEdit(
+      payload,
+      "setRenovation",
+      (elements, elementId) => setBimRenovation(elements, elementId, (p as { status: string }).status),
+      "elementId + status ('existing' | 'new' | 'to-be-demolished')",
+    );
+  }
+
+  /** bim.setOptionMembership — set (or clear with nulls) the design-option
+   *  membership pair of one BIM element. */
+  private cmdBimSetOptionMembership(payload: unknown): CommandQueryResponse {
+    const p = payload as { optionGroupId?: unknown; option?: unknown } | null;
+    const groupId = (p as { optionGroupId?: unknown } | null)?.optionGroupId;
+    const option = (p as { option?: unknown } | null)?.option;
+    if (groupId !== null && typeof groupId !== "string") {
+      return err("bad_payload", "bim.setOptionMembership requires elementId + optionGroupId/option (strings or nulls)", true);
+    }
+    if (option !== null && typeof option !== "string") {
+      return err("bad_payload", "bim.setOptionMembership requires elementId + optionGroupId/option (strings or nulls)", true);
+    }
+    return this.runBimLifecycleEdit(
+      payload,
+      "setOptionMembership",
+      (elements, elementId) => setBimOptionMembership(elements, elementId, groupId as string | null, option as string | null),
+      "elementId + optionGroupId/option (strings or nulls)",
+    );
+  }
+
+  /** bim.setActiveOption — set the ACTIVE option of an option group (the
+   *  deterministic active-option behavior: inactive members are excluded
+   *  from builds with explicit reasons — never deleted). */
+  private cmdBimSetActiveOption(payload: unknown): CommandQueryResponse {
+    const p = payload as { optionGroupId?: unknown; option?: unknown } | null;
+    if (
+      p === null || typeof p !== "object" ||
+      typeof p.optionGroupId !== "string" || typeof p.option !== "string"
+    ) {
+      return err("bad_payload", "bim.setActiveOption requires optionGroupId + option", true);
+    }
+    try {
+      const outcome = setBimActiveOption(this.doc.allElements(), p.optionGroupId, p.option);
+      if (outcome.status === "no-op") {
+        return ok({ applied: false, reason: outcome.reason, snapshot: this.doc.snapshot() });
+      }
+      this.doc.execute(outcome.edit);
+      return ok({ applied: true, summary: outcome.summary, snapshot: this.doc.snapshot() });
+    } catch (e) {
+      return err("bim_invalid", (e as Error).message, false);
+    }
+  }
+
+  // --- CAD-PARITY-011 (additive, Issue #97): the meta/lifecycle queries ---
+
+  /** bim.getClassification (query) — the canonical classification table
+   *  (the CLOSED vocabulary; codes in deterministic sorted order). */
+  private qBimGetClassification(): CommandQueryResponse {
+    const table = BIM_CLASSIFICATION_CODES.map((code) => ({
+      code,
+      label: BIM_CLASSIFICATION_TABLE[code]!.label,
+      appliesTo: BIM_CLASSIFICATION_TABLE[code]!.appliesTo,
+    }));
+    return ok({ codes: table });
+  }
+
+  /** bim.getOptions (query) — the option-group registry with the active
+   *  option and the members per option (deterministic ordering throughout).
+   *  The ACTIVE-option behavior is observable here: each group reports its
+   *  activeOption and every member's option. */
+  private qBimGetOptions(): CommandQueryResponse {
+    const elements = this.doc.allElements();
+    const entities = elements
+      .map((el) => elementToBimEntityOrNull(el))
+      .filter((x): x is NonNullable<typeof x> => x !== null);
+    const groups = entities
+      .filter((x) => x.type === "bim.optionGroup")
+      .sort((a, b) => (a.id < b.id ? -1 : 1));
+    const registry = groups.map((group) => {
+      const members = entities
+        .filter((x) => x.meta?.optionGroupId === group.id)
+        .sort((a, b) => (a.id < b.id ? -1 : 1));
+      return {
+        elementId: group.id,
+        name: group.name,
+        options: group.options,
+        activeOption: group.activeOption,
+        description: group.description,
+        membersByOption: group.options.map((option) => ({
+          option,
+          active: option === group.activeOption,
+          memberIds: members.filter((m) => m.meta?.option === option).map((m) => m.id),
+        })),
+      };
+    });
+    return ok({ groups: registry });
+  }
+
+  /** bim.getLifecycle (query) — the lifecycle (renovation + option) state of
+   *  the BIM elements: one record per element with the EFFECTIVE renovation
+   *  status (the derived default "existing") and the option membership + the
+   *  membership's active/inactive state against its group. Optional
+   *  elementId narrows to one element. */
+  private qBimGetLifecycle(payload: unknown): CommandQueryResponse {
+    const p = payload as { elementId?: unknown } | null;
+    if (p !== null && typeof p === "object" && p.elementId !== undefined && typeof p.elementId !== "string") {
+      return err("bad_payload", "bim.getLifecycle elementId must be a string when present", true);
+    }
+    const narrow = p !== null && typeof p === "object" && typeof p.elementId === "string" ? p.elementId : null;
+    const elements = this.doc.allElements();
+    const entities = elements
+      .map((el) => elementToBimEntityOrNull(el))
+      .filter((x): x is NonNullable<typeof x> => x !== null)
+      .filter((x) => narrow === null || x.id === narrow);
+    const groups = new Map(
+      entities
+        .filter((x) => x.type === "bim.optionGroup")
+        .map((g) => [g.id, g] as const),
+    );
+    const records = entities
+      .filter((x) => x.type !== "bim.optionGroup" || narrow !== null)
+      .sort((a, b) => (a.id < b.id ? -1 : 1))
+      .map((entity) => {
+        const meta: BimElementMeta | undefined = entity.meta;
+        const group = meta?.optionGroupId !== undefined ? groups.get(meta.optionGroupId) : undefined;
+        return {
+          elementId: entity.id,
+          type: entity.type,
+          renovationStatus: effectiveRenovationStatus(meta),
+          ...(meta?.classificationRef !== undefined ? { classificationRef: meta.classificationRef } : {}),
+          ...(meta?.propertySets !== undefined && meta.propertySets.length > 0 ? { propertySets: meta.propertySets } : {}),
+          ...(meta?.optionGroupId !== undefined && meta.option !== undefined
+            ? {
+                optionGroupId: meta.optionGroupId,
+                option: meta.option,
+                optionActive: group !== undefined && group.type === "bim.optionGroup" ? group.activeOption === meta.option : false,
+              }
+            : {}),
+        };
+      });
+    if (narrow !== null && records.length === 0) {
+      return err("bad_payload", `bim.getLifecycle: no element '${narrow}'`, true);
+    }
+    return ok({ elements: records });
   }
 
   /** bim.getComponents (COMPAT-BIM-003, query) — the component/material/
