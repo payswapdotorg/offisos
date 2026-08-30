@@ -144,6 +144,7 @@ import {
   formatCamera,
   orbitCamera,
   panCamera,
+  projectPoint,
   ucsGridSegments,
   zoomCamera,
   type BBox3D,
@@ -624,6 +625,14 @@ export interface ProfessionalDriver {
   setModel3dView(active: boolean): void;
   model3dInfo(): { active: boolean; info: string; ucsOptions: string[]; solidCount: number; sceneFormat: string | null };
   model3dSceneSvg(selectedIds: readonly string[], withSectionFacets: boolean): Promise<string | null>;
+  /** CAD-PARITY-010 (Issue #93): the EXACT-section scene — the canonical
+   *  scene with the adapter-backed canonical section LOOPS as the section
+   *  facets (the same input shape the Web P010 smoke builds through the
+   *  shared barrel; each loop is one facet polygon) — and the shared
+   *  projectPoint over the persisted camera (the sub-entity pick screen
+   *  point, the SAME core the viewport consumes — no duplicated math). */
+  model3dExactSectionSvg(selectedIds: readonly string[]): Promise<string | null>;
+  model3dProjectPoint(point: readonly [number, number, number]): Promise<{ x: number; y: number } | null>;
   echoLog(): string[];
   /** CAD-PARITY-003: the current view transform (pan/zoom) — the driver the
    *  smoke uses to compute synthetic canvas clicks at world points through
@@ -680,6 +689,11 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
   let model3dView = false;
   let model3dLiveCamera: Camera3DState | null = null;
   let model3dSceneString: string | null = null;
+  // CAD-PARITY-010 (Issue #93): the EXACT-section overlay state — the
+  // adapter-backed canonical section loops rendered as the 3D scene's
+  // section facets (a viewport-only layer; SECTIONEXACT sets it, the Web
+  // host's Exact Section toggle mirrors it).
+  let model3dExactFacets: readonly { elementId: string; polygon: readonly number[] }[] | null = null;
   let model3dDrag: { kind: "orbit" | "pan"; x: number; y: number } | null = null;
   let model3dWheelTimer: ReturnType<typeof setTimeout> | null = null;
   let layerFilterText = "";
@@ -876,6 +890,24 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
         case "view.model3d":
           setModel3dView(true);
           break;
+        // CAD-PARITY-010 (Issue #93): the exact-section overlay — SECTIONEXACT
+        // switches to the 3D view and renders the canonical scene with the
+        // adapter-backed section loops (a typed engine decline shows no
+        // overlay — never an approximation presented as exact).
+        case "query.sectionExact": {
+          setModel3dView(true);
+          const planeName = (action.payload as { planeName?: string } | undefined)?.planeName;
+          const res = await query("model3d.section", planeName === undefined ? {} : { name: planeName });
+          if (res.ok) {
+            const section = (res.value as { section?: { facets?: readonly { elementId: string; loops: readonly (readonly number[])[] }[] } | null }).section;
+            model3dExactFacets = (section?.facets ?? []).flatMap((facet) =>
+              facet.loops.map((loop) => ({ elementId: facet.elementId, polygon: loop })),
+            );
+          } else {
+            model3dExactFacets = null;
+          }
+          break;
+        }
         case "plot.preview":
           openPlotPreview();
           break;
@@ -1626,6 +1658,7 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
       elements: model3dSceneElements(),
       ucs,
       grid: model3dGridSegments(),
+      ...(model3dExactFacets !== null ? { sectionFacets: model3dExactFacets as never } : {}),
       selectedIds: [...state.selection],
     });
     model3dScene.innerHTML = model3dSceneString;
@@ -6557,6 +6590,37 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
         ...(sectionFacets !== undefined ? { sectionFacets: sectionFacets as never } : {}),
         selectedIds: [...selectedIds],
       });
+    },
+    // CAD-PARITY-010 (Issue #93): the EXACT-section parity-anchor surface —
+    // the canonical scene with the adapter-backed canonical section LOOPS as
+    // the section facets (each loop is one facet polygon; the same input
+    // shape the Web P010 smoke builds through the shared barrel), plus the
+    // shared projectPoint over the persisted camera (the sub-entity pick
+    // screen point — the SAME core the viewport consumes, no duplicated math).
+    async model3dExactSectionSvg(selectedIds: readonly string[]): Promise<string | null> {
+      const snap = state.snapshot;
+      if (snap === null) return null;
+      let sectionFacets: unknown;
+      const res = await query("model3d.section", {});
+      if (res.ok) {
+        const section = (res.value as { section?: { facets?: readonly { elementId: string; loops: readonly (readonly number[])[] }[] } | null }).section;
+        if (section !== undefined && section !== null && Array.isArray(section.facets)) {
+          sectionFacets = section.facets.flatMap((facet: { elementId: string; loops: readonly (readonly number[])[] }) =>
+            facet.loops.map((loop: readonly number[]) => ({ elementId: facet.elementId, polygon: loop })),
+          );
+        }
+      }
+      return buildScene3DSVG({
+        viewport: { width: 800, height: 600 },
+        camera: snap.draftingSettings?.view3d ?? defaultCamera3D(),
+        elements: model3dSceneElements(),
+        ucs: activeModel3dUcs(),
+        ...(sectionFacets !== undefined ? { sectionFacets: sectionFacets as never } : {}),
+        selectedIds: [...selectedIds],
+      });
+    },
+    async model3dProjectPoint(point: readonly [number, number, number]): Promise<{ x: number; y: number } | null> {
+      return projectPoint(currentModel3dCamera(), { width: 800, height: 600 }, [point[0], point[1], point[2]]);
     },
     echoLog(): string[] {
       return [...echoLog];

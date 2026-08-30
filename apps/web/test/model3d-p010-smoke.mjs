@@ -355,22 +355,21 @@ step("undo/redo integrity — five revisions deep, the boolean batch inverse res
   const mid5 = val(await q("document.getState", {}));
   assert(mid5.elements.length === countBefore - 2, "undo restores BOTH operands (the result removed, the two operands back)");
   assert(mid5.elements.some((e) => e.id === "el-000005") && mid5.elements.some((e) => e.id === "el-000006"), "the subtraction operands are restored by the batch inverse");
-  await cmd("document.redo", {}); // redo the SUBTRACT
+  await cmd("document.redo", {}); // 1: redo the SUBTRACT
   const mid6 = val(await q("document.getState", {}));
   assert(mid6.elements.length === countBefore - 3, "redo reproduces the composite solid");
   const composite = mid6.elements.find((e) => e.id === "el-000007");
   assert(composite !== undefined && composite.props.shape === "boolean" && composite.props.op === "difference", "the redone composite keeps the boolean provenance");
-  await cmd("document.redo", {});
-  await cmd("document.redo", {});
-  await cmd("document.redo", {}); // redo the far boxes
+  await cmd("document.redo", {}); // 2: redo BOX el-000008
+  await cmd("document.redo", {}); // 3: redo BOX el-000009
   const mid7 = val(await q("document.getState", {}));
   assert(mid7.elements.length === countBefore - 1, "redo reproduces the far boxes");
-  await cmd("document.redo", {}); // redo the SECTIONPLANE
+  await cmd("document.redo", {}); // 4: redo the SECTIONPLANE
   const mid8 = val(await q("document.getState", {}));
-  assert((mid8.sectionPlanes ?? []).length === 1, "redo reproduces the section plane");
-  await cmd("document.redo", {}); // redo the TESSELLATE
+  assert((mid8.sectionPlanes ?? []).length === 1 && mid8.elements.length === countBefore - 1, "redo reproduces the section plane");
+  await cmd("document.redo", {}); // 5: redo the TESSELLATE
   const after = val(await q("document.getState", {}));
-  assert(after.elements.length === countBefore, "redo reproduces the mesh entity");
+  assert(after.elements.length === countBefore && (after.sectionPlanes ?? []).length === 1, "redo reproduces the mesh entity — the full pre-undo state");
   snap = after;
 }
 
