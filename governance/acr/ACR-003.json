@@ -1,7 +1,7 @@
 {
   "id": "ACR-003",
   "title": "Add auditable reconciliation path for already-merged governance defects",
-  "status": "PROPOSED",
+  "status": "APPROVED",
   "requested_by": "pectoraux",
   "requested_at": "2026-08-30T17:40:00Z",
   "problem": "CAD-PARITY-011 was merged before its Architect approval was recorded. The frozen lifecycle validator correctly rejects the historical record, but the current state machine provides no lawful transition for reconciling an already-MERGED historical governance defect without rewriting history.",
@@ -30,6 +30,20 @@
     "governance/schemas/acr.schema.json",
     "governance/schemas/reconciliation.schema.json"
   ],
+  "review": {
+    "reviewed_by": "architect",
+    "role": "architect",
+    "reviewed_at": "2026-08-30T21:26:00Z",
+    "verdict": "endorsed",
+    "rationale": "Architect endorsement after review of ARCH-WF-002 PR #101 round-3 remediation: the ACR lifecycle, protected-path routing, revision-bound verification, historical reconciliation controls, registry lifecycle traversal, and creation-time invariants satisfy the frozen architecture and the prior CHANGES REQUESTED findings."
+  },
+  "approval": {
+    "approved_by": "pectoraux",
+    "role": "product-owner",
+    "approved_at": "2026-08-30T21:26:00Z",
+    "decision": "approved",
+    "rationale": "Product Owner approval provided in-chat for ACR-003 after Architect review."
+  },
   "related_issue": 100,
   "provenance": "Proposed by pectorux as a registry artifact in commit 3dbe166 (2026-08-30T17:36:51Z) and removed as premature in commit 210e044 because the ACR lifecycle it presupposes did not exist yet ('the full ACR template/lifecycle is owned by ARCH-WF-002'). Re-registered here verbatim in the machine-readable registry by the implementation agent under ARCH-WF-002; the requirement mapping (FLOW-001/FLOW-002), the security-impact analysis and the authorized-path enumeration were added while porting, everything else carries the original proposal's content. The Architect completes the lifecycle (review, then Product Owner approval) before the reconciliation it sanctions may be decided."
 }
