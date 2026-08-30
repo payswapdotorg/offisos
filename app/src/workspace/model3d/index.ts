@@ -23,6 +23,7 @@ export {
   v3Equals,
   formatVec3,
   fmtNum,
+  type Vec3,
   IDENTITY_MATRIX4,
   translationMatrix,
   scaleMatrix,
@@ -137,3 +138,85 @@ export {
   rotateDescriptor,
   scaleDescriptor,
 } from "./solids.js";
+
+export {
+  BOOLEAN_OPS,
+  BOOLEAN_OPERAND_DECLINE_REASON,
+  BOOLEAN_OPERAND_COUNT,
+  BOOLEAN_EMPTY_DECLINE_REASON,
+  BOOLEAN_INVALID_DECLINE_REASON,
+  booleanDescriptor,
+  booleanFailureCode,
+  booleanProvenance,
+  parseBooleanOp,
+  type BooleanOp,
+  type BooleanOperandProvenance,
+  type BooleanProvenance,
+} from "./booleans.js";
+
+export {
+  SECTION_EXACT_FORMAT,
+  SECTION_EXACT_VERSION,
+  SECTION_EXACT_ENGINE_DECLINE_REASON,
+  SECTION_ON_PLANE_TOLERANCE,
+  SECTION_CHAIN_EPS,
+  SECTION_MAX_POINTS,
+  SectionGeometryValidationError,
+  buildSectionExact,
+  chainSectionPolylines,
+  canonicalizeLoop,
+  encodeSectionPoint,
+  sectionPlaneBasis,
+  sectionPlaneCoords,
+  validateSectionGeometry,
+  validateSectionPlaneSpec,
+  type SectionExactFacet,
+  type SectionExactBody,
+  type SectionExactIR,
+  type SectionExactElement,
+} from "./section-exact.js";
+
+export {
+  MAX_TOPOLOGY_FACES,
+  MAX_TOPOLOGY_EDGES,
+  MAX_TOPOLOGY_VERTICES,
+  DEFAULT_SUBENTITY_PICK_TOLERANCE,
+  TOPOLOGY_DECLINE_REASON,
+  SUBENTITY_PER_ELEMENT_DECLINE_REASON,
+  TopologyValidationError,
+  buildTopologyMap,
+  pickSubEntity,
+  rayTriangle,
+  raySegmentDistance,
+  rayPointDistance,
+  type TopologyFace,
+  type TopologyEdge,
+  type TopologyVertex,
+  type TopologyMap,
+  type SubEntityKind,
+  type SubEntityHit,
+} from "./topology.js";
+
+export {
+  MESH_ENTITY_TYPE,
+  MESH_QUALITY_PRESETS,
+  MESH_QUALITY_PRESET_NAMES,
+  MESH_ENTITY_MAX_VERTICES,
+  MESH_ENTITY_MAX_TRIANGLES,
+  MESH_OPERATION_DECLINE_REASON,
+  buildMeshEntityProps,
+  meshQualityKnobs,
+  parseMeshQuality,
+  validateMeshEntityProps,
+  validateMeshPayload,
+  type MeshEntityProps,
+} from "./meshes.js";
+
+export {
+  DEFAULT_CACHE_CAPACITY,
+  DEFAULT_CACHE_VERTEX_BUDGET,
+  TessellationCache,
+  descriptorCacheKey,
+  type TessellationCacheEntry,
+  type TessellationCacheStats,
+} from "./cache.js";

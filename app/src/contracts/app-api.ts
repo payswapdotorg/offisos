@@ -200,7 +200,23 @@ export type CommandName =
   | "model3d.scale"
   | "sectionplane.create"
   | "sectionplane.update"
-  | "sectionplane.remove";
+  | "sectionplane.remove"
+  // --- CAD-PARITY-010 (additive, Issue #93): boolean solids and bounded
+  // mesh entities. model3d.boolean composes TWO existing model3d.solid
+  // elements (union/difference/intersection — the descriptor triad fuse/
+  // cut/intersect) into ONE result solid: the adapter realizes the composed
+  // descriptor, the result element persists the meshToken/bbox/engine
+  // provenance AND the operand provenance (element ids + their tokens at
+  // composition), and the operands are REMOVED in the SAME atomic
+  // applyEdits revision (exact undo/redo/replay; an empty or non-manifold
+  // result is the typed boolean_empty/boolean_invalid decline — never a
+  // fabricated solid). model3d.tessellate persists a bounded engine-neutral
+  // MESH ENTITY element (model3d.mesh) from a solid at one of the closed
+  // quality presets (progressive delivery; deterministic serialization;
+  // read-only representation — the source solid remains the editing
+  // surface). ---
+  | "model3d.boolean"
+  | "model3d.tessellate";
 
 // --- Query names (non-mutating) ---
 // `document.getSelection` returns the ephemeral editor selection (orthogonal
@@ -286,7 +302,22 @@ export type QueryName =
   | "view3d.state"
   | "model3d.pick"
   | "model3d.sectionPreview"
-  | "model3d.mesh";
+  | "model3d.mesh"
+  // --- CAD-PARITY-010 (additive, Issue #93): the exact-section, topology
+  // and cache-evidence queries (non-mutating, computed fresh every call).
+  // model3d.section computes the EXACT adapter-backed plane ∩ solid section
+  // (canonical loops/chains + hash; the adapter declining the geometry's
+  // class is the typed section_exact_unsupported decline — the labeled
+  // extent preview remains the fallback); model3d.topology returns the
+  // deterministic topology map (canonical f/e/v ids, engine keys as
+  // provenance); model3d.pick with elementId + subEntity performs the
+  // topology-aware sub-entity pick (faces exact, edges/vertices tolerance;
+  // exactly ordered); model3d.mesh with quality serves the bounded LOD mesh
+  // through the revision-tied cache; model3d.cacheStats reports the bounded
+  // cache's exact counters (the performance-budget evidence). ---
+  | "model3d.section"
+  | "model3d.topology"
+  | "model3d.cacheStats";
 
 export interface Command {
   readonly type: "command";

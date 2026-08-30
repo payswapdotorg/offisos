@@ -923,6 +923,28 @@ export const COMMAND_PAYLOAD_SCHEMAS: Readonly<Record<CommandName, object>> = {
     },
     required: ["name", "origin", "normal"],
   },
+  // CAD-PARITY-010 (additive): boolean solids and bounded mesh entities.
+  "model3d.boolean": {
+    type: "object",
+    properties: {
+      op: { type: "string", enum: ["union", "difference", "intersection"] },
+      elementIds: {
+        type: "array",
+        items: { type: "string", minLength: 1 },
+        minItems: 2,
+        maxItems: 2,
+      },
+    },
+    required: ["op", "elementIds"],
+  },
+  "model3d.tessellate": {
+    type: "object",
+    properties: {
+      elementId: { type: "string", minLength: 1 },
+      quality: { type: "string", enum: ["low", "medium", "full"] },
+    },
+    required: ["elementId"],
+  },
   "sectionplane.update": {
     type: "object",
     properties: {
@@ -1568,6 +1590,11 @@ export const QUERY_PAYLOAD_SCHEMAS: Readonly<Record<QueryName, object>> = {
         required: ["width", "height"],
       },
       subEntity: { type: "boolean" },
+      // CAD-PARITY-010 (additive): the per-element topology-aware pick — name
+      // the solid (and optionally filter the kind: face/edge/vertex).
+      elementId: { type: "string", minLength: 1 },
+      subEntityKind: { type: "string", enum: ["face", "edge", "vertex"] },
+      tolerance: { type: "number", exclusiveMinimum: 0 },
     },
     required: ["screenX", "screenY", "viewport"],
   },
@@ -1583,9 +1610,31 @@ export const QUERY_PAYLOAD_SCHEMAS: Readonly<Record<QueryName, object>> = {
     type: "object",
     properties: {
       elementId: { type: "string", minLength: 1 },
+      // CAD-PARITY-010 (additive): the closed LOD preset vocabulary — when
+      // present the mesh is served at that quality through the bounded
+      // revision-tied cache (progressive delivery).
+      quality: { type: "string", enum: ["low", "medium", "full"] },
     },
     required: ["elementId"],
   },
+  // CAD-PARITY-010 (additive): the exact-section, topology and cache-evidence
+  // queries.
+  "model3d.section": {
+    type: "object",
+    properties: {
+      id: { type: "string", minLength: 1 },
+      name: { type: "string", minLength: 1 },
+      elementId: { type: "string", minLength: 1 },
+    },
+  },
+  "model3d.topology": {
+    type: "object",
+    properties: {
+      elementId: { type: "string", minLength: 1 },
+    },
+    required: ["elementId"],
+  },
+  "model3d.cacheStats": { type: "object", properties: {} },
 };
 
 export const WIRE_ENVELOPE_SCHEMA = {

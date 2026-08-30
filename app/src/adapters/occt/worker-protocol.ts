@@ -29,8 +29,13 @@ export type WorkerRecipeStep =
       readonly height: number;
       readonly base?: readonly [number, number, number];
     }
-  | { readonly id: string; readonly bool: "fuse" | "cut"; readonly a: string; readonly b: string }
+  | { readonly id: string; readonly bool: WorkerBoolOp; readonly a: string; readonly b: string }
   | { readonly id: string; readonly transform: string; readonly matrix: readonly number[] };
+
+/** The boolean operation vocabulary (CAD-PARITY-010 adds `intersect` —
+ *  OCCT BRepAlgoAPI_Common — completing the union/difference/intersection
+ *  triad). */
+export type WorkerBoolOp = "fuse" | "cut" | "intersect";
 
 export interface WorkerTessellation {
   readonly linearDeflection?: number;
@@ -47,8 +52,6 @@ export interface WorkerPrepareRequest {
 export interface WorkerPingRequest {
   readonly op: "ping";
 }
-
-export type WorkerRequest = WorkerPrepareRequest | WorkerPingRequest;
 
 export interface WorkerMesh {
   readonly vertices: readonly number[];
@@ -74,7 +77,81 @@ export interface WorkerErrResponse {
 
 export type WorkerResponse = WorkerOkResponse | WorkerErrResponse;
 
+/** Any worker request (CAD-PARITY-010 adds the section and topology ops). */
+export type WorkerRequest = WorkerPrepareRequest | WorkerPingRequest | WorkerSectionRequest | WorkerTopologyRequest;
+
 export interface WorkerPingOk extends WorkerOkResponse {
   // ping responses omit meshToken/bbox/mesh/volume/stats; the structural
   // validator in occt-process.ts treats them specially.
+}
+
+// ---------------------------------------------------------------------------
+// CAD-PARITY-010 (Issue #93): the section and topology ops. Same recipe-DAG
+// shape evaluation; different result extraction with canonical deterministic
+// ordering. Typed failures include engine_empty_result (a boolean that
+// annihilates all material) and engine_non_manifold (a boolean result the
+// engine's shape-validity check rejects).
+// ---------------------------------------------------------------------------
+
+/** The section op request: plane ∩ result-step-shape intersection curves. */
+export interface WorkerSectionRequest {
+  readonly op: "section";
+  readonly recipe: readonly WorkerRecipeStep[];
+  readonly result: string;
+  /** The infinite section plane (unit normal). */
+  readonly plane: {
+    readonly origin: readonly [number, number, number];
+    readonly normal: readonly [number, number, number];
+  };
+}
+
+/** The topology op request: the face/edge/vertex inventory of the
+ *  result-step shape (default tessellation quality — documented). */
+export interface WorkerTopologyRequest {
+  readonly op: "topology";
+  readonly recipe: readonly WorkerRecipeStep[];
+  readonly result: string;
+}
+
+/** One extracted face (own triangulation, world-space). */
+export interface WorkerTopoFace {
+  readonly surfaceType: string;
+  readonly vertices: readonly number[];
+  readonly indices: readonly number[];
+  readonly area: number;
+  readonly centroid: readonly [number, number, number];
+  readonly engineKey: string;
+}
+
+/** One extracted edge (sampled polyline, world-space). */
+export interface WorkerTopoEdge {
+  readonly curveType: string;
+  readonly points: readonly number[];
+  readonly length: number;
+  readonly engineKey: string;
+}
+
+/** One extracted vertex. */
+export interface WorkerTopoVertex {
+  readonly point: readonly [number, number, number];
+  readonly engineKey: string;
+}
+
+/** A successful section op response (empty polylines = the plane misses the
+ *  solid — a legal exact result). */
+export interface WorkerSectionOk {
+  readonly ok: true;
+  readonly engine: "occt";
+  readonly engineVersion: string;
+  readonly polylines: readonly { readonly points: readonly number[] }[];
+}
+
+/** A successful topology op response. */
+export interface WorkerTopologyOk {
+  readonly ok: true;
+  readonly engine: "occt";
+  readonly engineVersion: string;
+  readonly faces: readonly WorkerTopoFace[];
+  readonly edges: readonly WorkerTopoEdge[];
+  readonly vertices: readonly WorkerTopoVertex[];
 }

@@ -38,15 +38,23 @@ import {
   AdapterFailure,
   isGeometryMetadataProvider,
   isMeshProvider,
+  isQualityMeshProvider,
+  isSectionProvider,
+  isTopologyProvider,
 } from "../../contracts/geometry.js";
 import type {
   GeometryDescriptor,
   GeometryMetadata,
   Matrix4,
   MeshData,
+  MeshQualityPreset,
+  SectionGeometry,
+  SectionPlaneSpec,
+  TopologyGeometry,
   Vec3,
 } from "../../contracts/geometry.js";
-import { runOcctWorker } from "./occt-process.js";
+import { MESH_LOD_MAX_VERTICES, meshQualityKnobs } from "../../contracts/geometry.js";
+import { runOcctSectionWorker, runOcctTopologyWorker, runOcctWorker } from "./occt-process.js";
 import type { OcctProcessOptions } from "./occt-process.js";
 import type { WorkerRecipeStep } from "./worker-protocol.js";
 
@@ -217,7 +225,8 @@ export function compileDescriptor(
       return { steps, resultId: id };
     }
     case "fuse":
-    case "cut": {
+    case "cut":
+    case "intersect": {
       const a = compileDescriptor(d.a, steps, depth + 1);
       const b = compileDescriptor(d.b, steps, depth + 1);
       const id = `s${steps.length}`;
@@ -227,7 +236,7 @@ export function compileDescriptor(
     default:
       throw new AdapterFailure(
         "engine_malformed_input",
-        `geometry.shape must be one of box/cylinder/extrude/transform/fuse/cut, got ${JSON.stringify(d.shape)}`,
+        `geometry.shape must be one of box/cylinder/extrude/transform/fuse/cut/intersect, got ${JSON.stringify(d.shape)}`,
         false,
       );
   }
@@ -237,12 +246,24 @@ export function compileDescriptor(
  * Create the OCCT geometry adapter. `engineVersion` is discovered from the
  * first worker response (a getter — the contract's readonly property is
  * satisfied while staying live).
+ *
+ * CAD-PARITY-010 capabilities (all optional + structural, the MeshProvider
+ * precedent): SectionProvider (exact plane ∩ solid sections), TopologyProvider
+ * (the deterministic face/edge/vertex inventory) and QualityMeshProvider
+ * (bounded quality-preset mesh delivery). Each spawns its own disposable
+ * worker process through the same process boundary as prepare.
  */
 export function createOcctGeometryAdapter(
   options: OcctGeometryAdapterOptions = {},
 ): GeometryEngineAdapter & {
   describeMesh(meshToken: string): Promise<MeshData | null>;
   describeGeometryMetadata(meshToken: string): Promise<GeometryMetadata | null>;
+  computeSection(descriptor: GeometryDescriptor, plane: SectionPlaneSpec): Promise<SectionGeometry>;
+  describeTopology(descriptor: GeometryDescriptor): Promise<TopologyGeometry>;
+  prepareMeshAtQuality(
+    descriptor: GeometryDescriptor,
+    quality: MeshQualityPreset,
+  ): Promise<{ readonly mesh: MeshData; readonly metadata: GeometryMetadata; readonly meshToken: string }>;
 } {
   const cache = new Map<string, CacheEntry>();
   let engineVersion = "unknown";
@@ -264,6 +285,26 @@ export function createOcctGeometryAdapter(
     if (cache.size > MESH_CACHE_CAPACITY) {
       const oldest = cache.keys().next().value;
       if (oldest !== undefined) cache.delete(oldest);
+    }
+  }
+
+  function requireUnitPlane(plane: SectionPlaneSpec): void {
+    const len = Math.sqrt(
+      plane.normal[0] ** 2 + plane.normal[1] ** 2 + plane.normal[2] ** 2,
+    );
+    if (!Number.isFinite(len) || Math.abs(len - 1) > 1e-9) {
+      throw new AdapterFailure(
+        "engine_malformed_input",
+        "section plane normal must be unit length (the caller normalizes explicitly)",
+        false,
+      );
+    }
+    if (!plane.origin.every((n) => typeof n === "number" && Number.isFinite(n))) {
+      throw new AdapterFailure(
+        "engine_malformed_input",
+        "section plane origin must be a finite 3-vector",
+        false,
+      );
     }
   }
 
@@ -295,11 +336,99 @@ export function createOcctGeometryAdapter(
     async describeGeometryMetadata(meshToken: string): Promise<GeometryMetadata | null> {
       return cache.get(meshToken)?.metadata ?? null;
     },
+
+    async computeSection(descriptor: GeometryDescriptor, plane: SectionPlaneSpec): Promise<SectionGeometry> {
+      requireUnitPlane(plane);
+      const compiled = compileDescriptor(descriptor);
+      const response = await runOcctSectionWorker(
+        {
+          op: "section",
+          recipe: compiled.steps,
+          result: compiled.resultId,
+          plane: { origin: [...plane.origin], normal: [...plane.normal] },
+        },
+        options,
+      );
+      engineVersion = response.engineVersion;
+      return {
+        polylines: response.polylines.map((p) => ({ points: [...p.points] })),
+        engine: { engineId: "occt", engineVersion: response.engineVersion },
+      };
+    },
+
+    async describeTopology(descriptor: GeometryDescriptor): Promise<TopologyGeometry> {
+      const compiled = compileDescriptor(descriptor);
+      const response = await runOcctTopologyWorker(
+        { op: "topology", recipe: compiled.steps, result: compiled.resultId },
+        options,
+      );
+      engineVersion = response.engineVersion;
+      return {
+        faces: response.faces.map((f) => ({
+          surfaceType: f.surfaceType,
+          vertices: [...f.vertices],
+          indices: [...f.indices],
+          area: f.area,
+          centroid: [f.centroid[0], f.centroid[1], f.centroid[2]],
+          engineKey: f.engineKey,
+        })),
+        edges: response.edges.map((e) => ({
+          curveType: e.curveType,
+          points: [...e.points],
+          length: e.length,
+          engineKey: e.engineKey,
+        })),
+        vertices: response.vertices.map((v) => ({
+          point: [v.point[0], v.point[1], v.point[2]],
+          engineKey: v.engineKey,
+        })),
+        engine: { engineId: "occt", engineVersion: response.engineVersion },
+      };
+    },
+
+    async prepareMeshAtQuality(
+      descriptor: GeometryDescriptor,
+      quality: MeshQualityPreset,
+    ): Promise<{ readonly mesh: MeshData; readonly metadata: GeometryMetadata; readonly meshToken: string }> {
+      const knobs = meshQualityKnobs(quality);
+      const compiled = compileDescriptor(descriptor);
+      const response = await runOcctWorker(
+        {
+          op: "prepare",
+          recipe: compiled.steps,
+          result: compiled.resultId,
+          tessellation: knobs,
+        },
+        options,
+      );
+      engineVersion = response.engineVersion;
+      remember(response);
+      const mesh: MeshData = {
+        vertices: [...response.mesh.vertices],
+        indices: [...response.mesh.indices],
+      };
+      const metadata: GeometryMetadata = {
+        volume: response.volume,
+        vertices: response.stats.vertices,
+        triangles: response.stats.triangles,
+      };
+      if (mesh.vertices.length / 3 > MESH_LOD_MAX_VERTICES) {
+        throw new AdapterFailure(
+          "engine_malformed_input",
+          `the ${quality} quality mesh exceeds the ${MESH_LOD_MAX_VERTICES}-vertex LOD bound (${mesh.vertices.length / 3} vertices)`,
+          false,
+        );
+      }
+      return { mesh, metadata, meshToken: response.meshToken };
+    },
   };
 
   // Capability self-checks (fail fast if the shapes drift from the structural
   // checks the App API performs).
-  if (!isMeshProvider(adapter) || !isGeometryMetadataProvider(adapter)) {
+  if (
+    !isMeshProvider(adapter) || !isGeometryMetadataProvider(adapter) ||
+    !isSectionProvider(adapter) || !isTopologyProvider(adapter) || !isQualityMeshProvider(adapter)
+  ) {
     throw new Error("occt adapter capability shape regression");
   }
   return adapter;

@@ -174,6 +174,38 @@ import {
   type StandardViewName,
 } from "../workspace/model3d/index.js";
 import { ucsDirectionToWorld, WORLD_UCS } from "../workspace/model3d/index.js";
+// CAD-PARITY-010 (additive, Issue #93): the boolean/surface/section/
+// topology/cache core (engine-free — the same modules both hosts consume).
+import {
+  BOOLEAN_OPERAND_DECLINE_REASON,
+  BOOLEAN_EMPTY_DECLINE_REASON,
+  SUBENTITY_PER_ELEMENT_DECLINE_REASON,
+  TOPOLOGY_DECLINE_REASON,
+  SECTION_EXACT_ENGINE_DECLINE_REASON,
+  MESH_OPERATION_DECLINE_REASON,
+  SectionGeometryValidationError,
+  TopologyValidationError,
+  booleanDescriptor,
+  booleanFailureCode,
+  booleanProvenance,
+  parseBooleanOp,
+  buildSectionExact,
+  validateSectionGeometry,
+  buildTopologyMap,
+  pickSubEntity,
+  buildMeshEntityProps,
+  meshQualityKnobs,
+  parseMeshQuality,
+  TessellationCache,
+  type SubEntityKind,
+  type TopologyMap,
+} from "../workspace/model3d/index.js";
+import {
+  isQualityMeshProvider,
+  isSectionProvider,
+  isTopologyProvider,
+} from "../contracts/geometry.js";
+import type { MeshQualityPreset, SectionGeometry } from "../contracts/geometry.js";
 import type { Camera3DState, SectionPlaneRecord, UcsRecord } from "../contracts/caddocument.js";
 import type { GeometryDescriptor, Vec3 } from "../contracts/geometry.js";
 // (isMeshProvider is already imported from ../contracts/geometry.js above.)
@@ -242,6 +274,12 @@ export class AppApiHandler {
   private readonly adapters: EngineAdapterBundle;
   private readonly options: AppApiHandlerOptions;
   private readonly idempotency: IdempotencyCache = new IdempotencyCache();
+  /** CAD-PARITY-010: the bounded revision-tied tessellation cache (LOD mesh
+   *  delivery — keys are canonical descriptor encodings + quality presets,
+   *  so a modeling edit that changes an element's geometry naturally
+   *  invalidates its entries; dual budgets; exact counters for the
+   *  performance-budget evidence). */
+  private readonly tessellationCache = new TessellationCache();
 
   private constructor(options: AppApiHandlerOptions, doc: CADDocument, adapters: EngineAdapterBundle) {
     this.options = options;
@@ -451,6 +489,12 @@ export class AppApiHandler {
         return this.cmdSectionPlaneUpdate(command.payload);
       case "sectionplane.remove":
         return this.cmdSectionPlaneRemove(command.payload);
+      // --- CAD-PARITY-010 (additive, Issue #93): boolean solids and bounded
+      // mesh entities ---
+      case "model3d.boolean":
+        return await this.cmdModel3dBoolean(command.payload);
+      case "model3d.tessellate":
+        return await this.cmdModel3dTessellate(command.payload);
       // --- COMPAT-CAD-002 (additive): 3D/BIM authoring commands ---
       case "bim.createElements":
         return this.cmdBimCreate(command.payload);
@@ -819,11 +863,24 @@ export class AppApiHandler {
       case "view3d.state":
         return this.qView3dState();
       case "model3d.pick":
+        if (typeof (query.payload as { elementId?: unknown } | null)?.elementId === "string" &&
+            ((query.payload as { subEntity?: unknown; subEntityKind?: unknown } | null)?.subEntity === true ||
+             typeof (query.payload as { subEntityKind?: unknown } | null)?.subEntityKind === "string")) {
+          return await this.qModel3dPickSubEntityAsync(query.payload as Record<string, unknown>, (query.payload as { elementId: string }).elementId);
+        }
         return this.qModel3dPick(query.payload);
       case "model3d.sectionPreview":
         return this.qModel3dSectionPreview(query.payload);
       case "model3d.mesh":
         return await this.qModel3dMesh(query.payload);
+      // --- CAD-PARITY-010 (additive, Issue #93): the exact-section,
+      // topology and cache-evidence queries ---
+      case "model3d.section":
+        return await this.qModel3dSection(query.payload);
+      case "model3d.topology":
+        return await this.qModel3dTopology(query.payload);
+      case "model3d.cacheStats":
+        return this.qModel3dCacheStats();
       default: {
         const _exhaustive: never = query.name;
         return err("unknown_query", `unknown query: ${JSON.stringify(_exhaustive)}`);
@@ -3469,6 +3526,10 @@ export class AppApiHandler {
           geometryEngine: { engineId: this.adapters.geometry.engineId, engineVersion: this.adapters.geometry.engineVersion },
         },
       });
+      // CAD-PARITY-010: eager LOD-cache invalidation — the element's
+      // canonical geometry declaration changed (a new revision); the stale
+      // descriptor-keyed entries are dropped (bounded-budget hygiene).
+      this.tessellationCache.invalidateDescriptor(descriptor);
       return ok({ elementId: element.id, op, snapshot: this.doc.snapshot() });
     } catch (e) {
       return err("model3d_invalid", (e as Error).message, false);
@@ -3575,6 +3636,321 @@ export class AppApiHandler {
     }
   }
 
+  // -----------------------------------------------------------------------
+  // CAD-PARITY-010 (Issue #93): boolean solids, mesh entities, exact
+  // sections, topology-aware picking and the bounded LOD cache.
+  // -----------------------------------------------------------------------
+
+  /** model3d.boolean — compose TWO existing model3d.solid elements into ONE
+   *  result solid (union/difference/intersection). The adapter realizes the
+   *  composed descriptor; the result element persists the engine result +
+   *  the operand provenance; the operands are removed in the SAME atomic
+   *  applyEdits revision (exact undo/redo/replay). Empty/non-manifold
+   *  results are the typed boolean_empty/boolean_invalid declines. */
+  private async cmdModel3dBoolean(payload: unknown): Promise<CommandQueryResponse> {
+    const p = payload as { op?: unknown; elementIds?: unknown } | null;
+    if (p === null || typeof p !== "object") {
+      return err("bad_payload", "model3d.boolean requires a payload object", true);
+    }
+    if (typeof p.op !== "string") {
+      return err("bad_payload", "model3d.boolean requires op: one of union, difference, intersection", true);
+    }
+    const op = parseBooleanOp(p.op);
+    if (op === null) {
+      return err("bad_payload", "model3d.boolean requires op: one of union, difference, intersection", true);
+    }
+    if (!Array.isArray(p.elementIds) || p.elementIds.length !== 2 || !p.elementIds.every((id) => typeof id === "string" && id.length > 0)) {
+      return err("bad_payload", "model3d.boolean requires elementIds: exactly TWO distinct solid element ids (compose longer chains through repeated commands — each step one atomic revision)", true);
+    }
+    const [idA, idB] = p.elementIds as [string, string];
+    if (idA === idB) {
+      return err("boolean_operand", `model3d.boolean requires two DISTINCT elements ('${idA}' named twice) — ${BOOLEAN_OPERAND_DECLINE_REASON}`, false);
+    }
+    const elementA = this.doc.allElements().find((el) => el.id === idA);
+    const elementB = this.doc.allElements().find((el) => el.id === idB);
+    if (elementA === undefined || elementB === undefined) {
+      const missing = elementA === undefined ? idA : idB;
+      return err("bad_id", `element '${missing}' does not exist`, false);
+    }
+    const solidOf = (el: Element): { descriptor: GeometryDescriptor; meshToken: string } | null => {
+      if (el.props.type !== "model3d.solid" || el.props.geometry === undefined) return null;
+      const meshToken = el.props.meshToken;
+      if (typeof meshToken !== "string" || meshToken.length === 0) return null;
+      return { descriptor: el.props.geometry as GeometryDescriptor, meshToken };
+    };
+    const solidA = solidOf(elementA);
+    const solidB = solidOf(elementB);
+    if (solidA === null || solidB === null) {
+      return err("boolean_operand", `boolean operands must be model3d solid elements with persisted geometry — ${BOOLEAN_OPERAND_DECLINE_REASON}`, false);
+    }
+    const descriptor = booleanDescriptor(op, solidA.descriptor, solidB.descriptor);
+    const provenance = booleanProvenance(op, [
+      { elementId: elementA.id, meshToken: solidA.meshToken },
+      { elementId: elementB.id, meshToken: solidB.meshToken },
+    ]);
+    const prepared = await this.prepareModel3dSolid(descriptor);
+    if (!prepared.ok) {
+      // The typed boolean-outcome mapping: engine_empty_result →
+      // boolean_empty; engine_non_manifold/engine_malformed_input →
+      // boolean_invalid (the message carries the engine detail verbatim);
+      // transport codes (engine_unavailable/timeout/error) pass through.
+      const failure = prepared.response as { code?: unknown; message?: unknown; retryable?: unknown };
+      const code = typeof failure.code === "string" ? booleanFailureCode(failure.code) : "engine_error";
+      const message = typeof failure.message === "string" ? failure.message : "the geometry adapter failed";
+      return err(
+        code,
+        code === "boolean_empty" ? `${message} — ${BOOLEAN_EMPTY_DECLINE_REASON}` : message,
+        failure.retryable === true,
+      );
+    }
+    try {
+      const elementId = this.doc.mintElementId();
+      this.doc.execute({
+        type: "applyEdits",
+        edits: [
+          {
+            type: "addElement",
+            element: {
+              id: elementId,
+              kind: "geometry",
+              engineId: null,
+              props: {
+                type: "model3d.solid",
+                shape: "boolean",
+                op,
+                operands: provenance.operands,
+                geometry: descriptor,
+                meshToken: prepared.meshToken,
+                meshBBox: [...prepared.bbox],
+                geometryEngine: { engineId: this.adapters.geometry.engineId, engineVersion: this.adapters.geometry.engineVersion },
+              },
+            },
+          },
+          { type: "removeElement", elementId: elementA.id },
+          { type: "removeElement", elementId: elementB.id },
+        ],
+      });
+      // Eager cache invalidation: the operands' geometry is gone from the
+      // document (their descriptor-keyed LOD entries cannot be requested
+      // again — bounded-budget hygiene).
+      this.tessellationCache.invalidateDescriptor(solidA.descriptor);
+      this.tessellationCache.invalidateDescriptor(solidB.descriptor);
+      return ok({ elementId, op, operands: provenance.operands, meshToken: prepared.meshToken, bbox: [...prepared.bbox], snapshot: this.doc.snapshot() });
+    } catch (e) {
+      return err("boolean_invalid", (e as Error).message, false);
+    }
+  }
+
+  /** model3d.tessellate — persist a bounded engine-neutral MESH ENTITY
+   *  element (model3d.mesh) from a solid at one of the closed quality
+   *  presets. The entity is a read-only representation (the source solid
+   *  remains the editing surface — mesh operations are a typed decline). */
+  private async cmdModel3dTessellate(payload: unknown): Promise<CommandQueryResponse> {
+    const p = payload as { elementId?: unknown; quality?: unknown } | null;
+    if (p === null || typeof p !== "object" || typeof p.elementId !== "string" || p.elementId.length === 0) {
+      return err("bad_payload", "model3d.tessellate requires an elementId", true);
+    }
+    let quality: MeshQualityPreset = "full";
+    if (p.quality !== undefined) {
+      if (typeof p.quality !== "string" || parseMeshQuality(p.quality) === null) {
+        return err("bad_payload", "model3d.tessellate quality must be one of low, medium, full", true);
+      }
+      quality = parseMeshQuality(p.quality)!;
+    }
+    const element = this.doc.allElements().find((el) => el.id === p.elementId);
+    if (element === undefined) {
+      return err("bad_id", `element '${p.elementId}' does not exist`, false);
+    }
+    if (element.props.type !== "model3d.solid" || element.props.geometry === undefined) {
+      return err("not_a_solid", `element '${p.elementId}' is not a model3d solid — model3d.tessellate tessellates model3d.solid elements`, false);
+    }
+    const sourceMeshToken = element.props.meshToken;
+    if (typeof sourceMeshToken !== "string" || sourceMeshToken.length === 0) {
+      return err("not_a_solid", `element '${element.id}' has no realized geometry (no meshToken)`, false);
+    }
+    if (!isQualityMeshProvider(this.adapters.geometry)) {
+      return err("mesh_unsupported", "the active geometry engine provides no quality-mesh capability (QualityMeshProvider) — the bounded LOD surface is unavailable", false);
+    }
+    const descriptor = element.props.geometry as GeometryDescriptor;
+    const key = TessellationCache.key(descriptor, quality);
+    let entry = this.tessellationCache.get(key);
+    if (entry === null) {
+      try {
+        const result = await this.adapters.geometry.prepareMeshAtQuality(descriptor, quality);
+        entry = { mesh: result.mesh, meshToken: result.meshToken, vertices: result.metadata.vertices, triangles: result.metadata.triangles };
+      } catch (e) {
+        if (isAdapterFailure(e)) {
+          return err(e.code, e.message, e.retryable);
+        }
+        return err("engine_error", `geometry adapter failed: ${(e as Error).message}`, false);
+      }
+      this.tessellationCache.set(key, entry);
+    }
+    const built = buildMeshEntityProps({
+      sourceElementId: element.id,
+      sourceMeshToken,
+      quality,
+      vertices: entry.mesh.vertices,
+      indices: entry.mesh.indices,
+      engine: { engineId: this.adapters.geometry.engineId, engineVersion: this.adapters.geometry.engineVersion },
+    });
+    if (!built.ok) {
+      return err("mesh_invalid", `model3d.tessellate: ${built.reason}`, false);
+    }
+    try {
+      const elementId = this.doc.mintElementId();
+      this.doc.execute({
+        type: "addElement",
+        element: { id: elementId, kind: "geometry", engineId: null, props: built.props as unknown as Record<string, unknown> },
+      });
+      return ok({
+        elementId,
+        sourceElementId: element.id,
+        quality,
+        knobs: meshQualityKnobs(quality),
+        meshToken: entry.meshToken,
+        vertexCount: built.props.vertexCount,
+        triangleCount: built.props.triangleCount,
+        snapshot: this.doc.snapshot(),
+      });
+    } catch (e) {
+      return err("mesh_invalid", (e as Error).message, false);
+    }
+  }
+
+  /** model3d.section (query) — the EXACT adapter-backed plane ∩ solid
+   *  section: canonical loops/chains + hash. The adapter declining a
+   *  descriptor's class is the typed section_exact_unsupported decline (the
+   *  labeled extent preview remains the fallback — never an approximation
+   *  presented as exact). */
+  private async qModel3dSection(payload: unknown): Promise<CommandQueryResponse> {
+    const p = payload as { id?: unknown; name?: unknown; elementId?: unknown } | null;
+    let plane: SectionPlaneRecord | undefined;
+    if (p !== null && typeof p === "object" && typeof p.id === "string" && p.id.length > 0) {
+      plane = this.doc.sectionPlaneById(p.id);
+      if (plane === undefined) return err("bad_id", `section plane '${p.id}' does not exist`, false);
+    } else if (p !== null && typeof p === "object" && typeof p.name === "string" && p.name.length > 0) {
+      plane = this.doc.sectionPlaneByName(p.name);
+      if (plane === undefined) return err("bad_id", `section plane '${p.name}' does not exist`, false);
+    } else {
+      const planes = this.doc.sectionPlaneRecords;
+      if (planes.length === 1) {
+        plane = planes[0];
+      } else if (planes.length === 0) {
+        return err("bad_id", "no section plane exists — create one with sectionplane.create", false);
+      } else {
+        return err("bad_payload", "model3d.section requires an id or name (multiple section planes exist)", true);
+      }
+    }
+    const solids = this.model3dPickables()
+      .filter((el) => el.id !== undefined)
+      .map((el) => this.doc.allElements().find((d) => d.id === el.id))
+      .filter((el): el is Element => el !== undefined && el.props.type === "model3d.solid" && el.props.geometry !== undefined);
+    let targets = solids;
+    if (p !== null && typeof p === "object" && typeof p.elementId === "string" && p.elementId.length > 0) {
+      const one = solids.find((el) => el.id === p.elementId);
+      if (one === undefined) {
+        return err("bad_id", `element '${p.elementId}' is not a model3d solid with persisted geometry`, false);
+      }
+      targets = [one];
+    }
+    if (targets.length === 0) {
+      return err("bad_id", "no model3d solids exist to section", false);
+    }
+    if (!isSectionProvider(this.adapters.geometry)) {
+      return err("section_exact_unsupported", "the active geometry engine provides no exact-section capability (SectionProvider) — the labeled extent preview (model3d.sectionPreview) remains the bounded fallback", false);
+    }
+    const thePlane = plane as SectionPlaneRecord;
+    const spec = { origin: thePlane.origin, normal: thePlane.normal };
+    const inputs: { id: string; raw: SectionGeometry }[] = [];
+    for (const el of targets) {
+      try {
+        const raw = await this.adapters.geometry.computeSection(el.props.geometry as GeometryDescriptor, spec);
+        validateSectionGeometry(spec, raw);
+        inputs.push({ id: el.id, raw });
+      } catch (e) {
+        if (isAdapterFailure(e)) {
+          return err("section_exact_unsupported", `element '${el.id}': ${SECTION_EXACT_ENGINE_DECLINE_REASON} (engine: ${e.message})`, false);
+        }
+        if (e instanceof SectionGeometryValidationError) {
+          return err("engine_error", `element '${el.id}': the engine's section output failed structural validation — ${e.message}`, false);
+        }
+        return err("engine_error", `element '${el.id}': section computation failed — ${(e as Error).message}`, false);
+      }
+    }
+    const body = buildSectionExact(plane as SectionPlaneRecord, inputs);
+    const hash = createHash("sha256").update(canonicalStringify(body)).digest("hex");
+    return ok({
+      sectionPlaneId: (plane as SectionPlaneRecord).id,
+      name: (plane as SectionPlaneRecord).name,
+      exact: true,
+      section: body,
+      hash,
+      note: "exact adapter-backed section: the plane ∩ solid intersection curves through the active engine (canonical loops/chains; engine provenance recorded); the labeled extent preview remains available via model3d.sectionPreview",
+    });
+  }
+
+  /** model3d.topology (query) — the deterministic topology map of one solid:
+   *  canonical f/e/v ids assigned by canonical geometry ordering (engine
+   *  enumeration order and triangulation details are irrelevant), engine
+   *  keys as PROVENANCE only. The map is derived state (never persisted). */
+  private async qModel3dTopology(payload: unknown): Promise<CommandQueryResponse> {
+    const p = payload as { elementId?: unknown } | null;
+    if (p === null || typeof p !== "object" || typeof p.elementId !== "string" || p.elementId.length === 0) {
+      return err("bad_payload", "model3d.topology requires an elementId", true);
+    }
+    const map = await this.topologyOfElement(p.elementId);
+    if ("ok" in map && map.ok === false) return map.response;
+    const topology = (map as { topology: TopologyMap }).topology;
+    const hash = createHash("sha256").update(canonicalStringify(topology)).digest("hex");
+    return ok({ elementId: p.elementId, topology, counts: topology.counts, hash });
+  }
+
+  /** The shared topology computation for the topology query and the
+   *  per-element sub-entity pick (typed declines throughout). */
+  private async topologyOfElement(elementId: string): Promise<{ topology: TopologyMap } | { ok: false; response: CommandQueryResponse }> {
+    const element = this.doc.allElements().find((el) => el.id === elementId);
+    if (element === undefined) {
+      return { ok: false, response: err("bad_id", `element '${elementId}' does not exist`, false) };
+    }
+    if (element.props.type !== "model3d.solid" || element.props.geometry === undefined) {
+      return { ok: false, response: err("topology_unsupported", `element '${elementId}' is not a model3d solid with persisted geometry — ${TOPOLOGY_DECLINE_REASON}`, false) };
+    }
+    if (!isTopologyProvider(this.adapters.geometry)) {
+      return { ok: false, response: err("topology_unsupported", "the active geometry engine provides no topology capability (TopologyProvider) — element-granularity picking (model3d.pick) remains available", false) };
+    }
+    try {
+      const raw = await this.adapters.geometry.describeTopology(element.props.geometry as GeometryDescriptor);
+      const topology = buildTopologyMap(element.id, raw);
+      return { topology };
+    } catch (e) {
+      if (isAdapterFailure(e)) {
+        return { ok: false, response: err("topology_unsupported", `element '${elementId}': ${e.message}`, false) };
+      }
+      if (e instanceof TopologyValidationError) {
+        return { ok: false, response: err("engine_error", `element '${elementId}': the engine's topology output failed structural validation — ${e.message}`, false) }
+      }
+      return { ok: false, response: err("engine_error", `element '${elementId}': topology computation failed — ${(e as Error).message}`, false) };
+    }
+  }
+
+  /** model3d.cacheStats (query) — the bounded tessellation cache's exact
+   *  counters + the documented budgets (the deterministic
+   *  performance-budget evidence; reproducible counters, not wall-clock). */
+  private qModel3dCacheStats(): CommandQueryResponse {
+    return ok({
+      cache: this.tessellationCache.stats(),
+      budgets: {
+        maxCacheEntries: this.tessellationCache.stats().capacity,
+        maxCachedVertices: this.tessellationCache.stats().vertexBudget,
+        meshLodMaxVertices: 150_000,
+        meshEntityMaxVertices: 150_000,
+        topologyBounds: { faces: 512, edges: 1024, vertices: 1024 },
+        sectionMaxPoints: 8192,
+      },
+    });
+  }
+
   /** ucs.list (query) — the named-UCS inventory + the current-workplane
    *  context (non-mutating, computed fresh). */
   private qUcsList(): CommandQueryResponse {
@@ -3600,12 +3976,24 @@ export class AppApiHandler {
     const p = payload as {
       screenX?: unknown; screenY?: unknown;
       viewport?: unknown; subEntity?: unknown;
+      elementId?: unknown; subEntityKind?: unknown; tolerance?: unknown;
     } | null;
     if (p === null || typeof p !== "object") {
       return err("bad_payload", "model3d.pick requires a payload object", true);
     }
-    if (p.subEntity === true) {
+    // CAD-PARITY-010: the per-element topology-aware sub-entity pick. The
+    // P009 semantics are PRESERVED byte-identically: sub-entity request
+    // without an elementId remains the typed subentity_unsupported decline
+    // (the global pick is element-granularity only).
+    const wantsSubEntity = p.subEntity === true || typeof p.subEntityKind === "string";
+    if (wantsSubEntity && typeof p.elementId !== "string") {
       return err("subentity_unsupported", SUBENTITY_DECLINE_REASON, false);
+    }
+    if (typeof p.elementId === "string" && !wantsSubEntity) {
+      return err("bad_payload", "model3d.pick elementId applies to the per-element sub-entity pick — pass subEntity: true or subEntityKind: face|edge|vertex (the global pick needs no elementId)", true);
+    }
+    if (wantsSubEntity) {
+      return this.qModel3dPickSubEntity(p, p.elementId as string);
     }
     if (typeof p.screenX !== "number" || !Number.isFinite(p.screenX) || typeof p.screenY !== "number" || !Number.isFinite(p.screenY)) {
       return err("bad_payload", "model3d.pick requires finite screenX/screenY", true);
@@ -3625,6 +4013,69 @@ export class AppApiHandler {
     }
     const hits = pickElements(ray, this.model3dPickables());
     return ok({ ray: { origin: ray.origin, direction: ray.direction }, hits, count: hits.length });
+  }
+
+  /** The CAD-PARITY-010 per-element sub-entity pick: the deterministic
+   *  topology map is computed on demand through the adapter and picked with
+   *  the SHARED ray math (faces exact; edges/vertices within tolerance;
+   *  exactly ordered — distance then canonical id). Async through the
+   *  adapter; dispatched from the async query entry. */
+  private async qModel3dPickSubEntityAsync(
+    p: { screenX?: unknown; screenY?: unknown; viewport?: unknown; subEntityKind?: unknown; tolerance?: unknown },
+    elementId: string,
+  ): Promise<CommandQueryResponse> {
+    if (typeof p.screenX !== "number" || !Number.isFinite(p.screenX) || typeof p.screenY !== "number" || !Number.isFinite(p.screenY)) {
+      return err("bad_payload", "model3d.pick requires finite screenX/screenY", true);
+    }
+    const vp = p.viewport as { width?: unknown; height?: unknown } | null;
+    if (
+      vp === null || typeof vp !== "object" ||
+      typeof vp.width !== "number" || !Number.isFinite(vp.width) || vp.width <= 0 ||
+      typeof vp.height !== "number" || !Number.isFinite(vp.height) || vp.height <= 0
+    ) {
+      return err("bad_payload", "model3d.pick requires a viewport {width, height} of positive finite numbers", true);
+    }
+    let filter: SubEntityKind | undefined;
+    if (p.subEntityKind !== undefined) {
+      if (p.subEntityKind !== "face" && p.subEntityKind !== "edge" && p.subEntityKind !== "vertex") {
+        return err("bad_payload", "model3d.pick subEntityKind must be one of face, edge, vertex", true);
+      }
+      filter = p.subEntityKind;
+    }
+    let tolerance: number | undefined;
+    if (p.tolerance !== undefined) {
+      if (typeof p.tolerance !== "number" || !Number.isFinite(p.tolerance) || p.tolerance <= 0) {
+        return err("bad_payload", "model3d.pick tolerance must be a positive finite number (world units)", true);
+      }
+      tolerance = p.tolerance;
+    }
+    const map = await this.topologyOfElement(elementId);
+    if ("ok" in map && map.ok === false) return map.response;
+    const topology = (map as { topology: TopologyMap }).topology;
+    const camera = this.view3dCamera();
+    const ray = screenRay(camera, { width: vp.width as number, height: vp.height as number }, p.screenX, p.screenY);
+    if (ray === null) {
+      return err("camera_invalid", "model3d.pick: the camera frame is degenerate", false);
+    }
+    const hits = pickSubEntity(ray, topology, { ...(filter === undefined ? {} : { filter }), ...(tolerance === undefined ? {} : { tolerance }) });
+    return ok({
+      elementId,
+      ray: { origin: ray.origin, direction: ray.direction },
+      hits,
+      count: hits.length,
+      topologyCounts: topology.counts,
+    });
+  }
+
+  /** The synchronous shim keeping the P009 pick dispatch signature (the
+   *  sub-entity path is async — dispatched from the query entry). */
+  private qModel3dPickSubEntity(
+    p: { screenX?: unknown; screenY?: unknown; viewport?: unknown; subEntityKind?: unknown; tolerance?: unknown },
+    elementId: string,
+  ): CommandQueryResponse {
+    // This is unreachable through the dispatch (the async path is taken);
+    // kept for the exhaustive type surface.
+    return err("engine_error", "model3d.pick sub-entity dispatch regression (the async path must be used)", false);
   }
 
   /** model3d.sectionPreview (query) — the bounded section/slice PREVIEW
@@ -3663,13 +4114,54 @@ export class AppApiHandler {
    *  renders the persisted bbox wireframe, labeled as such — never an
    *  approximation presented as exact). */
   private async qModel3dMesh(payload: unknown): Promise<CommandQueryResponse> {
-    const p = payload as { elementId?: unknown } | null;
+    const p = payload as { elementId?: unknown; quality?: unknown } | null;
     if (p === null || typeof p !== "object" || typeof p.elementId !== "string" || p.elementId.length === 0) {
       return err("bad_payload", "model3d.mesh requires an elementId", true);
     }
     const element = this.doc.allElements().find((el) => el.id === p.elementId);
     if (element === undefined) {
       return err("bad_id", `element '${p.elementId}' does not exist`, false);
+    }
+    // CAD-PARITY-010: the bounded LOD path — quality present → serve the
+    // quality-preset mesh through the revision-tied cache (progressive
+    // delivery with deterministic per-preset output). Absent quality keeps
+    // the P009 behavior byte-identically (the prepared mesh by token).
+    if (p.quality !== undefined) {
+      if (typeof p.quality !== "string" || parseMeshQuality(p.quality) === null) {
+        return err("bad_payload", "model3d.mesh quality must be one of low, medium, full", true);
+      }
+      const quality = parseMeshQuality(p.quality)!;
+      if (element.props.type !== "model3d.solid" || element.props.geometry === undefined) {
+        return err("not_a_solid", `element '${p.elementId}' is not a model3d solid — the LOD mesh surface serves model3d.solid elements`, false);
+      }
+      if (!isQualityMeshProvider(this.adapters.geometry)) {
+        return err("mesh_unsupported", "the active geometry engine provides no quality-mesh capability (QualityMeshProvider) — the bounded LOD surface is unavailable", false);
+      }
+      const descriptor = element.props.geometry as GeometryDescriptor;
+      const key = TessellationCache.key(descriptor, quality);
+      let entry = this.tessellationCache.get(key);
+      if (entry === null) {
+        try {
+          const result = await this.adapters.geometry.prepareMeshAtQuality(descriptor, quality);
+          entry = { mesh: result.mesh, meshToken: result.meshToken, vertices: result.metadata.vertices, triangles: result.metadata.triangles };
+        } catch (e) {
+          if (isAdapterFailure(e)) {
+            return err(e.code, e.message, e.retryable);
+          }
+          return err("engine_error", `geometry adapter failed: ${(e as Error).message}`, false);
+        }
+        this.tessellationCache.set(key, entry);
+      }
+      return ok({
+        elementId: element.id,
+        quality,
+        knobs: meshQualityKnobs(quality),
+        meshToken: entry.meshToken,
+        mesh: entry.mesh,
+        vertices: entry.vertices,
+        triangles: entry.triangles,
+        withinBudget: entry.vertices <= 150_000,
+      });
     }
     const meshToken = element.props.meshToken;
     if (typeof meshToken !== "string" || meshToken.length === 0) {

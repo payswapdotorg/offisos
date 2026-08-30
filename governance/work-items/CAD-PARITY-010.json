@@ -45,7 +45,7 @@
     "Regression proof that CAD-PARITY-002..009 fixtures remain green and byte-identical.",
     "Vercel deployed verification of the exact implementation head plus real-browser evidence for the representative 3D workflows."
   ],
-  "state": "READY",
+  "state": "VERIFYING",
   "transitions": [
     {
       "from": "DRAFT",
@@ -56,6 +56,104 @@
       "reason": "Architect work order prepared from the frozen CAD-PARITY roadmap: CAD-PARITY-010 is the next roadmap item after CAD-PARITY-009, covering deeper solids/surfaces/meshes, booleans, exact sections where supported, topology-aware selection where deterministic, and large-model performance.",
       "references": {
         "issue": 93
+      }
+    },
+    {
+      "from": "READY",
+      "to": "ASSIGNED",
+      "at": "2026-08-30T08:42:00Z",
+      "actor": "pectoraux",
+      "role": "architect",
+      "reason": "CAD-PARITY-009 is now formally VERIFIED on main, clearing the declared dependency gate. Z.ai is assigned to implement P010 from main without changing the frozen ConstructionOS/CAD architecture; implementation must follow shared-core-first sequencing and stop at PR_OPEN/VERIFYING.",
+      "references": {
+        "issue": 93,
+        "assignee": "z-ai-implementation-agent",
+        "commit": "a52c718e75619574e4eddc03331bbac689adcff4"
+      }
+    },
+    {
+      "from": "ASSIGNED",
+      "to": "IMPLEMENTING",
+      "at": "2026-08-30T08:52:56Z",
+      "actor": "z-ai-implementation-agent",
+      "role": "implementer",
+      "reason": "Implementation branch work/cad-parity-010-solids-surfaces-performance cut from main at a52c718 (the P009-verified head) and implementation begins per Issue #93.",
+      "references": {
+        "issue": 93,
+        "commit": "a52c718e75619574e4eddc03331bbac689adcff4"
+      }
+    },
+    {
+      "from": "IMPLEMENTING",
+      "to": "PR_OPEN",
+      "at": "2026-08-30T10:22:26Z",
+      "actor": "z-ai-implementation-agent",
+      "role": "implementer",
+      "reason": "PR #95 opened with CI, parity and deployed evidence for the implementation head 2c187d7 (all 19 workflows green incl. the new cad-parity-010 three-job pipeline; the exact-head Vercel deployment verified with all eight fixture smokes byte-identical).",
+      "references": {
+        "issue": 93,
+        "pr": 95,
+        "commit": "2c187d760dea64eb380d40681b43ac99c0277d75",
+        "evidence": [
+          "EV-001",
+          "EV-002",
+          "EV-003"
+        ]
+      }
+    },
+    {
+      "from": "PR_OPEN",
+      "to": "VERIFYING",
+      "at": "2026-08-30T11:05:00Z",
+      "actor": "z-ai-implementation-agent",
+      "role": "implementer",
+      "reason": "Complete evidence submitted for Architect review: the boolean triad with typed failures, the exact adapter-backed sections, the deterministic topology-aware selection, the bounded mesh entities + LOD cache, Web/Electron parity on the pinned 010 fixture, CI green on the exact head and the deployed verification.",
+      "references": {
+        "pr": 95,
+        "evidence": [
+          "EV-001",
+          "EV-002",
+          "EV-003"
+        ]
+      }
+    }
+  ],
+  "evidence": [
+    {
+      "id": "EV-001",
+      "type": "automated-test-suite",
+      "description": "The full local app suite on the implementation head: 1057 tests / 1030 pass / 0 fail / 27 engine-gated skips (987 pre-existing + 70 new CAD-PARITY-010 tests: booleans 15, exact sections 15, topology 14, mesh/cache 14, real-OCCT 12 incl. the cross-engine canonical agreements); tsc clean; LOCK-018 forbidden-import scan 4/4; Web lint/tsc/build green with ALL EIGHT fixture smokes (the seven P002..P009 fixtures byte-identical + the new pinned 010 fixture); Electron build/typecheck green with the model3d P010 real-UI smoke 24/24 (the same pinned fixture) and the 009 smoke 32/32 unchanged.",
+      "produced_at": "2026-08-30T09:52:00Z",
+      "reproducible": true,
+      "reproduction": "cd app && node --import tsx --test test/*.test.ts; cd ../apps/web && npm run build; OFFISOS_GEOMETRY_ENGINE=reference npm run dev -- -p 3100 & node --import tsx apps/web/test/model3d-p010-smoke.mjs; cd ../apps/electron && node test/smoke-model3d-p010.mjs",
+      "references": {
+        "commit": "2c187d760dea64eb380d40681b43ac99c0277d75",
+        "pr": 95
+      }
+    },
+    {
+      "id": "EV-002",
+      "type": "ci-run",
+      "description": "All 19 workflows succeeded on the implementation head 2c187d7, including the new cad-parity-010 run 33306325044 (the three-job pipeline: the workspace deterministic suite with BOTH real engines — the full app suite incl. the 70 new P010 tests and the real-OCCT cross-engine agreements; the web host with ALL EIGHT parity fixture smokes; the electron host with all seventeen smokes incl. the model3d P010 real-UI smoke) and governance run 33306325031 (302/302).",
+      "produced_at": "2026-08-30T10:46:48Z",
+      "reproducible": true,
+      "reproduction": "PR #95 checks tab (the Actions run list for commit 2c187d7).",
+      "references": {
+        "commit": "2c187d760dea64eb380d40681b43ac99c0277d75",
+        "pr": 95,
+        "workflow_run": "33306325044"
+      }
+    },
+    {
+      "id": "EV-003",
+      "type": "inspectable-artifact",
+      "description": "The exact-head Vercel deployment dpl_3VMb4VFUbB5o86TYeJwvinykmLem (githubCommitSha == 2c187d7, PR 95) READY at offisos-323lxtim5-ekonplacidegmailcoms-projects.vercel.app; ALL EIGHT fixture smokes pass against the deployment byte-identically (workspace, layers, annotation, blocks, constraints, layouts, model3d and the new model3d-p010 — save sha 59ba5025…, scene SVG cd0825a5…, exact section e26512c2…, topology 7ae21b38…); the deployed real-UI browser verification exercised the P010 golden path (the boolean toolbar, the union through model3d.boolean, the exact adapter-backed section with its canonical loop + hash, the topology counts, the live cache counters).",
+      "produced_at": "2026-08-30T10:33:50Z",
+      "reproducible": true,
+      "reproduction": "Run the eight fixture smokes with OFFISOS_WEB_URL=https://offisos-323lxtim5-ekonplacidegmailcoms-projects.vercel.app.",
+      "references": {
+        "commit": "2c187d760dea64eb380d40681b43ac99c0277d75",
+        "pr": 95
       }
     }
   ]

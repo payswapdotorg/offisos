@@ -34,7 +34,7 @@ import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
 import { AdapterFailure } from "../../contracts/geometry.js";
-import type { WorkerOkResponse, WorkerPingRequest, WorkerPrepareRequest, WorkerRequest, WorkerResponse } from "./worker-protocol.js";
+import type { WorkerOkResponse, WorkerPingRequest, WorkerPrepareRequest, WorkerRequest, WorkerResponse, WorkerSectionOk, WorkerSectionRequest, WorkerTopologyOk, WorkerTopologyRequest } from "./worker-protocol.js";
 
 export interface OcctProcessOptions {
   /** Wall-clock budget per worker call (default 15000 ms). */
@@ -295,6 +295,100 @@ export async function runOcctWorker(
   }
   assertPrepareResponse(response);
   return response;
+}
+
+/** Structural validation of a successful section response (CAD-PARITY-010). */
+function assertSectionResponse(response: WorkerSectionOk): void {
+  if (!Array.isArray(response.polylines)) {
+    throw new AdapterFailure(ENGINE_ERROR, "worker section response polylines is malformed", false);
+  }
+  let total = 0;
+  for (const polyline of response.polylines) {
+    const points = (polyline as { points?: unknown }).points;
+    if (!Array.isArray(points) || points.length < 6 || points.length % 3 !== 0 || !points.every(isFiniteNumber)) {
+      throw new AdapterFailure(ENGINE_ERROR, "worker section polyline must be ≥ 2 finite x,y,z triples", false);
+    }
+    total += points.length / 3;
+    if (total > 8_192) {
+      throw new AdapterFailure(ENGINE_ERROR, "worker section response exceeds the point bound", false);
+    }
+  }
+}
+
+/** Run one section request (plane ∩ shape intersection curves). */
+export async function runOcctSectionWorker(
+  request: WorkerSectionRequest,
+  options: OcctProcessOptions = {},
+): Promise<WorkerSectionOk> {
+  const workerScript = resolveWorkerScript(options.workerScript);
+  const { command, args } = buildCommand(options, workerScript);
+  const raw = await runProcess(command, args, request, options);
+  const response = parseResponse(raw) as WorkerResponse | WorkerSectionOk;
+  if (response.ok === false) {
+    throw new AdapterFailure(response.code, response.message, RETRYABLE_CODES.has(response.code));
+  }
+  if (!Array.isArray((response as WorkerSectionOk).polylines)) {
+    throw new AdapterFailure(ENGINE_ERROR, "worker section response is missing polylines", false);
+  }
+  assertSectionResponse(response as WorkerSectionOk);
+  return response as WorkerSectionOk;
+}
+
+/** Structural validation of a successful topology response (CAD-PARITY-010). */
+function assertTopologyResponse(response: WorkerTopologyOk): void {
+  for (const key of ["faces", "edges", "vertices"] as const) {
+    if (!Array.isArray(response[key])) {
+      throw new AdapterFailure(ENGINE_ERROR, `worker topology response ${key} is malformed`, false);
+    }
+  }
+  for (const face of response.faces) {
+    if (typeof face.surfaceType !== "string" || typeof face.engineKey !== "string") {
+      throw new AdapterFailure(ENGINE_ERROR, "worker topology face is malformed", false);
+    }
+    if (!Array.isArray(face.vertices) || face.vertices.length % 3 !== 0 || !face.vertices.every(isFiniteNumber)) {
+      throw new AdapterFailure(ENGINE_ERROR, "worker topology face vertices must be finite x,y,z triples", false);
+    }
+    const vertexCount = face.vertices.length / 3;
+    if (vertexCount === 0 || !Array.isArray(face.indices) || face.indices.length % 3 !== 0 ||
+      !face.indices.every((i) => Number.isInteger(i) && i >= 0 && i < vertexCount)) {
+      throw new AdapterFailure(ENGINE_ERROR, "worker topology face indices must be in-range a,b,c triples", false);
+    }
+    if (!isFiniteNumber(face.area) || !Array.isArray(face.centroid) || face.centroid.length !== 3 || !face.centroid.every(isFiniteNumber)) {
+      throw new AdapterFailure(ENGINE_ERROR, "worker topology face area/centroid is malformed", false);
+    }
+  }
+  for (const edge of response.edges) {
+    if (typeof edge.curveType !== "string" || typeof edge.engineKey !== "string" || !isFiniteNumber(edge.length)) {
+      throw new AdapterFailure(ENGINE_ERROR, "worker topology edge is malformed", false);
+    }
+    if (!Array.isArray(edge.points) || edge.points.length < 6 || edge.points.length % 3 !== 0 || !edge.points.every(isFiniteNumber)) {
+      throw new AdapterFailure(ENGINE_ERROR, "worker topology edge points must be ≥ 2 finite x,y,z triples", false);
+    }
+  }
+  for (const vertex of response.vertices) {
+    if (typeof vertex.engineKey !== "string" || !Array.isArray(vertex.point) || vertex.point.length !== 3 || !vertex.point.every(isFiniteNumber)) {
+      throw new AdapterFailure(ENGINE_ERROR, "worker topology vertex is malformed", false);
+    }
+  }
+}
+
+/** Run one topology request (the face/edge/vertex inventory). */
+export async function runOcctTopologyWorker(
+  request: WorkerTopologyRequest,
+  options: OcctProcessOptions = {},
+): Promise<WorkerTopologyOk> {
+  const workerScript = resolveWorkerScript(options.workerScript);
+  const { command, args } = buildCommand(options, workerScript);
+  const raw = await runProcess(command, args, request, options);
+  const response = parseResponse(raw) as WorkerResponse | WorkerTopologyOk;
+  if (response.ok === false) {
+    throw new AdapterFailure(response.code, response.message, RETRYABLE_CODES.has(response.code));
+  }
+  if (!Array.isArray((response as WorkerTopologyOk).faces)) {
+    throw new AdapterFailure(ENGINE_ERROR, "worker topology response is missing faces", false);
+  }
+  assertTopologyResponse(response as WorkerTopologyOk);
+  return response as WorkerTopologyOk;
 }
 
 export interface EngineProbe {
