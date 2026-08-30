@@ -143,6 +143,44 @@
         "commit": "d02727ea967e5d1ee73ca4b93c7f00292c343044",
         "pr": 92
       }
+    },
+    {
+      "id": "EV-005",
+      "type": "automated-test-suite",
+      "description": "PR #92 ARCHITECT-REVIEW REMEDIATION (CHANGES REQUESTED — the perspective fit): the review found fitCameraToBBox()'s perspective distance max(halfY, halfX/aspect, halfZ)/sin(fov/2)·FIT_MARGIN to be an axis-extent heuristic that does not guarantee all eight corners inside the perspective frustum for oblique directions (measured on the pre-fix head: the isometric fit of the 10-cube put 4/8 corners OUTSIDE an 800×600 fov-60 viewport at screen x −52.9/852.9; even the front-view fit failed 4/8 — the prior suite only asserted corners stay in front of the eye plane, never inside the viewport). FIXED in a87b642 with the EXACT per-corner solve: each corner offset v (kept eye-direction frame, right/up ⊥ dir) has camera-plane coordinates (xc, yc, zc) = (v·right, v·up, d − v·dir) and the pinhole viewport bound |xc| ≤ zc·aspect·tan(fovY/2) ∧ |yc| ≤ zc·tan(fovY/2) is LINEAR in d (d ≥ |v·right|/(aspect·tan(fovY/2)) + v·dir ∧ d ≥ |v·up|/tan(fovY/2) + v·dir); the max over all 8 corners is the minimal sufficient distance for ARBITRARY camera direction/aspect/fov, ×FIT_MARGIN keeps the documented 10% margin and every corner strictly in front of the eye plane. Adversarially verified before landing: 160,000 corner projections over 20,000 randomized configurations (fov 1–178°, aspect 0.2–5.2, arbitrary orientations incl. rolled up hints, non-cubic and flat boxes) — ZERO failures. NEW regression tests (the review's required list, model3d core 35 → 38 tests, the P009 suite 61 → 64): the isometric perspective fit (the exact closed-form distance (10√2 + 5/√3)·FIT_MARGIN + all-corners-inside across 8 aspect/fov configurations), strongly non-cubic boxes (40×4×6 slab, 2×2×30 column, 25×1×1 beam, 10×10×0 plane) × 7 directions × 3 viewports, arbitrary orientation + rolled up hint + narrow fov 15° + extreme aspects 0.25/4, and the explicit assertAllCornersInsideViewport() on EVERY case incl. the upgraded front-view fit and the perspective empty-box unit fallback. FIXTURES PRESERVED BYTE-IDENTICALLY (the fix is perspective-only; the parity fixture runs orthographic): the PARITY ANCHOR unchanged (save b8cf24a22da9ca62…, svg 6fc199e61f7c827a…, section 2955ff1d95c57a71…), the Web model3d smoke 26/26 PASS and the Electron real-UI smoke 32/32 PASS both MATCHING the pinned fixture (save d2e7a95e…, scene SVG 629b2071…, section preview 2955ff1d…, echo digest 04d6d390…, the 26-command stream) on the remediated tree. EXECUTION RECORD (real, local): cd app && node --import tsx --test test/*.test.ts → tests 983, pass 956, fail 0, skipped 27 (engine-gated suites skip locally; CI runs them with both engines pinned); node --import tsx --test test/model3d-core.test.ts test/model3d-document.test.ts test/model3d-commands.test.ts → 64/64 green; tsc --noEmit clean; apps/electron npm run typecheck + build + the real-UI smoke green.",
+      "produced_at": "2026-08-30T04:02:00Z",
+      "reproducible": true,
+      "reproduction": "cd app && node --import tsx --test test/model3d-core.test.ts (the three new fit tests) && node --import tsx --test test/*.test.ts; Web: cd apps/web && OFFISOS_GEOMETRY_ENGINE=reference npm run dev -- -p 3100 & then node --import tsx apps/web/test/model3d-smoke.mjs; Electron: cd apps/electron && node test/smoke-model3d.mjs — all must reproduce the pinned fixture byte-identically.",
+      "references": {
+        "commit": "a87b642fd430ec2e5d3ea97fff1d6c1acfcca115",
+        "pr": 92,
+        "artifact_path": "app/src/workspace/model3d/camera.ts,app/test/model3d-core.test.ts"
+      }
+    },
+    {
+      "id": "EV-006",
+      "type": "ci-run",
+      "description": "CI-green on the remediation head a87b642 (the exact per-corner perspective fit + the three new regression tests): ALL 18 workflows succeeded — cad-implement-001 33291310178, cad-implement-002 33291310316, cad-implement-003 33291310308, cad-parity-002 33291310189, cad-parity-003 33291310169, cad-parity-004 33291310176, cad-parity-005 33291310182, cad-parity-006 33291310174, cad-parity-007 33291310198, cad-parity-008 33291310253, cad-parity-009 33291310218, compat-bim-003 33291310210, compat-cad-001 33291310186, compat-cad-002 33291310286, compat-cad-003 33291310181, compat-ifc-001 33291310179, governance 33291310184, research-cad-007 33291310304 — including the cad-parity-009 run 33291310218 (the item's OWN three-job evidence pipeline re-run on the corrected head: workspace-shell with BOTH real engines running the full app suite + the 64 model3d tests incl. the three new fit regressions + the LOCK-018 scan; web-host-workspace with the SEVEN fixture smokes — the six legacy fixtures byte-identical + the CAD-PARITY-009 model3d fixture; electron-host-workspace with the SIXTEEN smokes incl. the 32/32 model3d real-UI smoke). No flakes; no re-runs needed on this head.",
+      "produced_at": "2026-08-30T04:07:44Z",
+      "reproducible": true,
+      "reproduction": "PR #92 checks tab — the a87b642 head; the run list is bound in this evidence entry.",
+      "references": {
+        "commit": "a87b642fd430ec2e5d3ea97fff1d6c1acfcca115",
+        "pr": 92,
+        "workflow_run": "33291310218"
+      }
+    },
+    {
+      "id": "EV-007",
+      "type": "inspectable-artifact",
+      "description": "Deployed verification of the EXACT remediation head: Vercel deployment dpl_GTiHffyiao3bpTHhUU9htUqbDwrB (https://offisos-76qobxqez-ekonplacidegmailcoms-projects.vercel.app, created 2026-08-30T04:08:35Z, READY, meta.gitsha == a87b642fd430ec2e5d3ea97fff1d6c1acfcca115 EXACT, target preview) — the deployed Web host (running the corrected perspective-fit code through the OFFISOS_GEOMETRY_ENGINE=auto wiring) verified LIVE with the SEVEN-FOR-SEVEN fixture smokes PASS byte-identically: CAD-PARITY-002 (workspace), 004 (layers-styles), 005 (annotation), 006 (blocks), 007 (constraints), 008 (layouts) AND the CAD-PARITY-009 model3d fixture (save d2e7a95e…, scene SVG 629b2071…, section preview 2955ff1d… through the engine-availability auto-fallback). The final PR head (this record commit) carries its own CI runs + deployment bound on PR #92 (a commit cannot embed identifiers of artifacts created after it — the P009 submission precedent).",
+      "produced_at": "2026-08-30T04:14:00Z",
+      "reproducible": true,
+      "reproduction": "OFFISOS_WEB_URL=https://offisos-76qobxqez-ekonplacidegmailcoms-projects.vercel.app node --import tsx apps/web/test/<smoke>-smoke.mjs for each of the seven smokes.",
+      "references": {
+        "commit": "a87b642fd430ec2e5d3ea97fff1d6c1acfcca115",
+        "pr": 92
+      }
     }
   ],
   "decisions": []
