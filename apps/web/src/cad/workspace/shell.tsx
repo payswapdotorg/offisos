@@ -63,6 +63,7 @@ import { RightDock, type DockTab } from "@/cad/workspace/palettes";
 import { ModelCanvas } from "@/cad/workspace/model-canvas";
 import { LayoutCanvas } from "@/cad/workspace/layout-canvas";
 import { PlotPreview } from "@/cad/workspace/plot-preview";
+import { Model3DViewport } from "@/cad/model3d/viewport";
 import { CommandLine } from "@/cad/workspace/command-line";
 import { StatusBar } from "@/cad/workspace/status-bar";
 import { CommandPalette } from "@/cad/workspace/command-palette";
@@ -73,6 +74,10 @@ import { ComponentsWorkbench } from "@/cad/components/workbench";
 
 const VIEW_TABS: readonly { id: WorkspaceView; label: string }[] = [
   { id: "model", label: "Model" },
+  // CAD-PARITY-009 (Issue #90): the 3D Model view — the canonical 3D scene
+  // (UCS/workplane + solids + the persisted camera) rendered through the
+  // SHARED model3d core; a model-space "3D" mode beside the Model view.
+  { id: "model3d", label: "3D" },
   { id: "bim3d", label: "3D BIM" },
   { id: "docs", label: "Documentation" },
   { id: "ifc", label: "Interoperability" },
@@ -202,6 +207,15 @@ export function WorkspaceShell(): React.JSX.Element {
       viewports: snapshot?.viewports ?? [],
       activeLayoutId: snapshot?.draftingSettings?.activeLayout ?? snapshot?.layouts?.[0]?.id ?? null,
       space: snapshot?.draftingSettings?.space ?? "model",
+      // CAD-PARITY-009: the named-UCS table + the active workplane + the
+      // persisted 3D camera + the solid count (the SAME document state the
+      // Electron host passes — the UCS/model3d builders resolve through it).
+      ucs: snapshot?.ucs ?? [],
+      activeUcsId: snapshot?.draftingSettings?.activeUcs ?? "world",
+      view3d: snapshot?.draftingSettings?.view3d ?? null,
+      model3dSolidCount: (snapshot?.elements ?? []).filter(
+        (el) => (el.props as { type?: unknown } | null)?.type === "model3d.solid",
+      ).length,
     });
   }, [snapshot, selection, activeLayer, activeStoryId]);
 
@@ -390,6 +404,11 @@ export function WorkspaceShell(): React.JSX.Element {
             break;
           case "space.paper":
             setView("layout");
+            break;
+          // CAD-PARITY-009 (Issue #90): the 3D Model view switch (host-local
+          // view state, LOCK-015 — the UCS/VPOINT/ZOOM3D/3DSTATE commands hint it).
+          case "view.model3d":
+            setView("model3d");
             break;
           case "plot.preview":
             setPlotPreviewOpen(true);
@@ -852,6 +871,9 @@ export function WorkspaceShell(): React.JSX.Element {
               />
             )}
             {view === "bim3d" && <BimWorkbench />}
+            {view === "model3d" && (
+              <Model3DViewport snapshot={snapshot} selection={selection} onRefresh={refresh} />
+            )}
             {view === "docs" && <DocsWorkbench />}
             {view === "ifc" && <IfcWorkbench />}
             {view === "components" && <ComponentsWorkbench />}

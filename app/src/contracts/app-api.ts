@@ -165,7 +165,42 @@ export type CommandName =
   | "viewport.update"
   | "viewport.remove"
   | "plot.export"
-  | "plot.publish";
+  | "plot.publish"
+  // --- CAD-PARITY-009 (additive, Issue #90): 3D navigation, UCS/workplanes
+  // and bounded 3D modeling ---
+  // ucs.define/update/remove manage the named-UCS table (the World UCS is
+  // implicit, never a record; removing the ACTIVE UCS is a typed ucs_active
+  // decline — activate World first); ucs.activate is the NON-VERSIONED
+  // current-workplane editor context (the activeLayout precedent, no undo
+  // entry); view3d.set persists the deterministic 3D camera state as
+  // non-versioned editor settings (view state strictly separated from model
+  // history); view3d.fit/view3d.standard derive a camera from the document
+  // (the deterministic model extents / the standard-view presets) through
+  // the SHARED camera module and set it; model3d.box/cylinder/extrude create
+  // solid elements placed through the ACTIVE UCS using the EXISTING
+  // GeometryDescriptor vocabulary (transform-wrapped — no new engine ops),
+  // prepare them through the geometry adapter and persist meshToken/bbox/
+  // engine provenance in the SAME atomic revision; model3d.move/rotate/
+  // scale transform existing solids through the ACTIVE UCS (deterministic
+  // matrix composition, exact inverses, ONE atomic revision); sectionplane.
+  // create/update/remove manage the section-plane table (the bounded
+  // section/slice PREVIEW foundation — the derived preview is a query).
+  | "ucs.define"
+  | "ucs.update"
+  | "ucs.remove"
+  | "ucs.activate"
+  | "view3d.set"
+  | "view3d.fit"
+  | "view3d.standard"
+  | "model3d.box"
+  | "model3d.cylinder"
+  | "model3d.extrude"
+  | "model3d.move"
+  | "model3d.rotate"
+  | "model3d.scale"
+  | "sectionplane.create"
+  | "sectionplane.update"
+  | "sectionplane.remove";
 
 // --- Query names (non-mutating) ---
 // `document.getSelection` returns the ephemeral editor selection (orthogonal
@@ -239,7 +274,19 @@ export type QueryName =
   // hosts' paper canvases consume; non-mutating, computed fresh every
   // call, never persisted stale).
   | "layouts.list"
-  | "plot.preview";
+  | "plot.preview"
+  // CAD-PARITY-009 (additive): the UCS inventory + current-workplane context,
+  // the persisted 3D camera state, deterministic 3D selection (the exactly
+  // ordered element hit list — distance then canonical id; sub-entity
+  // face/edge/vertex picking is a typed decline) and the bounded section
+  // preview foundation (the deterministic plane∩bbox intersection surface
+  // with its canonical hash; exact BRep cross-sections are a typed decline).
+  // All non-mutating, computed fresh every call, never persisted stale.
+  | "ucs.list"
+  | "view3d.state"
+  | "model3d.pick"
+  | "model3d.sectionPreview"
+  | "model3d.mesh";
 
 export interface Command {
   readonly type: "command";

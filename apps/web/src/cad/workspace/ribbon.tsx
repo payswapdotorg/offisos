@@ -69,12 +69,20 @@ import {
   Unlink,
   Undo2,
   Waypoints,
+  // CAD-PARITY-009 (Issue #90): the 3D Model tab icons.
+  Activity,
+  Camera,
+  Crosshair,
+  Cylinder,
+  Globe,
+  Move3d,
+  Rotate3d,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { WORKSPACE_COMMANDS, commandById, type WorkspaceCommand } from "@offisos/cad-app-shell/workspace/commands";
 
-export type WorkspaceView = "model" | "layout" | "bim3d" | "docs" | "ifc" | "components";
+export type WorkspaceView = "model" | "model3d" | "layout" | "bim3d" | "docs" | "ifc" | "components";
 export type WorkspacePreset = "drafting" | "bim" | "documentation" | "compact";
 
 // ---------------------------------------------------------------------------
@@ -308,6 +316,10 @@ const RIBBON_TABS: readonly { id: string; label: string }[] = [
   // PUBLISH — the layout & publishing surface, auto-mapped from the
   // registry).
   { id: "Layout", label: "Layout" },
+  // CAD-PARITY-009 (Issue #90): the 3D Model tab (the UCS family, VPOINT /
+  // ZOOM3D, the solid primitives + transforms, the section planes and the
+  // 3DSTATE echo — auto-mapped from the registry like every other tab).
+  { id: "3D Model", label: "3D Model" },
   { id: "BIM", label: "BIM" },
   { id: "Document", label: "Document" },
   { id: "View", label: "View" },
@@ -380,6 +392,25 @@ const TAB_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
   preview: Printer,
   plot: FileOutput,
   publish: Package,
+  // CAD-PARITY-009 (Issue #90): the 3D Model tab icons.
+  ucs: Compass,
+  ucsnew: FilePlus2,
+  ucsrename: SquarePen,
+  ucsdelete: Trash2,
+  ucsw: Globe,
+  ucsact: Crosshair,
+  vpoint: Camera,
+  zoom3d: Expand,
+  box3d: Box,
+  cylinder3d: Cylinder,
+  extrude3d: Layers,
+  move3d: Move3d,
+  rotate3d: Rotate3d,
+  scale3d: Scaling,
+  sectionplane: Slice,
+  sectionplaneedit: SquarePen,
+  sectionplanedelete: Trash2,
+  state3d: Activity,
   // CAD-PARITY-003 modify vocabulary.
   rotate: RotateCw,
   scale: Scaling,
@@ -468,6 +499,18 @@ export function Ribbon(props: RibbonProps): React.JSX.Element {
             onClick={() => props.onSwitchView("model")}
           >
             <Grid3x3 className="h-3.5 w-3.5" aria-hidden /> Model
+          </Button>
+          {/* CAD-PARITY-009 (Issue #90): the 3D Model view — the shared
+              camera/UCS/solid scene (VPOINT/ZOOM3D/UCS/solids live there). */}
+          <Button
+            size="sm"
+            variant={props.view === "model3d" ? "default" : "outline"}
+            className="h-7 gap-1 px-2 text-[11px]"
+            onClick={() => props.onSwitchView("model3d")}
+            title="3D Model — the canonical 3D scene: UCS/workplane, solids, standard views, gestures"
+            data-testid="view-tab-model3d-quick"
+          >
+            <Box className="h-3.5 w-3.5" aria-hidden /> 3D
           </Button>
           <Button
             size="sm"

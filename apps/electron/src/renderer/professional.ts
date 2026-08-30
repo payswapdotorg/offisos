@@ -82,7 +82,9 @@ import type {
   LayerStateRecord,
   LtypeRecord,
   TextStyleRecord,
+  UcsRecord,
   XrefRecord,
+  Camera3DState,
 } from "@offisos/cad-app-shell/contracts/caddocument";
 import type { Vec2 } from "@offisos/cad-app-shell/drafting/precision";
 import { elementToDraftEntity, isDraftingElement, type DraftEntity } from "@offisos/cad-app-shell/drafting/entities";
@@ -132,6 +134,22 @@ import {
 import { constrainCursor, DEFAULT_DRAFTING_AIDS, formatCoordinate, type DraftingAids } from "@offisos/cad-app-shell/workspace/feedback";
 import { mapKeyEvent } from "@offisos/cad-app-shell/workspace/keymap";
 import { defaultCommandContext, type CommandContext, type CommandPlan, type PromptValue } from "@offisos/cad-app-shell/workspace/types";
+// CAD-PARITY-009 (Issue #90): the shared model3d core — the SAME camera /
+// projection / UCS / scene-SVG modules the Web 3D viewport and the App API
+// run (LOCK-004 parity by construction; pure + engine-free, LOCK-003/018).
+import {
+  WORLD_UCS,
+  buildScene3DSVG,
+  defaultCamera as defaultCamera3D,
+  formatCamera,
+  orbitCamera,
+  panCamera,
+  ucsGridSegments,
+  zoomCamera,
+  type BBox3D,
+  type Scene3DElement,
+  type StandardViewName,
+} from "@offisos/cad-app-shell/workspace/model3d/index";
 // CAD-PARITY-004: the SAME shared standards module the Web host renderer,
 // the Web palettes and the App API run — display resolution (ByLayer chain),
 // layer filters, the built-in linetype catalog and the reserved style
@@ -406,6 +424,14 @@ const PRO_CSS = `
 .pro-model-card svg:focus-visible { outline:2px solid #2563eb; }
 .pro-mini { position:absolute; display:flex; gap:2px; background:rgba(255,255,255,.96); border:1px solid var(--border); border-radius:6px; padding:2px; box-shadow:0 4px 12px rgba(15,23,42,.15); z-index:20; }
 .pro-mini button { border:0; background:transparent; font-size:11px; padding:3px 8px; border-radius:4px; cursor:pointer; }
+/* CAD-PARITY-009 (Issue #90): the 3D Model view surface — the canonical scene
+   container takes the plan svg's layout slot; the toolbar mirrors the Web 3D
+   viewport's tool row. */
+.pro-model3d-scene { display:none; width:100%; height:auto; aspect-ratio:900/620; background:#fff; overflow:hidden; }
+.pro-model3d-scene svg { display:block; width:100%; height:auto; }
+.pro-model3d-toolbar { display:none; flex-wrap:wrap; align-items:center; gap:3px; margin-top:4px; }
+.pro-model3d-toolbar button { border:1px solid var(--border); border-radius:4px; background:transparent; font-size:11px; padding:2px 7px; cursor:pointer; }
+.pro-model3d-toolbar button:hover { background:#f1f5f9; }
 .pro-mini button:hover { background:#f1f5f9; }
 .pro-palette { position:fixed; inset:0; z-index:100; background:rgba(15,23,42,.32); display:none; align-items:flex-start; justify-content:center; padding-top:11vh; }
 .pro-palette.open { display:flex; }
@@ -590,6 +616,15 @@ export interface ProfessionalDriver {
   setSelection(ids: string[]): Promise<void>;
   refresh(): Promise<void>;
   commandLog(): string[];
+  /** CAD-PARITY-009 (Issue #90): the 3D Model view surface — the view
+   *  switch (the 3D tab's code path), the rendered state readout, the
+   *  canonical scene SVG string (the SHARED writer's exact output — the
+   *  smoke hashes it against the Web parity fixture) and the engine echo
+   *  lines (the same lines the Web host's runCommandScript collects). */
+  setModel3dView(active: boolean): void;
+  model3dInfo(): { active: boolean; info: string; ucsOptions: string[]; solidCount: number; sceneFormat: string | null };
+  model3dSceneSvg(selectedIds: readonly string[], withSectionFacets: boolean): Promise<string | null>;
+  echoLog(): string[];
   /** CAD-PARITY-003: the current view transform (pan/zoom) — the driver the
    *  smoke uses to compute synthetic canvas clicks at world points through
    * the SAME screen mapping the real pointer handler applies. */
@@ -637,6 +672,16 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
   // view state, the Web host's Layout tab mirror).
   let space: "model" | "paper" = "model";
   let selectedViewportId: string | null = null;
+  // CAD-PARITY-009 (Issue #90): the 3D Model view — a host-local VIEW mode
+  // beside the Model/paper canvases (LOCK-015; the Web host's "3D" view tab
+  // mirror). While active, the model card paints the canonical 3D scene
+  // through the SHARED model3d core and the 3D toolbar (standard views, Fit,
+  // the UCS dropdown, quick shapes) is visible.
+  let model3dView = false;
+  let model3dLiveCamera: Camera3DState | null = null;
+  let model3dSceneString: string | null = null;
+  let model3dDrag: { kind: "orbit" | "pan"; x: number; y: number } | null = null;
+  let model3dWheelTimer: ReturnType<typeof setTimeout> | null = null;
   let layerFilterText = "";
   let layerFilterMode: LayerFilterMode = "all";
   let layerStatesOpen = false;
@@ -652,6 +697,11 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
   // --- transport helpers -----------------------------------------------------
 
   const commandLog: string[] = [];
+  // CAD-PARITY-009: the ENGINE echo lines (the prompt engine's own output —
+  // exactly what the Web host's runCommandScript collects; host-side lines
+  // like *ERROR* echoes are NOT part of it). The smoke digests this for the
+  // Web/Electron semantic-parity evidence.
+  const echoLog: string[] = [];
   const command = (name: string, payload: unknown): Promise<CommandQueryResponse> => {
     commandLog.push(name);
     return opts.send({ type: "command", name: name as Command["name"], payload });
@@ -730,6 +780,16 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
       viewports: state.snapshot?.viewports ?? [],
       activeLayoutId: state.snapshot?.draftingSettings?.activeLayout ?? state.snapshot?.layouts?.[0]?.id ?? null,
       space: state.snapshot?.draftingSettings?.space ?? "model",
+      // CAD-PARITY-009 (Issue #90): the named-UCS table + the active workplane
+      // + the persisted 3D camera + the solid count (the SAME snapshot
+      // fields the Web host passes — the UCS/model3d builders resolve
+      // through them; LOCK-004 parity).
+      ucs: state.snapshot?.ucs ?? [],
+      activeUcsId: state.snapshot?.draftingSettings?.activeUcs ?? "world",
+      view3d: state.snapshot?.draftingSettings?.view3d ?? null,
+      model3dSolidCount: (state.snapshot?.elements ?? []).filter(
+        (el) => (el.props as Record<string, unknown> | null)?.type === "model3d.solid",
+      ).length,
     });
   }
 
@@ -809,6 +869,12 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
         case "space.paper":
           space = "paper";
           renderLayoutTabs();
+          break;
+        // CAD-PARITY-009 (Issue #90): the 3D Model view switch (host-local
+        // view state, LOCK-015 — the Web host's 3D view mirror; the
+        // UCS/VPOINT/ZOOM3D/3DSTATE commands hint it).
+        case "view.model3d":
+          setModel3dView(true);
           break;
         case "plot.preview":
           openPlotPreview();
@@ -910,6 +976,9 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
   async function dispatchEngine(event: Parameters<typeof applyPromptEvent>[1]): Promise<void> {
     const result = applyPromptEvent(state.engine, event, engineContext());
     state.engine = result.state;
+    // CAD-PARITY-009: accumulate the ENGINE echo lines (the parity record —
+    // identical to the Web host's runCommandScript lines for the same events).
+    for (const line of result.output.lines) echoLog.push(line);
     if (result.output.lines.length > 0) pushLines(result.output.lines);
     renderCommandLine();
     renderModel();
@@ -1171,6 +1240,14 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
       label: "Layout",
       ids: ["layout", "layoutnew", "layoutrename", "layoutclone", "layoutdelete", "tilemode", "mspace", "pspace", "mview", "vports", "pagesetup", "preview", "plot", "publish"],
     },
+    // CAD-PARITY-009 (Issue #90): the 3D modeling group — the SAME command
+    // set the Web 3D Model ribbon tab carries (the UCS/workplane lifecycle,
+    // the standard views/fit, the solid primitives + transforms, the
+    // section planes, the 3D state echo).
+    {
+      label: "3D Model",
+      ids: ["ucs", "ucsnew", "ucsrename", "ucsdelete", "ucsw", "ucsact", "vpoint", "zoom3d", "box3d", "cylinder3d", "extrude3d", "move3d", "rotate3d", "scale3d", "sectionplane", "sectionplaneedit", "sectionplanedelete", "state3d"],
+    },
     { label: "BIM", ids: ["story", "wall", "slab", "door", "window"] },
     {
       label: "Modify",
@@ -1270,12 +1347,27 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
   modelTabBtn.addEventListener("click", () => {
     void (async () => {
       space = "model";
+      setModel3dView(false);
       await command("layout.setSpace", { space: "model" });
       renderLayoutTabs();
       await refresh();
     })();
   });
   layoutTabsRow.append(modelTabBtn);
+  // CAD-PARITY-009 (Issue #90): the 3D Model tab — a host-local VIEW mode
+  // (no App API command; the Web host's "3D" view-tab mirror). Clicking it
+  // paints the canonical 3D scene through the SHARED model3d core.
+  const model3dTabBtn = h("button", "pro-layout-tab");
+  model3dTabBtn.type = "button";
+  model3dTabBtn.textContent = "3D";
+  model3dTabBtn.setAttribute("role", "tab");
+  model3dTabBtn.setAttribute("data-testid", "pro-tab-3d");
+  model3dTabBtn.title = "3D Model — the canonical 3D scene: UCS/workplane, solids, standard views, gestures";
+  model3dTabBtn.addEventListener("click", () => {
+    setModel3dView(true);
+    renderLayoutTabs();
+  });
+  layoutTabsRow.append(model3dTabBtn);
   const layoutTabsDyn = h("span", "pro-layout-tabs-dyn");
   layoutTabsRow.append(layoutTabsDyn);
   opts.root.insertBefore(layoutTabsRow, ribbon.nextSibling);
@@ -1284,8 +1376,10 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
    *  refresh + the space switches). */
   function renderLayoutTabs(): void {
     while (layoutTabsDyn.firstChild) layoutTabsDyn.removeChild(layoutTabsDyn.firstChild);
-    modelTabBtn.classList.toggle("active", space === "model");
-    modelTabBtn.setAttribute("aria-selected", String(space === "model"));
+    modelTabBtn.classList.toggle("active", space === "model" && !model3dView);
+    modelTabBtn.setAttribute("aria-selected", String(space === "model" && !model3dView));
+    model3dTabBtn.classList.toggle("active", model3dView);
+    model3dTabBtn.setAttribute("aria-selected", String(model3dView));
     const layouts = state.snapshot?.layouts ?? [];
     const activeId = state.snapshot?.draftingSettings?.activeLayout ?? layouts[0]?.id ?? null;
     for (const layout of layouts) {
@@ -1294,7 +1388,7 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
       btn.textContent = layout.name;
       btn.setAttribute("role", "tab");
       btn.setAttribute("data-testid", `pro-tab-layout-${layout.id}`);
-      const isActive = space === "paper" && layout.id === activeId;
+      const isActive = space === "paper" && layout.id === activeId && !model3dView;
       btn.classList.toggle("active", isActive);
       btn.setAttribute("aria-selected", String(isActive));
       btn.title = `Activate the '${layout.name}' layout (${layout.pageSetup.paperSize} ${layout.pageSetup.orientation})`;
@@ -1354,6 +1448,281 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
   modelBody.append(viewport);
   modelCard.append(modelBody);
   opts.main.insertBefore(modelCard, opts.main.firstChild);
+
+  // --- CAD-PARITY-009 (Issue #90): the 3D Model view surface -----------------
+  //
+  // The canonical 3D scene rendered through the SHARED buildScene3DSVG
+  // writer (the SAME byte-identical SVG the Web 3D viewport produces from the
+  // same inputs), the standard-view/Fit buttons (view3d.standard/view3d.fit),
+  // the UCS dropdown (ucs.activate) and the quick BOX/CYLINDER shapes
+  // (model3d.box/model3d.cylinder through the ACTIVE UCS). Gestures run
+  // through the SHARED camera module (orbitCamera/panCamera/zoomCamera) and
+  // persist through view3d.set — no host-local navigation math (LOCK-004).
+
+  const model3dScene = h("div", "pro-model3d-scene");
+  model3dScene.setAttribute("data-testid", "pro-model3d-scene");
+  model3dScene.setAttribute("data-format", "offisos-scene3d-svg");
+  model3dScene.setAttribute("role", "application");
+  model3dScene.setAttribute(
+    "aria-label",
+    "Offisos 3D Model viewport — orbit with drag, pan with shift-drag or middle-drag, zoom with the wheel",
+  );
+  model3dScene.style.display = "none";
+  model3dScene.style.touchAction = "none";
+  model3dScene.style.cursor = "crosshair";
+  viewport.append(model3dScene);
+
+  const model3dToolbar = h("div", "pro-model3d-toolbar");
+  model3dToolbar.setAttribute("role", "toolbar");
+  model3dToolbar.setAttribute("aria-label", "3D view tools");
+  model3dToolbar.style.display = "none";
+  const model3dInfo = h("span", "pro-model3d-info");
+  model3dInfo.setAttribute("data-testid", "pro-model3d-info");
+  model3dInfo.style.cssText = "font-size:10px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;";
+  const MODEL3D_VIEWS: readonly { id: StandardViewName; label: string }[] = [
+    { id: "top", label: "Top" },
+    { id: "bottom", label: "Bottom" },
+    { id: "front", label: "Front" },
+    { id: "back", label: "Back" },
+    { id: "left", label: "Left" },
+    { id: "right", label: "Right" },
+    { id: "iso", label: "Iso" },
+  ];
+  const MODEL3D_ASPECT = 800 / 600;
+  const runModel3dCommand = (name: string, payload: unknown): void => {
+    void (async () => {
+      const res = await command(name, payload);
+      if (!res.ok) pushLines([`*ERROR* ${name}: ${res.code} — ${res.message}`]);
+      await refresh();
+    })();
+  };
+  for (const view of MODEL3D_VIEWS) {
+    const b = h("button");
+    b.type = "button";
+    b.textContent = view.label;
+    b.title = `view3d.standard — the ${view.label} standard view of the model extents (VPOINT ${view.label})`;
+    b.setAttribute("data-testid", `pro-model3d-view-${view.id}`);
+    b.addEventListener("click", () => runModel3dCommand("view3d.standard", { view: view.id, aspect: MODEL3D_ASPECT }));
+    model3dToolbar.append(b);
+  }
+  const model3dFitBtn = h("button");
+  model3dFitBtn.type = "button";
+  model3dFitBtn.textContent = "Fit";
+  model3dFitBtn.title = "view3d.fit — all eight corners of the extents inside the view (ZOOM3D Fit)";
+  model3dFitBtn.setAttribute("data-testid", "pro-model3d-fit");
+  model3dFitBtn.addEventListener("click", () => runModel3dCommand("view3d.fit", { aspect: MODEL3D_ASPECT }));
+  model3dToolbar.append(model3dFitBtn);
+  const model3dUcsLabel = h("span");
+  model3dUcsLabel.textContent = "UCS";
+  model3dUcsLabel.style.cssText = "font-size:10px;color:var(--muted);margin:0 2px 0 6px;";
+  model3dToolbar.append(model3dUcsLabel);
+  const model3dUcsSelect = document.createElement("select");
+  model3dUcsSelect.setAttribute("data-testid", "pro-model3d-ucs");
+  model3dUcsSelect.title = "ucs.activate — the active workplane (triad + grid + typed 'x,y,z' resolution)";
+  model3dUcsSelect.style.cssText = "font-size:11px;border:1px solid var(--border);border-radius:4px;background:transparent;padding:2px;";
+  model3dUcsSelect.addEventListener("change", () => {
+    const name = model3dUcsSelect.value;
+    if (name === "World") runModel3dCommand("ucs.activate", { id: "world" });
+    else runModel3dCommand("ucs.activate", { name });
+  });
+  model3dToolbar.append(model3dUcsSelect);
+  const model3dBoxBtn = h("button");
+  model3dBoxBtn.type = "button";
+  model3dBoxBtn.textContent = "Box";
+  model3dBoxBtn.title = "model3d.box — quick 2×3×4 box through the ACTIVE UCS (at 0,0,0)";
+  model3dBoxBtn.setAttribute("data-testid", "pro-model3d-box");
+  model3dBoxBtn.addEventListener("click", () => {
+    runModel3dCommand("model3d.box", { width: 2, depth: 3, height: 4, at: [0, 0, 0], ucsId: activeModel3dUcs().id });
+  });
+  model3dToolbar.append(model3dBoxBtn);
+  const model3dCylinderBtn = h("button");
+  model3dCylinderBtn.type = "button";
+  model3dCylinderBtn.textContent = "Cylinder";
+  model3dCylinderBtn.title = "model3d.cylinder — quick r2 h5 cylinder through the ACTIVE UCS (at 0,0,0)";
+  model3dCylinderBtn.setAttribute("data-testid", "pro-model3d-cylinder");
+  model3dCylinderBtn.addEventListener("click", () => {
+    runModel3dCommand("model3d.cylinder", { radius: 2, height: 5, at: [0, 0, 0], ucsId: activeModel3dUcs().id });
+  });
+  model3dToolbar.append(model3dCylinderBtn);
+  model3dToolbar.append(model3dInfo);
+  modelHead.append(model3dToolbar);
+
+  /** The ACTIVE UCS record (the implicit World when unset/unknown — the same
+   *  resolution the registry + the App API run). */
+  function activeModel3dUcs(): UcsRecord {
+    const snap = state.snapshot;
+    const id = snap?.draftingSettings?.activeUcs;
+    if (snap !== null && id !== undefined && id !== "world") {
+      const found = (snap.ucs ?? []).find((u) => u.id === id);
+      if (found !== undefined) return found;
+    }
+    return WORLD_UCS;
+  }
+
+  /** The scene surface of the snapshot elements (id + extent + engine token). */
+  function model3dSceneElements(): Scene3DElement[] {
+    const snap = state.snapshot;
+    if (snap === null) return [];
+    return snap.elements.map((el) => {
+      const props = el.props as { meshToken?: unknown; meshBBox?: unknown };
+      const b = props.meshBBox;
+      const bbox =
+        Array.isArray(b) && b.length === 6 && b.every((n) => typeof n === "number" && Number.isFinite(n))
+          ? { minX: b[0] as number, minY: b[1] as number, minZ: b[2] as number, maxX: b[3] as number, maxY: b[4] as number, maxZ: b[5] as number }
+          : null;
+      const out: { id: string; bbox: BBox3D | null; meshToken?: string } = { id: el.id, bbox };
+      if (typeof props.meshToken === "string") out.meshToken = props.meshToken;
+      return out;
+    });
+  }
+
+  /** The bounded workplane grid (the SAME adaptive derivation the Web 3D
+   *  viewport runs: step doubling to ≤ 20 cells per axis, major every 5,
+   *  hard cap 400 segments). */
+  function model3dGridSegments(): ReturnType<typeof ucsGridSegments>["segments"] {
+    const elements = model3dSceneElements();
+    const boxes = elements.map((el) => el.bbox).filter((b): b is BBox3D => b !== null);
+    if (boxes.length === 0) boxes.push({ minX: -1, minY: -1, minZ: -1, maxX: 1, maxY: 1, maxZ: 1 });
+    let box = boxes[0]!;
+    for (const b of boxes.slice(1)) {
+      box = {
+        minX: Math.min(box.minX, b.minX), minY: Math.min(box.minY, b.minY), minZ: Math.min(box.minZ, b.minZ),
+        maxX: Math.max(box.maxX, b.maxX), maxY: Math.max(box.maxY, b.maxY), maxZ: Math.max(box.maxZ, b.maxZ),
+      };
+    }
+    const maxDim = Math.max(box.maxX - box.minX, box.maxY - box.minY, box.maxZ - box.minZ);
+    let step = 1;
+    while (maxDim / step > 20) step *= 2;
+    return ucsGridSegments(activeModel3dUcs(), box, step, 5, 400).segments;
+  }
+
+  /** The 3D camera (the live gesture camera while dragging, else the
+   *  persisted view3d state — the deterministic default when unset). */
+  function currentModel3dCamera(): Camera3DState {
+    if (model3dLiveCamera !== null) return model3dLiveCamera;
+    return state.snapshot?.draftingSettings?.view3d ?? defaultCamera3D();
+  }
+
+  /** Persist a camera through view3d.set (the ONLY view mutation path). */
+  function persistModel3dCamera(next: Camera3DState): void {
+    runModel3dCommand("view3d.set", {
+      eye: [...next.eye],
+      target: [...next.target],
+      up: [...next.up],
+      mode: next.mode,
+      orthoHalfHeight: next.orthoHalfHeight,
+      fovDeg: next.fovDeg,
+    });
+  }
+
+  /** Paint the canonical 3D scene (renderModel's 3D branch). */
+  function renderModel3D(): void {
+    modelTitle.textContent = "3D Model — UCS/workplane & solids";
+    const camera = currentModel3dCamera();
+    const ucs = activeModel3dUcs();
+    model3dSceneString = buildScene3DSVG({
+      viewport: { width: 800, height: 600 },
+      camera,
+      elements: model3dSceneElements(),
+      ucs,
+      grid: model3dGridSegments(),
+      selectedIds: [...state.selection],
+    });
+    model3dScene.innerHTML = model3dSceneString;
+    // The UCS dropdown options (World + the named table), the active one selected.
+    const activeName = ucs.name;
+    const options = ["World", ...(state.snapshot?.ucs ?? []).map((u) => u.name)];
+    while (model3dUcsSelect.firstChild) model3dUcsSelect.removeChild(model3dUcsSelect.firstChild);
+    for (const name of options) {
+      const opt = document.createElement("option");
+      opt.value = name;
+      opt.textContent = name;
+      if (name === activeName) opt.selected = true;
+      model3dUcsSelect.append(opt);
+    }
+    const solidCount = (state.snapshot?.elements ?? []).filter(
+      (el) => (el.props as Record<string, unknown> | null)?.type === "model3d.solid",
+    ).length;
+    model3dInfo.textContent =
+      state.snapshot === null
+        ? "3D state: no document."
+        : `3D state: ${formatCamera(camera)} · UCS ${ucs.name} (${ucs.id}) · ${solidCount} solid${solidCount === 1 ? "" : "s"}`;
+  }
+
+  /** Switch the model card between the 2D plan/paper canvas and the 3D scene
+   *  (host-local view state, LOCK-015 — the tab + the view.model3d ui action). */
+  function setModel3dView(active: boolean): void {
+    model3dView = active;
+    if (!active) model3dDrag = null;
+    svg.style.display = active ? "none" : "";
+    annoCanvas.style.display = active ? "none" : "";
+    model3dScene.style.display = active ? "block" : "none";
+    model3dToolbar.style.display = active ? "flex" : "none";
+    renderModel();
+  }
+
+  // The 3D gestures on the scene surface (the SHARED camera module only).
+  model3dScene.addEventListener("mousedown", (e) => {
+    if (state.snapshot === null) return;
+    const pan = e.button === 1 || (e.button === 0 && e.shiftKey);
+    const orbit = e.button === 0 && !e.shiftKey;
+    if (!pan && !orbit) return;
+    e.preventDefault();
+    model3dDrag = { kind: pan ? "pan" : "orbit", x: e.clientX, y: e.clientY };
+    model3dScene.style.cursor = pan ? "move" : "grabbing";
+  });
+  model3dScene.addEventListener("mousemove", (e) => {
+    if (model3dDrag === null) return;
+    const dx = e.clientX - model3dDrag.x;
+    const dy = e.clientY - model3dDrag.y;
+    model3dDrag = { ...model3dDrag, x: e.clientX, y: e.clientY };
+    const camera = currentModel3dCamera();
+    let next: Camera3DState | null = null;
+    if (model3dDrag.kind === "orbit") {
+      next = orbitCamera(camera, dx * 0.5, dy * 0.5);
+    } else {
+      const wpp =
+        camera.mode === "orthographic"
+          ? (camera.orthoHalfHeight * 2) / 600
+          : (2 * Math.tan((camera.fovDeg * Math.PI) / 360) *
+              Math.hypot(camera.eye[0] - camera.target[0], camera.eye[1] - camera.target[1], camera.eye[2] - camera.target[2])) / 600;
+      next = panCamera(camera, -dx, dy, wpp);
+    }
+    if (next !== null) {
+      model3dLiveCamera = next;
+      renderModel3D();
+    }
+  });
+  const endModel3dDrag = (): void => {
+    if (model3dDrag === null) return;
+    model3dDrag = null;
+    model3dScene.style.cursor = "crosshair";
+    const camera = model3dLiveCamera;
+    model3dLiveCamera = null;
+    if (camera !== null) persistModel3dCamera(camera);
+    else renderModel();
+  };
+  model3dScene.addEventListener("mouseup", endModel3dDrag);
+  model3dScene.addEventListener("mouseleave", endModel3dDrag);
+  model3dScene.addEventListener("wheel", (e) => {
+    if (state.snapshot === null) return;
+    e.preventDefault();
+    const factor = e.deltaY < 0 ? 1.1 : 1 / 1.1;
+    const next = zoomCamera(currentModel3dCamera(), factor);
+    if (next === null) return;
+    model3dLiveCamera = next;
+    renderModel3D();
+    if (model3dWheelTimer !== null) clearTimeout(model3dWheelTimer);
+    model3dWheelTimer = setTimeout(() => {
+      model3dWheelTimer = null;
+      const cam = model3dLiveCamera;
+      if (cam !== null) {
+        model3dLiveCamera = null;
+        persistModel3dCamera(cam);
+      }
+    }, 180);
+  }, { passive: false });
+
 
   const miniToolbar = h("div", "pro-mini");
   miniToolbar.style.display = "none";
@@ -3012,6 +3381,14 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
     if (annoCtx !== null) {
       annoCtx.setTransform(1, 0, 0, 1, 0, 0);
       annoCtx.clearRect(0, 0, SVG_W, SVG_H);
+    }
+
+    // CAD-PARITY-009 (Issue #90): the 3D Model view — the canonical 3D scene
+    // through the SHARED writer (the 2D plan/paper canvas stays empty while
+    // the scene surface owns the viewport).
+    if (model3dView) {
+      renderModel3D();
+      return;
     }
 
     // CAD-PARITY-008 (Issue #88): PAPER SPACE — the active layout's sheet
@@ -6137,6 +6514,52 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
     },
     commandLog(): string[] {
       return [...commandLog];
+    },
+    // CAD-PARITY-009 (Issue #90): the 3D Model driver surface — the SAME code
+    // paths the 3D tab/toolbar/scene run; the smoke asserts the rendered
+    // scene + hashes the canonical SVG against the Web parity fixture.
+    setModel3dView(active: boolean): void {
+      setModel3dView(active);
+      renderLayoutTabs();
+    },
+    model3dInfo(): { active: boolean; info: string; ucsOptions: string[]; solidCount: number; sceneFormat: string | null } {
+      return {
+        active: model3dView,
+        info: model3dInfo.textContent ?? "",
+        ucsOptions: [...model3dUcsSelect.options].map((o) => o.value),
+        solidCount: (state.snapshot?.elements ?? []).filter(
+          (el) => (el.props as Record<string, unknown> | null)?.type === "model3d.solid",
+        ).length,
+        sceneFormat: model3dSceneString !== null && model3dSceneString.startsWith("<svg") ? "offisos-scene3d-svg" : null,
+      };
+    },
+    async model3dSceneSvg(selectedIds: readonly string[], withSectionFacets: boolean): Promise<string | null> {
+      const snap = state.snapshot;
+      if (snap === null) return null;
+      // The CAD-PARITY-009 parity-anchor construction: the canonical scene
+      // over the persisted camera + elements + the ACTIVE UCS + (optionally)
+      // the section-preview facets + the caller's selection — the SAME input
+      // shape the Web smoke builds through the shared barrel (the exportPlot
+      // driver precedent: queries + shared writers, nothing client-only).
+      let sectionFacets: unknown;
+      if (withSectionFacets) {
+        const res = await query("model3d.sectionPreview", {});
+        if (res.ok) {
+          const preview = (res.value as { preview?: { facets?: unknown } | null }).preview;
+          if (preview !== undefined && preview !== null) sectionFacets = preview.facets;
+        }
+      }
+      return buildScene3DSVG({
+        viewport: { width: 800, height: 600 },
+        camera: snap.draftingSettings?.view3d ?? defaultCamera3D(),
+        elements: model3dSceneElements(),
+        ucs: activeModel3dUcs(),
+        ...(sectionFacets !== undefined ? { sectionFacets: sectionFacets as never } : {}),
+        selectedIds: [...selectedIds],
+      });
+    },
+    echoLog(): string[] {
+      return [...echoLog];
     },
     // CAD-PARITY-008 (Issue #88): the paper-space driver surface — the smoke
     // asserts the tab switching, the painted paper sheet, the preview

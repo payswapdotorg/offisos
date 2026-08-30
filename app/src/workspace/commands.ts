@@ -28,6 +28,7 @@ import { COMMANDS_ANNO } from "./commands-anno.js";
 import { COMMANDS_BLOCK } from "./commands-blocks.js";
 import { COMMANDS_PARAMETRICS } from "./commands-parametrics.js";
 import { COMMANDS_LAYOUTS } from "./commands-layouts.js";
+import { COMMANDS_MODEL3D } from "./commands-model3d.js";
 import type {
   AppApiCommandPlanEntry,
   CommandCategory,
@@ -975,6 +976,9 @@ export const WORKSPACE_COMMANDS: readonly WorkspaceCommand[] = [
   ...COMMANDS_PARAMETRICS,
   // --- CAD-PARITY-008 (Issue #88): layouts, viewports, page setup, plot ---
   ...COMMANDS_LAYOUTS,
+  // --- CAD-PARITY-009 (Issue #90): 3D navigation, UCS/workplanes, the
+  // bounded modeling vocabulary + section planes ---
+  ...COMMANDS_MODEL3D,
 ];
 
 function normalize(a: number): number {

@@ -144,6 +144,39 @@ import {
 } from "../workspace/layouts/index.js";
 import type { LayoutRecord, PageSetup, ViewportRecord } from "../contracts/caddocument.js";
 import type { PlotIRInput } from "../workspace/layouts/index.js";
+// CAD-PARITY-009 (additive): the shared 3D navigation/UCS/workplane/
+// bounded-modeling core (engine-free — the deterministic camera, the
+// projection/picking math, the UCS transforms, the section-preview
+// foundation, the canonical scene SVG writer, the solid descriptor
+// builders). The SAME modules both hosts' 3D viewports consume (LOCK-004;
+// no host-local navigation math anywhere).
+import {
+  SUBENTITY_DECLINE_REASON,
+  SECTION_EXACT_DECLINE_REASON,
+  buildSectionPreview,
+  defaultCamera,
+  fitCameraToBBox,
+  formatCamera,
+  isFiniteVec3,
+  normalizeCamera,
+  normalizeSectionNormal,
+  pickElements,
+  placeBox,
+  placeCylinder,
+  placeExtrude,
+  moveDescriptor,
+  rotateDescriptor,
+  scaleDescriptor,
+  screenRay,
+  standardCameraFor,
+  validateCamera,
+  type BBox3D,
+  type StandardViewName,
+} from "../workspace/model3d/index.js";
+import { ucsDirectionToWorld, WORLD_UCS } from "../workspace/model3d/index.js";
+import type { Camera3DState, SectionPlaneRecord, UcsRecord } from "../contracts/caddocument.js";
+import type { GeometryDescriptor, Vec3 } from "../contracts/geometry.js";
+// (isMeshProvider is already imported from ../contracts/geometry.js above.)
 // COMPAT-CAD-002: the pure BIM authoring core (LOCK-018 scanned).
 import {
   buildBimCreate,
@@ -384,6 +417,40 @@ export class AppApiHandler {
         return this.cmdPlotExport(command.payload);
       case "plot.publish":
         return this.cmdPlotPublish(command.payload);
+      // --- CAD-PARITY-009 (additive): 3D navigation, UCS/workplanes and
+      // bounded 3D modeling ---
+      case "ucs.define":
+        return this.cmdUcsDefine(command.payload);
+      case "ucs.update":
+        return this.cmdUcsUpdate(command.payload);
+      case "ucs.remove":
+        return this.cmdUcsRemove(command.payload);
+      case "ucs.activate":
+        return this.cmdUcsActivate(command.payload);
+      case "view3d.set":
+        return this.cmdView3dSet(command.payload);
+      case "view3d.fit":
+        return this.cmdView3dFit(command.payload);
+      case "view3d.standard":
+        return this.cmdView3dStandard(command.payload);
+      case "model3d.box":
+        return await this.cmdModel3dBox(command.payload);
+      case "model3d.cylinder":
+        return await this.cmdModel3dCylinder(command.payload);
+      case "model3d.extrude":
+        return await this.cmdModel3dExtrude(command.payload);
+      case "model3d.move":
+        return await this.cmdModel3dTransform(command.payload, "move");
+      case "model3d.rotate":
+        return await this.cmdModel3dTransform(command.payload, "rotate");
+      case "model3d.scale":
+        return await this.cmdModel3dTransform(command.payload, "scale");
+      case "sectionplane.create":
+        return this.cmdSectionPlaneCreate(command.payload);
+      case "sectionplane.update":
+        return this.cmdSectionPlaneUpdate(command.payload);
+      case "sectionplane.remove":
+        return this.cmdSectionPlaneRemove(command.payload);
       // --- COMPAT-CAD-002 (additive): 3D/BIM authoring commands ---
       case "bim.createElements":
         return this.cmdBimCreate(command.payload);
@@ -745,6 +812,18 @@ export class AppApiHandler {
         return this.qLayoutsList();
       case "plot.preview":
         return this.qPlotPreview(query.payload);
+      // --- CAD-PARITY-009 (additive): the 3D navigation/UCS/modeling
+      // queries (non-mutating, computed fresh every call) ---
+      case "ucs.list":
+        return this.qUcsList();
+      case "view3d.state":
+        return this.qView3dState();
+      case "model3d.pick":
+        return this.qModel3dPick(query.payload);
+      case "model3d.sectionPreview":
+        return this.qModel3dSectionPreview(query.payload);
+      case "model3d.mesh":
+        return await this.qModel3dMesh(query.payload);
       default: {
         const _exhaustive: never = query.name;
         return err("unknown_query", `unknown query: ${JSON.stringify(_exhaustive)}`);
@@ -2824,6 +2903,795 @@ export class AppApiHandler {
     } catch (e) {
       return err("plot_invalid", (e as Error).message, false);
     }
+  }
+
+  // --- CAD-PARITY-009: 3D navigation, UCS/workplanes, bounded modeling -----
+
+  private static readonly MODEL3D_NOW = "2026-01-01T00:00:00.000Z";
+
+  /** Resolve a UCS reference payload: id "world" (or the name "World")
+   *  resolves the IMPLICIT World UCS; an id/name resolves the table;
+   *  absent → the ACTIVE UCS (non-versioned editor state). */
+  private resolveUcsRef(p: { id?: unknown; name?: unknown }): UcsRecord | ErrResult {
+    if (typeof p.id === "string" && p.id.length > 0) {
+      if (p.id === "world") return WORLD_UCS;
+      const ucs = this.doc.ucsById(p.id);
+      if (ucs === undefined) return err("bad_id", `UCS '${p.id}' does not exist`, false);
+      return ucs;
+    }
+    if (typeof p.name === "string" && p.name.length > 0) {
+      if (p.name.trim().toLowerCase() === "world") return WORLD_UCS;
+      const ucs = this.doc.ucsByName(p.name);
+      if (ucs === undefined) return err("bad_id", `UCS '${p.name}' does not exist`, false);
+      return ucs;
+    }
+    return this.activeUcs();
+  }
+
+  /** The ACTIVE UCS (non-versioned editor state — World when unset or,
+   *  after the documented open-time defensive repair, dangling). */
+  private activeUcs(): UcsRecord {
+    const id = this.doc.draftingSettings.activeUcs;
+    if (id === undefined || id === "world") return WORLD_UCS;
+    return this.doc.ucsById(id) ?? WORLD_UCS;
+  }
+
+  /** The persisted 3D camera (or the deterministic default — the shared
+   *  camera module's isometric view of the unit box). */
+  private view3dCamera(): Camera3DState {
+    return this.doc.draftingSettings.view3d ?? defaultCamera();
+  }
+
+  /** The deterministic model extents: the union hull of every element's
+   *  persisted engine-produced extent (props.meshBBox — BIM solids AND
+   *  model3d solids; elements without realized geometry contribute
+   *  nothing). Empty when no element has realized geometry. */
+  private model3dExtents(): BBox3D {
+    let box: BBox3D | null = null;
+    for (const el of this.doc.allElements()) {
+      const b = el.props.meshBBox;
+      if (
+        !Array.isArray(b) || b.length !== 6 ||
+        !b.every((n) => typeof n === "number" && Number.isFinite(n))
+      ) {
+        continue;
+      }
+      const candidate: BBox3D = {
+        minX: b[0] as number, minY: b[1] as number, minZ: b[2] as number,
+        maxX: b[3] as number, maxY: b[4] as number, maxZ: b[5] as number,
+      };
+      box = box === null ? candidate : {
+        minX: Math.min(box.minX, candidate.minX),
+        minY: Math.min(box.minY, candidate.minY),
+        minZ: Math.min(box.minZ, candidate.minZ),
+        maxX: Math.max(box.maxX, candidate.maxX),
+        maxY: Math.max(box.maxY, candidate.maxY),
+        maxZ: Math.max(box.maxZ, candidate.maxZ),
+      };
+    }
+    return box ?? { minX: 0, minY: 0, minZ: 0, maxX: 0, maxY: 0, maxZ: 0 };
+  }
+
+  /** The pickable-element surface: every element with a persisted extent. */
+  private model3dPickables(): { id: string; bbox: BBox3D }[] {
+    const out: { id: string; bbox: BBox3D }[] = [];
+    for (const el of this.doc.allElements()) {
+      const b = el.props.meshBBox;
+      if (
+        !Array.isArray(b) || b.length !== 6 ||
+        !b.every((n) => typeof n === "number" && Number.isFinite(n))
+      ) {
+        continue;
+      }
+      out.push({
+        id: el.id,
+        bbox: {
+          minX: b[0] as number, minY: b[1] as number, minZ: b[2] as number,
+          maxX: b[3] as number, maxY: b[4] as number, maxZ: b[5] as number,
+        },
+      });
+    }
+    return out;
+  }
+
+  /** ucs.define — create a named UCS/workplane (one atomic revision; the
+   *  document mints the `ucs-NNNNNN` id; the axis triple is validated as a
+   *  whole through the SHARED grammar — degenerate/non-orthonormal triples
+   *  are typed declines, never silently normalized). zAxis may be omitted —
+   *  the exact right-handed derivation x×y is applied EXPLICITLY. */
+  private cmdUcsDefine(payload: unknown): CommandQueryResponse {
+    const p = payload as { name?: unknown; origin?: unknown; xAxis?: unknown; yAxis?: unknown; zAxis?: unknown } | null;
+    if (p === null || typeof p !== "object") {
+      return err("bad_payload", "ucs.define requires a payload object", true);
+    }
+    if (typeof p.name !== "string" || p.name.trim().length === 0 || p.name.length > 255) {
+      return err("bad_payload", "ucs.define requires a name (non-empty string, max 255 chars)", true);
+    }
+    const name = p.name.trim();
+    if (name.toLowerCase() === "world") {
+      return err("ucs_invalid", "the name 'World' is reserved for the implicit World UCS", false);
+    }
+    if (this.doc.ucsByName(name) !== undefined) {
+      return err("ucs_invalid", `UCS name '${name}' already exists — UCS names are unique`, false);
+    }
+    if (!isFiniteVec3(p.origin) || !isFiniteVec3(p.xAxis) || !isFiniteVec3(p.yAxis)) {
+      return err("bad_payload", "ucs.define requires origin/xAxis/yAxis as finite 3-vectors", true);
+    }
+    const x = p.xAxis as Vec3;
+    const y = p.yAxis as Vec3;
+    let z: Vec3;
+    if (p.zAxis !== undefined) {
+      if (!isFiniteVec3(p.zAxis)) {
+        return err("bad_payload", "ucs.define zAxis must be a finite 3-vector when present", true);
+      }
+      z = p.zAxis as Vec3;
+    } else {
+      // The exact right-handed completion (x × y) — explicit derivation,
+      // never a silent normalization of the given axes.
+      z = [
+        x[1]! * y[2]! - x[2]! * y[1]!,
+        x[2]! * y[0]! - x[0]! * y[2]!,
+        x[0]! * y[1]! - x[1]! * y[0]!,
+      ];
+    }
+    try {
+      const ucs: UcsRecord = {
+        id: this.doc.mintUcsId(),
+        name,
+        origin: [...(p.origin as Vec3)],
+        xAxis: [...x],
+        yAxis: [...y],
+        zAxis: [...z],
+        createdAt: AppApiHandler.MODEL3D_NOW,
+      };
+      this.doc.execute({ type: "addUcs", ucs });
+      return ok({ ucsId: ucs.id, name, snapshot: this.doc.snapshot() });
+    } catch (e) {
+      return err("ucs_invalid", (e as Error).message, false);
+    }
+  }
+
+  /** ucs.update — patch name/origin/axes (id/name ref; the merged record
+   *  re-validates as a whole through the shared grammar). */
+  private cmdUcsUpdate(payload: unknown): CommandQueryResponse {
+    const p = payload as { id?: unknown; name?: unknown; patch?: unknown } | null;
+    if (p === null || typeof p !== "object" || typeof p.patch !== "object" || p.patch === null) {
+      return err("bad_payload", "ucs.update requires a payload object with a patch", true);
+    }
+    if (typeof p.id === "string" && p.id.length > 0) {
+      if (this.doc.ucsById(p.id) === undefined) return err("bad_id", `UCS '${p.id}' does not exist`, false);
+    } else if (typeof p.name === "string" && p.name.length > 0) {
+      const ucs = this.doc.ucsByName(p.name);
+      if (ucs === undefined) return err("bad_id", `UCS '${p.name}' does not exist`, false);
+      p.id = ucs.id;
+    } else {
+      return err("bad_payload", "ucs.update requires an id or name", true);
+    }
+    try {
+      this.doc.execute({ type: "updateUcs", ucsId: p.id as string, patch: p.patch as Readonly<Record<string, unknown>> });
+      return ok({ ucsId: p.id as string, snapshot: this.doc.snapshot() });
+    } catch (e) {
+      return err("ucs_invalid", (e as Error).message, false);
+    }
+  }
+
+  /** ucs.remove — remove a named UCS. Removing the ACTIVE UCS is a typed
+   *  ucs_active decline (activate World first); the implicit World UCS is
+   *  never removable. */
+  private cmdUcsRemove(payload: unknown): CommandQueryResponse {
+    const p = payload as { id?: unknown; name?: unknown } | null;
+    if (p === null || typeof p !== "object") {
+      return err("bad_payload", "ucs.remove requires an id or name", true);
+    }
+    let ucs: UcsRecord | undefined;
+    if (typeof p.id === "string" && p.id.length > 0) {
+      ucs = this.doc.ucsById(p.id);
+      if (ucs === undefined) return err("bad_id", `UCS '${p.id}' does not exist`, false);
+    } else if (typeof p.name === "string" && p.name.length > 0) {
+      ucs = this.doc.ucsByName(p.name);
+      if (ucs === undefined) return err("bad_id", `UCS '${p.name}' does not exist`, false);
+    } else {
+      return err("bad_payload", "ucs.remove requires an id or name", true);
+    }
+    if (ucs.id === "world") {
+      return err("ucs_invalid", "the World UCS is implicit — never removable", false);
+    }
+    const active = this.doc.draftingSettings.activeUcs;
+    if (active === ucs.id) {
+      return err("ucs_active", `UCS '${ucs.name}' is the ACTIVE UCS — activate World first (ucs.activate {id: \"world\"})`, false);
+    }
+    try {
+      this.doc.execute({ type: "removeUcs", ucsId: ucs.id });
+      return ok({ ucsId: ucs.id, removed: true, snapshot: this.doc.snapshot() });
+    } catch (e) {
+      return err("ucs_invalid", (e as Error).message, false);
+    }
+  }
+
+  /** ucs.activate — the NON-VERSIONED current-workplane switch (the
+   *  activeLayout precedent: editor state, no undo entry, survives
+   *  save/open). */
+  private cmdUcsActivate(payload: unknown): CommandQueryResponse {
+    const p = payload as { id?: unknown; name?: unknown } | null;
+    const resolved = this.resolveUcsRef(p ?? {});
+    if ("ok" in resolved && resolved.ok === false) return resolved;
+    const ucs = resolved as UcsRecord;
+    this.doc.setDraftingSettings({ ...this.doc.draftingSettings, activeUcs: ucs.id });
+    return ok({ activeUcsId: ucs.id, ucs, snapshot: this.doc.snapshot() });
+  }
+
+  /** view3d.set — persist the deterministic 3D camera state as NON-VERSIONED
+   *  editor settings (view state strictly separated from model history —
+   *  never in the revision content hashes, never undoable). The merged
+   *  state is validated + NORMALIZED through the shared camera module. */
+  private cmdView3dSet(payload: unknown): CommandQueryResponse {
+    const p = payload as {
+      eye?: unknown; target?: unknown; up?: unknown;
+      mode?: unknown; orthoHalfHeight?: unknown; fovDeg?: unknown;
+    } | null;
+    if (p === null || typeof p !== "object") {
+      return err("bad_payload", "view3d.set requires a payload object", true);
+    }
+    const current = this.view3dCamera();
+    const vec3Or = (v: unknown, fallback: Vec3): Vec3 | null =>
+      v === undefined ? fallback : isFiniteVec3(v) ? (v as Vec3) : null;
+    const eye = vec3Or(p.eye, current.eye);
+    const target = vec3Or(p.target, current.target);
+    const up = vec3Or(p.up, current.up);
+    if (eye === null || target === null || up === null) {
+      return err("bad_payload", "view3d.set eye/target/up must be finite 3-vectors when present", true);
+    }
+    const mode = p.mode === undefined ? current.mode : p.mode === "orthographic" || p.mode === "perspective" ? p.mode : null;
+    if (mode === null) {
+      return err("bad_payload", "view3d.set mode must be 'orthographic' or 'perspective'", true);
+    }
+    const orthoHalfHeight = p.orthoHalfHeight === undefined ? current.orthoHalfHeight : p.orthoHalfHeight;
+    const fovDeg = p.fovDeg === undefined ? current.fovDeg : p.fovDeg;
+    if (typeof orthoHalfHeight !== "number" || !Number.isFinite(orthoHalfHeight) || orthoHalfHeight <= 0) {
+      return err("bad_payload", "view3d.set orthoHalfHeight must be a finite number > 0", true);
+    }
+    if (typeof fovDeg !== "number" || !Number.isFinite(fovDeg) || fovDeg <= 0 || fovDeg >= 180) {
+      return err("bad_payload", "view3d.set fovDeg must be a finite number in (0, 180)", true);
+    }
+    const merged: Camera3DState = { eye: [...eye], target: [...target], up: [...up], mode, orthoHalfHeight, fovDeg };
+    const failure = validateCamera(merged);
+    if (failure !== null) return err("camera_invalid", `view3d.set: ${failure}`, false);
+    const normalized = normalizeCamera(merged);
+    if (normalized === null) return err("camera_invalid", "view3d.set: camera frame is degenerate", false);
+    this.doc.setDraftingSettings({ ...this.doc.draftingSettings, view3d: normalized });
+    return ok({ camera: normalized, echo: formatCamera(normalized), snapshot: this.doc.snapshot() });
+  }
+
+  /** view3d.fit — derive the camera from the deterministic model extents
+   *  through the SHARED camera module and persist it (recenters + resizes;
+   *  keeps the current view direction; the empty model falls back to the
+   *  unit box — the EMPTY_MODEL_EXTENTS precedent). */
+  private cmdView3dFit(payload: unknown): CommandQueryResponse {
+    const p = payload as { aspect?: unknown; mode?: unknown } | null;
+    const aspect = p !== null && typeof p === "object" && typeof p.aspect === "number" && Number.isFinite(p.aspect) && p.aspect > 0
+      ? p.aspect
+      : 1;
+    let current = this.view3dCamera();
+    if (p !== null && typeof p === "object" && (p.mode === "orthographic" || p.mode === "perspective")) {
+      current = { ...current, mode: p.mode };
+    }
+    const fitted = fitCameraToBBox(current, this.model3dExtents(), aspect);
+    if (fitted === null) return err("camera_invalid", "view3d.fit: the current camera frame is degenerate", false);
+    const normalized = normalizeCamera(fitted);
+    if (normalized === null) return err("camera_invalid", "view3d.fit: the fitted camera frame is degenerate", false);
+    this.doc.setDraftingSettings({ ...this.doc.draftingSettings, view3d: normalized });
+    return ok({ camera: normalized, echo: formatCamera(normalized), snapshot: this.doc.snapshot() });
+  }
+
+  /** view3d.standard — one of the six canonical standard views + the
+   *  isometric preset, derived through the SHARED camera module and
+   *  persisted. */
+  private cmdView3dStandard(payload: unknown): CommandQueryResponse {
+    const p = payload as { view?: unknown; aspect?: unknown; mode?: unknown } | null;
+    const views: readonly string[] = ["top", "bottom", "front", "back", "left", "right", "iso"];
+    if (p === null || typeof p !== "object" || typeof p.view !== "string" || !views.includes(p.view)) {
+      return err("bad_payload", `view3d.standard requires view: one of ${views.join(", ")}`, true);
+    }
+    const view = p.view as StandardViewName;
+    const aspect = typeof p.aspect === "number" && Number.isFinite(p.aspect) && p.aspect > 0 ? p.aspect : 1;
+    let current = this.view3dCamera();
+    if (p.mode === "orthographic" || p.mode === "perspective") {
+      current = { ...current, mode: p.mode };
+    }
+    const camera = standardCameraFor(view, this.model3dExtents(), aspect, current.fovDeg, current.mode);
+    this.doc.setDraftingSettings({ ...this.doc.draftingSettings, view3d: camera });
+    return ok({ camera, echo: formatCamera(camera), snapshot: this.doc.snapshot() });
+  }
+
+  /** The shared solid-creation pipeline: build the UCS-placed descriptor
+   *  (the EXISTING GeometryDescriptor vocabulary — transform-wrapped, no
+   *  new engine ops), prepare it through the geometry adapter, persist the
+   *  element with the engine result (meshToken/bbox/provenance) in the SAME
+   *  atomic revision. */
+  private async prepareModel3dSolid(descriptor: GeometryDescriptor): Promise<
+    { ok: true; meshToken: string; bbox: readonly [number, number, number, number, number, number] } | { ok: false; response: CommandQueryResponse }
+  > {
+    const prep: Element = { id: "model3d:prepare", kind: "geometry", engineId: null, props: descriptor as unknown as Record<string, unknown> };
+    let realized: { meshToken: string; bbox: readonly [number, number, number, number, number, number] };
+    try {
+      realized = await this.adapters.geometry.prepareGeometry(prep);
+    } catch (e) {
+      if (isAdapterFailure(e)) return { ok: false, response: err(e.code, e.message, e.retryable) };
+      return { ok: false, response: err("engine_error", `geometry adapter failed: ${(e as Error).message}`, false) };
+    }
+    if (
+      typeof realized !== "object" || realized === null ||
+      typeof realized.meshToken !== "string" || realized.meshToken.length === 0 ||
+      !Array.isArray(realized.bbox) || realized.bbox.length !== 6 ||
+      !realized.bbox.every((n) => typeof n === "number" && Number.isFinite(n))
+    ) {
+      return { ok: false, response: err("engine_error", "geometry adapter returned an invalid GeometryResult", false) };
+    }
+    return { ok: true, meshToken: realized.meshToken, bbox: realized.bbox };
+  }
+
+  private addModel3dSolid(props: Record<string, unknown>): CommandQueryResponse {
+    try {
+      const elementId = this.doc.mintElementId();
+      this.doc.execute({ type: "addElement", element: { id: elementId, kind: "geometry", engineId: null, props } });
+      return ok({ elementId, snapshot: this.doc.snapshot() });
+    } catch (e) {
+      return err("model3d_invalid", (e as Error).message, false);
+    }
+  }
+
+  /** model3d.box — a box solid placed through the ACTIVE UCS (base corner at
+   *  the UCS origin — or `at` in UCS coordinates — edges along the UCS axes). */
+  private async cmdModel3dBox(payload: unknown): Promise<CommandQueryResponse> {
+    const p = payload as { width?: unknown; depth?: unknown; height?: unknown; at?: unknown; ucsId?: unknown; ucsName?: unknown } | null;
+    if (p === null || typeof p !== "object") {
+      return err("bad_payload", "model3d.box requires a payload object", true);
+    }
+    const dims = [p.width, p.depth, p.height];
+    if (!dims.every((n) => typeof n === "number" && Number.isFinite(n) && n > 0)) {
+      return err("bad_payload", "model3d.box requires width/depth/height as positive finite numbers", true);
+    }
+    const resolved = this.resolveUcsRef({ id: p.ucsId, name: p.ucsName });
+    if ("ok" in resolved && resolved.ok === false) return resolved;
+    const ucs = resolved as UcsRecord;
+    let at: Vec3 = [0, 0, 0];
+    if (p.at !== undefined) {
+      if (!isFiniteVec3(p.at)) return err("bad_payload", "model3d.box at must be a finite 3-vector (UCS coordinates) when present", true);
+      at = p.at as Vec3;
+    }
+    let descriptor = placeBox(ucs, p.width as number, p.depth as number, p.height as number);
+    if (at[0] !== 0 || at[1] !== 0 || at[2] !== 0) {
+      descriptor = moveDescriptor(descriptor, ucsDirectionToWorld(ucs, at));
+    }
+    const prepared = await this.prepareModel3dSolid(descriptor);
+    if (!prepared.ok) return prepared.response;
+    return this.addModel3dSolid({
+      type: "model3d.solid",
+      shape: "box",
+      width: p.width as number,
+      depth: p.depth as number,
+      height: p.height as number,
+      ucsId: ucs.id,
+      at: [...at],
+      geometry: descriptor,
+      meshToken: prepared.meshToken,
+      meshBBox: [...prepared.bbox],
+      geometryEngine: { engineId: this.adapters.geometry.engineId, engineVersion: this.adapters.geometry.engineVersion },
+    });
+  }
+
+  /** model3d.cylinder — a cylinder solid placed through the ACTIVE UCS
+   *  (base center at the UCS origin — or `at` — axis along the UCS Z). */
+  private async cmdModel3dCylinder(payload: unknown): Promise<CommandQueryResponse> {
+    const p = payload as { radius?: unknown; height?: unknown; at?: unknown; ucsId?: unknown; ucsName?: unknown } | null;
+    if (p === null || typeof p !== "object") {
+      return err("bad_payload", "model3d.cylinder requires a payload object", true);
+    }
+    if (typeof p.radius !== "number" || !Number.isFinite(p.radius) || p.radius <= 0) {
+      return err("bad_payload", "model3d.cylinder requires a positive finite radius", true);
+    }
+    if (typeof p.height !== "number" || !Number.isFinite(p.height) || p.height <= 0) {
+      return err("bad_payload", "model3d.cylinder requires a positive finite height", true);
+    }
+    const resolved = this.resolveUcsRef({ id: p.ucsId, name: p.ucsName });
+    if ("ok" in resolved && resolved.ok === false) return resolved;
+    const ucs = resolved as UcsRecord;
+    let at: Vec3 = [0, 0, 0];
+    if (p.at !== undefined) {
+      if (!isFiniteVec3(p.at)) return err("bad_payload", "model3d.cylinder at must be a finite 3-vector (UCS coordinates) when present", true);
+      at = p.at as Vec3;
+    }
+    let descriptor = placeCylinder(ucs, p.radius as number, p.height as number);
+    if (at[0] !== 0 || at[1] !== 0 || at[2] !== 0) {
+      descriptor = moveDescriptor(descriptor, ucsDirectionToWorld(ucs, at));
+    }
+    const prepared = await this.prepareModel3dSolid(descriptor);
+    if (!prepared.ok) return prepared.response;
+    return this.addModel3dSolid({
+      type: "model3d.solid",
+      shape: "cylinder",
+      radius: p.radius as number,
+      height: p.height as number,
+      ucsId: ucs.id,
+      at: [...at],
+      geometry: descriptor,
+      meshToken: prepared.meshToken,
+      meshBBox: [...prepared.bbox],
+      geometryEngine: { engineId: this.adapters.geometry.engineId, engineVersion: this.adapters.geometry.engineVersion },
+    });
+  }
+
+  /** model3d.extrude — an extrusion-derived solid placed through the ACTIVE
+   *  UCS (the profile polygon lives in the UCS XY plane, extruded along the
+   *  UCS Z by height). */
+  private async cmdModel3dExtrude(payload: unknown): Promise<CommandQueryResponse> {
+    const p = payload as { profile?: unknown; height?: unknown; baseZ?: unknown; at?: unknown; ucsId?: unknown; ucsName?: unknown } | null;
+    if (p === null || typeof p !== "object") {
+      return err("bad_payload", "model3d.extrude requires a payload object", true);
+    }
+    if (
+      !Array.isArray(p.profile) || p.profile.length < 3 ||
+      !p.profile.every((v) => Array.isArray(v) && v.length === 2 && v.every((n) => typeof n === "number" && Number.isFinite(n)))
+    ) {
+      return err("bad_payload", "model3d.extrude requires a profile of at least 3 finite [x, y] points", true);
+    }
+    if (typeof p.height !== "number" || !Number.isFinite(p.height) || p.height <= 0) {
+      return err("bad_payload", "model3d.extrude requires a positive finite height", true);
+    }
+    if (p.baseZ !== undefined && (typeof p.baseZ !== "number" || !Number.isFinite(p.baseZ))) {
+      return err("bad_payload", "model3d.extrude baseZ must be a finite number when present", true);
+    }
+    const profile = p.profile as readonly (readonly [number, number])[];
+    // Simple-polygon validation: no coincident consecutive points, a
+    // non-degenerate shoelace area (the descriptor grammar — the same
+    // validation the adapter applies, surfaced early + deterministically).
+    let area2 = 0;
+    for (let i = 0; i < profile.length; i += 1) {
+      const a = profile[i]!;
+      const b = profile[(i + 1) % profile.length]!;
+      area2 += a[0]! * b[1]! - b[0]! * a[1]!;
+    }
+    if (Math.abs(area2) < 1e-12) {
+      return err("model3d_invalid", "model3d.extrude profile has a degenerate (zero) area", false);
+    }
+    for (let i = 0; i < profile.length; i += 1) {
+      const a = profile[i]!;
+      const b = profile[(i + 1) % profile.length]!;
+      if (a[0]! === b[0]! && a[1]! === b[1]!) {
+        return err("model3d_invalid", "model3d.extrude profile has coincident consecutive points", false);
+      }
+    }
+    const resolved = this.resolveUcsRef({ id: p.ucsId, name: p.ucsName });
+    if ("ok" in resolved && resolved.ok === false) return resolved;
+    const ucs = resolved as UcsRecord;
+    let at: Vec3 = [0, 0, 0];
+    if (p.at !== undefined) {
+      if (!isFiniteVec3(p.at)) return err("bad_payload", "model3d.extrude at must be a finite 3-vector (UCS coordinates) when present", true);
+      at = p.at as Vec3;
+    }
+    let descriptor = placeExtrude(ucs, profile, p.height as number, p.baseZ ?? 0);
+    if (at[0] !== 0 || at[1] !== 0 || at[2] !== 0) {
+      descriptor = moveDescriptor(descriptor, ucsDirectionToWorld(ucs, at));
+    }
+    const prepared = await this.prepareModel3dSolid(descriptor);
+    if (!prepared.ok) return prepared.response;
+    return this.addModel3dSolid({
+      type: "model3d.solid",
+      shape: "extrude",
+      profile: profile.map((v) => [v[0]!, v[1]!]),
+      height: p.height as number,
+      ...(p.baseZ !== undefined ? { baseZ: p.baseZ as number } : {}),
+      ucsId: ucs.id,
+      at: [...at],
+      geometry: descriptor,
+      meshToken: prepared.meshToken,
+      meshBBox: [...prepared.bbox],
+      geometryEngine: { engineId: this.adapters.geometry.engineId, engineVersion: this.adapters.geometry.engineVersion },
+    });
+  }
+
+  /** model3d.move/rotate/scale — UCS-aware transforms of existing solid
+   *  elements: wrap the element's persisted descriptor with the
+   *  deterministic transform matrix (fixed composition order), re-prepare
+   *  through the adapter and persist the new engine result in the SAME
+   *  atomic revision (the updateElement inverse restores the previous
+   *  descriptor + engine state exactly — undo/redo/replay integrity). */
+  private async cmdModel3dTransform(payload: unknown, op: "move" | "rotate" | "scale"): Promise<CommandQueryResponse> {
+    const p = payload as {
+      elementId?: unknown; delta?: unknown; axis?: unknown; deg?: unknown; factor?: unknown; base?: unknown;
+      ucsId?: unknown; ucsName?: unknown;
+    } | null;
+    if (p === null || typeof p !== "object" || typeof p.elementId !== "string" || p.elementId.length === 0) {
+      return err("bad_payload", `model3d.${op} requires an elementId`, true);
+    }
+    const element = this.doc.allElements().find((el) => el.id === p.elementId);
+    if (element === undefined) {
+      return err("bad_id", `element '${p.elementId}' does not exist`, false);
+    }
+    if (element.props.type !== "model3d.solid" || element.props.geometry === undefined) {
+      return err("not_a_solid", `element '${p.elementId}' is not a model3d solid — model3d.${op} transforms model3d.solid elements only`, false);
+    }
+    const resolved = this.resolveUcsRef({ id: p.ucsId, name: p.ucsName });
+    if ("ok" in resolved && resolved.ok === false) return resolved;
+    const ucs = resolved as UcsRecord;
+    const descriptor = element.props.geometry as GeometryDescriptor;
+    let transformed: GeometryDescriptor | null;
+    if (op === "move") {
+      if (!isFiniteVec3(p.delta)) {
+        return err("bad_payload", "model3d.move requires a delta finite 3-vector (ACTIVE UCS coordinates)", true);
+      }
+      transformed = moveDescriptor(descriptor, ucsDirectionToWorld(ucs, p.delta as Vec3));
+    } else if (op === "rotate") {
+      if (!isFiniteVec3(p.axis)) {
+        return err("bad_payload", "model3d.rotate requires an axis finite 3-vector (ACTIVE UCS coordinates)", true);
+      }
+      if (typeof p.deg !== "number" || !Number.isFinite(p.deg)) {
+        return err("bad_payload", "model3d.rotate requires a finite deg", true);
+      }
+      let base: Vec3 = ucs.origin;
+      if (p.base !== undefined) {
+        if (!isFiniteVec3(p.base)) return err("bad_payload", "model3d.rotate base must be a finite 3-vector (UCS coordinates) when present", true);
+        base = [
+          ucs.origin[0] + ucs.xAxis[0]! * p.base[0] + ucs.yAxis[0]! * p.base[1] + ucs.zAxis[0]! * p.base[2],
+          ucs.origin[1] + ucs.xAxis[1]! * p.base[0] + ucs.yAxis[1]! * p.base[1] + ucs.zAxis[1]! * p.base[2],
+          ucs.origin[2] + ucs.xAxis[2]! * p.base[0] + ucs.yAxis[2]! * p.base[1] + ucs.zAxis[2]! * p.base[2],
+        ];
+      }
+      transformed = rotateDescriptor(descriptor, ucsDirectionToWorld(ucs, p.axis as Vec3), p.deg, base);
+      if (transformed === null) {
+        return err("model3d_invalid", "model3d.rotate: the axis is degenerate (the zero vector in the ACTIVE UCS)", false);
+      }
+    } else {
+      if (typeof p.factor !== "number" || !Number.isFinite(p.factor) || p.factor <= 0) {
+        return err("bad_payload", "model3d.scale requires a positive finite factor", true);
+      }
+      let base: Vec3 = ucs.origin;
+      if (p.base !== undefined) {
+        if (!isFiniteVec3(p.base)) return err("bad_payload", "model3d.scale base must be a finite 3-vector (UCS coordinates) when present", true);
+        base = [
+          ucs.origin[0] + ucs.xAxis[0]! * p.base[0] + ucs.yAxis[0]! * p.base[1] + ucs.zAxis[0]! * p.base[2],
+          ucs.origin[1] + ucs.xAxis[1]! * p.base[0] + ucs.yAxis[1]! * p.base[1] + ucs.zAxis[1]! * p.base[2],
+          ucs.origin[2] + ucs.xAxis[2]! * p.base[0] + ucs.yAxis[2]! * p.base[1] + ucs.zAxis[2]! * p.base[2],
+        ];
+      }
+      transformed = scaleDescriptor(descriptor, p.factor, base);
+    }
+    const prepared = await this.prepareModel3dSolid(transformed);
+    if (!prepared.ok) return prepared.response;
+    try {
+      this.doc.execute({
+        type: "updateElement",
+        elementId: element.id,
+        patch: {
+          geometry: transformed,
+          meshToken: prepared.meshToken,
+          meshBBox: [...prepared.bbox],
+          geometryEngine: { engineId: this.adapters.geometry.engineId, engineVersion: this.adapters.geometry.engineVersion },
+        },
+      });
+      return ok({ elementId: element.id, op, snapshot: this.doc.snapshot() });
+    } catch (e) {
+      return err("model3d_invalid", (e as Error).message, false);
+    }
+  }
+
+  /** sectionplane.create — a named section/slice plane definition (one
+   *  atomic revision; the document mints the `sp-NNNNNN` id; the normal is
+   *  EXPLICITLY normalized at the command layer — the zero vector is a
+   *  typed decline). */
+  private cmdSectionPlaneCreate(payload: unknown): CommandQueryResponse {
+    const p = payload as { name?: unknown; origin?: unknown; normal?: unknown } | null;
+    if (p === null || typeof p !== "object") {
+      return err("bad_payload", "sectionplane.create requires a payload object", true);
+    }
+    if (typeof p.name !== "string" || p.name.trim().length === 0 || p.name.length > 255) {
+      return err("bad_payload", "sectionplane.create requires a name (non-empty string, max 255 chars)", true);
+    }
+    const name = p.name.trim();
+    if (this.doc.sectionPlaneByName(name) !== undefined) {
+      return err("sectionplane_invalid", `section plane name '${name}' already exists — section plane names are unique`, false);
+    }
+    if (!isFiniteVec3(p.origin) || !isFiniteVec3(p.normal)) {
+      return err("bad_payload", "sectionplane.create requires origin/normal as finite 3-vectors", true);
+    }
+    const normal = normalizeSectionNormal(p.normal as Vec3);
+    if (normal === null) {
+      return err("sectionplane_invalid", "sectionplane.create: the normal is the zero vector — a section plane needs a direction", false);
+    }
+    try {
+      const plane: SectionPlaneRecord = {
+        id: this.doc.mintSectionPlaneId(),
+        name,
+        origin: [...(p.origin as Vec3)],
+        normal,
+        createdAt: AppApiHandler.MODEL3D_NOW,
+      };
+      this.doc.execute({ type: "addSectionPlane", sectionPlane: plane });
+      return ok({ sectionPlaneId: plane.id, name, normal, snapshot: this.doc.snapshot() });
+    } catch (e) {
+      return err("sectionplane_invalid", (e as Error).message, false);
+    }
+  }
+
+  /** sectionplane.update — patch name/origin/normal (the merged record
+   *  re-validates as a whole; a present normal is explicitly re-normalized). */
+  private cmdSectionPlaneUpdate(payload: unknown): CommandQueryResponse {
+    const p = payload as { id?: unknown; name?: unknown; patch?: unknown } | null;
+    if (p === null || typeof p !== "object" || typeof p.patch !== "object" || p.patch === null) {
+      return err("bad_payload", "sectionplane.update requires a payload object with a patch", true);
+    }
+    const patch = { ...(p.patch as Record<string, unknown>) };
+    if (patch.normal !== undefined) {
+      if (!isFiniteVec3(patch.normal)) {
+        return err("bad_payload", "sectionplane.update patch normal must be a finite 3-vector when present", true);
+      }
+      const normal = normalizeSectionNormal(patch.normal as Vec3);
+      if (normal === null) {
+        return err("sectionplane_invalid", "sectionplane.update: the normal is the zero vector — a section plane needs a direction", false);
+      }
+      patch.normal = normal;
+    }
+    let id: string | undefined;
+    if (typeof p.id === "string" && p.id.length > 0) {
+      if (this.doc.sectionPlaneById(p.id) === undefined) return err("bad_id", `section plane '${p.id}' does not exist`, false);
+      id = p.id;
+    } else if (typeof p.name === "string" && p.name.length > 0) {
+      const plane = this.doc.sectionPlaneByName(p.name);
+      if (plane === undefined) return err("bad_id", `section plane '${p.name}' does not exist`, false);
+      id = plane.id;
+    } else {
+      return err("bad_payload", "sectionplane.update requires an id or name", true);
+    }
+    try {
+      this.doc.execute({ type: "updateSectionPlane", sectionPlaneId: id, patch });
+      return ok({ sectionPlaneId: id, snapshot: this.doc.snapshot() });
+    } catch (e) {
+      return err("sectionplane_invalid", (e as Error).message, false);
+    }
+  }
+
+  /** sectionplane.remove — remove a section-plane definition (the derived
+   *  preview recomputes on demand — nothing stored references it). */
+  private cmdSectionPlaneRemove(payload: unknown): CommandQueryResponse {
+    const p = payload as { id?: unknown; name?: unknown } | null;
+    if (p === null || typeof p !== "object") {
+      return err("bad_payload", "sectionplane.remove requires an id or name", true);
+    }
+    let plane: SectionPlaneRecord | undefined;
+    if (typeof p.id === "string" && p.id.length > 0) {
+      plane = this.doc.sectionPlaneById(p.id);
+      if (plane === undefined) return err("bad_id", `section plane '${p.id}' does not exist`, false);
+    } else if (typeof p.name === "string" && p.name.length > 0) {
+      plane = this.doc.sectionPlaneByName(p.name);
+      if (plane === undefined) return err("bad_id", `section plane '${p.name}' does not exist`, false);
+    } else {
+      return err("bad_payload", "sectionplane.remove requires an id or name", true);
+    }
+    try {
+      this.doc.execute({ type: "removeSectionPlane", sectionPlaneId: plane.id });
+      return ok({ sectionPlaneId: plane.id, removed: true, snapshot: this.doc.snapshot() });
+    } catch (e) {
+      return err("sectionplane_invalid", (e as Error).message, false);
+    }
+  }
+
+  /** ucs.list (query) — the named-UCS inventory + the current-workplane
+   *  context (non-mutating, computed fresh). */
+  private qUcsList(): CommandQueryResponse {
+    return ok({
+      ucs: this.doc.ucsRecords,
+      activeUcsId: this.doc.draftingSettings.activeUcs ?? "world",
+    });
+  }
+
+  /** view3d.state (query) — the persisted deterministic 3D camera state (or
+   *  the deterministic default when none is persisted). */
+  private qView3dState(): CommandQueryResponse {
+    const camera = this.view3dCamera();
+    return ok({ camera, echo: formatCamera(camera) });
+  }
+
+  /** model3d.pick (query) — deterministic element-granularity 3D selection
+   *  through the SHARED projection/ray math: the exactly-ordered hit list
+   *  (distance, then canonical id — no tie ambiguity). Sub-entity
+   *  (face/edge/vertex) picking is a typed decline — never a silent
+   *  approximation. */
+  private qModel3dPick(payload: unknown): CommandQueryResponse {
+    const p = payload as {
+      screenX?: unknown; screenY?: unknown;
+      viewport?: unknown; subEntity?: unknown;
+    } | null;
+    if (p === null || typeof p !== "object") {
+      return err("bad_payload", "model3d.pick requires a payload object", true);
+    }
+    if (p.subEntity === true) {
+      return err("subentity_unsupported", SUBENTITY_DECLINE_REASON, false);
+    }
+    if (typeof p.screenX !== "number" || !Number.isFinite(p.screenX) || typeof p.screenY !== "number" || !Number.isFinite(p.screenY)) {
+      return err("bad_payload", "model3d.pick requires finite screenX/screenY", true);
+    }
+    const vp = p.viewport as { width?: unknown; height?: unknown } | null;
+    if (
+      vp === null || typeof vp !== "object" ||
+      typeof vp.width !== "number" || !Number.isFinite(vp.width) || vp.width <= 0 ||
+      typeof vp.height !== "number" || !Number.isFinite(vp.height) || vp.height <= 0
+    ) {
+      return err("bad_payload", "model3d.pick requires a viewport {width, height} of positive finite numbers", true);
+    }
+    const camera = this.view3dCamera();
+    const ray = screenRay(camera, { width: vp.width as number, height: vp.height as number }, p.screenX, p.screenY);
+    if (ray === null) {
+      return err("camera_invalid", "model3d.pick: the camera frame is degenerate", false);
+    }
+    const hits = pickElements(ray, this.model3dPickables());
+    return ok({ ray: { origin: ray.origin, direction: ray.direction }, hits, count: hits.length });
+  }
+
+  /** model3d.sectionPreview (query) — the bounded section/slice PREVIEW
+   *  foundation: the deterministic plane∩extent intersection surface with
+   *  its canonical hash. Exact BRep cross-sections are a typed decline. */
+  private qModel3dSectionPreview(payload: unknown): CommandQueryResponse {
+    const p = payload as { id?: unknown; name?: unknown; exact?: unknown } | null;
+    if (p !== null && typeof p === "object" && p.exact === true) {
+      return err("section_exact_unsupported", SECTION_EXACT_DECLINE_REASON, false);
+    }
+    let plane: SectionPlaneRecord | undefined;
+    if (p !== null && typeof p.id === "string" && p.id.length > 0) {
+      plane = this.doc.sectionPlaneById(p.id);
+      if (plane === undefined) return err("bad_id", `section plane '${p.id}' does not exist`, false);
+    } else if (p !== null && typeof p.name === "string" && p.name.length > 0) {
+      plane = this.doc.sectionPlaneByName(p.name);
+      if (plane === undefined) return err("bad_id", `section plane '${p.name}' does not exist`, false);
+    } else {
+      const planes = this.doc.sectionPlaneRecords;
+      if (planes.length === 1) {
+        plane = planes[0];
+      } else if (planes.length === 0) {
+        return err("bad_id", "no section plane exists — create one with sectionplane.create", false);
+      } else {
+        return err("bad_payload", "model3d.sectionPreview requires an id or name (multiple section planes exist)", true);
+      }
+    }
+    const preview = buildSectionPreview(plane as SectionPlaneRecord, this.model3dPickables());
+    const hash = createHash("sha256").update(canonicalStringify(preview)).digest("hex");
+    return ok({ sectionPlaneId: (plane as SectionPlaneRecord).id, name: (plane as SectionPlaneRecord).name, preview, hash, exactDecline: SECTION_EXACT_DECLINE_REASON });
+  }
+
+  /** model3d.mesh (query) — the engine mesh for a solid element's
+   *  meshToken through the adapter's OPTIONAL MeshProvider capability; when
+   *  the engine provides no mesh the result says so EXPLICITLY (the host
+   *  renders the persisted bbox wireframe, labeled as such — never an
+   *  approximation presented as exact). */
+  private async qModel3dMesh(payload: unknown): Promise<CommandQueryResponse> {
+    const p = payload as { elementId?: unknown } | null;
+    if (p === null || typeof p !== "object" || typeof p.elementId !== "string" || p.elementId.length === 0) {
+      return err("bad_payload", "model3d.mesh requires an elementId", true);
+    }
+    const element = this.doc.allElements().find((el) => el.id === p.elementId);
+    if (element === undefined) {
+      return err("bad_id", `element '${p.elementId}' does not exist`, false);
+    }
+    const meshToken = element.props.meshToken;
+    if (typeof meshToken !== "string" || meshToken.length === 0) {
+      return err("bad_id", `element '${p.elementId}' has no realized geometry (no meshToken) — prepare it first`, false);
+    }
+    let mesh: { vertices: readonly number[]; indices: readonly number[] } | null = null;
+    if (isMeshProvider(this.adapters.geometry)) {
+      try {
+        mesh = await this.adapters.geometry.describeMesh(meshToken);
+      } catch {
+        mesh = null;
+      }
+    }
+    return ok({
+      elementId: element.id,
+      meshToken,
+      mesh,
+      meshAvailable: mesh !== null,
+      ...(mesh === null
+        ? { note: "the engine provides no mesh for this token — the viewport renders the persisted extent (bbox) wireframe, explicitly labeled extent-level" }
+        : {}),
+    });
   }
 
   /** drafting.snap (query) — deterministic snap resolution against the
