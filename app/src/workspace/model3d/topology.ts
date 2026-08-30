@@ -97,15 +97,30 @@ function encodeFlat(values: readonly number[]): string {
   return values.map(fmtCoord).join(",");
 }
 
-/** The canonical sort key of a raw face: its geometry encoding (surface
- *  type + triangulation + area + centroid). Two engines agreeing on the
- *  geometry agree on the order — engine enumeration order is irrelevant. */
+/** The canonical sort key of a raw face: its TRIANGULATION-INDEPENDENT
+ *  geometry summary (surface type, area, centroid, the sorted vertex
+ *  multiset). Two engines agreeing on the face geometry agree on the order —
+ *  even when their internal triangulations (node order / diagonal split)
+ *  differ; engine enumeration order is irrelevant. */
 function faceSortKey(f: { surfaceType: string; vertices: readonly number[]; indices: readonly number[]; area: number; centroid: readonly number[] }): string {
-  return `${f.surfaceType}|${encodeFlat(f.vertices)}|${encodeFlat(f.indices)}|${fmtCoord(f.area)}|${encodeFlat(f.centroid)}`;
+  const points: string[] = [];
+  for (let i = 0; i < f.vertices.length; i += 3) {
+    points.push(`${fmtCoord(f.vertices[i]!)};${fmtCoord(f.vertices[i + 1]!)};${fmtCoord(f.vertices[i + 2]!)}`);
+  }
+  points.sort();
+  return `${f.surfaceType}|${fmtCoord(f.area)}|${encodeFlat(f.centroid)}|${points.join("~")}`;
 }
 
+/** The canonical sort key of a raw edge: curve type + length + the sorted
+ *  point multiset (direction-independent — engines may report the same
+ *  curve in opposite orientations). */
 function edgeSortKey(e: { curveType: string; points: readonly number[]; length: number }): string {
-  return `${e.curveType}|${encodeFlat(e.points)}|${fmtCoord(e.length)}`;
+  const points: string[] = [];
+  for (let i = 0; i < e.points.length; i += 3) {
+    points.push(`${fmtCoord(e.points[i]!)};${fmtCoord(e.points[i + 1]!)};${fmtCoord(e.points[i + 2]!)}`);
+  }
+  points.sort();
+  return `${e.curveType}|${fmtCoord(e.length)}|${points.join("~")}`;
 }
 
 function vertexSortKey(v: { point: readonly number[] }): string {

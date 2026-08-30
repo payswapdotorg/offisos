@@ -23,13 +23,32 @@ Geometry set (Issue #26 minimum canonical set):
 Plus: selection/query metadata (volume, vertex/triangle stats) and
 deterministic serialization of the result.
 
+CAD-PARITY-010 (Issue #93) adds:
+  - the `intersect` boolean (BRepAlgoAPI_Common) completing the
+    union/difference/intersection triad;
+  - typed boolean-outcome failures: engine_empty_result (a boolean that
+    annihilates all material — null or face-less result) and
+    engine_non_manifold (a boolean result the OCCT shape-validity check
+    rejects);
+  - the `section` op: plane ∩ shape intersection curves via
+    BRepAlgoAPI_Section, each edge sampled to a deterministic polyline
+    (GCPnts_QuasiUniformDeflection, fixed deflection; straight intersections
+    are exact 2-point segments), canonically sorted + deduplicated;
+  - the `topology` op: the face/edge/vertex inventory with per-face
+    triangulation (default tessellation quality), surface/curve type
+    vocabulary, area/length/centroid properties, deterministic per-entity
+    engine keys (sha256 over the canonical encoding — provenance only),
+    canonically sorted + deduplicated, with bounded counts.
+
 DETERMINISM (LOCK-004/005/017, host parity):
   identical recipes produce identical responses across processes and hosts:
   the meshToken is "occt:" + SHA-256 over a canonical encoding of the
   tessellated mesh (deduplicated + sorted vertices, reindexed + sorted
   triangles, fixed 9-decimal formatting, negative-zero normalized to zero).
   The bbox is the OCCT Bnd_Box (tolerance-inclusive; deterministic). The
-  declared tolerance is documented in the adapter evidence.
+  declared tolerance is documented in the adapter evidence. Section and
+  topology outputs are canonically sorted by their fixed-precision
+  encodings, so explorer enumeration order never reaches the boundary.
 
 Protocol (single JSON object each way):
 
@@ -44,13 +63,21 @@ Protocol (single JSON object each way):
             ],
             "result": "s3",
             "tessellation": {"linearDeflection": 0.1, "angularDeflection": 0.5}}
+           {"op": "section", "recipe": [...], "result": "s3",
+            "plane": {"origin": [0,0,0], "normal": [0,0,1]}}
+           {"op": "topology", "recipe": [...], "result": "s3"}
 
   response {"ok": true, "engine": "occt", "engineVersion": "...",
             "meshToken": "occt:<sha256>", "bbox": [6 numbers],
             "volume": <float>, "stats": {"vertices": N, "triangles": M},
             "mesh": {"vertices": [x,y,z,...], "indices": [a,b,c,...]}}
+           {"ok": true, "engine": "occt", "engineVersion": "...",
+            "polylines": [{"points": [x,y,z,...]}, ...]}          (section)
+           {"ok": true, "engine": "occt", "engineVersion": "...",
+            "faces": [...], "edges": [...], "vertices": [...]}     (topology)
            {"ok": false, "code": "engine_malformed_input" | "engine_error" |
-            "engine_unavailable", "message": "..."}
+            "engine_unavailable" | "engine_empty_result" |
+            "engine_non_manifold", "message": "..."}
 
 The recipe is a FLAT, ordered list of steps; every step may reference only
 EARLIER step ids (DAG evaluated in order). The recursive geometry descriptor
@@ -81,10 +108,26 @@ MIN_LINEAR_DEFLECTION = 1e-6
 MAX_LINEAR_DEFLECTION = 10.0
 MIN_ANGULAR_DEFLECTION = 1e-3
 MAX_ANGULAR_DEFLECTION = math.pi
+# CAD-PARITY-010 bounds.
+SECTION_DEFLECTION = 0.05          # fixed curve-sampling deflection (deterministic)
+SECTION_MAX_POINTS = 8_192         # total accepted section points (typed failure beyond)
+TOPOLOGY_DEFLECTION = 0.05         # fixed edge-polyline sampling deflection
+MAX_TOPOLOGY_FACES = 512
+MAX_TOPOLOGY_EDGES = 1_024
+MAX_TOPOLOGY_VERTICES = 1_024
 
 
 class MalformedInput(Exception):
     """Input failed validation or OCCT rejected it at construction time."""
+
+
+class EmptyResult(Exception):
+    """A boolean operation annihilated all material (typed engine_empty_result)."""
+
+
+class NonManifoldResult(Exception):
+    """A boolean result failed the OCCT shape-validity check (typed
+    engine_non_manifold)."""
 
 
 def _fail(code: str, message: str) -> None:
@@ -198,8 +241,8 @@ def _validate_recipe(request: Dict[str, Any]) -> Tuple[List[Dict[str, Any]], str
                 raise MalformedInput(
                     f"recipe[{index}].make must be 'box', 'cylinder' or 'extrude', got {make!r}")
         elif "bool" in step:
-            if step["bool"] not in ("fuse", "cut"):
-                raise MalformedInput(f"recipe[{index}].bool must be 'fuse' or 'cut'")
+            if step["bool"] not in ("fuse", "cut", "intersect"):
+                raise MalformedInput(f"recipe[{index}].bool must be 'fuse', 'cut' or 'intersect'")
             for ref in ("a", "b"):
                 target = step.get(ref)
                 if not isinstance(target, str) or target not in seen or target == sid:
@@ -239,12 +282,38 @@ def _validate_recipe(request: Dict[str, Any]) -> Tuple[List[Dict[str, Any]], str
     return recipe, result, linear, angular
 
 
+def _shape_has_faces(shape: Any) -> bool:
+    """True when the shape carries at least one face (the empty-boolean
+    guard — an empty compound has no faces)."""
+    from OCP.TopExp import TopExp_Explorer
+    from OCP.TopAbs import TopAbs_FACE
+    explorer = TopExp_Explorer(shape, TopAbs_FACE)
+    return explorer.More()
+
+
+def _check_boolean_result(sid: str, result: Any) -> Any:
+    """CAD-PARITY-010 typed boolean-outcome validation: a null or face-less
+    result is engine_empty_result; a result the OCCT shape-validity check
+    rejects is engine_non_manifold. Applied to EVERY boolean step (an empty
+    intermediate would poison the rest of the DAG)."""
+    from OCP.BRepCheck import BRepCheck_Analyzer
+    if result.IsNull() or not _shape_has_faces(result):
+        raise EmptyResult(
+            f"recipe step '{sid}': the boolean operation annihilates all material "
+            "(null or face-less result)")
+    if not BRepCheck_Analyzer(result).IsValid():
+        raise NonManifoldResult(
+            f"recipe step '{sid}': the boolean result failed the OCCT "
+            "shape-validity check (non-manifold or self-intersecting)")
+    return result
+
+
 def _build_shapes(recipe: List[Dict[str, Any]]):
     """Evaluate the flat recipe DAG in order. Construction errors are typed as
     engine_malformed_input (OCCT Standard_ConstructionError); anything else
     raised by the engine is engine_error (handled by the caller)."""
     from OCP.BRepPrimAPI import BRepPrimAPI_MakeBox, BRepPrimAPI_MakeCylinder, BRepPrimAPI_MakePrism
-    from OCP.BRepAlgoAPI import BRepAlgoAPI_Fuse, BRepAlgoAPI_Cut
+    from OCP.BRepAlgoAPI import BRepAlgoAPI_Fuse, BRepAlgoAPI_Cut, BRepAlgoAPI_Common
     from OCP.BRepBuilderAPI import BRepBuilderAPI_Transform, BRepBuilderAPI_MakePolygon, BRepBuilderAPI_MakeFace
     from OCP.gp import gp_Trsf, gp_Ax2, gp_Dir, gp_Pnt, gp_Vec
     from OCP.Standard import Standard_ConstructionError
@@ -282,13 +351,20 @@ def _build_shapes(recipe: List[Dict[str, Any]]):
                     prism = BRepBuilderAPI_Transform(prism, trsf, True).Shape()
                 shapes[sid] = prism
             elif step.get("bool") == "fuse":
-                shapes[sid] = BRepAlgoAPI_Fuse(shapes[step["a"]], shapes[step["b"]]).Shape()
+                result = BRepAlgoAPI_Fuse(shapes[step["a"]], shapes[step["b"]]).Shape()
+                shapes[sid] = _check_boolean_result(sid, result)
             elif step.get("bool") == "cut":
-                shapes[sid] = BRepAlgoAPI_Cut(shapes[step["a"]], shapes[step["b"]]).Shape()
+                result = BRepAlgoAPI_Cut(shapes[step["a"]], shapes[step["b"]]).Shape()
+                shapes[sid] = _check_boolean_result(sid, result)
+            elif step.get("bool") == "intersect":
+                result = BRepAlgoAPI_Common(shapes[step["a"]], shapes[step["b"]]).Shape()
+                shapes[sid] = _check_boolean_result(sid, result)
             elif "transform" in step:
                 trsf = gp_Trsf()
                 trsf.SetValues(*[float(v) for v in step["matrix"][:12]])
                 shapes[sid] = BRepBuilderAPI_Transform(shapes[step["transform"]], trsf, True).Shape()
+        except (EmptyResult, NonManifoldResult):
+            raise
         except Standard_ConstructionError as exc:
             raise MalformedInput(
                 f"recipe step '{sid}' rejected at construction: {exc}") from exc
@@ -399,6 +475,279 @@ def _handle_ping() -> None:
     sys.stdout.flush()
 
 
+# ---------------------------------------------------------------------------
+# CAD-PARITY-010 (Issue #93): the section and topology ops.
+# ---------------------------------------------------------------------------
+
+def _fmt(v: float) -> str:
+    """Fixed 9-decimal coordinate with negative-zero normalized (the meshToken
+    convention — the shared canonical encoding for sorting/dedup/keys)."""
+    r = round(v, 9) + 0.0
+    return f"{r:.9f}"
+
+
+def _encode_points(points: List[List[float]]) -> str:
+    return ";".join(",".join(_fmt(c) for c in p) for p in points)
+
+
+def _validate_section_plane(request: Dict[str, Any]) -> Tuple[List[float], List[float]]:
+    plane = request.get("plane")
+    if not isinstance(plane, dict):
+        raise MalformedInput("section requires a plane {origin, normal}")
+    origin = _optional_vec3(plane.get("origin"), "plane.origin")
+    normal = _optional_vec3(plane.get("normal"), "plane.normal")
+    length = math.sqrt(sum(n * n for n in normal))
+    if length <= 1e-12:
+        raise MalformedInput("plane.normal must be a non-null vector")
+    if abs(length - 1.0) > 1e-9:
+        raise MalformedInput(
+            f"plane.normal must be unit length (got {length!r}); the caller normalizes explicitly")
+    return origin, normal
+
+
+def _handle_section(request: Dict[str, Any]) -> None:
+    """The section op: plane ∩ result-shape intersection curves via
+    BRepAlgoAPI_Section. Each result edge is sampled to a deterministic
+    polyline (straight edges are exact 2-point segments); polylines are
+    deduplicated + canonically sorted before the response (explorer order
+    never reaches the boundary). Empty polylines = the plane misses the
+    solid (a legal exact result)."""
+    from OCP.BRepAlgoAPI import BRepAlgoAPI_Section
+    from OCP.gp import gp_Pln, gp_Pnt, gp_Dir
+    from OCP.TopExp import TopExp_Explorer
+    from OCP.TopAbs import TopAbs_EDGE
+    from OCP.TopoDS import TopoDS
+    from OCP.BRepAdaptor import BRepAdaptor_Curve
+    from OCP.GCPnts import GCPnts_QuasiUniformDeflection
+    from OCP.GeomAbs import GeomAbs_CurveType
+
+    _ensure_ocp()
+    origin, normal = _validate_section_plane(request)
+    recipe, result_id, _, _ = _validate_recipe(request)
+    shapes = _build_shapes(recipe)
+    shape = shapes[result_id]
+
+    plane = gp_Pln(gp_Pnt(origin[0], origin[1], origin[2]),
+                   gp_Dir(normal[0], normal[1], normal[2]))
+    section = BRepAlgoAPI_Section(shape, plane, True)
+    section.Build()
+    if not section.IsDone():
+        raise MalformedInput("the section operation did not complete")
+
+    polylines: List[Tuple[str, List[float]]] = []
+    total_points = 0
+    explorer = TopExp_Explorer(section.Shape(), TopAbs_EDGE)
+    while explorer.More():
+        edge = TopoDS.Edge_s(explorer.Current())
+        adaptor = BRepAdaptor_Curve(edge)
+        curve_type = adaptor.GetType()
+        points: List[List[float]] = []
+        if curve_type == GeomAbs_CurveType.GeomAbs_Line:
+            # Straight intersection edges: the exact 2-point segment.
+            first = adaptor.Value(adaptor.FirstParameter())
+            last = adaptor.Value(adaptor.LastParameter())
+            points = [[first.X(), first.Y(), first.Z()], [last.X(), last.Y(), last.Z()]]
+        else:
+            # Curved intersection edges: deterministic polyline sampling.
+            sampler = GCPnts_QuasiUniformDeflection(adaptor, SECTION_DEFLECTION)
+            for i in range(1, sampler.NbPoints() + 1):
+                p = sampler.Value(i)
+                points.append([p.X(), p.Y(), p.Z()])
+        # Drop consecutive duplicates (fixed-precision equality).
+        deduped: List[List[float]] = []
+        for p in points:
+            if not deduped or _encode_points([deduped[-1]]) != _encode_points([p]):
+                deduped.append([round(c, 9) + 0.0 for c in p])
+        if len(deduped) >= 2:
+            total_points += len(deduped)
+            if total_points > SECTION_MAX_POINTS:
+                raise MalformedInput(
+                    f"section output exceeds the {SECTION_MAX_POINTS}-point bound")
+            polylines.append((_encode_points(deduped),
+                              [c for p in deduped for c in p]))
+        explorer.Next()
+
+    # Deduplicate identical polylines + canonical sort (encoding order).
+    seen: set = set()
+    unique = []
+    for key, flat in polylines:
+        if key not in seen:
+            seen.add(key)
+            unique.append((key, flat))
+    unique.sort(key=lambda entry: entry[0])
+
+    response = {
+        "ok": True,
+        "engine": "occt",
+        "engineVersion": _engine_version(),
+        "polylines": [{"points": flat} for _, flat in unique],
+    }
+    sys.stdout.write(json.dumps(response, separators=(",", ":"), sort_keys=True) + "\n")
+    sys.stdout.flush()
+
+
+_SURFACE_TYPE_NAMES = {
+    0: "plane", 1: "cylinder", 2: "cone", 3: "sphere", 4: "torus",
+    5: "bezier", 6: "bspline", 7: "revolution", 8: "extrusion",
+    9: "offset", 10: "other",
+}
+
+_CURVE_TYPE_NAMES = {
+    0: "line", 1: "circle", 2: "ellipse", 3: "hyperbola", 4: "parabola",
+    5: "bezier", 6: "bspline", 7: "offset", 8: "other",
+}
+
+
+def _handle_topology(request: Dict[str, Any]) -> None:
+    """The topology op: the face/edge/vertex inventory of the result shape.
+
+    Faces carry their OWN triangulation (world-space), surface type, area and
+    centroid; edges carry curve type, a sampled polyline and the exact curve
+    length; vertices carry their point. Every entity gets a deterministic
+    engine key (sha256 over its canonical encoding — provenance only; the
+    shared core assigns canonical identity). Faces/edges/vertices are
+    deduplicated (identical geometry) and canonically sorted; counts are
+    bounded."""
+    from OCP.BRepMesh import BRepMesh_IncrementalMesh
+    from OCP.TopExp import TopExp_Explorer
+    from OCP.TopAbs import TopAbs_FACE, TopAbs_EDGE, TopAbs_VERTEX
+    from OCP.BRep import BRep_Tool
+    from OCP.TopLoc import TopLoc_Location
+    from OCP.TopoDS import TopoDS
+    from OCP.BRepAdaptor import BRepAdaptor_Surface, BRepAdaptor_Curve
+    from OCP.GCPnts import GCPnts_QuasiUniformDeflection, GCPnts_AbscissaPoint
+    from OCP.GProp import GProp_GProps
+    from OCP.BRepGProp import BRepGProp
+
+    _ensure_ocp()
+    recipe, result_id, _, _ = _validate_recipe(request)
+    shapes = _build_shapes(recipe)
+    shape = shapes[result_id]
+
+    BRepMesh_IncrementalMesh(shape, DEFAULT_LINEAR_DEFLECTION, False,
+                             DEFAULT_ANGULAR_DEFLECTION, True)
+
+    faces: List[Tuple[str, Dict[str, Any]]] = []
+    explorer = TopExp_Explorer(shape, TopAbs_FACE)
+    location = TopLoc_Location()
+    while explorer.More():
+        face = TopoDS.Face_s(explorer.Current())
+        adaptor = BRepAdaptor_Surface(face)
+        surface_type = _SURFACE_TYPE_NAMES.get(int(adaptor.GetType()), "other")
+        props = GProp_GProps()
+        BRepGProp.SurfaceProperties_s(face, props)
+        area = round(props.Mass(), 9) + 0.0
+        centre = props.CentreOfMass()
+        centroid = [round(centre.X(), 9) + 0.0, round(centre.Y(), 9) + 0.0,
+                    round(centre.Z(), 9) + 0.0]
+        triangulation = BRep_Tool.Triangulation_s(face, location)
+        if triangulation is not None:
+            verts: List[float] = []
+            tris: List[int] = []
+            trsf = None if location.IsIdentity() else location.Transformation()
+            for i in range(1, triangulation.NbNodes() + 1):
+                point = triangulation.Node(i)
+                if trsf is not None:
+                    point = point.Transformed(trsf)
+                verts.extend([round(point.X(), 9) + 0.0,
+                              round(point.Y(), 9) + 0.0,
+                              round(point.Z(), 9) + 0.0])
+            for i in range(1, triangulation.NbTriangles() + 1):
+                a, b, c = triangulation.Triangle(i).Get()
+                tris.extend([a - 1, b - 1, c - 1])
+            if verts and tris:
+                verts_encoding = ";".join(
+                    ",".join(_fmt(verts[i + k]) for k in range(3))
+                    for i in range(0, len(verts), 3))
+                tris_encoding = ";".join(
+                    ",".join(str(t) for t in tris[i:i + 3])
+                    for i in range(0, len(tris), 3))
+                key_material = (f"{surface_type}|{verts_encoding}|{tris_encoding}"
+                                f"|{_fmt(area)}|{','.join(_fmt(c) for c in centroid)}")
+                engine_key = "occt-f:" + hashlib.sha256(
+                    key_material.encode("utf-8")).hexdigest()
+                faces.append((key_material, {
+                    "surfaceType": surface_type,
+                    "vertices": verts,
+                    "indices": tris,
+                    "area": area,
+                    "centroid": centroid,
+                    "engineKey": engine_key,
+                }))
+        explorer.Next()
+
+    edges: List[Tuple[str, Dict[str, Any]]] = []
+    explorer = TopExp_Explorer(shape, TopAbs_EDGE)
+    while explorer.More():
+        edge = TopoDS.Edge_s(explorer.Current())
+        adaptor = BRepAdaptor_Curve(edge)
+        curve_type = _CURVE_TYPE_NAMES.get(int(adaptor.GetType()), "other")
+        sampler = GCPnts_QuasiUniformDeflection(adaptor, TOPOLOGY_DEFLECTION)
+        points: List[List[float]] = []
+        for i in range(1, sampler.NbPoints() + 1):
+            p = sampler.Value(i)
+            points.append([round(p.X(), 9) + 0.0, round(p.Y(), 9) + 0.0,
+                           round(p.Z(), 9) + 0.0])
+        if len(points) >= 2:
+            length = round(GCPnts_AbscissaPoint.Length_s(adaptor), 9) + 0.0
+            points_encoding = _encode_points(points)
+            key_material = f"{curve_type}|{points_encoding}|{_fmt(length)}"
+            engine_key = "occt-e:" + hashlib.sha256(key_material.encode("utf-8")).hexdigest()
+            edges.append((key_material, {
+                "curveType": curve_type,
+                "points": [c for p in points for c in p],
+                "length": length,
+                "engineKey": engine_key,
+            }))
+        explorer.Next()
+
+    vertices: List[Tuple[str, Dict[str, Any]]] = []
+    explorer = TopExp_Explorer(shape, TopAbs_VERTEX)
+    while explorer.More():
+        vertex = TopoDS.Vertex_s(explorer.Current())
+        point = BRep_Tool.Pnt_s(vertex)
+        p = [round(point.X(), 9) + 0.0, round(point.Y(), 9) + 0.0,
+             round(point.Z(), 9) + 0.0]
+        key_material = ",".join(_fmt(c) for c in p)
+        engine_key = "occt-v:" + hashlib.sha256(key_material.encode("utf-8")).hexdigest()
+        vertices.append((key_material, {
+            "point": p,
+            "engineKey": engine_key,
+        }))
+        explorer.Next()
+
+    # Deduplicate by canonical geometry (identical geometry from split
+    # sub-shapes collapses to one entity) + canonical sort + bounds.
+    def dedupe_sort(entries: List[Tuple[str, Dict[str, Any]]],
+                    bound: int, what: str) -> List[Dict[str, Any]]:
+        seen: set = set()
+        unique: List[Tuple[str, Dict[str, Any]]] = []
+        for key, value in entries:
+            if key not in seen:
+                seen.add(key)
+                unique.append((key, value))
+        if len(unique) > bound:
+            raise MalformedInput(
+                f"topology exceeds the {bound}-{what} bound ({len(unique)})")
+        unique.sort(key=lambda entry: entry[0])
+        return [value for _, value in unique]
+
+    face_values = dedupe_sort(faces, MAX_TOPOLOGY_FACES, "face")
+    edge_values = dedupe_sort(edges, MAX_TOPOLOGY_EDGES, "edge")
+    vertex_values = dedupe_sort(vertices, MAX_TOPOLOGY_VERTICES, "vertex")
+
+    response = {
+        "ok": True,
+        "engine": "occt",
+        "engineVersion": _engine_version(),
+        "faces": face_values,
+        "edges": edge_values,
+        "vertices": vertex_values,
+    }
+    sys.stdout.write(json.dumps(response, separators=(",", ":"), sort_keys=True) + "\n")
+    sys.stdout.flush()
+
+
 def main() -> None:
     try:
         request = json.loads(sys.stdin.read())
@@ -414,12 +763,18 @@ def main() -> None:
     if op == "ping":
         _handle_ping()
         return
-    if op != "prepare":
-        _fail("engine_malformed_input", f"unsupported op {op!r} (expected 'prepare' or 'ping')")
+    if op != "prepare" and op != "section" and op != "topology":
+        _fail("engine_malformed_input", f"unsupported op {op!r} (expected 'prepare', 'section', 'topology' or 'ping')")
         return
 
     try:
         _ensure_ocp()
+        if op == "section":
+            _handle_section(request)
+            return
+        if op == "topology":
+            _handle_topology(request)
+            return
         recipe, result_id, linear, angular = _validate_recipe(request)
         shapes = _build_shapes(recipe)
         shape = shapes[result_id]
@@ -442,6 +797,10 @@ def main() -> None:
         sys.stdout.flush()
     except MalformedInput as exc:
         _fail("engine_malformed_input", str(exc))
+    except EmptyResult as exc:
+        _fail("engine_empty_result", str(exc))
+    except NonManifoldResult as exc:
+        _fail("engine_non_manifold", str(exc))
     except Exception as exc:  # noqa: BLE001 — any other engine failure is typed
         _fail("engine_error", f"{type(exc).__name__}: {exc}")
 

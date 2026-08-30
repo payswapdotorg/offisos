@@ -153,10 +153,11 @@ function pointsEqual(a: Vec3, b: Vec3, eps: number): boolean {
   return Math.abs(a[0] - b[0]) <= eps && Math.abs(a[1] - b[1]) <= eps && Math.abs(a[2] - b[2]) <= eps;
 }
 
-/** Canonicalize ONE closed loop: rotate to start at the lexicographically
- *  smallest encoded vertex and orient it so the signed area in the plane
- *  basis (u, v) is non-negative. Two engines producing the same loop with
- *  opposite curve directions canonicalize IDENTICALLY. */
+/** Canonicalize ONE closed loop: rotate to start at the smallest ENCODED
+ *  vertex (a deterministic total order on distinct points) and orient it so
+ *  the signed area in the plane basis (u, v) is non-negative. Two engines
+ *  producing the same loop with opposite curve directions canonicalize
+ *  IDENTICALLY. */
 export function canonicalizeLoop(loop: readonly Vec3[], u: Vec3, v: Vec3): readonly Vec3[] {
   if (loop.length < 3) return loop;
   // Drop a closing duplicate last vertex (engines may repeat the start).
@@ -256,7 +257,9 @@ export function chainSectionPolylines(
           break;
         }
         if (pointsEqual(tail, cTail, SECTION_CHAIN_EPS)) {
-          current.push(...[...candidate.slice(1)].reverse());
+          // Append the REVERSED candidate minus its (reversed-first) tail —
+          // the tail is already the current chain's last point.
+          current.push(...[...candidate].reverse().slice(1));
           open.splice(i, 1);
           extended = true;
           break;
@@ -268,7 +271,9 @@ export function chainSectionPolylines(
           break;
         }
         if (pointsEqual(head, cHead, SECTION_CHAIN_EPS)) {
-          current.unshift(...[...candidate.slice(0, -1)].reverse());
+          // Prepend the REVERSED candidate minus its (reversed-last) head —
+          // the head is already the current chain's first point.
+          current.unshift(...[...candidate].reverse().slice(0, -1));
           open.splice(i, 1);
           extended = true;
           break;

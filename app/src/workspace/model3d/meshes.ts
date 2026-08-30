@@ -25,18 +25,15 @@
  */
 
 import type { MeshQualityKnobs, MeshQualityPreset } from "../../contracts/geometry.js";
+import { MESH_QUALITY_PRESETS as CONTRACT_PRESETS, meshQualityKnobs as contractKnobs } from "../../contracts/geometry.js";
 
 /** The element props type tag of the mesh entity. */
 export const MESH_ENTITY_TYPE = "model3d.mesh";
 
-/** The closed quality-preset vocabulary (progressive delivery LODs). `full`
- *  matches the worker's default prepare tessellation (0.1 / 0.5) so the full
- *  preset is exactly the prepare-time mesh. */
-export const MESH_QUALITY_PRESETS: Readonly<Record<MeshQualityPreset, MeshQualityKnobs>> = {
-  low: { linearDeflection: 0.8, angularDeflection: 0.9 },
-  medium: { linearDeflection: 0.4, angularDeflection: 0.7 },
-  full: { linearDeflection: 0.1, angularDeflection: 0.5 },
-};
+/** The closed quality-preset vocabulary (progressive delivery LODs) — the
+ *  contract-layer table re-exported (both sides resolve the same presets).
+ *  `full` matches the worker's default prepare tessellation (0.1 / 0.5). */
+export const MESH_QUALITY_PRESETS = CONTRACT_PRESETS;
 
 /** The canonical preset order (echo/validation surfaces). */
 export const MESH_QUALITY_PRESET_NAMES: readonly MeshQualityPreset[] = ["low", "medium", "full"];
@@ -47,9 +44,9 @@ export function parseMeshQuality(value: string): MeshQualityPreset | null {
   return null;
 }
 
-/** Resolve a preset to its concrete knobs. */
+/** Resolve a preset to its concrete knobs (the contract-layer resolution). */
 export function meshQualityKnobs(quality: MeshQualityPreset): MeshQualityKnobs {
-  return MESH_QUALITY_PRESETS[quality];
+  return contractKnobs(quality);
 }
 
 /** The bounded mesh-entity payload sizes (typed declines beyond — never an

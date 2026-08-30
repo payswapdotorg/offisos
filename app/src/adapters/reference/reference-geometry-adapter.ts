@@ -69,8 +69,23 @@ import {
   AdapterFailure,
   isGeometryMetadataProvider,
   isMeshProvider,
+  isQualityMeshProvider,
+  isSectionProvider,
+  isTopologyProvider,
 } from "../../contracts/geometry.js";
-import type { GeometryMetadata, Matrix4, MeshData } from "../../contracts/geometry.js";
+import type {
+  GeometryDescriptor,
+  GeometryMetadata,
+  Matrix4,
+  MeshData,
+  MeshQualityPreset,
+  SectionGeometry,
+  SectionPlaneSpec,
+  TopologyGeometry,
+  TopoEdgeGeometry,
+  TopoFaceGeometry,
+  TopoVertexGeometry,
+} from "../../contracts/geometry.js";
 import { canonicalStringify } from "../../caddocument/serialization.js";
 
 export const REFERENCE_ENGINE_ID = "reference";
@@ -328,7 +343,8 @@ function validateDescriptor(descriptor: unknown, depth = 0): void {
       return;
     }
     case "fuse":
-    case "cut": {
+    case "cut":
+    case "intersect": {
       validateDescriptor(d.a, depth + 1);
       validateDescriptor(d.b, depth + 1);
       return;
@@ -336,7 +352,7 @@ function validateDescriptor(descriptor: unknown, depth = 0): void {
     default:
       throw new AdapterFailure(
         "engine_malformed_input",
-        `geometry.shape must be one of box/cylinder/extrude/transform/fuse/cut, got ${JSON.stringify(d.shape)}`,
+        `geometry.shape must be one of box/cylinder/extrude/transform/fuse/cut/intersect, got ${JSON.stringify(d.shape)}`,
         false,
       );
   }
@@ -783,14 +799,45 @@ function evalDescriptor(descriptor: unknown, state: EvalState): Solid {
         surviving = next;
       }
       if (surviving.length === 0) {
-        decline("cut removes all material (empty result)");
+        // CAD-PARITY-010: the typed empty-boolean outcome (the SAME code the
+        // OCCT worker reports — consistent cross-engine boolean semantics).
+        throw new AdapterFailure(
+          "engine_empty_result",
+          "reference adapter: the cut removes all material (empty result)",
+          false,
+        );
       }
       return solidOf([{ kind: "cells", cells: surviving }]);
+    }
+    case "intersect": {
+      // CAD-PARITY-010: exact cell ∩ cell intersection (the third boolean).
+      const a = evalDescriptor(d.a, state);
+      const b = evalDescriptor(d.b, state);
+      const cellsA = asCellSet(a);
+      const cellsB = asCellSet(b);
+      if (cellsA === null || cellsB === null) {
+        decline("intersect requires both operands to be axis-aligned box combinations (cells)");
+      }
+      const out: Cell[] = [];
+      for (const ca of cellsA) {
+        for (const cb of cellsB) {
+          const inter = intersectCells(ca, cb);
+          if (inter !== null) out.push(inter);
+        }
+      }
+      if (out.length === 0) {
+        throw new AdapterFailure(
+          "engine_empty_result",
+          "reference adapter: the intersection annihilates all material (no overlap)",
+          false,
+        );
+      }
+      return solidOf([{ kind: "cells", cells: out }]);
     }
     default:
       throw new AdapterFailure(
         "engine_malformed_input",
-        `geometry.shape must be one of box/cylinder/extrude/transform/fuse/cut, got ${JSON.stringify(d.shape)}`,
+        `geometry.shape must be one of box/cylinder/extrude/transform/fuse/cut/intersect, got ${JSON.stringify(d.shape)}`,
         false,
       );
   }
@@ -909,6 +956,200 @@ function transformSolid(solid: Solid, m: Matrix4): Solid {
 }
 
 // ---------------------------------------------------------------------------
+// CAD-PARITY-010 (Issue #93): exact sections, cell topology and quality
+// meshes — the reference engine's INDEPENDENT implementations (the exactness
+// classes are the axis-aligned cell class; everything else declines TYPED).
+// ---------------------------------------------------------------------------
+
+/** The exact plane ∩ cell intersection polygon (an INDEPENDENT analytic
+ *  implementation — the reference engine never imports the shared core; the
+ *  parity suites verify agreement with OCCT's BRepAlgoAPI_Section). Returns
+ *  the convex polygon vertices ordered around the centroid by angle in a
+ *  fixed in-plane basis, or [] when the plane misses the cell. */
+function sectionCell(origin: V3, normal: V3, cell: Cell): V3[] {
+  // The 12 cell edges (canonical order).
+  const [x0, y0, z0] = cell.min;
+  const [x1, y1, z1] = cell.max;
+  const corners: V3[] = [
+    [x0!, y0!, z0!], [x1!, y0!, z0!], [x1!, y1!, z0!], [x0!, y1!, z0!],
+    [x0!, y0!, z1!], [x1!, y0!, z1!], [x1!, y1!, z1!], [x0!, y1!, z1!],
+  ];
+  const edgeIndices: readonly [number, number][] = [
+    [0, 1], [1, 2], [2, 3], [3, 0],
+    [4, 5], [5, 6], [6, 7], [7, 4],
+    [0, 4], [1, 5], [2, 6], [3, 7],
+  ];
+  const crossings: V3[] = [];
+  for (const [ia, ib] of edgeIndices) {
+    const a = corners[ia]!;
+    const b = corners[ib]!;
+    const da = (a[0]! - origin[0]!) * normal[0]! + (a[1]! - origin[1]!) * normal[1]! + (a[2]! - origin[2]!) * normal[2]!;
+    const db = (b[0]! - origin[0]!) * normal[0]! + (b[1]! - origin[1]!) * normal[1]! + (b[2]! - origin[2]!) * normal[2]!;
+    if ((da > 0 && db > 0) || (da < 0 && db < 0)) continue;
+    if (da === 0 && db === 0) continue;
+    const denom = da - db;
+    if (denom === 0) continue;
+    const t = da / denom;
+    if (t < 0 || t > 1) continue;
+    crossings.push([
+      a[0]! + (b[0]! - a[0]!) * t,
+      a[1]! + (b[1]! - a[1]!) * t,
+      a[2]! + (b[2]! - a[2]!) * t,
+    ]);
+  }
+  // Deduplicate (1e-9, arrival order).
+  const unique: V3[] = [];
+  for (const p of crossings) {
+    let dup = false;
+    for (const q of unique) {
+      if (Math.abs(p[0]! - q[0]!) < 1e-9 && Math.abs(p[1]! - q[1]!) < 1e-9 && Math.abs(p[2]! - q[2]!) < 1e-9) {
+        dup = true;
+        break;
+      }
+    }
+    if (!dup) unique.push(p);
+  }
+  if (unique.length < 3) return [];
+  // Fixed in-plane basis: u = a world axis ⊥ normal (x preferred); v = n × u.
+  let u: V3 | null = null;
+  for (const axis of [[1, 0, 0], [0, 1, 0], [0, 0, 1]] as const) {
+    const cross: V3 = [
+      normal[1]! * axis[2] - normal[2]! * axis[1],
+      normal[2]! * axis[0] - normal[0]! * axis[2],
+      normal[0]! * axis[1] - normal[1]! * axis[0],
+    ];
+    const len = Math.sqrt(cross[0]! ** 2 + cross[1]! ** 2 + cross[2]! ** 2);
+    if (len > 1e-9) {
+      u = [cross[0]! / len, cross[1]! / len, cross[2]! / len];
+      break;
+    }
+  }
+  if (u === null) return [];
+  const v: V3 = [
+    normal[1]! * u[2]! - normal[2]! * u[1]!,
+    normal[2]! * u[0]! - normal[0]! * u[2]!,
+    normal[0]! * u[1]! - normal[1]! * u[0]!,
+  ];
+  const centroid: V3 = [
+    unique.reduce((s, p) => s + p[0]!, 0) / unique.length,
+    unique.reduce((s, p) => s + p[1]!, 0) / unique.length,
+    unique.reduce((s, p) => s + p[2]!, 0) / unique.length,
+  ];
+  const withAngle = unique.map((p, index) => {
+    const dx = p[0]! - centroid[0]!;
+    const dy = p[1]! - centroid[1]!;
+    const dz = p[2]! - centroid[2]!;
+    return {
+      p,
+      index,
+      angle: Math.atan2(dx * v[0]! + dy * v[1]! + dz * v[2]!, dx * u[0]! + dy * u[1]! + dz * u[2]!),
+    };
+  });
+  withAngle.sort((a, b) => (a.angle === b.angle ? a.index - b.index : a.angle - b.angle));
+  return withAngle.map((w) => w.p);
+}
+
+/** The canonical fixed-precision encoding for reference topology keys. */
+function refCoord(n: number): string {
+  const r = Math.round(n * 1e9) / 1e9;
+  return (r === 0 ? 0 : r).toFixed(9);
+}
+
+function refEngineKey(kind: "f" | "e" | "v", material: string): string {
+  return `ref-${kind}:` + createHash("sha256").update(material).digest("hex");
+}
+
+/** Extract the exact cell topology: per cell 6 rectangle faces (4 verts, 2
+ *  triangles, exact area/centroid), 12 line edges (exact length), 8
+ *  vertices. Identical geometry across cells is deduplicated (first wins);
+ *  the lists are canonically sorted by their encodings. Cells only —
+ *  cylinders/polyhedra/prisms DECLINE (typed; deriving BRep topology from an
+ *  analytic tessellation would be a fabrication). */
+function topologyOfCells(cells: readonly Cell[]): {
+  readonly faces: readonly TopoFaceGeometry[];
+  readonly edges: readonly TopoEdgeGeometry[];
+  readonly vertices: readonly TopoVertexGeometry[];
+} {
+  const faces = new Map<string, TopoFaceGeometry>();
+  const edges = new Map<string, TopoEdgeGeometry>();
+  const vertices = new Map<string, TopoVertexGeometry>();
+  for (const cell of cells) {
+    const [x0, y0, z0] = cell.min;
+    const [x1, y1, z1] = cell.max;
+    // The 6 axis faces (canonical corner order, split [0,1,2 / 0,2,3]).
+    const rects: readonly { readonly pts: readonly V3[]; readonly area: number }[] = [
+      { pts: [[x0!, y0!, z0!], [x0!, y1!, z0!], [x0!, y1!, z1!], [x0!, y0!, z1!]], area: (y1! - y0!) * (z1! - z0!) },
+      { pts: [[x1!, y0!, z0!], [x1!, y1!, z0!], [x1!, y1!, z1!], [x1!, y0!, z1!]], area: (y1! - y0!) * (z1! - z0!) },
+      { pts: [[x0!, y0!, z0!], [x1!, y0!, z0!], [x1!, y0!, z1!], [x0!, y0!, z1!]], area: (x1! - x0!) * (z1! - z0!) },
+      { pts: [[x0!, y1!, z0!], [x1!, y1!, z0!], [x1!, y1!, z1!], [x0!, y1!, z1!]], area: (x1! - x0!) * (z1! - z0!) },
+      { pts: [[x0!, y0!, z0!], [x1!, y0!, z0!], [x1!, y1!, z0!], [x0!, y1!, z0!]], area: (x1! - x0!) * (y1! - y0!) },
+      { pts: [[x0!, y0!, z1!], [x1!, y0!, z1!], [x1!, y1!, z1!], [x0!, y1!, z1!]], area: (x1! - x0!) * (y1! - y0!) },
+    ];
+    for (const rect of rects) {
+      const verts: number[] = [];
+      for (const p of rect.pts) verts.push(p[0]!, p[1]!, p[2]!);
+      const centroid: V3 = [
+        (rect.pts[0]![0]! + rect.pts[2]![0]!) / 2,
+        (rect.pts[0]![1]! + rect.pts[2]![1]!) / 2,
+        (rect.pts[0]![2]! + rect.pts[2]![2]!) / 2,
+      ];
+      const encoding = `plane|${verts.map(refCoord).join(",")}|${refCoord(rect.area)}|${centroid.map(refCoord).join(",")}`;
+      if (!faces.has(encoding)) {
+        faces.set(encoding, {
+          surfaceType: "plane",
+          vertices: verts,
+          indices: [0, 1, 2, 0, 2, 3],
+          area: rect.area,
+          centroid,
+          engineKey: refEngineKey("f", encoding),
+        });
+      }
+    }
+    // The 12 cell edges.
+    const edgePairs: readonly [V3, V3][] = [
+      [[x0!, y0!, z0!], [x1!, y0!, z0!]], [[x1!, y0!, z0!], [x1!, y1!, z0!]],
+      [[x1!, y1!, z0!], [x0!, y1!, z0!]], [[x0!, y1!, z0!], [x0!, y0!, z0!]],
+      [[x0!, y0!, z1!], [x1!, y0!, z1!]], [[x1!, y0!, z1!], [x1!, y1!, z1!]],
+      [[x1!, y1!, z1!], [x0!, y1!, z1!]], [[x0!, y1!, z1!], [x0!, y0!, z1!]],
+      [[x0!, y0!, z0!], [x0!, y0!, z1!]], [[x1!, y0!, z0!], [x1!, y0!, z1!]],
+      [[x1!, y1!, z0!], [x1!, y1!, z1!]], [[x0!, y1!, z0!], [x0!, y1!, z1!]],
+    ];
+    for (const [a, b] of edgePairs) {
+      const length = Math.sqrt((b[0]! - a[0]!) ** 2 + (b[1]! - a[1]!) ** 2 + (b[2]! - a[2]!) ** 2);
+      const encoding = `line|${a.map(refCoord).join(",")};${b.map(refCoord).join(",")}|${refCoord(length)}`;
+      if (!edges.has(encoding)) {
+        edges.set(encoding, {
+          curveType: "line",
+          points: [a[0]!, a[1]!, a[2]!, b[0]!, b[1]!, b[2]!],
+          length,
+          engineKey: refEngineKey("e", encoding),
+        });
+      }
+    }
+    // The 8 cell vertices.
+    for (const p of [
+      [x0!, y0!, z0!], [x1!, y0!, z0!], [x1!, y1!, z0!], [x0!, y1!, z0!],
+      [x0!, y0!, z1!], [x1!, y0!, z1!], [x1!, y1!, z1!], [x0!, y1!, z1!],
+    ] as const) {
+      const encoding = p.map(refCoord).join(",");
+      if (!vertices.has(encoding)) {
+        vertices.set(encoding, {
+          point: [p[0]!, p[1]!, p[2]!],
+          engineKey: refEngineKey("v", encoding),
+        });
+      }
+    }
+  }
+  const sortEntries = <T>(map: Map<string, T>): readonly T[] =>
+    [...map.entries()].sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0)).map(([, v]) => v);
+  return {
+    faces: sortEntries(faces),
+    edges: sortEntries(edges),
+    vertices: sortEntries(vertices),
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Adapter
 // ---------------------------------------------------------------------------
 
@@ -936,10 +1177,23 @@ function meshTokenOf(mesh: MeshData): string {
  * Create the reference geometry adapter — the second, engine-free
  * implementation of the frozen `GeometryEngineAdapter` contract. Pure
  * in-process analytic evaluation: no subprocess, no native dependency.
+ *
+ * CAD-PARITY-010 capabilities (exactness classes documented above): exact
+ * cell-class sections (SectionProvider), exact cell-class topology
+ * (TopologyProvider) and quality-independent analytic meshes
+ * (QualityMeshProvider — the reference mesh is analytic, so the LOD presets
+ * return the SAME mesh; deflection-driven engines like OCCT produce
+ * per-preset meshes — both behaviors are honest and deterministic).
  */
 export function createReferenceGeometryAdapter(): GeometryEngineAdapter & {
   describeMesh(meshToken: string): Promise<MeshData | null>;
   describeGeometryMetadata(meshToken: string): Promise<GeometryMetadata | null>;
+  computeSection(descriptor: GeometryDescriptor, plane: SectionPlaneSpec): Promise<SectionGeometry>;
+  describeTopology(descriptor: GeometryDescriptor): Promise<TopologyGeometry>;
+  prepareMeshAtQuality(
+    descriptor: GeometryDescriptor,
+    quality: MeshQualityPreset,
+  ): Promise<{ readonly mesh: MeshData; readonly metadata: GeometryMetadata; readonly meshToken: string }>;
 } {
   const cache = new Map<string, CacheEntry>();
 
@@ -956,6 +1210,26 @@ export function createReferenceGeometryAdapter(): GeometryEngineAdapter & {
       const oldest = cache.keys().next().value;
       if (oldest !== undefined) cache.delete(oldest);
     }
+  }
+
+  function requireUnitPlane(plane: SectionPlaneSpec): void {
+    if (!plane.origin.every((n) => typeof n === "number" && Number.isFinite(n))) {
+      throw new AdapterFailure("engine_malformed_input", "section plane origin must be a finite 3-vector", false);
+    }
+    const len = Math.sqrt(plane.normal[0] ** 2 + plane.normal[1] ** 2 + plane.normal[2] ** 2);
+    if (!Number.isFinite(len) || Math.abs(len - 1) > 1e-9) {
+      throw new AdapterFailure("engine_malformed_input", "section plane normal must be unit length (the caller normalizes explicitly)", false);
+    }
+  }
+
+  function cellsOfDescriptor(descriptor: unknown): readonly Cell[] {
+    validateDescriptor(descriptor);
+    const solid = evalDescriptor(descriptor, { nodes: 0 });
+    const cells = asCellSet(solid);
+    if (cells === null) {
+      decline("exact sections and topology require axis-aligned box combinations (cells)");
+    }
+    return cells;
   }
 
   const adapter = {
@@ -978,9 +1252,61 @@ export function createReferenceGeometryAdapter(): GeometryEngineAdapter & {
     async describeGeometryMetadata(meshToken: string): Promise<GeometryMetadata | null> {
       return cache.get(meshToken)?.metadata ?? null;
     },
+
+    async computeSection(descriptor: GeometryDescriptor, plane: SectionPlaneSpec): Promise<SectionGeometry> {
+      requireUnitPlane(plane);
+      const cells = cellsOfDescriptor(descriptor);
+      const polylines: { readonly points: readonly number[] }[] = [];
+      for (const cell of cells) {
+        const polygon = sectionCell(plane.origin as V3, plane.normal as V3, cell);
+        if (polygon.length >= 3) {
+          // Closed polyline (the first point repeated last) — the shared core
+          // chains/canonicalizes identically to OCCT's per-edge output.
+          const pts = [...polygon, polygon[0]!];
+          polylines.push({ points: pts.flatMap((p) => [p[0]!, p[1]!, p[2]!]) });
+        }
+      }
+      return {
+        polylines,
+        engine: { engineId: REFERENCE_ENGINE_ID, engineVersion: REFERENCE_ENGINE_VERSION },
+      };
+    },
+
+    async describeTopology(descriptor: GeometryDescriptor): Promise<TopologyGeometry> {
+      const cells = cellsOfDescriptor(descriptor);
+      const { faces, edges, vertices } = topologyOfCells(cells);
+      return {
+        faces,
+        edges,
+        vertices,
+        engine: { engineId: REFERENCE_ENGINE_ID, engineVersion: REFERENCE_ENGINE_VERSION },
+      };
+    },
+
+    async prepareMeshAtQuality(
+      descriptor: GeometryDescriptor,
+      quality: MeshQualityPreset,
+    ): Promise<{ readonly mesh: MeshData; readonly metadata: GeometryMetadata; readonly meshToken: string }> {
+      validateDescriptor(descriptor);
+      const solid = evalDescriptor(descriptor, { nodes: 0 });
+      const meshToken = meshTokenOf(solid.mesh);
+      remember(solid, meshToken);
+      return {
+        mesh: { vertices: [...solid.mesh.vertices], indices: [...solid.mesh.indices] },
+        metadata: {
+          volume: solid.volume,
+          vertices: solid.mesh.vertices.length / 3,
+          triangles: solid.mesh.indices.length / 3,
+        },
+        meshToken,
+      };
+    },
   };
 
-  if (!isMeshProvider(adapter) || !isGeometryMetadataProvider(adapter)) {
+  if (
+    !isMeshProvider(adapter) || !isGeometryMetadataProvider(adapter) ||
+    !isSectionProvider(adapter) || !isTopologyProvider(adapter) || !isQualityMeshProvider(adapter)
+  ) {
     throw new Error("reference adapter capability shape regression");
   }
   return adapter;
