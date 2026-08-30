@@ -78,6 +78,19 @@ function printSummary(checks: CheckResult[]): number {
   return failed > 0 ? 1 : 0;
 }
 
+/**
+ * Completes a command: sets the exit code and returns, letting the process
+ * exit naturally so pending stdio writes drain first. process.exit() here
+ * would truncate the tail of piped stdout — the Summary line is the LAST
+ * write, and on a loaded runner the final libuv write had not been flushed
+ * when exit fired (observed as CI run 33333571893 failing
+ * repo-integration's `CLI validate exits with the expected code` assertion
+ * with the exit code intact but no "Summary:" in stdout).
+ */
+function finish(code: number): void {
+  process.exitCode = code;
+}
+
 function usage(): never {
   console.error(
     [
@@ -130,7 +143,8 @@ function main(): void {
     writeFileSync(reportPath, `${JSON.stringify(report, null, 2)}\n`);
     console.log("");
     console.log(`Report artifact: ${reportPath}`);
-    process.exit(printSummary(report.checks));
+    finish(printSummary(report.checks));
+    return;
   }
 
   if (command === "check-protected") {
@@ -151,7 +165,8 @@ function main(): void {
         changedPaths = output.split("\n").filter((l) => l.trim().length > 0);
       } catch (error) {
         console.error(`Failed to run git diff against '${baseRef}': ${(error as Error).message}`);
-        process.exit(2);
+        finish(2);
+        return;
       }
     }
     const manifest = readJson<ProtectedPathsFile>(resolve(root, "governance", "protected-paths.json"));
@@ -225,7 +240,8 @@ function main(): void {
             },
           });
     printCheck(check);
-    process.exit(printSummary([check]));
+    finish(printSummary([check]));
+    return;
   }
 
   if (command === "check-verified-revisions") {
@@ -257,7 +273,8 @@ function main(): void {
     };
     const { check } = computeVerifiedRevisionAudit(records, git, base);
     printCheck(check);
-    process.exit(printSummary([check]));
+    finish(printSummary([check]));
+    return;
   }
 
   usage();
