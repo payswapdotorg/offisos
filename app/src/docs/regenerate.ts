@@ -366,6 +366,18 @@ export function deriveTagLabel(target: BimEntity, entitiesById: Map<string, BimE
     case "bim.grid":
     case "bim.referencePlane":
       return target.name;
+    // CAD-PARITY-011 (additive, Issue #97): the Archicad-class authoring
+    // entities — deterministic labels from the canonical properties.
+    case "bim.roof":
+      return target.name ?? target.id;
+    case "bim.stair":
+      return target.name ?? target.id;
+    case "bim.railing":
+      return target.name ?? target.id;
+    case "bim.zone":
+      return target.name;
+    case "bim.optionGroup":
+      return target.name;
   }
 }
 

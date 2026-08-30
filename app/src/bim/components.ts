@@ -50,6 +50,7 @@ import type { Element } from "../contracts/caddocument.js";
 import type { Vec2 } from "../contracts/geometry.js";
 import { assertVec2 } from "./elements.js";
 import { BIM_COINCIDENCE_EPS } from "./elements.js";
+import { validateBimMeta, type BimElementMeta } from "./meta.js";
 
 // --- Categories and parameter schemas ----------------------------------------
 
@@ -225,6 +226,8 @@ export interface ComponentDefEntity {
   readonly parameters: Readonly<Record<string, number>>;
   /** Default material association (must exist while referenced). */
   readonly materialId?: string;
+  /** CAD-PARITY-011: the cross-cutting semantic meta overlay. */
+  readonly meta?: BimElementMeta;
 }
 
 export interface ComponentInstanceEntity {
@@ -246,6 +249,8 @@ export interface ComponentInstanceEntity {
   /** Per-instance material association (overrides the definition default). */
   readonly materialId?: string;
   readonly name?: string;
+  /** CAD-PARITY-011: the cross-cutting semantic meta overlay. */
+  readonly meta?: BimElementMeta;
 }
 
 export interface MaterialEntity {
@@ -258,6 +263,8 @@ export interface MaterialEntity {
   readonly color?: readonly [number, number, number];
   /** Material properties (canonical domain data; bounded count). */
   readonly properties: Readonly<Record<string, string | number | boolean>>;
+  /** CAD-PARITY-011: the cross-cutting semantic meta overlay. */
+  readonly meta?: BimElementMeta;
 }
 
 export interface GridEntity {
@@ -271,6 +278,8 @@ export interface GridEntity {
   readonly uLines: readonly number[];
   /** Horizontal grid line Y offsets, story-local (mm), strictly ascending. */
   readonly vLines: readonly number[];
+  /** CAD-PARITY-011: the cross-cutting semantic meta overlay. */
+  readonly meta?: BimElementMeta;
 }
 
 export interface ReferencePlaneEntity {
@@ -282,9 +291,18 @@ export interface ReferencePlaneEntity {
   /** Plan trace of the vertical plane, story-local XY (mm). */
   readonly start: Vec2;
   readonly end: Vec2;
+  /** CAD-PARITY-011: the cross-cutting semantic meta overlay. */
+  readonly meta?: BimElementMeta;
 }
 
 // --- Strict constructors (deterministic; first failure wins) --------------------
+
+/** The validated meta overlay of a component-family entity input
+ *  (CAD-PARITY-011) — absent when the input carries no overlay. */
+function metaField(type: "bim.componentDef" | "bim.componentInstance" | "bim.material" | "bim.grid" | "bim.referencePlane", input: Record<string, unknown>, path: string): { meta?: BimElementMeta } {
+  const meta = validateBimMeta(type, input.meta, path);
+  return meta === undefined ? {} : { meta };
+}
 
 export function makeComponentDef(input: Record<string, unknown>): Omit<ComponentDefEntity, "id"> {
   const name = requireNonEmptyString(input.name, "componentDef.name");
@@ -296,9 +314,9 @@ export function makeComponentDef(input: Record<string, unknown>): Omit<Component
   }
   const parameters = validateComponentParameters(category, input.parameters, "componentDef.parameters");
   const materialId = input.materialId === undefined ? undefined : requireId(input.materialId, "componentDef.materialId");
-  return materialId === undefined
-    ? { type: "bim.componentDef", name, category, parameters }
-    : { type: "bim.componentDef", name, category, parameters, materialId };
+  const meta = metaField("bim.componentDef", input, "componentDef.meta");
+  const base: Omit<ComponentDefEntity, "id"> = { type: "bim.componentDef", name, category, parameters, ...meta };
+  return materialId === undefined ? base : { ...base, materialId };
 }
 
 export function makeComponentInstance(input: Record<string, unknown>): Omit<ComponentInstanceEntity, "id"> {
@@ -322,6 +340,7 @@ export function makeComponentInstance(input: Record<string, unknown>): Omit<Comp
     rotation,
     baseOffset,
     overrides,
+    ...metaField("bim.componentInstance", input, "componentInstance.meta"),
   };
   const withMaterial = materialId === undefined ? base : { ...base, materialId };
   return name === undefined ? withMaterial : { ...withMaterial, name };
@@ -357,7 +376,7 @@ export function makeMaterial(input: Record<string, unknown>): Omit<MaterialEntit
       throw new Error(`material.properties.${key} must be a string, finite number or boolean`);
     }
   }
-  const base: Omit<MaterialEntity, "id"> = { type: "bim.material", name, properties };
+  const base: Omit<MaterialEntity, "id"> = { type: "bim.material", name, properties, ...metaField("bim.material", input, "material.meta") };
   const withDescription = description === undefined ? base : { ...base, description };
   return color === undefined ? withDescription : { ...withDescription, color };
 }
@@ -367,7 +386,7 @@ export function makeGrid(input: Record<string, unknown>): Omit<GridEntity, "id">
   const name = requireNonEmptyString(input.name, "grid.name");
   const uLines = validateGridLines(input.uLines, "grid.uLines");
   const vLines = validateGridLines(input.vLines, "grid.vLines");
-  return { type: "bim.grid", storyId, name, uLines, vLines };
+  return { type: "bim.grid", storyId, name, uLines, vLines, ...metaField("bim.grid", input, "grid.meta") };
 }
 
 function validateGridLines(value: unknown, path: string): readonly number[] {
@@ -398,7 +417,7 @@ export function makeReferencePlane(input: Record<string, unknown>): Omit<Referen
   if (Math.sqrt(dx * dx + dy * dy) <= BIM_COINCIDENCE_EPS) {
     throw new Error("referencePlane.start and referencePlane.end must not coincide (a plane needs a trace)");
   }
-  return { type: "bim.referencePlane", storyId, name, start, end };
+  return { type: "bim.referencePlane", storyId, name, start, end, ...metaField("bim.referencePlane", input, "referencePlane.meta") };
 }
 
 // --- Effective parameters (the propagation model) -------------------------------

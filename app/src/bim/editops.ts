@@ -69,6 +69,15 @@ import {
   type ReferencePlaneEntity,
 } from "./components.js";
 import { wallFrame } from "./geometry.js";
+import {
+  assertEntityMetaReferences,
+  assertOptionMembership,
+  assertRoofStoryRelationship,
+  assertStairStoryRelationship,
+  assertStoryEditIntegrity,
+} from "./relationships.js";
+import { makeOptionGroup, makeRailing, makeRoof, makeStair, makeZone } from "./elements.js";
+import type { OptionGroupEntity, RailingEntity, RoofEntity, StairEntity, ZoneEntity } from "./elements.js";
 
 /** Result of an edit operation: an atomic batch, or an honest no-op. */
 export type BimEditOutcome =
@@ -127,6 +136,40 @@ function openingFills(map: ReadonlyMap<string, BimEntity>, openingId: string): B
   return list;
 }
 
+/** Railings hosted on a stair, deterministic order (side, then id) —
+ *  CAD-PARITY-011 (the stair→railing hosted cascade). */
+function stairRailings(map: ReadonlyMap<string, BimEntity>, stairId: string): RailingEntity[] {
+  const list: RailingEntity[] = [];
+  for (const entity of map.values()) {
+    if (entity.type === "bim.railing" && entity.hostId === stairId) list.push(entity);
+  }
+  list.sort((a, b) => (a.side !== b.side ? (a.side < b.side ? -1 : 1) : a.id < b.id ? -1 : 1));
+  return list;
+}
+
+/** Zones that reference a space, deterministic order (id) — the reference
+ *  integrity gate for space deletion (CAD-PARITY-011). */
+function zonesOfSpace(map: ReadonlyMap<string, BimEntity>, spaceId: string): ZoneEntity[] {
+  const list: ZoneEntity[] = [];
+  for (const entity of map.values()) {
+    if (entity.type === "bim.zone" && entity.spaceIds.includes(spaceId)) list.push(entity);
+  }
+  list.sort((a, b) => (a.id < b.id ? -1 : 1));
+  return list;
+}
+
+/** Elements whose meta overlay references an option group, deterministic
+ *  order (id) — the reference integrity gate for option-group deletion
+ *  (CAD-PARITY-011). */
+function optionGroupMembers(map: ReadonlyMap<string, BimEntity>, groupId: string): BimEntity[] {
+  const list: BimEntity[] = [];
+  for (const entity of map.values()) {
+    if (entity.meta?.optionGroupId === groupId) list.push(entity);
+  }
+  list.sort((a, b) => (a.id < b.id ? -1 : 1));
+  return list;
+}
+
 /** Instances of a component definition, deterministic order (id). */
 function definitionInstances(map: ReadonlyMap<string, BimEntity>, definitionId: string): ComponentInstanceEntity[] {
   const list: ComponentInstanceEntity[] = [];
@@ -166,6 +209,34 @@ export function moveBimElements(
   const map = bimEntities(elements);
   const edits: DocumentEdit[] = [];
   const moved: string[] = [];
+
+  // CAD-PARITY-011: story LEVEL moves re-enforce the vertical relationships
+  // BEFORE applying (a shift that would break a hosted roof's reach or a
+  // stair's derived rise is a typed rejection — the stronger host/story
+  // relationship). All story shifts of this batch are combined into ONE
+  // adjusted lookup so cross-story interactions validate against the FINAL
+  // levels, deterministically.
+  const levelDelta = new Map<string, number>();
+  if (dz !== 0) {
+    for (const id of ids) {
+      const entity = requireBimEntity(map, id, "move");
+      if (entity.type === "bim.story" && dx === 0 && dy === 0) levelDelta.set(id, dz);
+    }
+  }
+  if (levelDelta.size > 0) {
+    const shiftedLookup = (id: string): BimEntity | undefined => {
+      const entity = map.get(id);
+      if (entity === undefined) return undefined;
+      const delta = levelDelta.get(id);
+      if (delta !== undefined && entity.type === "bim.story") {
+        return { ...entity, level: entity.level + delta } as BimEntity;
+      }
+      return entity;
+    };
+    for (const storyId of [...levelDelta.keys()].sort()) {
+      assertStoryEditIntegrity(storyId, map.values(), shiftedLookup);
+    }
+  }
 
   for (const id of ids) {
     const entity = requireBimEntity(map, id, "move");
@@ -307,6 +378,60 @@ export function moveBimElements(
         moved.push(id);
         break;
       }
+      // --- CAD-PARITY-011 (additive, Issue #97): the Archicad-class authoring
+      // elements. Roofs move like slabs (plan shift + baseOffset shift);
+      // stairs shift their start + baseOffset (the rise stays story-derived);
+      // railings derive everything from the host stair — moving one directly
+      // is outside the supported set; zones/option groups carry no placement. ---
+      case "bim.roof": {
+        const shifted = makeRoof({
+          storyId: entity.storyId,
+          corner1: shift(entity.corner1, dx, dy),
+          corner2: shift(entity.corner2, dx, dy),
+          ridgeAxis: entity.ridgeAxis,
+          height: entity.height,
+          baseOffset: entity.baseOffset + dz,
+          ...(entity.topStoryId !== undefined ? { topStoryId: entity.topStoryId } : {}),
+          ...(entity.name !== undefined ? { name: entity.name } : {}),
+          ...(entity.meta !== undefined ? { meta: entity.meta } : {}),
+        });
+        edits.push({ type: "updateElement", elementId: id, patch: entityPatch({ ...shifted, id }) });
+        moved.push(id);
+        break;
+      }
+      case "bim.stair": {
+        const shifted = makeStair({
+          storyId: entity.storyId,
+          topStoryId: entity.topStoryId,
+          start: shift(entity.start, dx, dy),
+          direction: entity.direction,
+          width: entity.width,
+          stepCount: entity.stepCount,
+          tread: entity.tread,
+          baseOffset: entity.baseOffset + dz,
+          ...(entity.landingLength !== undefined ? { landingLength: entity.landingLength } : {}),
+          ...(entity.name !== undefined ? { name: entity.name } : {}),
+          ...(entity.meta !== undefined ? { meta: entity.meta } : {}),
+        });
+        // The vertical relationship re-validates against the SHIFTED
+        // baseOffset (the derived rise must stay positive).
+        assertStairStoryRelationship({ ...shifted, id }, (sid) => map.get(sid));
+        edits.push({ type: "updateElement", elementId: id, patch: entityPatch({ ...shifted, id }) });
+        moved.push(id);
+        break;
+      }
+      case "bim.railing":
+        throw new Error(
+          `move: 'bim.railing' elements derive their geometry from the host stair (outside the supported set for direct moves) — move stair '${entity.hostId}' instead`,
+        );
+      case "bim.zone":
+        throw new Error(
+          "move: zones carry no spatial placement (a zone groups spaces — move the member spaces)",
+        );
+      case "bim.optionGroup":
+        throw new Error(
+          "move: option groups carry no spatial placement (lifecycle registries are document-global)",
+        );
       case "bim.componentDef":
       case "bim.material":
         throw new Error(
@@ -480,15 +605,76 @@ export function copyBimElements(
               swing: entity.swing,
               leafThickness: entity.leafThickness,
               ...(entity.name !== undefined ? { name: entity.name } : {}),
+              ...(entity.meta !== undefined ? { meta: entity.meta } : {}),
             })
           : makeWindow({
               openingId,
               storyId: entity.storyId,
               ...(entity.name !== undefined ? { name: entity.name } : {}),
+              ...(entity.meta !== undefined ? { meta: entity.meta } : {}),
             });
         edits.push({ type: "addElement", element: bimEntityToElement({ ...copy, id: newId }) });
         break;
       }
+      // --- CAD-PARITY-011 (additive, Issue #97): the Archicad-class authoring
+      // copies. Roofs copy like slabs; a stair copy CASCADE-copies its
+      // hosted railings (references re-pointed — the deterministic
+      // placement/propagation); railings only ever copy WITH their stair;
+      // zones/option groups are grouping/lifecycle data (author new ones). ---
+      case "bim.roof": {
+        const copy = makeRoof({
+          storyId: entity.storyId,
+          corner1: shift(entity.corner1, shiftDx, shiftDy),
+          corner2: shift(entity.corner2, shiftDx, shiftDy),
+          ridgeAxis: entity.ridgeAxis,
+          height: entity.height,
+          baseOffset: entity.baseOffset + shiftDz,
+          ...(entity.topStoryId !== undefined ? { topStoryId: entity.topStoryId } : {}),
+          ...(entity.name !== undefined ? { name: entity.name } : {}),
+          ...(entity.meta !== undefined ? { meta: entity.meta } : {}),
+        });
+        edits.push({ type: "addElement", element: bimEntityToElement({ ...copy, id: newId }) });
+        break;
+      }
+      case "bim.stair": {
+        const copy = makeStair({
+          storyId: entity.storyId,
+          topStoryId: entity.topStoryId,
+          start: shift(entity.start, shiftDx, shiftDy),
+          direction: entity.direction,
+          width: entity.width,
+          stepCount: entity.stepCount,
+          tread: entity.tread,
+          baseOffset: entity.baseOffset + shiftDz,
+          ...(entity.landingLength !== undefined ? { landingLength: entity.landingLength } : {}),
+          ...(entity.name !== undefined ? { name: entity.name } : {}),
+          ...(entity.meta !== undefined ? { meta: entity.meta } : {}),
+        });
+        edits.push({ type: "addElement", element: bimEntityToElement({ ...copy, id: newId }) });
+        break;
+      }
+      case "bim.railing": {
+        // Hosted cascade only (zero shift): the host stair copy carries the
+        // displacement; the railing re-points at the NEW stair.
+        const hostId = remap.get(entity.hostId) ?? entity.hostId;
+        const copy = makeRailing({
+          hostId,
+          side: entity.side,
+          height: entity.height,
+          ...(entity.name !== undefined ? { name: entity.name } : {}),
+          ...(entity.meta !== undefined ? { meta: entity.meta } : {}),
+        });
+        edits.push({ type: "addElement", element: bimEntityToElement({ ...copy, id: newId }) });
+        break;
+      }
+      case "bim.zone":
+        throw new Error(
+          `copy: zone '${entity.id}' is grouping data (outside the supported set for copying) — author a new zone with the intended membership`,
+        );
+      case "bim.optionGroup":
+        throw new Error(
+          `copy: option group '${entity.id}' is a lifecycle registry (outside the supported set for copying) — author a new group`,
+        );
     }
     created.push(newId);
     sources.push(entity.id);
@@ -511,6 +697,25 @@ export function copyBimElements(
         `copy: '${entity.type}' elements are domain data (outside the supported set for copying in this slice)`,
       );
     }
+    // CAD-PARITY-011: railings copy WITH their host stair; zones and option
+    // groups are grouping/lifecycle data (the copyOne cases reject with the
+    // full typed message — reached only through the cascade path never being
+    // one, but the selection loop names it first for direct copies).
+    if (entity.type === "bim.railing") {
+      throw new Error(
+        `copy: 'bim.railing' elements are copied WITH their stair (outside the supported set for direct copies) — copy stair '${entity.hostId}' instead`,
+      );
+    }
+    if (entity.type === "bim.zone") {
+      throw new Error(
+        `copy: zone '${entity.id}' is grouping data (outside the supported set for copying) — author a new zone with the intended membership`,
+      );
+    }
+    if (entity.type === "bim.optionGroup") {
+      throw new Error(
+        `copy: option group '${entity.id}' is a lifecycle registry (outside the supported set for copying) — author a new group`,
+      );
+    }
     copyOne(entity, dx, dy, dz);
     if (entity.type === "bim.wall") {
       // Declared cascade: hosted openings + their fills follow the wall copy
@@ -525,6 +730,13 @@ export function copyBimElements(
     if (entity.type === "bim.opening") {
       for (const fill of openingFills(map, id)) {
         copyOne(fill, 0, 0, 0);
+      }
+    }
+    // CAD-PARITY-011: a stair copy CASCADE-copies its hosted railings
+    // (references re-pointed via remap — deterministic propagation).
+    if (entity.type === "bim.stair") {
+      for (const railing of stairRailings(map, id)) {
+        copyOne(railing, 0, 0, 0);
       }
     }
   }
@@ -554,8 +766,36 @@ export function deleteBimElements(elements: readonly Element[], ids: readonly st
         for (const fill of openingFills(map, opening.id)) toRemove.add(fill.id);
       }
     }
+    // CAD-PARITY-011: deleting a stair cascades its hosted railings (the
+    // railing geometry derives from the host — an orphaned railing would be
+    // corrupted state; the cascade is declared and itemized).
+    if (entity.type === "bim.stair") {
+      for (const railing of stairRailings(map, id)) toRemove.add(railing.id);
+    }
     if (entity.type === "bim.opening") {
       for (const fill of openingFills(map, id)) toRemove.add(fill.id);
+    }
+    // CAD-PARITY-011: deleting a space that a zone references is a typed
+    // rejection (zone membership is a reference — remove the space from the
+    // zone first; no silent zone mutation, the story/def/material precedent).
+    if (entity.type === "bim.space") {
+      const zones = zonesOfSpace(map, id);
+      if (zones.length > 0) {
+        throw new Error(
+          `delete: space '${id}' is still referenced by ${zones.length} zone(s): ${zones.map((z) => z.id).join(", ")} — remove it from the zone(s) first (no silent membership mutation)`,
+        );
+      }
+    }
+    // CAD-PARITY-011: deleting an option group that members reference is a
+    // typed rejection (clear the memberships first — the deterministic
+    // lifecycle boundary; no destructive cascade).
+    if (entity.type === "bim.optionGroup") {
+      const members = optionGroupMembers(map, id);
+      if (members.length > 0) {
+        throw new Error(
+          `delete: option group '${id}' is still referenced by ${members.length} element(s): ${members.map((m) => m.id).join(", ")} — clear their option membership first (no destructive cascade)`,
+        );
+      }
     }
     if (entity.type === "bim.story") {
       const hosted: string[] = [];
@@ -565,6 +805,10 @@ export function deleteBimElements(elements: readonly Element[], ids: readonly st
           other.type !== "bim.opening" &&
           (other.type === "bim.wall" || other.type === "bim.slab" || other.type === "bim.space" ||
             other.type === "bim.door" || other.type === "bim.window" ||
+            // CAD-PARITY-011: story-hosted authoring elements keep the same
+            // no-cascade rule (roofs host on stories; stairs START at a
+            // story — the top story is a separate reference that re-checks).
+            other.type === "bim.roof" || other.type === "bim.stair" ||
             // COMPAT-BIM-003: story-hosted component instances and
             // coordination primitives keep the same no-cascade rule.
             other.type === "bim.componentInstance" || other.type === "bim.grid" ||
@@ -577,6 +821,18 @@ export function deleteBimElements(elements: readonly Element[], ids: readonly st
       if (hosted.length > 0) {
         throw new Error(
           `delete: story '${id}' is still referenced by ${hosted.length} hosted element(s): ${hosted.sort().join(", ")} — reassign or delete them first (no silent cascade)`,
+        );
+      }
+      // CAD-PARITY-011: a story that is a stair's TOP story or a roof's
+      // reference story is also referenced (the vertical relationships).
+      const verticalRefs: string[] = [];
+      for (const other of map.values()) {
+        if (other.type === "bim.stair" && other.topStoryId === id) verticalRefs.push(other.id);
+        if (other.type === "bim.roof" && other.topStoryId === id) verticalRefs.push(other.id);
+      }
+      if (verticalRefs.length > 0) {
+        throw new Error(
+          `delete: story '${id}' is still the vertical reference of ${verticalRefs.length} element(s): ${verticalRefs.sort().join(", ")} — reassign or delete them first (no silent cascade)`,
         );
       }
     }
@@ -638,6 +894,19 @@ const PROPERTY_KEYS: Record<BimEntity["type"], readonly string[]> = {
   "bim.material": ["name", "description", "color", "properties"],
   "bim.grid": ["name", "uLines", "vLines"],
   "bim.referencePlane": ["name", "start", "end"],
+  // CAD-PARITY-011 (additive, Issue #97): the Archicad-class authoring
+  // elements. storyId/topStoryId re-anchoring is immutable here (re-hosting
+  // is a delete + re-create — the componentInstance precedent); topStoryId
+  // IS settable on roofs (the span declaration re-validates); hostId is
+  // immutable on railings (re-hosting is a delete + re-create). The meta
+  // overlay is NOT settable through this surface — the dedicated lifecycle
+  // commands own it (bim.setClassification/setPropertySets/
+  // setRenovation/setOptionMembership/setActiveOption).
+  "bim.roof": ["name", "corner1", "corner2", "ridgeAxis", "height", "baseOffset", "topStoryId"],
+  "bim.stair": ["name", "start", "direction", "width", "stepCount", "tread", "baseOffset", "landingLength", "topStoryId"],
+  "bim.railing": ["name", "side", "height"],
+  "bim.zone": ["name", "spaceIds"],
+  "bim.optionGroup": ["name", "options", "activeOption", "description"],
 };
 
 export function setBimProperties(
@@ -660,9 +929,26 @@ export function setBimProperties(
   const stored = elements.find((el) => el.id === elementId)!.props as Record<string, unknown>;
   const merged: Record<string, unknown> = { ...stored, ...patch };
   switch (entity.type) {
-    case "bim.story":
+    case "bim.story": {
       makeStory(merged);
+      // CAD-PARITY-011: level/height edits re-enforce the vertical
+      // relationships BEFORE applying (the stronger host/story semantics —
+      // the shifted story is the post-edit state the relationships see).
+      const levelChanged = patch.level !== undefined;
+      if (levelChanged) {
+        const rebuilt = makeStory(merged);
+        const shiftedLookup = (id: string): BimEntity | undefined => {
+          const other = map.get(id);
+          if (other === undefined) return undefined;
+          if (id === elementId && other.type === "bim.story") {
+            return { ...other, level: rebuilt.level } as BimEntity;
+          }
+          return other;
+        };
+        assertStoryEditIntegrity(elementId, map.values(), shiftedLookup);
+      }
       break;
+    }
     case "bim.wall":
       makeWall(merged);
       break;
@@ -734,6 +1020,51 @@ export function setBimProperties(
     case "bim.referencePlane":
       makeReferencePlane(merged);
       break;
+    // --- CAD-PARITY-011 (additive, Issue #97): full re-validation through
+    // the strict constructors + the cross-element relationship checks. ---
+    case "bim.roof": {
+      const rebuilt = makeRoof(merged);
+      assertRoofStoryRelationship({ ...rebuilt, id: elementId }, (id) => map.get(id));
+      break;
+    }
+    case "bim.stair": {
+      const rebuilt = makeStair(merged);
+      assertStairStoryRelationship({ ...rebuilt, id: elementId }, (id) => map.get(id));
+      break;
+    }
+    case "bim.railing": {
+      const rebuilt = makeRailing(merged);
+      const host = requireBimEntity(map, rebuilt.hostId, "setProperties");
+      if (host.type !== "bim.stair") {
+        throw new Error(`setProperties: railing '${elementId}' host '${rebuilt.hostId}' is not a stair (stored props are inconsistent)`);
+      }
+      break;
+    }
+    case "bim.zone": {
+      const rebuilt = makeZone(merged);
+      for (const [j, spaceId] of rebuilt.spaceIds.entries()) {
+        const space = requireBimEntity(map, spaceId, "setProperties");
+        if (space.type !== "bim.space") {
+          throw new Error(`setProperties: zone.spaceIds[${j}] '${spaceId}' must reference a space (got '${space.type}')`);
+        }
+      }
+      break;
+    }
+    case "bim.optionGroup": {
+      const rebuilt = makeOptionGroup(merged);
+      // Removing an option that members still reference is a typed rejection
+      // (no silent orphaning of membership — the deterministic boundary).
+      const members = optionGroupMembers(map, elementId);
+      for (const member of members) {
+        const memberOption = member.meta?.option;
+        if (memberOption !== undefined && !rebuilt.options.includes(memberOption)) {
+          throw new Error(
+            `setProperties: option '${memberOption}' still referenced by element '${member.id}' cannot be removed from option group '${elementId}' — clear the membership first (no silent orphaning)`,
+          );
+        }
+      }
+      break;
+    }
   }
   return {
     status: "applied",
