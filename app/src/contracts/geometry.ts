@@ -10,8 +10,10 @@
  * The geometry descriptor is the App API's engine-independent description of
  * a geometry request (Issue #26 minimum canonical set): box, cylinder,
  * transform (row-major 4x4 affine matrix) and boolean fuse/cut, composed
- * recursively. Concrete adapters compile it to engine-native work; the
- * renderer and CADDocument never see it as anything but element props.
+ * recursively. COMPAT-CAD-002 adds the extrusion-derived solid vocabulary;
+ * CAD-PARITY-010 completes the boolean triad with `intersect` (A ∩ B).
+ * Concrete adapters compile it to engine-native work; the renderer and
+ * CADDocument never see it as anything but element props.
  *
  * No engine imports here (LOCK-018): this file is importable by the protected
  * core (contracts/app-api) — only the concrete adapter/worker layer may
@@ -54,7 +56,19 @@ export type GeometryDescriptor =
     }
   | { readonly shape: "transform"; readonly matrix: Matrix4; readonly target: GeometryDescriptor }
   | { readonly shape: "fuse"; readonly a: GeometryDescriptor; readonly b: GeometryDescriptor }
-  | { readonly shape: "cut"; readonly a: GeometryDescriptor; readonly b: GeometryDescriptor };
+  | { readonly shape: "cut"; readonly a: GeometryDescriptor; readonly b: GeometryDescriptor }
+  | {
+      /** CAD-PARITY-010: boolean intersection (A ∩ B) — the third boolean
+       *  completing the union/difference/intersection triad. Same recursive
+       *  composition as fuse/cut; adapters realize it through their engine's
+       *  common-intersection operation (OCCT BRepAlgoAPI_Common) or decline
+       *  with a typed failure outside their exactness class. An intersection
+       *  with no overlap is a typed `engine_empty_result` failure (see
+       *  AdapterFailure) — never a fabricated empty solid. */
+      readonly shape: "intersect";
+      readonly a: GeometryDescriptor;
+      readonly b: GeometryDescriptor;
+    };
 
 /** Tessellation quality knobs a geometry.prepare caller may override. */
 export interface TessellationOptions {
@@ -109,6 +123,19 @@ export interface GeometryMetadata {
  *                            boundary and the worker was killed (retryable).
  *   engine_unavailable     — the engine runtime is not present/importable in
  *                            this environment (not retryable).
+ *
+ * CAD-PARITY-010 (Issue #93) adds two boolean-outcome codes (typed failures
+ * for invalid/non-manifold/unsupported combinations — acceptance criterion
+ * 2; never a silent approximation):
+ *   engine_empty_result    — the operation is well-formed but annihilates all
+ *                            material (disjoint intersection, subtracting
+ *                            everything). The caller surfaces the typed
+ *                            domain decline (e.g. boolean_empty); no empty
+ *                            solid is fabricated (not retryable).
+ *   engine_non_manifold    — the operation produced a result the engine's
+ *                            shape-validity check rejects (non-manifold or
+ *                            self-intersecting). The caller surfaces the
+ *                            typed boolean_invalid decline (not retryable).
  */
 export class AdapterFailure extends Error {
   readonly code: string;
@@ -156,4 +183,146 @@ export function isGeometryMetadataProvider(adapter: unknown): adapter is Geometr
   if (typeof adapter !== "object" || adapter === null) return false;
   const candidate = adapter as { describeGeometryMetadata?: unknown };
   return typeof candidate.describeGeometryMetadata === "function";
+}
+
+// ---------------------------------------------------------------------------
+// CAD-PARITY-010 (Issue #93): exact sections, deterministic topology and
+// bounded quality-mesh delivery — engine-neutral contracts. All ADDITIVE
+// optional capabilities following the MeshProvider precedent: the protected
+// core checks for the method's SHAPE structurally and never imports a
+// concrete adapter. Raw engine output crosses the boundary in canonical
+// deterministic form (the adapters sort/normalize before responding); the
+// engine-free shared core (workspace/model3d) owns canonical identity,
+// ordering and hashes — engine entity keys ride along as PROVENANCE only
+// (never canonical identity; the acceptance criterion).
+// ---------------------------------------------------------------------------
+
+/** An infinite section plane specification (origin + UNIT normal). The
+ *  command layer normalizes non-unit input explicitly; adapters receive (and
+ *  must validate as) a unit normal. */
+export interface SectionPlaneSpec {
+  readonly origin: Vec3;
+  readonly normal: Vec3;
+}
+
+/** One section intersection curve as a sampled polyline (flat x,y,z triples,
+ *  ≥ 2 points). Engines sample curved intersections (e.g. a cylinder's
+ *  ellipse arc) with a fixed deflection so identical inputs produce
+ *  identical polylines; straight intersections are exact 2-point segments. */
+export interface SectionPolyline {
+  readonly points: readonly number[];
+}
+
+/** Raw exact-section engine output for one prepared geometry: the plane ∩
+ *  shape intersection curves in the engine's canonical order (sorted by the
+ *  canonical encoding of the polylines — order-independent of internal
+ *  explorer enumeration) plus provenance. Empty when the plane misses the
+ *  solid entirely (a legal exact result — distinct from a failure). */
+export interface SectionGeometry {
+  readonly polylines: readonly SectionPolyline[];
+  readonly engine: { readonly engineId: string; readonly engineVersion: string };
+}
+
+/** One face's raw topology: its OWN triangulation (flat world-space x,y,z +
+ *  local a,b,c indices), a surface-type vocabulary string, area, centroid,
+ *  and the engine's per-entity key (deterministic provenance — a hash over
+ *  the face's canonical encoding; NEVER the canonical identity). */
+export interface TopoFaceGeometry {
+  readonly surfaceType: string;
+  readonly vertices: readonly number[];
+  readonly indices: readonly number[];
+  readonly area: number;
+  readonly centroid: Vec3;
+  readonly engineKey: string;
+}
+
+/** One edge's raw topology: a curve-type vocabulary string, a sampled
+ *  polyline (flat x,y,z), its length, and the engine key (provenance). */
+export interface TopoEdgeGeometry {
+  readonly curveType: string;
+  readonly points: readonly number[];
+  readonly length: number;
+  readonly engineKey: string;
+}
+
+/** One vertex's raw topology: its point and the engine key (provenance). */
+export interface TopoVertexGeometry {
+  readonly point: Vec3;
+  readonly engineKey: string;
+}
+
+/** Raw topology engine output for one prepared geometry: faces, edges and
+ *  vertices each sorted by their canonical geometry encoding (the engine
+ *  normalizes enumeration order away) with bounded counts. */
+export interface TopologyGeometry {
+  readonly faces: readonly TopoFaceGeometry[];
+  readonly edges: readonly TopoEdgeGeometry[];
+  readonly vertices: readonly TopoVertexGeometry[];
+  readonly engine: { readonly engineId: string; readonly engineVersion: string };
+}
+
+/** Bounded quality presets for progressive mesh delivery (LOD). The presets
+ *  are the FULL closed vocabulary — callers cannot request arbitrary
+ *  deflections through the LOD surface (deterministic bounded delivery). */
+export type MeshQualityPreset = "low" | "medium" | "full";
+
+/** A named quality preset resolved to concrete tessellation knobs. */
+export interface MeshQualityKnobs {
+  readonly linearDeflection: number;
+  readonly angularDeflection: number;
+}
+
+/** The bounded per-mesh vertex budget the LOD surface enforces (typed
+ *  engine failure beyond — never an unbounded mesh). */
+export const MESH_LOD_MAX_VERTICES = 150_000;
+
+/**
+ * Optional geometry-adapter capability (CAD-PARITY-010): exact section
+ * computation — plane ∩ descriptor intersection curves through the engine's
+ * deterministic section operation. Adapters outside their exactness class
+ * throw the typed AdapterFailure decline rather than approximating.
+ */
+export interface SectionProvider {
+  computeSection(descriptor: GeometryDescriptor, plane: SectionPlaneSpec): Promise<SectionGeometry>;
+}
+
+export function isSectionProvider(adapter: unknown): adapter is SectionProvider {
+  if (typeof adapter !== "object" || adapter === null) return false;
+  const candidate = adapter as { computeSection?: unknown };
+  return typeof candidate.computeSection === "function";
+}
+
+/**
+ * Optional geometry-adapter capability (CAD-PARITY-010): deterministic
+ * topology extraction — the face/edge/vertex inventory of a descriptor with
+ * per-face triangulation, in the engine's canonical order, with engine keys
+ * as provenance. Adapters outside their exactness class throw the typed
+ * AdapterFailure decline.
+ */
+export interface TopologyProvider {
+  describeTopology(descriptor: GeometryDescriptor): Promise<TopologyGeometry>;
+}
+
+export function isTopologyProvider(adapter: unknown): adapter is TopologyProvider {
+  if (typeof adapter !== "object" || adapter === null) return false;
+  const candidate = adapter as { describeTopology?: unknown };
+  return typeof candidate.describeTopology === "function";
+}
+
+/**
+ * Optional geometry-adapter capability (CAD-PARITY-010): bounded quality-
+ * preset mesh delivery — the descriptor tessellated at one of the closed
+ * LOD presets (progressive delivery with deterministic per-preset output).
+ */
+export interface QualityMeshProvider {
+  prepareMeshAtQuality(
+    descriptor: GeometryDescriptor,
+    quality: MeshQualityPreset,
+  ): Promise<{ readonly mesh: MeshData; readonly metadata: GeometryMetadata; readonly meshToken: string }>;
+}
+
+export function isQualityMeshProvider(adapter: unknown): adapter is QualityMeshProvider {
+  if (typeof adapter !== "object" || adapter === null) return false;
+  const candidate = adapter as { prepareMeshAtQuality?: unknown };
+  return typeof candidate.prepareMeshAtQuality === "function";
 }
