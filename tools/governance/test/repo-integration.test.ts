@@ -155,6 +155,42 @@ test("the sample fixture demonstrates a full VERIFIED traceability chain", () =>
   assert.ok(sampleChecks.every((c) => c.status === "pass"));
 });
 
+test("the ARCH-WF-002 registries are present and coherent (ACR-003, the staged P011 reconciliation, the decided demo)", () => {
+  const { report } = validateRepository(REPO_ROOT);
+  const byId = new Map(report.checks.map((c) => [c.id, c] as const));
+
+  // ACR-003: the real reconciliation-pathway ACR — lifecycle-valid in either
+  // PROPOSED (submission) or approved/implemented states.
+  const acr003Lifecycle = byId.get("acr/ACR-003/lifecycle");
+  assert.ok(acr003Lifecycle !== undefined, "ACR-003 must be registered");
+  assert.equal(acr003Lifecycle.status, "pass");
+
+  // The staged P011 reconciliation: facts and citations complete in both the
+  // STAGED (submission — waivers inactive) and DECIDED (architect-approved)
+  // states; the citation check reads the raw immutable ledger either way.
+  const p011ReconciliationCitations = byId.get("reconciliation/CAD-PARITY-011/citations");
+  assert.ok(p011ReconciliationCitations !== undefined, "the P011 reconciliation must exist");
+  assert.equal(p011ReconciliationCitations.status, "pass", "all three citations must match the immutable ledger verbatim");
+  const p011ReconciliationRecord = byId.get("reconciliation/CAD-PARITY-011/record")!;
+  assert.equal(p011ReconciliationRecord.status, "pass");
+
+  // The always-green demo pair: a DECIDED reconciliation with active waivers
+  // (SAMPLE-002) and a fully-implemented demo ACR (ACR-901).
+  assert.equal(byId.get("acr/ACR-901/lifecycle")!.status, "pass");
+  assert.equal(byId.get("reconciliation/SAMPLE-002/record")!.status, "pass");
+  assert.equal(byId.get("reconciliation/SAMPLE-002/citations")!.status, "pass");
+  const activeWaivers = byId.get("reconciliation/active-waivers")!;
+  assert.equal(activeWaivers.status, "pass");
+  assert.ok(activeWaivers.description.includes("REC-SAMPLE-002"), "the demo reconciliation must be the active one at this head");
+  const sampleLegality = byId.get("work-item/SAMPLE-002/transition-legality")!;
+  assert.equal(sampleLegality.status, "pass");
+  assert.ok((sampleLegality.details ?? []).join(" ").includes("[RECONCILED]"), "the demo waiver must be explicit, not silent");
+
+  // The real work item's own ACR linkage is registered.
+  const archWf002 = JSON.parse(readFileSync(join(REPO_ROOT, "governance", "work-items", "ARCH-WF-002.json"), "utf8"));
+  assert.equal(archWf002.acr, "ACR-003", "ARCH-WF-002 must declare the ACR its protected-path change routes through");
+});
+
 function copyRepoToTemp(): string {
   const dir = mkdtempSync(join(tmpdir(), "offisos-repo-"));
   cpSync(join(REPO_ROOT, "governance"), join(dir, "governance"), { recursive: true });
