@@ -43,7 +43,7 @@
     "A reproducible example covering architecture-change approval and one covering a historical merged-record reconciliation.",
     "Evidence that existing normal lifecycle and VERIFIED gating behavior remains unchanged."
   ],
-  "state": "VERIFYING",
+  "state": "IMPLEMENTING",
   "transitions": [
     {
       "from": "DRAFT",
@@ -139,6 +139,19 @@
           "EV-003",
           "EV-004"
         ]
+      }
+    },
+    {
+      "from": "VERIFYING",
+      "to": "IMPLEMENTING",
+      "at": "2026-08-30T19:32:31Z",
+      "actor": "pectoraux",
+      "role": "architect",
+      "reason": "Architect ruling on PR #101 (delivered through the session channel; GitHub cannot carry a formal REQUEST_CHANGES review because the repository owner authored the PR): CHANGES REQUESTED — not approved for merge. The implementation substance is strong (deterministic ACR lifecycle tests, revision-bound verification, staged historical reconciliation, fail-closed ACR routing, the documented and validated citation-parser fix, the three P011 failures explicitly preserved), but a blocking architectural/governance defect was found: circular ACR authorization. The protected-path model protects existing records under governance/acr/** and governance/reconciliations/** while allowing only additions, yet an ACR's own lifecycle (PROPOSED → ENDORSED → APPROVED → IMPLEMENTED) and a reconciliation's decision (STAGED → DECIDED) are modifications of existing records — and no ACR's authorized_paths covers its own record, so approving ACR-003 would require an approved ACR authorizing the edit of ACR-003.json, recursively. The principal mechanism ARCH-WF-002 delivers cannot complete its own lifecycle under its own protection model.",
+      "failure_reason": "Circular ACR authorization: modifying an existing ACR/reconciliation record (any lifecycle advancement — including ACR-003's own approval, the REC-CAD-PARITY-011 decision, and every future ACR's lifecycle) is a protected-path violation that requires an approved ACR enumerating that record path; no ACR can authorize its own record, so the registry lifecycle deadlocks after creation. Required remediation: a finite, explicit bootstrap/lifecycle rule that permits narrowly authorized state transitions of ACR/reconciliation records without making the registries generally mutable — new proposals/staging stay allowed, lifecycle transitions become narrowly authorized, arbitrary existing-record edits stay blocked, protected implementation changes still require an approved ACR, and the normal VERIFIED gate is unchanged — covered by deterministic tests including a proof that ordinary modifications to existing ACR/reconciliation records remain blocked. No merge, no VERIFIED, no P012.",
+      "references": {
+        "pr": 101,
+        "issue": 12
       }
     }
   ],
