@@ -17,7 +17,9 @@
  *    (same clamp on the distance; the target never moves).
  *  - fit: derive the camera from a bounding box + viewport aspect with the
  *    documented margin factor 1.1 (all eight box corners must stay inside
- *    the view; half-height = max(halfY, halfX/aspect) for orthographic).
+ *    the view). Orthographic derives half-height = max(halfY, halfX/aspect);
+ *    perspective solves the EXACT per-corner frustum bound (see
+ *    fitCameraToBBox — sufficient for arbitrary direction/aspect/fov).
  *  - standard views: the six canonical views + isometric with EXACT axis
  *    directions (top: eye at +Z·d, up +Y; front: eye at −Y·d, up +Z; right:
  *    eye at +X·d, up +Z; iso: eye direction (1,−1,1)/√3, up +Z — the
@@ -38,6 +40,7 @@ import {
   fmtNum,
   v3Add,
   v3Cross,
+  v3Dot,
   v3Length,
   v3Normalize,
   v3Scale,
@@ -274,11 +277,25 @@ export const FIT_MARGIN = 1.1;
  *  (width/height). Empty boxes fall back to the unit box centered at the
  *  origin (the EMPTY_MODEL_EXTENTS precedent). The fitted camera keeps the
  *  CURRENT eye direction (fit does not reorient — it recenters + resizes;
- *  deterministic and non-surprising), and keeps the mode/fovDeg; for
+ *  deterministic and non-surprising), and keeps the mode/fovDeg. For
  *  orthographic it derives orthoHalfHeight = max(halfY, halfX/aspect)·
- *  FIT_MARGIN, for perspective the distance so the box fits the vertical
- *  fov with the same margin (d = halfDiagonal-based bound; conservative and
- *  deterministic: d = (max(halfY, halfX/aspect) / sin(fov/2)) · FIT_MARGIN). */
+ *  FIT_MARGIN. For PERSPECTIVE the distance is the EXACT per-corner solve:
+ *  the camera sits at eye = center + dir·d (dir the kept eye direction, so
+ *  forward = −dir and the frame's right/up stay ⊥ dir), and each corner
+ *  offset v ∈ {±halfX,±halfY,±halfZ} has camera-plane coordinates
+ *  xc = v·right, yc = v·up, depth zc = d − v·dir; the pinhole viewport bound
+ *  |xc| ≤ zc·aspect·tan(fovY/2) ∧ |yc| ≤ zc·tan(fovY/2) is LINEAR in d:
+ *
+ *      d ≥ |v·right| / (aspect·tan(fovY/2)) + v·dir
+ *      d ≥ |v·up|   / tan(fovY/2)           + v·dir
+ *
+ *  The max over all 8 corners is the minimal distance that puts every
+ *  corner inside the frustum for ARBITRARY camera direction/aspect/fov (a
+ *  bounding-sphere or axis-extent bound cannot guarantee this for oblique
+ *  views — a corner nearer the camera occupies more screen angle than its
+ *  world extent suggests); · FIT_MARGIN keeps the documented 10% margin,
+ *  which also keeps every corner strictly in front of the eye plane (the
+ *  antipodal-pair max bounds |v·dir| ≤ d_req, so zc ≥ 0.1·|v·dir| > 0). */
 export function fitCameraToBBox(
   camera: Camera3DState,
   box: BBox3D,
@@ -295,7 +312,6 @@ export function fitCameraToBBox(
   const halfX = (effective.maxX - effective.minX) / 2;
   const halfY = (effective.maxY - effective.minY) / 2;
   const halfZ = (effective.maxZ - effective.minZ) / 2;
-  const fitHalf = Math.max(halfY, halfX / aspect, halfZ);
   if (camera.mode === "orthographic") {
     const halfHeight = Math.max(halfY, halfX / aspect) * FIT_MARGIN;
     // Keep the current eye DIRECTION; distance irrelevant for ortho —
@@ -310,10 +326,29 @@ export function fitCameraToBBox(
       fovDeg: camera.fovDeg,
     };
   }
+  // Perspective: the EXACT per-corner frustum bound (see the doc comment —
+  // each corner contributes a LINEAR lower bound on the distance; the max
+  // over the 8 corners is minimal-sufficient for any direction/aspect/fov).
   const fovRad = (camera.fovDeg * Math.PI) / 180;
-  const dist = (fitHalf / Math.sin(fovRad / 2)) * FIT_MARGIN;
+  const tanY = Math.tan(fovRad / 2);
+  const tanX = tanY * aspect;
   const dir = v3Normalize(v3Sub(camera.eye, camera.target));
   if (dir === null) return null;
+  // frame.right/frame.up are the kept-direction camera-plane axes (both ⊥
+  // dir — frame derives from the same forward/up the returned camera keeps).
+  let required = 0;
+  for (const sx of [-1, 1]) {
+    for (const sy of [-1, 1]) {
+      for (const sz of [-1, 1]) {
+        const v: Vec3 = [sx * halfX, sy * halfY, sz * halfZ];
+        const alongDir = v3Dot(v, dir);
+        const xc = v3Dot(v, frame.right);
+        const yc = v3Dot(v, frame.up);
+        required = Math.max(required, Math.abs(xc) / tanX + alongDir, Math.abs(yc) / tanY + alongDir);
+      }
+    }
+  }
+  const dist = required * FIT_MARGIN;
   return {
     eye: v3Add([cx, cy, cz], v3Scale(dir, dist)),
     target: [cx, cy, cz],

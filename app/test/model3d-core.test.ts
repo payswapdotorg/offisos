@@ -3,7 +3,10 @@
  * model3d shared core: the camera algebra (frame derivation/validation/
  * normalization with degenerate frames rejected; turntable orbit with the
  * ±89.9° elevation clamp; pan; zoom with clamp bounds in both modes;
- * fit-extents with the unit-box fallback; the exact standard-view frames;
+ * fit-extents with the unit-box fallback AND the exact per-corner
+ * perspective solve (every corner strictly inside the viewport for arbitrary
+ * direction/aspect/fov — the PR #92 remediation); the exact standard-view
+ * frames;
  * the view-cube zone model), the projection math (exact orthographic AND
  * perspective screen math, unprojectAtDepth as the bit-exact inverse,
  * picking rays, the ray/AABB slab test, pickElements with the EXACT
@@ -28,6 +31,7 @@ import {
   zoomCamera,
   ZOOM_MIN,
   ZOOM_MAX,
+  FIT_MARGIN,
   fitCameraToBBox,
   STANDARD_VIEW_FRAMES,
   STANDARD_VIEW_NAMES,
@@ -101,6 +105,31 @@ const EAST_UCS: UcsRecord = {
 };
 
 const BOX_10: BBox3D = { minX: 0, minY: 0, minZ: 0, maxX: 10, maxY: 10, maxZ: 10 };
+
+/** Assert EVERY one of the 8 box corners projects strictly inside the
+ *  viewport through the given camera (the acceptance criterion: fit extents
+ *  puts ALL geometry inside the view — perspective included; a corner behind
+ *  the eye plane fails via the null projection). Returns the corner count. */
+function assertAllCornersInsideViewport(
+  camera: Camera3DState,
+  box: BBox3D,
+  viewport: { width: number; height: number },
+): number {
+  let n = 0;
+  for (const x of [box.minX, box.maxX]) {
+    for (const y of [box.minY, box.maxY]) {
+      for (const z of [box.minZ, box.maxZ]) {
+        const p = projectPoint(camera, viewport, [x, y, z]);
+        assert.ok(p !== null, `corner (${x},${y},${z}) must project (strictly in front of the eye plane)`);
+        assert.ok(p!.x > 0 && p!.x < viewport.width, `corner (${x},${y},${z}) screen x ${p!.x} outside (0, ${viewport.width})`);
+        assert.ok(p!.y > 0 && p!.y < viewport.height, `corner (${x},${y},${z}) screen y ${p!.y} outside (0, ${viewport.height})`);
+        n += 1;
+      }
+    }
+  }
+  assert.equal(n, 8);
+  return n;
+}
 
 function bboxOf(b: readonly number[]): BBox3D {
   assert.ok(Array.isArray(b) && b.length === 6);
@@ -248,24 +277,24 @@ test("fitCameraToBBox: all 8 corners land inside the viewport; empty box → uni
     }
   }
   assert.equal(cornersChecked, 8);
-  // The perspective fit uses the documented sphere-based bound — the exact
-  // distance formula (fitHalf / sin(fov/2)) · FIT_MARGIN — and every corner
-  // stays in front of the eye plane (no clipping).
+  // The perspective fit solves the EXACT per-corner frustum bound (the PR
+  // #92 remediation). Front view: xc = v_x, yc = v_z, alongDir = −v_y, so
+  // the binding corners are the NEAR ones (v_y = −5 — a corner nearer the
+  // camera occupies more screen angle than its world extent suggests) and
+  // the vertical requirement |v_z|/tan(fovY/2) + 5 dominates → the exact
+  // minimal distance (5/tan(30°) + 5)·FIT_MARGIN.
   const frontPersp = standardCameraFor("front", BOX_10, aspect, 60, "perspective");
   const fittedPersp = fitCameraToBBox(frontPersp, BOX_10, aspect)!;
+  assert.ok(fittedPersp !== null);
   assert.deepEqual(fittedPersp.target, [5, 5, 5]);
+  assert.equal(fittedPersp.mode, "perspective");
   const fovRad = (60 * Math.PI) / 180;
-  const expectedDist = (Math.max(5, 5 / aspect, 5) / Math.sin(fovRad / 2)) * 1.1;
+  const expectedDist = (5 / Math.tan(fovRad / 2) + 5) * FIT_MARGIN;
   const perspDist = Math.hypot(fittedPersp.eye[0] - 5, fittedPersp.eye[1] - 5, fittedPersp.eye[2] - 5);
   assert.ok(Math.abs(perspDist - expectedDist) < 1e-9, `persp distance ${perspDist} vs ${expectedDist}`);
-  for (const x of [BOX_10.minX, BOX_10.maxX]) {
-    for (const y of [BOX_10.minY, BOX_10.maxY]) {
-      for (const z of [BOX_10.minZ, BOX_10.maxZ]) {
-        const p = projectPoint(fittedPersp, viewport, [x, y, z]);
-        assert.ok(p !== null, "corner must stay in front of the eye plane");
-      }
-    }
-  }
+  // EVERY corner projects STRICTLY INSIDE the viewport (the prior suite only
+  // proved the corners stayed in front of the eye plane — the review gap).
+  assert.equal(assertAllCornersInsideViewport(fittedPersp, BOX_10, viewport), 8);
   // An arbitrary (iso) direction recenters on the box and derives the same
   // documented half-height while keeping the eye direction.
   const iso = standardCameraFor("iso", BOX_10, aspect, 60, "orthographic");
@@ -283,6 +312,124 @@ test("fitCameraToBBox: all 8 corners land inside the viewport; empty box → uni
   const fitEmpty = fitCameraToBBox(iso, EMPTY_BBOX3D, 1)!;
   assert.deepEqual(fitEmpty.target, [0, 0, 0]);
   assert.equal(fitEmpty.orthoHalfHeight, Math.max(0.5, 0.5 / 1) * 1.1);
+  // …and the perspective empty fallback keeps the unit box's corners inside.
+  const fitEmptyPersp = fitCameraToBBox(frontPersp, EMPTY_BBOX3D, 1)!;
+  assert.deepEqual(fitEmptyPersp.target, [0, 0, 0]);
+  assert.equal(
+    assertAllCornersInsideViewport(fitEmptyPersp, { minX: -0.5, minY: -0.5, minZ: -0.5, maxX: 0.5, maxY: 0.5, maxZ: 0.5 }, { width: 800, height: 800 }),
+    8,
+  );
+});
+
+test("fitCameraToBBox perspective (isometric): all 8 corners strictly inside the viewport for every aspect/fov — the exact per-corner solve", () => {
+  // The Architect review's named failure: the old axis-extent bound put 4/8
+  // corners OUTSIDE for the isometric direction (screen x −52.9 / 852.9 on an
+  // 800×600 viewport). The exact solve puts every corner strictly inside.
+  const isoPersp = standardCameraFor("iso", BOX_10, 800 / 600, 60, "perspective");
+  const fitted = fitCameraToBBox(isoPersp, BOX_10, 800 / 600)!;
+  assert.ok(fitted !== null);
+  assert.deepEqual(fitted.target, [5, 5, 5]);
+  assert.equal(fitted.mode, "perspective");
+  // The eye direction is the kept iso direction (1,−1,1)/√3.
+  const v: Vec3 = [fitted.eye[0] - 5, fitted.eye[1] - 5, fitted.eye[2] - 5];
+  const len = Math.hypot(v[0], v[1], v[2]);
+  const invSqrt3 = 1 / Math.sqrt(3);
+  assert.ok(Math.abs(v[0] / len - invSqrt3) < 1e-12);
+  assert.ok(Math.abs(v[1] / len + invSqrt3) < 1e-12);
+  assert.ok(Math.abs(v[2] / len - invSqrt3) < 1e-12);
+  // The exact closed form: with right = (1,1,0)/√2, up = (−1,1,2)/√6 and
+  // dir = (1,−1,1)/√3, the binding corner is (+,−,−) (world (10,0,0) — the
+  // corner NEAREST the camera with the largest camera-plane vertical offset,
+  // exactly the case axis-extent bounds miss): the vertical requirement
+  // |v·up|/tan(fovY/2) + v·dir = (20/√6)·√3 + 5/√3 = 10√2 + 5/√3 dominates →
+  // (10√2 + 5/√3)·FIT_MARGIN.
+  const aspect = 800 / 600;
+  const expectedDist = (10 * Math.SQRT2 + 5 / Math.sqrt(3)) * FIT_MARGIN;
+  const dist = Math.hypot(v[0], v[1], v[2]);
+  assert.ok(Math.abs(dist - expectedDist) < 1e-9, `iso persp distance ${dist} vs ${expectedDist}`);
+  // The regression assertion: EVERY corner strictly inside the viewport,
+  // across a fixed table of aspects/fovs (square, wide, tall, narrow fov).
+  for (const [w, h, fov] of [
+    [800, 600, 60], [600, 600, 60], [1000, 400, 60], [400, 1000, 60],
+    [800, 600, 45], [800, 600, 90], [800, 600, 20], [1280, 720, 55],
+  ] as const) {
+    const cam = fitCameraToBBox(
+      { eye: [invSqrt3 * 30, -invSqrt3 * 30, invSqrt3 * 30], target: [0, 0, 0], up: [0, 0, 1], mode: "perspective", orthoHalfHeight: 5, fovDeg: fov },
+      BOX_10,
+      w / h,
+    )!;
+    assert.ok(cam !== null);
+    assert.equal(assertAllCornersInsideViewport(cam, BOX_10, { width: w, height: h }), 8, `iso fit fov=${fov} ${w}x${h}`);
+  }
+});
+
+test("fitCameraToBBox perspective (strongly non-cubic boxes): all 8 corners strictly inside from every direction", () => {
+  // A wide slab, a tall column, a beam and a zero-height plane — the shapes
+  // where axis-extent/bounding-sphere heuristics diverge most from the exact
+  // per-corner bound. Fixed direction table: the three axes, iso, a view-cube
+  // corner blend and two arbitrary oblique directions.
+  const boxes: readonly BBox3D[] = [
+    { minX: 0, minY: 0, minZ: 0, maxX: 40, maxY: 4, maxZ: 6 },   // wide slab 40×4×6
+    { minX: -1, minY: -1, minZ: 0, maxX: 1, maxY: 1, maxZ: 30 },  // tall column 2×2×30
+    { minX: 0, minY: 0, minZ: 0, maxX: 25, maxY: 1, maxZ: 1 },    // beam 25×1×1
+    { minX: -5, minY: -5, minZ: 2, maxX: 5, maxY: 5, maxZ: 2 },   // flat plane 10×10×0
+  ];
+  const dirs: readonly Vec3[] = [
+    [0, -1, 0], [0, 0, 1], [1, 0, 0],
+    [1 / Math.sqrt(3), -1 / Math.sqrt(3), 1 / Math.sqrt(3)],
+    [1, 1, 1].map((n) => n / Math.sqrt(3)) as unknown as Vec3,
+    [3, -7, 5], [0.2, 0.9, -0.4],
+  ];
+  let fits = 0;
+  for (const box of boxes) {
+    for (const d of dirs) {
+      const len = Math.hypot(d[0], d[1], d[2]);
+      const dir: Vec3 = [d[0] / len, d[1] / len, d[2] / len];
+      // A near-vertical view direction with a +Z up hint is a degenerate
+      // frame (correctly declined) — top/bottom directions use a +Y hint.
+      const upHint: Vec3 = Math.abs(dir[2]) > 0.99 ? [0, 1, 0] : [0, 0, 1];
+      for (const [w, h, fov] of [[800, 600, 60], [600, 800, 45], [1000, 250, 75]] as const) {
+        const cam = fitCameraToBBox(
+          { eye: [dir[0] * 40, dir[1] * 40, dir[2] * 40], target: [0, 0, 0], up: upHint, mode: "perspective", orthoHalfHeight: 5, fovDeg: fov },
+          box,
+          w / h,
+        )!;
+        assert.ok(cam !== null);
+        assert.equal(assertAllCornersInsideViewport(cam, box, { width: w, height: h }), 8);
+        fits += 1;
+      }
+    }
+  }
+  assert.ok(fits >= 80, `expected a broad sweep, got ${fits} fits`);
+});
+
+test("fitCameraToBBox perspective (arbitrary orientation + roll + narrow fov): all 8 corners strictly inside; direction/up kept", () => {
+  // An oblique, non-iso direction with a ROLLED up hint (up not world +Z) —
+  // the solve is exact in the camera's own right/up frame, so it must hold
+  // under arbitrary roll too — plus a narrow fov and extreme aspects.
+  const camera: Camera3DState = {
+    eye: [3 * 9, -7 * 9, 5 * 9], target: [1, 2, -1], up: [0.1, 0.2, 1],
+    mode: "perspective", orthoHalfHeight: 5, fovDeg: 50,
+  };
+  const box: BBox3D = { minX: 0, minY: 0, minZ: 0, maxX: 40, maxY: 4, maxZ: 6 };
+  for (const [w, h, fov] of [
+    [1000, 800, 50], [800, 1000, 50], [1000, 800, 15], [240, 960, 50], [1920, 480, 30],
+  ] as const) {
+    const cam = fitCameraToBBox({ ...camera, fovDeg: fov }, box, w / h)!;
+    assert.ok(cam !== null);
+    assert.equal(assertAllCornersInsideViewport(cam, box, { width: w, height: h }), 8, `fov=${fov} ${w}x${h}`);
+    // Fit keeps the eye direction exactly and never reorients.
+    const before: Vec3 = [camera.eye[0] - camera.target[0], camera.eye[1] - camera.target[1], camera.eye[2] - camera.target[2]];
+    const after: Vec3 = [cam.eye[0] - cam.target[0], cam.eye[1] - cam.target[1], cam.eye[2] - cam.target[2]];
+    const lb = Math.hypot(before[0], before[1], before[2]);
+    const la = Math.hypot(after[0], after[1], after[2]);
+    for (let i = 0; i < 3; i += 1) {
+      assert.ok(Math.abs(after[i]! / la - before[i]! / lb) < 1e-12, "fit keeps the eye direction");
+    }
+    assert.deepEqual(cam.up, camera.up);
+    // The recenters on the box center.
+    assert.deepEqual(cam.target, [20, 2, 3]);
+  }
 });
 
 // ---------------------------------------------------------------------------
