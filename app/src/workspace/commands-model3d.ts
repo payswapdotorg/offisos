@@ -777,7 +777,7 @@ export const COMMANDS_MODEL3D: readonly WorkspaceCommand[] = [
     aliases: [],
     label: "Exact Section",
     description:
-      "Compute the EXACT adapter-backed section of the model3d solids against a named section plane (the plane created with SECTIONPLANE): the canonical intersection loops with their hash. Where the active engine cannot section a solid exactly, the typed decline names the element — the labeled extent preview (SECTIONPLANE + model3d.sectionPreview) remains the fallback.",
+      "Show the EXACT adapter-backed section of the model3d solids against a named section plane (the plane created with SECTIONPLANE): the canonical intersection loops with their hash, drawn as the viewport section overlay. Where the active engine cannot section a solid exactly, the typed decline names the element — the labeled extent preview (model3d.sectionPreview) remains the fallback. The section is a QUERY (non-mutating): the plan emits the UI action; the hosts run model3d.section through their transport.",
     category: "model3d",
     ribbonTab: "3D Model",
     steps: [
@@ -787,8 +787,9 @@ export const COMMANDS_MODEL3D: readonly WorkspaceCommand[] = [
       const name = textValue(values, "name").trim();
       if (name.length === 0) throw new Error("the section plane name must be a non-empty string");
       return plan(
-        [{ name: "model3d.section", payload: { name } }],
-        [`Exact section against plane '${name}' (canonical loops + hash; typed decline where the engine cannot section exactly).`],
+        [],
+        [`Exact section against plane '${name}' — the canonical loops + hash are shown in the 3D viewport (the query is non-mutating; a typed decline names any element the engine cannot section exactly).`],
+        [{ action: "query.sectionExact", payload: { planeName: name } }],
       );
     },
   },

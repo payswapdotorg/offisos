@@ -18,6 +18,16 @@
  *  - quick BOX/CYLINDER buttons (sane deterministic defaults) through
  *    model3d.box/model3d.cylinder placed through the ACTIVE UCS.
  *
+ * CAD-PARITY-010 (Issue #93, additive): the boolean toolbar (Union/
+ * Subtract/Intersect over exactly TWO selected solids — the operands are
+ * consumed into the result solid; undo restores both) and the EXACT-SECTION
+ * overlay (model3d.section — the adapter-backed plane ∩ solid canonical
+ * loops drawn as a viewport-only highlight layer over the canonical scene;
+ * the canonical scene SVG digest is untouched). Where the active engine
+ * cannot section a solid exactly the overlay shows the typed decline —
+ * never an approximation presented as exact (the P009 extent preview stays
+ * available through the command surface).
+ *
  * Declared bounds: extent-level wireframes (the persisted meshBBox) with the
  * UCS triad + workplane grid (ucsGridSegments, bounded); NO view-cube widget
  * (the shared classifyViewCubeZone stays core-tested); no engine loads in
@@ -25,7 +35,7 @@
  */
 
 import * as React from "react";
-import { Box, Cylinder, Crosshair, Expand } from "lucide-react";
+import { Box, Cylinder, Crosshair, Expand, Layers, Scissors } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { CADDocumentSnapshot, Camera3DState, UcsRecord } from "@offisos/cad-app-shell/contracts/caddocument";
 import type { Command } from "@offisos/cad-app-shell/contracts/app-api";
@@ -37,12 +47,14 @@ import {
   formatCamera,
   orbitCamera,
   panCamera,
+  projectPoint,
   ucsGridSegments,
   zoomCamera,
   type BBox3D,
   type Scene3DElement,
   type StandardViewName,
   type UcsGridSegment,
+  type Vec3,
 } from "@offisos/cad-app-shell/workspace/model3d/index.js";
 
 const VIEW_W = 800;
@@ -72,6 +84,12 @@ interface Model3DViewportProps {
   readonly snapshot: CADDocumentSnapshot | null;
   readonly selection: readonly string[];
   readonly onRefresh: () => void | Promise<void>;
+}
+
+/** One exact-section loop projected to screen coordinates. */
+interface SectionOverlayLoop {
+  readonly elementId: string;
+  readonly points: readonly { readonly x: number; readonly y: number }[];
 }
 
 /** Parse one element's persisted extent (props.meshBBox) — null when absent. */
@@ -137,6 +155,54 @@ export function Model3DViewport(props: Model3DViewportProps): React.JSX.Element 
     () => (snapshot?.elements ?? []).filter((el) => (el.props as { type?: unknown } | null)?.type === "model3d.solid"),
     [snapshot],
   );
+  // CAD-PARITY-010: the boolean toolbar operand set — exactly TWO selected
+  // solids (the model3d.boolean command vocabulary).
+  const selectedSolids = React.useMemo(
+    () => solids.filter((el) => selection.includes(el.id)),
+    [solids, selection],
+  );
+  const booleanOperands = selectedSolids.length === 2 ? selectedSolids.map((el) => el.id) : null;
+  // CAD-PARITY-010: the exact-section overlay (fetched on demand when the
+  // toggle is on; viewport-only — the canonical scene digest is untouched).
+  const [sectionOverlay, setSectionOverlay] = React.useState(false);
+  const [sectionLoops, setSectionLoops] = React.useState<readonly SectionOverlayLoop[]>([]);
+  const [sectionNote, setSectionNote] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    if (!sectionOverlay || snapshot === null) {
+      setSectionLoops([]);
+      setSectionNote(null);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      const res = await send({ type: "query", name: "model3d.section", payload: {} });
+      if (cancelled) return;
+      if (!res.ok) {
+        setSectionLoops([]);
+        setSectionNote(`[${res.code}] ${res.message}`);
+        return;
+      }
+      type SectionLoop = readonly Vec3[];
+      const facets = (res.value as { section: { facets: readonly { elementId: string; loops: readonly SectionLoop[] }[] } }).section.facets;
+      const loops: SectionOverlayLoop[] = [];
+      for (const facet of facets) {
+        for (const loop of facet.loops) {
+          const pts: { x: number; y: number }[] = [];
+          for (const p of loop) {
+            const pr = projectPoint(camera, { width: VIEW_W, height: VIEW_H }, p);
+            if (pr !== null) pts.push({ x: pr.x, y: pr.y });
+          }
+          if (pts.length >= 3) loops.push({ elementId: facet.elementId, points: pts });
+        }
+      }
+      setSectionLoops(loops);
+      setSectionNote(loops.length > 0 ? `exact section: ${loops.length} loop${loops.length === 1 ? "" : "s"} (adapter-backed, canonical)` : "exact section: the plane misses every solid");
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [sectionOverlay, snapshot, camera]);
 
   const run = React.useCallback(async (name: Command["name"], payload: unknown): Promise<boolean> => {
     setBusy(true);
@@ -345,6 +411,57 @@ export function Model3DViewport(props: Model3DViewportProps): React.JSX.Element 
         >
           <Cylinder className="h-3.5 w-3.5" aria-hidden /> Cylinder
         </Button>
+        <div className="mx-1 h-5 w-px bg-border" aria-hidden />
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-7 gap-1 px-2 text-[11px]"
+          disabled={busy || booleanOperands === null}
+          title="model3d.boolean union — fuse the TWO selected solids into one (UNION; the operands are consumed — undo restores both)"
+          onClick={() => {
+            if (booleanOperands === null) return;
+            void run("model3d.boolean", { op: "union", elementIds: booleanOperands });
+          }}
+        >
+          <Layers className="h-3.5 w-3.5" aria-hidden /> Union
+        </Button>
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-7 gap-1 px-2 text-[11px]"
+          disabled={busy || booleanOperands === null}
+          title="model3d.boolean difference — subtract the SECOND selected solid from the FIRST (SUBTRACT; selection order matters)"
+          onClick={() => {
+            if (booleanOperands === null) return;
+            void run("model3d.boolean", { op: "difference", elementIds: booleanOperands });
+          }}
+        >
+          <Scissors className="h-3.5 w-3.5" aria-hidden /> Subtract
+        </Button>
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-7 gap-1 px-2 text-[11px]"
+          disabled={busy || booleanOperands === null}
+          title="model3d.boolean intersection — the common volume of the TWO selected solids (INTERSECT; disjoint solids decline typed)"
+          onClick={() => {
+            if (booleanOperands === null) return;
+            void run("model3d.boolean", { op: "intersection", elementIds: booleanOperands });
+          }}
+        >
+          <Scissors className="h-3.5 w-3.5 rotate-180" aria-hidden /> Intersect
+        </Button>
+        <div className="mx-1 h-5 w-px bg-border" aria-hidden />
+        <Button
+          size="sm"
+          variant={sectionOverlay ? "secondary" : "outline"}
+          className="h-7 gap-1 px-2 text-[11px]"
+          disabled={busy || snapshot === null || (snapshot?.sectionPlanes ?? []).length === 0}
+          title="model3d.section — the EXACT adapter-backed section against the active section plane (the canonical loops overlaid; a typed decline is shown where the engine cannot section exactly)"
+          onClick={() => setSectionOverlay((on) => !on)}
+        >
+          <Scissors className="h-3.5 w-3.5" aria-hidden /> Exact Section
+        </Button>
       </div>
 
       {error !== null && (
@@ -371,16 +488,45 @@ export function Model3DViewport(props: Model3DViewportProps): React.JSX.Element 
             No document yet — create or open one to view the 3D model (UCS, solids, section previews).
           </div>
         ) : (
-          <div
-            data-testid="model3d-scene"
-            data-format="offisos-scene3d-svg"
-            className="h-full w-full [&>svg]:h-full [&>svg]:w-full"
-            // The canonical deterministic scene SVG from the SHARED writer —
-            // trusted module output (pure string building, no user input).
-            dangerouslySetInnerHTML={{ __html: svg }}
-          />
+          <div className="relative h-full w-full" data-testid="model3d-scene-wrapper">
+            <div
+              data-testid="model3d-scene"
+              data-format="offisos-scene3d-svg"
+              className="h-full w-full [&>svg]:h-full [&>svg]:w-full"
+              // The canonical deterministic scene SVG from the SHARED writer —
+              // trusted module output (pure string building, no user input).
+              dangerouslySetInnerHTML={{ __html: svg }}
+            />
+            {sectionOverlay && sectionLoops.length > 0 && (
+              // The CAD-PARITY-010 exact-section overlay: a viewport-only
+              // highlight layer (the canonical scene digest is untouched).
+              <svg
+                data-testid="model3d-section-overlay"
+                viewBox={`0 0 ${VIEW_W} ${VIEW_H}`}
+                className="pointer-events-none absolute inset-0 h-full w-full"
+                aria-label="Exact section overlay (adapter-backed canonical loops)"
+              >
+                {sectionLoops.map((loop, i) => (
+                  <polyline
+                    key={`${loop.elementId}:${i}`}
+                    points={loop.points.map((p) => `${p.x.toFixed(2)},${p.y.toFixed(2)}`).join(" ")}
+                    fill="none"
+                    stroke="#d97706"
+                    strokeWidth={2.5}
+                    strokeLinejoin="round"
+                  />
+                ))}
+              </svg>
+            )}
+          </div>
         )}
       </div>
+
+      {sectionOverlay && sectionNote !== null && (
+        <p className="text-[11px] leading-snug text-amber-700 dark:text-amber-400" data-testid="model3d-section-note">
+          {sectionNote}
+        </p>
+      )}
 
       <p className="text-[11px] leading-snug text-muted-foreground" data-testid="model3d-info">
         {snapshot === null

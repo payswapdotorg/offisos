@@ -14,6 +14,8 @@
 
 import type { Matrix4, Vec3 } from "../../contracts/geometry.js";
 
+export type { Vec3 } from "../../contracts/geometry.js";
+
 /** The documented orthonormality tolerance for UCS axis triples: axes must be
  *  unit length and pairwise perpendicular within 1e-9 (relative) — anything
  *  looser is a typed decline at the document boundary, never silently

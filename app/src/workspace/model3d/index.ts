@@ -23,6 +23,7 @@ export {
   v3Equals,
   formatVec3,
   fmtNum,
+  type Vec3,
   IDENTITY_MATRIX4,
   translationMatrix,
   scaleMatrix,
