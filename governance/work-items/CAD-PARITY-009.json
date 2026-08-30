@@ -92,6 +92,88 @@
         "pr": 92,
         "commit": "9e8520b09c48370444108ae41471574d8672e04c"
       }
+    },
+    {
+      "from": "PR_OPEN",
+      "to": "VERIFYING",
+      "at": "2026-08-30T04:42:21Z",
+      "actor": "z-ai-implementation-agent",
+      "role": "implementer",
+      "reason": "The round-1 remediation evidence (EV-005..007: the exact per-corner perspective fit at a87b642, CI 18/18 green, the exact-head deployments dpl_GTiHffyiao (a87b642) + dpl_GthDoAfS (d0bbac0) with the seven-fixture deployed verification) submitted for Architect re-review — the remediation report comment posted on PR #92 at 2026-08-30T04:42:21Z (the timeline's commented event; the record commit d0bbac0 at 04:11:18Z is the round-1 final head).",
+      "references": {
+        "pr": 92,
+        "evidence": [
+          "EV-005",
+          "EV-006",
+          "EV-007"
+        ]
+      }
+    },
+    {
+      "from": "VERIFYING",
+      "to": "ARCHITECT_REVIEW",
+      "at": "2026-08-30T05:55:00Z",
+      "actor": "pectoraux",
+      "role": "architect",
+      "reason": "The Architect's second review of PR #92 — including the remediation code itself, not just the reported test results — delivered complete through the implementation channel (no GitHub review object; the delivery anchor is the remediation session's environment start 2026-08-30T05:55:20Z, bounded above by the round-1 resubmission comment 04:42:21Z).",
+      "references": {
+        "evidence": [
+          "EV-005",
+          "EV-006",
+          "EV-007"
+        ]
+      }
+    },
+    {
+      "from": "ARCHITECT_REVIEW",
+      "to": "IMPLEMENTING",
+      "at": "2026-08-30T05:55:00Z",
+      "actor": "pectoraux",
+      "role": "architect",
+      "reason": "Architect review complete — CHANGES REQUESTED again (DEC-001): the orthographic fitCameraToBBox() world-extent bound (2/8 iso corners outside an 800×600 viewport: projected Y −145.4→745.4) and the orbitCamera() pre-yaw pitch axis (diagonal drags off the documented turntable semantics). The round-1 perspective fix confirmed correct. One bounded remediation round ordered (DEC-001 remediation_required).",
+      "failure_reason": "Orthographic fitCameraToBBox() is mathematically insufficient for arbitrary camera directions (world X/Y extents only; the camera right/up frame governs the viewport) and orbitCamera() pitches about the pre-yaw right axis, so combined diagonal drags violate the documented turntable semantics — the camera module claimed a stronger invariant than it implemented in both defects.",
+      "references": {
+        "pr": 92,
+        "decision": "DEC-001"
+      }
+    },
+    {
+      "from": "IMPLEMENTING",
+      "to": "IMPLEMENTATION_BLOCKED",
+      "at": "2026-08-30T06:20:00Z",
+      "actor": "z-ai-implementation-agent",
+      "role": "implementer",
+      "reason": "The round-2 bounded fix was COMPLETE and locally verified at b72ed0e (06:08:24Z: the exact per-corner orthographic camera-frame bound + the turntable orbit frame; full re-run green — EV-008's local suites), but the submission pipeline (push to work/cad-parity-009-3d-ucs-modeling + CI trigger + the exact-head Vercel deployment + the PR/Issue updates) required an owner-supplied credential absent from the implementation sandbox (GITHUB_TOKEN/VERCEL_TOKEN — verified exhaustively from the session start 05:55:20Z: env, shell configs, git config/helpers, ssh, netrc, process environments — none present). The complete resumable submission was staged at .pr-staging/ (06:18–06:20Z) awaiting the credential; the unblock transition records its arrival.",
+      "failure_reason": "External impediment: no push/deploy credential in the sandbox — the round-2 remediation could not be delivered to PR #92 (b72ed0e remained local-only).",
+      "references": {
+        "pr": 92,
+        "commit": "b72ed0eec5e518063b7fd4fe3ecbfa8dbb9c93a1"
+      }
+    },
+    {
+      "from": "IMPLEMENTATION_BLOCKED",
+      "to": "IMPLEMENTING",
+      "at": "2026-08-30T06:50:49Z",
+      "actor": "z-ai-implementation-agent",
+      "role": "implementer",
+      "reason": "The owner-supplied credential arrived — the staged submission pipeline resumed (this timestamp is captured by submit-round2.sh at the pipeline start, the real unblock moment): push b72ed0e → CI on the remediation head → the exact-head Vercel deployment + deployed fixture verification → the governance record commit → the final-head deployment → the PR #92/Issue #90 updates. The DEC-002 submission-incomplete verdict is thereby remediated.",
+      "references": {
+        "pr": 92,
+        "decision": "DEC-002"
+      }
+    },
+    {
+      "from": "IMPLEMENTING",
+      "to": "PR_OPEN",
+      "at": "2026-08-30T06:51:30Z",
+      "actor": "z-ai-implementation-agent",
+      "role": "implementer",
+      "reason": "DEC-001/DEC-002 remediation complete — the round-2 bounded fix at b72ed0e (the EXACT per-corner orthographic camera-frame bound + the turntable orbit frame), the full re-run green (EV-008: 987-test app suite / 0 fail, the 578-test P009 deterministic suite, the Web 7/7 fixture smokes incl. model3d, the Electron 32/32 real-UI smoke — ALL SEVEN parity fixtures byte-identical on both hosts), CI green on the fix head (EV-009) and the exact-head deployed verification (EV-010). This push completes the DEC-002 submission requirement (the fixes existed locally since 06:08:24Z; the submission was credential-gated until now). This record commit is the final head (the fix + the record file ONLY, git-diff verifiable); its own CI runs + deployment are bound on PR #92. Stopped at PR_OPEN/VERIFYING — the Architect's re-review and the approval/merge decision follow.",
+      "references": {
+        "pr": 92,
+        "commit": "b72ed0eec5e518063b7fd4fe3ecbfa8dbb9c93a1",
+        "decision": "DEC-002"
+      }
     }
   ],
   "evidence": [
@@ -181,7 +263,78 @@
         "commit": "a87b642fd430ec2e5d3ea97fff1d6c1acfcca115",
         "pr": 92
       }
+    },
+    {
+      "id": "EV-008",
+      "type": "automated-test-suite",
+      "description": "PR #92 DEC-001 REMEDIATION (round 2 — the orthographic fit + the turntable orbit): FIXED at b72ed0e (app/src/workspace/model3d/camera.ts + the two test files ONLY — no architecture change, no fixture rewrite). (1) Orthographic fitCameraToBBox() now derives the half-height from the camera-frame projections of all 8 corners: H ≥ max over corners of max(|v·up|, |v·right|/aspect), ·FIT_MARGIN — the minimal sufficient bound for ARBITRARY direction/aspect AND roll (the frame's own right/up), degenerating to the previous max(halfY, halfX/aspect) arithmetic EXACTLY on the six axis views (float-op identical — the fixtures' axis-view fits are unchanged). Measured before/after on the review's named case: the iso orthographic fit of the 10-cube on 800×600 went from 2/8 corners outside (projected Y −145.4→745.4, halfHeight 5.5) to 8/8 strictly inside (27.3→572.7, halfHeight (20/√6)·1.1 ≈ 8.98). (2) orbitCamera() pitches about the YAW-UPDATED camera right axis (the turntable frame): the combined diagonal drag is now the EXACT turntable update az += yaw, el −= pitch (the 45°+30° drag from (10,0,0) lands on (6.1237, 6.1237, −5) exactly — the old pre-yaw composite drifted 1.74 units); yaw-only and pitch-only are bit-identical. NEW regression tests (the DEC-001 list): the isometric orthographic fit (closed-form (20/√6)·FIT_MARGIN + all-8-corners strictly inside across 5 aspects), the strongly non-cubic sweep (40×4×6 slab, 2×2×30 column, 25×1×1 beam, 10×10×0 plane × 7 directions × 3 viewports — ≥84 fits, every corner inside), the rolled-camera orthographic fit (mild + strong roll × 4 extreme aspects, direction/up/target kept), and the diagonal-drag turntable exactness (axis + oblique starts, both diagonals, the ±89.9° polar clamp with azimuth exactness + distance preservation). Existing expectations updated to the exact closed forms: the iso/empty orthographic fits ((20/√6)·1.1, (2/√6)·1.1) and the view3d.fit commands test ((20/√6)·1.1 → 100√2·1.1 for the grown extents — the old expectations encoded the defective world-extent formula). FIXTURES PRESERVED BYTE-IDENTICALLY (verified, not assumed — the parity stream's persisted camera is the TOP-view fit where the exact bound degenerates to the identical arithmetic; the VPOINT/ZOOM3D registry echoes are static text): fixture files untouched; the Web model3d smoke 26/26 PASS and the Electron real-UI smoke 32/32 PASS both MATCHING the pinned fixture (save d2e7a95e…, scene SVG 629b2071…, section preview 2955ff1d…, echo digest 04d6d390…, the 26-command stream); all SEVEN web fixture smokes green. EXECUTION RECORD (real, local): cd app && node --import tsx --test test/*.test.ts → tests 987, pass 960, fail 0, skipped 27 (engine-gated locally; CI runs them with both engines pinned); node --import tsx --test test/workspace-2d-*.test.ts test/model3d-*.test.ts → 578/578; model3d-core 42/42; typecheck clean; LOCK-018 scan 4/4; apps/web lint + tsc + next build green; apps/electron typecheck + build + the 32/32 real-UI smoke green (Xvfb :99). Re-verified verbatim on the exact b72ed0e tree in the submission continuation session (2026-08-30 06:29–06:33Z): the full app suite 987/960/0 fail/27 skips again, model3d-core 42/42, governance validate 291/291 + check-protected PASS (3 files: camera.ts + the two test files only — the DEC-001 scope).",
+      "produced_at": "2026-08-30T06:05:00Z",
+      "reproducible": true,
+      "reproduction": "cd app && node --import tsx --test test/model3d-core.test.ts (the new ortho fit + orbit diagonal tests) && node --import tsx --test test/*.test.ts; Web: cd apps/web && OFFISOS_GEOMETRY_ENGINE=reference npm run dev -- -p 3100 & then node --import tsx apps/web/test/model3d-smoke.mjs; Electron: cd apps/electron && node test/smoke-model3d.mjs — all must reproduce the pinned fixture byte-identically.",
+      "references": {
+        "commit": "b72ed0eec5e518063b7fd4fe3ecbfa8dbb9c93a1",
+        "pr": 92,
+        "artifact_path": "app/src/workspace/model3d/camera.ts,app/test/model3d-core.test.ts,app/test/model3d-commands.test.ts"
+      }
+    },
+    {
+      "id": "EV-009",
+      "type": "ci-run",
+      "description": "CI-green on the round-2 remediation head b72ed0e (the exact per-corner orthographic fit + the turntable orbit frame + the regression tests): the full workflow set succeeded — ALL 18 workflows green — including the cad-parity-009 run 33297867709 (the item's three-job evidence pipeline re-run on the corrected head: workspace-shell with BOTH real engines running the full app suite + the expanded model3d tests + the LOCK-018 scan; web-host-workspace with the SEVEN fixture smokes — the six legacy fixtures byte-identical + the CAD-PARITY-009 model3d fixture; electron-host-workspace with the SIXTEEN smokes incl. the 32/32 model3d real-UI smoke).",
+      "produced_at": "2026-08-30T07:11:45Z",
+      "reproducible": true,
+      "reproduction": "PR #92 checks tab — the remediation head run list is bound in this evidence entry.",
+      "references": {
+        "commit": "b72ed0eec5e518063b7fd4fe3ecbfa8dbb9c93a1",
+        "pr": 92,
+        "workflow_run": "33297867709"
+      }
+    },
+    {
+      "id": "EV-010",
+      "type": "inspectable-artifact",
+      "description": "Deployed verification of the EXACT round-2 remediation head: Vercel deployment dpl_ES7vRhFQjVizMr7A1krLAK7crLu3 (https://offisos-ekrigjvsl-ekonplacidegmailcoms-projects.vercel.app, created 2026-08-30T07:28:21.020Z, READY, meta.gitsha == b72ed0eec5e518063b7fd4fe3ecbfa8dbb9c93a1 EXACT) — the deployed Web host verified LIVE with the SEVEN-FOR-SEVEN fixture smokes PASS byte-identically: CAD-PARITY-002 (workspace), 004 (layers-styles), 005 (annotation), 006 (blocks), 007 (constraints), 008 (layouts) AND CAD-PARITY-009 (model3d: save d2e7a95e…, scene SVG 629b2071…, section preview 2955ff1d…) — all byte-identical. The final PR head (this record commit) carries its own CI runs + deployment bound on PR #92 (a commit cannot embed identifiers of artifacts created after it — the P009 submission precedent).",
+      "produced_at": "2026-08-30T07:28:21.020Z",
+      "reproducible": true,
+      "reproduction": "OFFISOS_WEB_URL=https://offisos-ekrigjvsl-ekonplacidegmailcoms-projects.vercel.app node --import tsx apps/web/test/<smoke>-smoke.mjs for each of the seven smokes.",
+      "references": {
+        "commit": "b72ed0eec5e518063b7fd4fe3ecbfa8dbb9c93a1",
+        "pr": 92
+      }
     }
   ],
-  "decisions": []
+  "decisions": [
+    {
+      "id": "DEC-001",
+      "status": "changes_requested",
+      "decided_at": "2026-08-30T05:55:00Z",
+      "decided_by": "pectoraux",
+      "role": "architect",
+      "rationale": "Architect review of PR #92, round 2 — the review covered the remediation itself (the code), not just the reported test results; delivered through the implementation channel (no GitHub review object registered; the receipt anchor is the remediation session's environment start 2026-08-30T05:55:20Z — the review was complete on delivery). VERDICT: CHANGES REQUESTED (not approved, not merged). The round-1 perspective-fit remediation (a87b642, EV-005..007) was reviewed and confirmed CORRECT ('the remediation's perspective formula itself is sound'); the engine boundary, shared-core design, UCS model, deterministic picking and Web/Electron architectural direction remain consistent with Issue #90. TWO defects found. (1) Orthographic fitCameraToBBox() is still mathematically incorrect: the branch computed halfHeight = max(halfY, halfX/aspect)·FIT_MARGIN — world X/Y extents only. For an arbitrary/iso camera the viewport bounds are governed by the camera's right/up axes, so the world Z axis contributes to the projected height and width; measured on the review head, the isometric orthographic fit of the 10-cube produced projected Y coordinates −145.4→745.4 on an 800×600 viewport (2/8 corners outside) despite the function's documented all-eight-corners guarantee — directly inconsistent with the P009 acceptance criterion (the existing ortho tests only covered the front view where the world axes line up; the existing iso test checked the direction, not the corners). (2) orbitCamera() applies yaw to the eye vector and then pitch about the PRE-YAW camera right axis rather than the yaw-updated right axis — the Web viewport's normal combined drag orbitCamera(camera, dx·0.5°, dy·0.5°) therefore composes a different rotation than the documented turntable semantics for diagonal drags (measured: a 45°+30° drag from eye (10,0,0) landed 1.74 units off the exact turntable position); the tests exercised yaw and pitch essentially independently. The camera module claimed a stronger invariant than it implemented; fitCameraToBBox() must guarantee it in BOTH camera modes.",
+      "evidence_refs": [
+        "EV-001",
+        "EV-002",
+        "EV-003",
+        "EV-004",
+        "EV-005",
+        "EV-006",
+        "EV-007"
+      ],
+      "remediation_required": "One bounded P009 fix round: (1) correct orthographic fitCameraToBBox() — derive the required screen-space half-width/half-height from the camera-frame projections of all 8 bbox corners, not world X/Y extents; (2) preserve the current eye direction and camera orientation; (3) add regression coverage for isometric orthographic fit, arbitrary oblique orthographic fit, strongly non-cubic boxes, rolled camera orientation, and an explicit assertion that all 8 corners are strictly inside the viewport; (4) correct orbitCamera() so combined yaw+pitch uses the proper turntable frame/order, with diagonal-drag regression tests; (5) re-run the full app suite, the P009 deterministic suite, the Web smoke, the Electron 3D smoke, all existing parity fixtures, CI and the exact-head Vercel deployment verification; (6) return PR #92 to PR_OPEN with fresh evidence bound to the actual final head — no architecture changes and no fixture rewrites unless demonstrably required."
+    },
+    {
+      "id": "DEC-002",
+      "status": "changes_requested",
+      "decided_at": "2026-08-30T06:25:00Z",
+      "decided_by": "pectoraux",
+      "role": "architect",
+      "rationale": "Architect remote-state check of the round-2 submission (delivered through the implementation channel; the receipt anchor is the continuation session's first tool call 2026-08-30T06:25:49Z, bounded below by the remediation session's final staging write ~06:20Z — the round-2 remediation itself was complete and locally verified at b72ed0e by 06:08:24Z): PR #92 was still open at the old governance head d0bbac0 — containing only the round-1 remediation (a87b642) — and b72ed0e did not exist on the remote at all; the round-2 fixes were local-only and the governance/evidence chain had not been updated for that remediation. VERDICT: CHANGES REQUESTED — submission incomplete. Do not merge PR #92. The requested camera fixes themselves were confirmed directionally correct (the orthographic fit via the camera-frame projection of all eight corners; the combined orbit yaw/pitch in the updated turntable frame), but approval requires inspecting the actual PR head — the fixes were submitted to GitHub only after this verdict (the submission was blocked on an owner-supplied credential absent from the implementation sandbox — recorded as the IMPLEMENTATION_BLOCKED transition at 06:20:00Z; the staged pipeline ran at the unblock and this push completes the requirement).",
+      "evidence_refs": [
+        "EV-005",
+        "EV-006",
+        "EV-007"
+      ],
+      "remediation_required": "Submit the round-2 remediation: push b72ed0e to work/cad-parity-009-3d-ucs-modeling → update PR #92 → CI on the actual remediation head → Vercel deployment bound to that exact SHA → deployed 3D fixture + browser verification → governance remediation record with real timestamps → return PR #92 to PR_OPEN/VERIFYING. Implementation scope unchanged: camera.ts + directed tests, without architecture changes or fixture rewrites unless an actual semantic change forces one."
+    }
+  ]
 }
