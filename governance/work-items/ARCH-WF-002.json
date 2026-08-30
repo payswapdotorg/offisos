@@ -43,7 +43,7 @@
     "A reproducible example covering architecture-change approval and one covering a historical merged-record reconciliation.",
     "Evidence that existing normal lifecycle and VERIFIED gating behavior remains unchanged."
   ],
-  "state": "IMPLEMENTING",
+  "state": "VERIFYING",
   "transitions": [
     {
       "from": "DRAFT",
@@ -198,6 +198,40 @@
         "pr": 101,
         "issue": 12
       }
+    },
+    {
+      "from": "IMPLEMENTING",
+      "to": "PR_OPEN",
+      "at": "2026-08-30T20:39:12Z",
+      "actor": "z-ai-implementation-agent",
+      "role": "implementer",
+      "reason": "Round-3 CHANGES REQUESTED remediation complete and pushed to the open PR #101 (heads 0905bf3 the ruling record, 9a8084d the creation invariant, 76353fa the CLI completion fix). The lifecycle bypass at record creation is closed at the canonical validation/protected-path boundary: a record newly created under governance/acr/** or governance/reconciliations/** must ACTUALLY traverse its lifecycle — the protected-path check reads the record's full commit history within the change (checkRegistryAdditionTraversal, tools/governance/src/registry-lifecycle.ts): the INTRODUCTION commit must be born at the INITIAL status (real ACR → PROPOSED, real reconciliation → STAGED) and EVERY later change to the same new record within the change must itself be a narrowly content-checked legal lifecycle transition. A record born mid-lifecycle (already APPROVED/IMPLEMENTED/DECIDED) is blocked with an explicit reason naming the introduction commit; an intra-change tamper (e.g. an authorized_paths expansion between legal-looking endpoints) is blocked because every step is checked; deletions mid-change are blocked; unreadable history fails closed. Demo fixtures (demo: true) are exempt from the initial-status rule but inert (they can never route protected-path changes or sanction real reconciliations; the ACR-9xx range and disclaimer are enforced by validate) — later edits to a new demo record within the same change are still checked as transitions. The traversal is also what keeps the documented review-time acts flow lawful: a record born PROPOSED on the PR branch advanced to APPROVED by the Architect's acts commit passes as REGISTRY ADITION + REGISTRY LIFECYCLE with the traversed edges named (dry-run verified). The general ACR-routing channel still authorizes explicitly enumerated out-of-band registrations. 39 new deterministic tests (199/199 total): the ruling's exact seven-row matrix (new real ACR APPROVED/IMPLEMENTED → BLOCKED; new real reconciliation DECIDED → BLOCKED; new real ACR PROPOSED → ALLOWED; new reconciliation STAGED → ALLOWED; existing record legal edge → ALLOWED; existing record arbitrary modification → BLOCKED) at unit, integration and git e2e level, the acts-flow and smuggle git e2e replays, and the traversal cases (multi-gate traversals, backwards steps, mid-change deletions, demo exemptions, fail-closed unreadable history).",
+      "references": {
+        "issue": 12,
+        "pr": 101,
+        "commit": "76353fa6c98e1ff8f6587e1e2d6a03a9e78ee05a",
+        "evidence": [
+          "EV-008",
+          "EV-009",
+          "EV-010"
+        ]
+      }
+    },
+    {
+      "from": "PR_OPEN",
+      "to": "VERIFYING",
+      "at": "2026-08-30T20:39:12Z",
+      "actor": "z-ai-implementation-agent",
+      "role": "implementer",
+      "reason": "Round-3 remediation evidence submitted for Architect re-review. The dry run (scratch clone at 76353fa) proves the complete acceptance-target state with the creation invariant in force: the two architect acts applied → validate 371/371 exit 0 AND check-protected --base origin/main --acr ACR-003 PASS on the FULL PR diff — the manifest and both schemas ROUTED via ACR-003, ACR-003.json reported as REGISTRY ADDITION born PROPOSED advanced within this change by legal transition PROPOSED → APPROVED, REC-CAD-PARITY-011.json likewise born STAGED → DECIDED, the demo fixtures exempt, TEMPLATE.json born PROPOSED; the post-merge ACR-003 → IMPLEMENTED advancement passes in BOTH check paths (modification vs the acts commit: APPROVED → IMPLEMENTED legal transition; traversal vs origin/main: born PROPOSED + PROPOSED → APPROVED + APPROVED → IMPLEMENTED, the full chain audited). A second real defect was found and fixed during submission: CI run 33333571893 failed the deterministic suite's 'CLI validate exits with the expected code' assertion — process.exit() truncated the tail of piped stdout (the exit code was intact; the Summary line was lost) — root-caused, reproduced locally (1/40 spawnSync runs against 9a8084d, stdout truncated at 29174/41358 bytes), fixed by completing commands via process.exitCode + natural exit (finish()) and proven lossless in 0/80 runs including under synthetic CPU load; CI green at 199/199 on 76353fa. Governance CI remains red by design on exactly the three P011 historical failures until the Architect records the two review-time acts.",
+      "references": {
+        "pr": 101,
+        "evidence": [
+          "EV-008",
+          "EV-009",
+          "EV-010"
+        ]
+      }
     }
   ],
   "evidence": [
@@ -287,6 +321,44 @@
         "commit": "308c4de7b7ea533a6cb9932e1e2b1e79849ac5b4",
         "pr": 101,
         "workflow_run": "33331657817"
+      }
+    },
+    {
+      "id": "EV-008",
+      "type": "automated-test-suite",
+      "description": "The round-3 remediation suites at remediation head 76353fa (implementation commit 9a8084d): 199/199 deterministic tests — 39 new (registry-lifecycle.test.ts: the ruling's exact required matrix — new real ACR born APPROVED BLOCKED, born IMPLEMENTED BLOCKED, new real reconciliation born DECIDED BLOCKED, new real ACR born PROPOSED ALLOWED, new reconciliation born STAGED ALLOWED, existing record legal lifecycle edge ALLOWED, existing record arbitrary modification BLOCKED — at unit, integration and git e2e level; the addition traversal — multi-gate lawful traversals, born-mid-lifecycle blocked with the introduction commit named, the intra-change authorized_paths smuggle blocked between legal-looking endpoints, mid-change deletions blocked, backwards steps blocked, demo-fixture exemptions and their limits, fail-closed unreadable/empty history and no-history-reader; the acts flow (born PROPOSED + legally advanced within the same change passes, reported as REGISTRY ADDITION with the traversed edges) and its git e2e replay against the real CLI; the smuggle git e2e replay; the preserved general ACR-routing channel for explicitly enumerated out-of-band registrations). Every pre-existing test unchanged and passing. tsc clean; validate 368/371 with exactly the three intentionally-preserved CAD-PARITY-011 historical failures; drift audit green. The dry run over a scratch clone at 76353fa: the two architect acts → validate 371/371 exit 0 AND check-protected --base origin/main --acr ACR-003 PASS on the full PR diff (manifest + both schemas ROUTED; ACR-003.json REGISTRY ADDITION born PROPOSED advanced PROPOSED → APPROVED; REC-CAD-PARITY-011.json born STAGED advanced STAGED → DECIDED; demo fixtures exempt); the post-merge ACR-003 → IMPLEMENTED advancement passes in both the modification path (--base at the acts commit) and the traversal path (--base origin/main: the full PROPOSED → APPROVED → IMPLEMENTED chain audited).",
+      "produced_at": "2026-08-30T20:39:12Z",
+      "reproducible": true,
+      "reproduction": "npm ci && npm run typecheck && npm test && npm run governance -- validate && npm run governance -- check-verified-revisions; the dry run: clone the branch head, apply the two documented acts (ACR-003 PROPOSED→APPROVED + review + approval; REC-CAD-PARITY-011 STAGED→DECIDED + decision fields), commit, then npm run governance -- validate (371/371) and npm run governance -- check-protected --base origin/main --acr ACR-003 (PASS: ROUTED ×3, REGISTRY ADDITION born PROPOSED/STAGED with the traversed edges named).",
+      "references": {
+        "commit": "76353fa6c98e1ff8f6587e1e2d6a03a9e78ee05a",
+        "pr": 101
+      }
+    },
+    {
+      "id": "EV-009",
+      "type": "reproducible-script",
+      "description": "A second real defect found and fixed during round-3 submission verification: governance CI run 33333571893 on head 9a8084d failed the deterministic suite's 'CLI validate exits with the expected code on the real repository' assertion — the CLI's exit code was intact (1, as expected) but stdout ended without the 'Summary:' line. Root cause: the CLI completed every command with process.exit(code) immediately after printing; process.exit does not wait for pending libuv stdio writes, so on a loaded runner the final queued pipe writes are dropped (the failure is timing-sensitive: all earlier CI runs passed with the same latent defect). Reproduced locally: 40 spawnSync runs of the exact test's invocation against 9a8084d (Node 22) lost the stdout tail once — truncated at 29174 of 41358 bytes with status intact, matching the CI failure shape exactly. Fix (commit 76353fa): every command path (validate, check-protected, check-verified-revisions) completes via finish() — process.exitCode + natural exit, letting stdio drain (usage() keeps its hard exit: three short stderr lines). Proof: 80 further spawnSync runs against the fixed code (40 normal + 40 under synthetic CPU load), 0 tails lost; all command exit codes preserved (validate 1 designed, check-verified-revisions 0, check-protected 1 pre-acts); CI run 33334077503 on 76353fa then passed the full deterministic suite 199/199.",
+      "produced_at": "2026-08-30T20:25:03Z",
+      "reproducible": true,
+      "reproduction": "Stress: spawn 'node --import tsx tools/governance/src/cli.ts validate --root .' via spawnSync 40 times against 9a8084d (expect intermittent stdout tail loss, exit code intact) and 80 times against 76353fa (expect none); inspect CI runs 33333571893 (test step failed, no 'Summary:' in the assertion) and 33334077503 (test step green 199/199).",
+      "references": {
+        "commit": "76353fa6c98e1ff8f6587e1e2d6a03a9e78ee05a",
+        "pr": 101,
+        "workflow_run": "33333571893"
+      }
+    },
+    {
+      "id": "EV-010",
+      "type": "ci-run",
+      "description": "Governance CI run 33334077503 on remediation head 76353fa: the deterministic suite green at 199/199 (the 39 new round-3 tests running in CI — including the truncation fix proven in the CI environment) and validate red only on the three known CAD-PARITY-011 historical failures (368/371) — the same designed acceptance-target state as every previous submission head, unchanged by the remediation. The run completed 2026-08-30T20:35:59Z.",
+      "produced_at": "2026-08-30T20:35:59Z",
+      "reproducible": true,
+      "reproduction": "Inspect the Actions results for remediation head 76353fa (governance run 33334077503): the test step reports # tests 199 / # pass 199; the validate step lists exactly the three work-item/CAD-PARITY-011 FAIL lines.",
+      "references": {
+        "commit": "76353fa6c98e1ff8f6587e1e2d6a03a9e78ee05a",
+        "pr": 101,
+        "workflow_run": "33334077503"
       }
     }
   ],
