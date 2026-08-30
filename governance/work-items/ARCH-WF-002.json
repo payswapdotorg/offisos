@@ -43,7 +43,7 @@
     "A reproducible example covering architecture-change approval and one covering a historical merged-record reconciliation.",
     "Evidence that existing normal lifecycle and VERIFIED gating behavior remains unchanged."
   ],
-  "state": "IMPLEMENTING",
+  "state": "IMPLEMENTATION_BLOCKED",
   "transitions": [
     {
       "from": "DRAFT",
@@ -79,6 +79,18 @@
       "references": {
         "issue": 12,
         "commit": "62055d2a2cb2d43efbf119f9a567e96f56984e24"
+      }
+    },
+    {
+      "from": "IMPLEMENTING",
+      "to": "IMPLEMENTATION_BLOCKED",
+      "at": "2026-08-30T18:32:30Z",
+      "actor": "z-ai-implementation-agent",
+      "role": "implementer",
+      "reason": "The implementation is complete and locally verified (102/102 tests, tsc clean, validate 368/371 with only the three intentionally-preserved CAD-PARITY-011 historical failures, drift audit green, the architect-act dry run at 371/371 exit 0), but the submission is gated: this session has no GitHub credential (GITHUB_TOKEN absent), so the branch push to origin fails. Blocked pending the credential; the submission package (push, PR body, record builder) is fully staged in .pr-staging/.",
+      "failure_reason": "No GitHub credential available in this session (git push to origin fails: could not read Username); the push + PR submission cannot execute until the credential arrives.",
+      "references": {
+        "issue": 12
       }
     }
   ],
