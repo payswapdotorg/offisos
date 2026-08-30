@@ -3,8 +3,12 @@
   "title": "Solids, surfaces, meshes, booleans, sections and large-model performance",
   "issue": 93,
   "architecture_version": "1.1",
-  "requirements": ["CAD-002"],
-  "dependencies": ["CAD-PARITY-009"],
+  "requirements": [
+    "CAD-002"
+  ],
+  "dependencies": [
+    "CAD-PARITY-009"
+  ],
   "objective": "Advance the frozen CAD/BIM product from the bounded P009 3D environment into a substantially deeper modeling kernel and viewport layer: richer solid boolean workflows, bounded surface and mesh representations, exact section/slice computation where the existing adapter can support it, deterministic topology-aware semantics where provenance can be reconciled, and large-model performance infrastructure, while preserving the frozen ConstructionOS/CAD architecture and the shared Web/Electron semantic boundary.",
   "acceptance_criteria": [
     "P009 camera/UCS/workplane/navigation semantics remain the single shared foundation; no host-specific duplicate 3D math is introduced.",
@@ -41,7 +45,7 @@
     "Regression proof that CAD-PARITY-002..009 fixtures remain green and byte-identical.",
     "Vercel deployed verification of the exact implementation head plus real-browser evidence for the representative 3D workflows."
   ],
-  "state": "ASSIGNED",
+  "state": "IMPLEMENTING",
   "transitions": [
     {
       "from": "DRAFT",
@@ -50,7 +54,9 @@
       "actor": "pectoraux",
       "role": "architect",
       "reason": "Architect work order prepared from the frozen CAD-PARITY roadmap: CAD-PARITY-010 is the next roadmap item after CAD-PARITY-009, covering deeper solids/surfaces/meshes, booleans, exact sections where supported, topology-aware selection where deterministic, and large-model performance.",
-      "references": {"issue": 93}
+      "references": {
+        "issue": 93
+      }
     },
     {
       "from": "READY",
@@ -59,7 +65,23 @@
       "actor": "pectoraux",
       "role": "architect",
       "reason": "CAD-PARITY-009 is now formally VERIFIED on main, clearing the declared dependency gate. Z.ai is assigned to implement P010 from main without changing the frozen ConstructionOS/CAD architecture; implementation must follow shared-core-first sequencing and stop at PR_OPEN/VERIFYING.",
-      "references": {"issue": 93, "assignee": "z-ai-implementation-agent", "commit": "a52c718e75619574e4eddc03331bbac689adcff4"}
+      "references": {
+        "issue": 93,
+        "assignee": "z-ai-implementation-agent",
+        "commit": "a52c718e75619574e4eddc03331bbac689adcff4"
+      }
+    },
+    {
+      "from": "ASSIGNED",
+      "to": "IMPLEMENTING",
+      "at": "2026-08-30T08:52:56Z",
+      "actor": "z-ai-implementation-agent",
+      "role": "implementer",
+      "reason": "Implementation branch work/cad-parity-010-solids-surfaces-performance cut from main at a52c718 (the P009-verified head) and implementation begins per Issue #93.",
+      "references": {
+        "issue": 93,
+        "commit": "a52c718e75619574e4eddc03331bbac689adcff4"
+      }
     }
   ]
 }
