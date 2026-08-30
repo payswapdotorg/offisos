@@ -23,6 +23,15 @@
  *       waived only when a cited ACR is APPROVED/IMPLEMENTED, real, and
  *       enumerates the exact path in authorized_paths; every other protected
  *       change remains a violation.
+ *       Registry lifecycle rule (--base mode): a modification of an EXISTING
+ *       record under a lifecycle-managed registry pattern
+ *       (governance/acr/**, governance/reconciliations/**) is waived only
+ *       when the before/after content is a narrowly content-checked legal
+ *       lifecycle transition of that record (status edge + exactly the gate
+ *       instruments, each role-correct — registry-lifecycle.ts); waived
+ *       transitions are reported explicitly as REGISTRY LIFECYCLE. In
+ *       --paths-file strict mode there is no before/after content, so
+ *       registry-record modifications fail closed.
  *
  *   check-verified-revisions [--base <git-ref>] [--root <dir>]
  *       Revision-bound verification drift audit (ARCH-WF-002): for every
