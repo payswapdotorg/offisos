@@ -190,6 +190,25 @@ function parseStandardView(text: string): "top" | "bottom" | "front" | "back" | 
   throw new Error(`unknown standard view '${text}' — valid: Top, Bottom, Front, Back, Left, Right, Iso`);
 }
 
+/** CAD-PARITY-010: the shared UNION/SUBTRACT/INTERSECT plan builder — two
+ *  element ids, one model3d.boolean command (the operand ORDER matters for
+ *  difference: first − second). */
+function booleanPlan(values: Readonly<Record<string, PromptValue>>, op: "union" | "difference" | "intersection"): CommandPlan {
+  const first = textValue(values, "first").trim();
+  const second = textValue(values, "second").trim();
+  if (first.length === 0 || second.length === 0) {
+    throw new Error("both element ids must be non-empty strings (el-NNNNNN)");
+  }
+  if (first === second) {
+    throw new Error(`the two operands must be DISTINCT elements ('${first}' named twice)`);
+  }
+  const verb = op === "union" ? "Union" : op === "difference" ? "Subtract" : "Intersect";
+  return plan(
+    [{ name: "model3d.boolean", payload: { op, elementIds: [first, second] } }],
+    [`${verb} ${first}${op === "difference" ? " − " : op === "intersection" ? " ∩ " : " + "}${second} (the operands are consumed into the result solid; undo restores both).`],
+  );
+}
+
 // ---------------------------------------------------------------------------
 // The command registry extension.
 // ---------------------------------------------------------------------------
@@ -699,6 +718,103 @@ export const COMMANDS_MODEL3D: readonly WorkspaceCommand[] = [
           `  solids: ${ctx.model3dSolidCount}`,
         ],
         [{ action: "view.model3d" }],
+      );
+    },
+  },
+  // --- CAD-PARITY-010 (Issue #93): boolean solids, exact sections, mesh
+  // entities — the AutoCAD-named boolean commands (UNION/SUBTRACT/INTERSECT
+  // consume the two named operand solids into one result solid; longer
+  // chains compose through repeated commands, each step one atomic
+  // revision), the exact section query and the tessellation command. ---
+  {
+    id: "booleanUnion",
+    name: "UNION",
+    aliases: [],
+    label: "3D Boolean Union",
+    description:
+      "Fuse two model3d solids into one (AutoCAD UNION): the two element ids (el-NNNNNN). The operands are consumed — the result solid carries the operand provenance; undo restores both. Compose larger unions through repeated commands.",
+    category: "model3d",
+    ribbonTab: "3D Model",
+    steps: [
+      { id: "first", kind: "text", prompt: "Enter first solid element id (el-NNNNNN):" },
+      { id: "second", kind: "text", prompt: "Enter second solid element id (el-NNNNNN):" },
+    ],
+    build: (values) => booleanPlan(values, "union"),
+  },
+  {
+    id: "booleanSubtract",
+    name: "SUBTRACT",
+    aliases: [],
+    label: "3D Boolean Subtract",
+    description:
+      "Subtract the second solid from the first (AutoCAD SUBTRACT): the two element ids — the FIRST is the solid kept, the SECOND is removed. Both are consumed into the result solid; undo restores both.",
+    category: "model3d",
+    ribbonTab: "3D Model",
+    steps: [
+      { id: "first", kind: "text", prompt: "Enter solid element id to subtract FROM (el-NNNNNN):" },
+      { id: "second", kind: "text", prompt: "Enter solid element id to subtract (el-NNNNNN):" },
+    ],
+    build: (values) => booleanPlan(values, "difference"),
+  },
+  {
+    id: "booleanIntersect",
+    name: "INTERSECT",
+    aliases: [],
+    label: "3D Boolean Intersect",
+    description:
+      "Intersect two solids into their common volume (AutoCAD INTERSECT): the two element ids. Both are consumed into the result solid; disjoint solids decline typed (boolean_empty — never a fabricated empty solid).",
+    category: "model3d",
+    ribbonTab: "3D Model",
+    steps: [
+      { id: "first", kind: "text", prompt: "Enter first solid element id (el-NNNNNN):" },
+      { id: "second", kind: "text", prompt: "Enter second solid element id (el-NNNNNN):" },
+    ],
+    build: (values) => booleanPlan(values, "intersection"),
+  },
+  {
+    id: "sectionexact",
+    name: "SECTIONEXACT",
+    aliases: [],
+    label: "Exact Section",
+    description:
+      "Compute the EXACT adapter-backed section of the model3d solids against a named section plane (the plane created with SECTIONPLANE): the canonical intersection loops with their hash. Where the active engine cannot section a solid exactly, the typed decline names the element — the labeled extent preview (SECTIONPLANE + model3d.sectionPreview) remains the fallback.",
+    category: "model3d",
+    ribbonTab: "3D Model",
+    steps: [
+      { id: "name", kind: "text", prompt: "Enter section plane name:" },
+    ],
+    build: (values) => {
+      const name = textValue(values, "name").trim();
+      if (name.length === 0) throw new Error("the section plane name must be a non-empty string");
+      return plan(
+        [{ name: "model3d.section", payload: { name } }],
+        [`Exact section against plane '${name}' (canonical loops + hash; typed decline where the engine cannot section exactly).`],
+      );
+    },
+  },
+  {
+    id: "tessellate",
+    name: "TESSELLATE",
+    aliases: [],
+    label: "Create Mesh Entity",
+    description:
+      "Persist a bounded engine-neutral MESH entity from a solid at one of the closed quality presets (low/medium/full; Enter keeps full) — the progressive-delivery representation. Mesh entities are read-only (the source solid remains the editing surface).",
+    category: "model3d",
+    ribbonTab: "3D Model",
+    steps: [
+      { id: "elementId", kind: "text", prompt: "Enter solid element id (el-NNNNNN):" },
+      { id: "quality", kind: "text", prompt: "Enter quality (low|medium|full) <full>:", optional: true },
+    ],
+    build: (values) => {
+      const elementId = textValue(values, "elementId").trim();
+      if (elementId.length === 0) throw new Error("the element id must be a non-empty string");
+      const raw = textValue(values, "quality", "full").trim().toLowerCase();
+      if (raw !== "low" && raw !== "medium" && raw !== "full") {
+        throw new Error(`quality must be one of low, medium, full (got '${raw}')`);
+      }
+      return plan(
+        [{ name: "model3d.tessellate", payload: { elementId, quality: raw } }],
+        [`Tessellate ${elementId} at quality '${raw}' (a bounded read-only mesh entity element).`],
       );
     },
   },
