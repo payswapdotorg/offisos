@@ -192,6 +192,19 @@
         "pr": 101,
         "path": "governance/reconciliations/CAD-PARITY-011.json"
       }
+    },
+    {
+      "id": "EV-005",
+      "type": "automated-test-suite",
+      "description": "The ACR-Routing citation-parser fix, found and fixed during submission verification: the governance CI's inline grep only matched a bare line-initial 'ACR-Routing:' label, but this PR's own body cites the routing line as a markdown bold list item ('- **ACR-Routing: ACR-003**') and the PR template renders it as a list item — neither matched, so check-protected would have run WITHOUT --acr once the Architect's acts make validate green, and the PR could never pass CI (verified by simulating the exact CI parsing against the posted PR #101 body: no match). The parsing moved into the shared, tested helper tools/governance/src/parse-acr-routing.ts — 17 new deterministic tests (119/119 total; tsc clean; validate 368/371 unchanged): the label is case-insensitive and tolerates list bullets and bold emphasis, HTML comments are stripped fail-closed before extraction (an unfilled template comment can never leak example ids), only the word-bounded ACR-NNN token pattern is extracted (injection-safe), and the last routing line wins. End-to-end against the real PR #101 body: parses to ACR-003; check-protected --acr ACR-003 refuses with the correct fail-closed 'cited ACR is PROPOSED' — converting to ROUTED when the Architect approves ACR-003. CI run 33329929180 on fix head b728e37: the 119-test suite green, validate red only on the three intentionally-preserved CAD-PARITY-011 historical failures (the same designed acceptance-target state).",
+      "produced_at": "2026-08-30T19:07:33Z",
+      "reproducible": true,
+      "reproduction": "printf '%s' \"$PR_BODY\" | npx tsx tools/governance/src/parse-acr-routing.ts; npm test && npm run governance -- validate && npm run governance -- check-protected --base origin/main --acr ACR-003",
+      "references": {
+        "commit": "b728e37",
+        "pr": 101,
+        "workflow_run": "33329929180"
+      }
     }
   ],
   "acr": "ACR-003"
