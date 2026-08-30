@@ -4,6 +4,7 @@
   "issue": 90,
   "architecture_version": "1.1",
   "requirements": ["CAD-002"],
+  "dependencies": [],
   "objective": "Deliver the professional 3D modeling/navigation environment on the frozen CAD/BIM Product Architecture v1.0.",
   "acceptance_criteria": [
     "Deterministic 3D navigation through shared camera/projection modules with persisted non-versioned camera state.",
