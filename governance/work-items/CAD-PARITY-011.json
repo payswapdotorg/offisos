@@ -1,0 +1,72 @@
+{
+  "id": "CAD-PARITY-011",
+  "title": "Archicad-class BIM authoring expansion",
+  "issue": 97,
+  "architecture_version": "1.1",
+  "requirements": [
+    "CAD-BIM-001",
+    "CAD-BIM-003",
+    "CAD-BIM-004",
+    "CAD-BIM-005"
+  ],
+  "dependencies": [
+    "CAD-PARITY-010",
+    "COMPAT-BIM-003",
+    "RESEARCH-CAD-007",
+    "COMPAT-CAD-003"
+  ],
+  "objective": "Expand the verified CAD/BIM product from existing stories/levels, walls/slabs, openings, doors/windows, spaces, reusable components/materials and coordination foundations into the next bounded Archicad-class architectural authoring layer: richer architectural building elements and their deterministic relationships, classification/property semantics, and bounded renovation/design-option lifecycle state, while preserving the frozen ConstructionOS/CAD architecture.",
+  "acceptance_criteria": [
+    "Deterministic representative workflows create and edit supported roof, stair and railing elements with canonical host/story relationships.",
+    "Existing space/zone semantics remain valid and participate in the supported vertical and lifecycle relationships.",
+    "Classification and structured property edits persist through save/open/replay and map through Construction Graph using canonical identities.",
+    "Renovation state and bounded design-option membership are deterministic, persisted, and do not require destructive duplication of model content.",
+    "Web and Electron produce equivalent semantic streams and canonical serialized results for the pinned P011 fixture.",
+    "Real OCCT coverage exists for supported new geometry; reference/dummy adapters return typed deterministic declines for unsupported operations.",
+    "Existing CAD-PARITY-002..010, BIM, IFC, documentation, governance and real-engine regression suites remain green and previous fixtures remain byte-identical.",
+    "No protected architecture files are modified.",
+    "The exact implementation head is CI-verified and deployed/browser-verified on Vercel.",
+    "Governance evidence binds tests, CI, deployments, review state, exact revisions and timestamps."
+  ],
+  "non_goals": [
+    "Full Archicad/Revit family-system parity.",
+    "Advanced MEP/structural authoring.",
+    "Full terrain/mesh/point-cloud authoring.",
+    "Full freeform roof/shell editing with arbitrary complex topology.",
+    "General-purpose stair/railing constraint solving.",
+    "Full renovation/design-option history parity beyond the bounded canonical states.",
+    "Project scheduling, 4D or cost-planning workflows.",
+    "Architecture changes without an ACR."
+  ],
+  "risk_assumptions": [
+    "CAD-PARITY-010 is VERIFIED on main at merge commit 3c476b51239d0e29b8174451fdc0ea365010978e.",
+    "COMPAT-BIM-003, RESEARCH-CAD-007 and COMPAT-CAD-003 are VERIFIED and provide the existing BIM/component/feasibility baseline.",
+    "P011 composes with, rather than replaces, the already-verified component/material subsystem.",
+    "Native geometry and IFC engines remain isolated behind the established adapter/worker boundary.",
+    "Unsupported architectural element operations must be explicit typed declines rather than fabricated geometry or silent approximation."
+  ],
+  "evidence_requirements": [
+    "Deterministic unit and workflow suites for roofs, stairs, railings, host/story relationships, classification/properties and lifecycle semantics.",
+    "Web/Electron parity fixtures covering representative architectural element creation/editing and lifecycle state.",
+    "Real-OCCT coverage through the existing EngineAdapterBundle/worker boundary plus explicit reference-engine declines where unsupported.",
+    "Regression proof that CAD-PARITY-002..010 fixtures remain green and byte-identical.",
+    "Exact-head Vercel deployment and real-browser verification of the representative P011 workflows.",
+    "Governance evidence bound to exact implementation revisions and CI/deployment identities."
+  ],
+  "state": "READY",
+  "transitions": [
+    {
+      "from": "DRAFT",
+      "to": "READY",
+      "at": "2026-08-30T12:46:06Z",
+      "actor": "pectoraux",
+      "role": "architect",
+      "reason": "Architect released CAD-PARITY-011 as the next roadmap work item after CAD-PARITY-010 verification. Scope was derived from the frozen Phase 5 BIM roadmap and the repository's already-verified COMPAT-CAD-002/COMPAT-BIM-003 foundations, avoiding duplication of completed component/material work.",
+      "references": {
+        "issue": 97
+      }
+    }
+  ],
+  "evidence": [],
+  "decisions": []
+}
