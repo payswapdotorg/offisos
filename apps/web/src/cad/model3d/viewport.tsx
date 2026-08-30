@@ -169,11 +169,7 @@ export function Model3DViewport(props: Model3DViewportProps): React.JSX.Element 
   const [sectionNote, setSectionNote] = React.useState<string | null>(null);
 
   React.useEffect(() => {
-    if (!sectionOverlay || snapshot === null) {
-      setSectionLoops([]);
-      setSectionNote(null);
-      return;
-    }
+    if (!sectionOverlay || snapshot === null) return;
     let cancelled = false;
     void (async () => {
       const res = await send({ type: "query", name: "model3d.section", payload: {} });
@@ -458,7 +454,16 @@ export function Model3DViewport(props: Model3DViewportProps): React.JSX.Element 
           className="h-7 gap-1 px-2 text-[11px]"
           disabled={busy || snapshot === null || (snapshot?.sectionPlanes ?? []).length === 0}
           title="model3d.section — the EXACT adapter-backed section against the active section plane (the canonical loops overlaid; a typed decline is shown where the engine cannot section exactly)"
-          onClick={() => setSectionOverlay((on) => !on)}
+          onClick={() => {
+            // Toggle in an EVENT context (never a synchronous effect
+            // setState): turning the overlay OFF clears the derived layer
+            // eagerly so a later re-enable never shows stale loops.
+            if (sectionOverlay) {
+              setSectionLoops([]);
+              setSectionNote(null);
+            }
+            setSectionOverlay(!sectionOverlay);
+          }}
         >
           <Scissors className="h-3.5 w-3.5" aria-hidden /> Exact Section
         </Button>
