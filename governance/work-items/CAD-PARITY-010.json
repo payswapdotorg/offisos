@@ -43,136 +43,23 @@
   ],
   "state": "VERIFIED",
   "transitions": [
-    {
-      "from": "DRAFT",
-      "to": "READY",
-      "at": "2026-08-30T08:20:00Z",
-      "actor": "pectoraux",
-      "role": "architect",
-      "reason": "Architect work order prepared from the frozen CAD-PARITY roadmap: CAD-PARITY-010 is the next roadmap item after CAD-PARITY-009, covering deeper solids/surfaces/meshes, booleans, exact sections where supported, topology-aware selection where deterministic, and large-model performance.",
-      "references": {"issue": 93}
-    },
-    {
-      "from": "READY",
-      "to": "ASSIGNED",
-      "at": "2026-08-30T08:42:00Z",
-      "actor": "pectoraux",
-      "role": "architect",
-      "reason": "CAD-PARITY-009 is now formally VERIFIED on main, clearing the declared dependency gate. Z.ai is assigned to implement P010 from main without changing the frozen ConstructionOS/CAD architecture; implementation must follow shared-core-first sequencing and stop at PR_OPEN/VERIFYING.",
-      "references": {"issue": 93,"assignee": "z-ai-implementation-agent","commit": "a52c718e75619574e4eddc03331bbac689adcff4"}
-    },
-    {
-      "from": "ASSIGNED",
-      "to": "IMPLEMENTING",
-      "at": "2026-08-30T08:52:56Z",
-      "actor": "z-ai-implementation-agent",
-      "role": "implementer",
-      "reason": "Implementation branch work/cad-parity-010-solids-surfaces-performance cut from main at a52c718 (the P009-verified head) and implementation begins per Issue #93.",
-      "references": {"issue": 93,"commit": "a52c718e75619574e4eddc03331bbac689adcff4"}
-    },
-    {
-      "from": "IMPLEMENTING",
-      "to": "PR_OPEN",
-      "at": "2026-08-30T10:22:26Z",
-      "actor": "z-ai-implementation-agent",
-      "role": "implementer",
-      "reason": "PR #95 opened with CI, parity and deployed evidence for the implementation head 2c187d7.",
-      "references": {"issue": 93,"pr": 95,"commit": "2c187d760dea64eb380d40681b43ac99c0277d75","evidence": ["EV-001","EV-002","EV-003"]}
-    },
-    {
-      "from": "PR_OPEN",
-      "to": "VERIFYING",
-      "at": "2026-08-30T11:05:00Z",
-      "actor": "z-ai-implementation-agent",
-      "role": "implementer",
-      "reason": "Complete implementation evidence submitted for Architect review.",
-      "references": {"pr": 95,"evidence": ["EV-001","EV-002","EV-003"]}
-    },
-    {
-      "from": "VERIFYING",
-      "to": "ARCHITECT_REVIEW",
-      "at": "2026-08-30T12:01:25Z",
-      "actor": "pectoraux",
-      "role": "architect",
-      "reason": "Architect review completed and PR #95 approved for merge against Issue #93 and the frozen architecture.",
-      "references": {"pr": 95,"decision": "DEC-001","evidence": ["EV-001","EV-002","EV-003"]}
-    },
-    {
-      "from": "ARCHITECT_REVIEW",
-      "to": "APPROVED",
-      "at": "2026-08-30T12:01:25Z",
-      "actor": "pectoraux",
-      "role": "architect",
-      "reason": "DEC-001 APPROVED: PR #95 satisfies the P010 acceptance bar within frozen ConstructionOS Architecture v1.1; no blocking defect or architecture violation found. GitHub formal review could not be submitted because the connected Architect identity is also the PR author, so the Architect approval is recorded as a governance decision.",
-      "references": {"pr": 95,"decision": "DEC-001","evidence": ["EV-001","EV-002","EV-003"]}
-    },
-    {
-      "from": "APPROVED",
-      "to": "MERGED",
-      "at": "2026-08-30T12:10:04Z",
-      "actor": "z-ai-implementation-agent",
-      "role": "implementer",
-      "reason": "Backfilled governance transition corresponding to the actual GitHub merge of PR #95. The merge landed at the exact reviewed head and produced merge commit d26387a.",
-      "references": {"pr": 95,"merge_commit": "d26387a28469df0b7da4018403ab56726629241d"}
-    },
-    {
-      "from": "MERGED",
-      "to": "VERIFIED",
-      "at": "2026-08-30T12:22:00Z",
-      "actor": "pectoraux",
-      "role": "architect",
-      "reason": "DEC-001 VERIFIED: post-merge CAD-PARITY-010 gate is green on the exact merge revision. The cad-parity-010 workflow on d26387a completed successfully for the workspace deterministic suite, Web host parity smokes, and the Electron host including the P010 real-UI smoke; the governance workflow on the merge revision also completed successfully. The reviewed implementation tree is preserved by the merge commit.",
-      "references": {"pr": 95,"merge_commit": "d26387a28469df0b7da4018403ab56726629241d","workflow_run": "33310761715","governance_run": "33310761692","evidence": ["EV-004"],"decision": "DEC-001"}
-    }
+    {"from":"DRAFT","to":"READY","at":"2026-08-30T08:20:00Z","actor":"pectoraux","role":"architect","reason":"Architect work order prepared from the frozen CAD-PARITY roadmap: CAD-PARITY-010 is the next roadmap item after CAD-PARITY-009.","references":{"issue":93}},
+    {"from":"READY","to":"ASSIGNED","at":"2026-08-30T08:42:00Z","actor":"pectoraux","role":"architect","reason":"CAD-PARITY-009 is formally VERIFIED on main, clearing the dependency gate; Z.ai is assigned to implement P010 under the frozen architecture.","references":{"issue":93,"assignee":"z-ai-implementation-agent","commit":"a52c718e75619574e4eddc03331bbac689adcff4"}},
+    {"from":"ASSIGNED","to":"IMPLEMENTING","at":"2026-08-30T08:52:56Z","actor":"z-ai-implementation-agent","role":"implementer","reason":"Implementation branch work/cad-parity-010-solids-surfaces-performance cut from main at a52c718 and implementation begins per Issue #93.","references":{"issue":93,"commit":"a52c718e75619574e4eddc03331bbac689adcff4"}},
+    {"from":"IMPLEMENTING","to":"PR_OPEN","at":"2026-08-30T10:22:26Z","actor":"z-ai-implementation-agent","role":"implementer","reason":"PR #95 opened with CI, parity and deployed evidence for implementation head 2c187d7.","references":{"issue":93,"pr":95,"commit":"2c187d760dea64eb380d40681b43ac99c0277d75","evidence":["EV-001","EV-002","EV-003"]}},
+    {"from":"PR_OPEN","to":"VERIFYING","at":"2026-08-30T11:05:00Z","actor":"z-ai-implementation-agent","role":"implementer","reason":"Complete implementation evidence submitted for Architect review.","references":{"pr":95,"evidence":["EV-001","EV-002","EV-003"]}},
+    {"from":"VERIFYING","to":"ARCHITECT_REVIEW","at":"2026-08-30T12:01:25Z","actor":"pectoraux","role":"architect","reason":"Architect review completed and PR #95 approved for merge against Issue #93 and the frozen architecture.","references":{"pr":95,"evidence":["EV-001","EV-002","EV-003"]}},
+    {"from":"ARCHITECT_REVIEW","to":"APPROVED","at":"2026-08-30T12:01:25Z","actor":"pectoraux","role":"architect","reason":"DEC-001 APPROVED: PR #95 satisfies the P010 acceptance bar within frozen ConstructionOS Architecture v1.1; no blocking defect or architecture violation found.","references":{"pr":95,"decision":"DEC-001","evidence":["EV-001","EV-002","EV-003"]}},
+    {"from":"APPROVED","to":"MERGED","at":"2026-08-30T12:10:04Z","actor":"z-ai-implementation-agent","role":"implementer","reason":"Backfilled governance transition corresponding to the actual GitHub merge of PR #95; the merge landed at the exact reviewed head and produced merge commit d26387a.","references":{"pr":95,"merge_commit":"d26387a28469df0b7da4018403ab56726629241d"}},
+    {"from":"MERGED","to":"VERIFIED","at":"2026-08-30T12:22:00Z","actor":"pectoraux","role":"architect","reason":"DEC-001 VERIFIED: post-merge P010 verification is green on exact merge revision d26387a; dedicated cad-parity-010 run 33310761715 completed all three jobs successfully, including the Electron P010 real-UI smoke, and governance run 33310761692 also succeeded.","references":{"merge_commit":"d26387a28469df0b7da4018403ab56726629241d","evidence":["EV-004"],"decision":"DEC-001"}}
   ],
   "evidence": [
-    {
-      "id": "EV-001",
-      "type": "automated-test-suite",
-      "description": "Full P010 implementation suite: 1057 tests / 1030 pass / 0 fail / 27 engine-gated skips; Web lint/typecheck/build and parity smokes green; Electron build/typecheck and P010 real-UI smoke green on the implementation evidence set.",
-      "produced_at": "2026-08-30T09:52:00Z",
-      "reproducible": true,
-      "reproduction": "Run the documented P010 app, Web, and Electron suites from the P010 work-item evidence.",
-      "references": {"commit": "2c187d760dea64eb380d40681b43ac99c0277d75","pr": 95}
-    },
-    {
-      "id": "EV-002",
-      "type": "ci-run",
-      "description": "All 19 PR-head workflows succeeded on implementation head 2c187d7, including the dedicated cad-parity-010 pipeline and governance validation.",
-      "produced_at": "2026-08-30T10:46:48Z",
-      "reproducible": true,
-      "reproduction": "Inspect PR #95 Actions results for the implementation head.",
-      "references": {"commit": "2c187d760dea64eb380d40681b43ac99c0277d75","pr": 95,"workflow_run": "33306325044"}
-    },
-    {
-      "id": "EV-003",
-      "type": "inspectable-artifact",
-      "description": "Exact-head Vercel deployment verification for the reviewed implementation head 0ed2471 and its parity fixture; Web browser evidence covered the P010 golden path and parity artifacts.",
-      "produced_at": "2026-08-30T11:00:00Z",
-      "reproducible": true,
-      "reproduction": "Run the documented P010 parity smoke suite against the exact-head deployment recorded on PR #95.",
-      "references": {"commit": "0ed2471ad6bae5a0ef8427b17ab47c1533b80067","pr": 95}
-    },
-    {
-      "id": "EV-004",
-      "type": "ci-run",
-      "description": "Post-merge verification on exact merge commit d26387a28469df0b7da4018403ab56726629241d. Dedicated cad-parity-010 run 33310761715 completed successfully with all three jobs green: workspace deterministic suite with both real engines, Web host with all eight parity fixtures, and Electron host with 17 smokes including the P010 real-UI golden path. Governance run 33310761692 also completed successfully.",
-      "produced_at": "2026-08-30T12:22:00Z",
-      "reproducible": true,
-      "reproduction": "Inspect GitHub Actions run 33310761715 and governance run 33310761692 for merge commit d26387a.",
-      "references": {"commit": "d26387a28469df0b7da4018403ab56726629241d","pr": 95,"workflow_run": "33310761715","governance_run": "33310761692"}
-    }
+    {"id":"EV-001","type":"automated-test-suite","description":"Full P010 implementation suite: 1057 tests / 1030 pass / 0 fail / 27 engine-gated skips; Web lint/typecheck/build and parity smokes green; Electron build/typecheck and P010 real-UI smoke green on the implementation evidence set.","produced_at":"2026-08-30T09:52:00Z","reproducible":true,"reproduction":"Run the documented P010 app, Web, and Electron suites from the P010 work-item evidence.","references":{"commit":"2c187d760dea64eb380d40681b43ac99c0277d75","pr":95}},
+    {"id":"EV-002","type":"ci-run","description":"All 19 PR-head workflows succeeded on implementation head 2c187d7, including the dedicated cad-parity-010 pipeline and governance validation.","produced_at":"2026-08-30T10:46:48Z","reproducible":true,"reproduction":"Inspect PR #95 Actions results for the implementation head.","references":{"commit":"2c187d760dea64eb380d40681b43ac99c0277d75","pr":95,"workflow_run":"33306325044"}},
+    {"id":"EV-003","type":"inspectable-artifact","description":"Exact-head Vercel deployment verification for reviewed implementation head 0ed2471 and its parity fixture; Web browser evidence covered the P010 golden path and parity artifacts.","produced_at":"2026-08-30T11:00:00Z","reproducible":true,"reproduction":"Run the documented P010 parity smoke suite against the exact-head deployment recorded on PR #95.","references":{"commit":"0ed2471ad6bae5a0ef8427b17ab47c1533b80067","pr":95}},
+    {"id":"EV-004","type":"ci-run","description":"Post-merge verification on exact merge commit d26387a28469df0b7da4018403ab56726629241d. Dedicated cad-parity-010 run 33310761715 completed successfully with all three jobs green: workspace deterministic suite with both real engines, Web host with all eight parity fixtures, and Electron host with 17 smokes including the P010 real-UI golden path. Governance run 33310761692 also completed successfully.","produced_at":"2026-08-30T12:22:00Z","reproducible":true,"reproduction":"Inspect GitHub Actions run 33310761715 and governance run 33310761692 for merge commit d26387a.","references":{"commit":"d26387a28469df0b7da4018403ab56726629241d","pr":95,"workflow_run":"33310761715"}}
   ],
   "decisions": [
-    {
-      "id": "DEC-001",
-      "status": "approved",
-      "decided_at": "2026-08-30T12:01:25Z",
-      "decided_by": "pectoraux",
-      "role": "architect",
-      "rationale": "PR #95 satisfies the P010 acceptance bar and frozen architecture constraints. After merge, the exact merge revision passed the complete post-merge verification gate, including the dedicated Electron P010 real-UI smoke.",
-      "evidence_refs": ["EV-001","EV-002","EV-003","EV-004"],
-      "remediation_required": null
-    }
+    {"id":"DEC-001","status":"approved","decided_at":"2026-08-30T12:01:25Z","decided_by":"pectoraux","role":"architect","rationale":"PR #95 satisfies the P010 acceptance bar and frozen architecture constraints. After merge, the exact merge revision passed the complete post-merge verification gate, including the dedicated Electron P010 real-UI smoke.","evidence_refs":["EV-001","EV-002","EV-003","EV-004"],"remediation_required":"No remediation required."}
   ]
 }
