@@ -17,9 +17,11 @@
  *    (same clamp on the distance; the target never moves).
  *  - fit: derive the camera from a bounding box + viewport aspect with the
  *    documented margin factor 1.1 (all eight box corners must stay inside
- *    the view). Orthographic derives half-height = max(halfY, halfX/aspect);
- *    perspective solves the EXACT per-corner frustum bound (see
- *    fitCameraToBBox — sufficient for arbitrary direction/aspect/fov).
+ *    the view). BOTH modes solve the EXACT per-corner bound in the camera's
+ *    own right/up frame (see fitCameraToBBox — sufficient for arbitrary
+ *    direction/aspect/fov and roll): orthographic takes the required
+ *    half-height from the camera-plane projections of the 8 corners,
+ *    perspective the per-corner frustum distance.
  *  - standard views: the six canonical views + isometric with EXACT axis
  *    directions (top: eye at +Z·d, up +Y; front: eye at −Y·d, up +Z; right:
  *    eye at +X·d, up +Z; iso: eye direction (1,−1,1)/√3, up +Z — the
@@ -161,8 +163,13 @@ export function normalizeCamera(camera: Camera3DState): Camera3DState | null {
 export const ORBIT_ELEVATION_CLAMP_DEG = 89.9;
 
 /** Turntable orbit: yaw degrees about world +Z, then pitch degrees about the
- *  camera right axis, elevation clamped to ±ORBIT_ELEVATION_CLAMP_DEG. The
- *  target stays FIXED (the orbit pivot); distance eye↔target is preserved
+ *  YAW-UPDATED camera right axis (the turntable frame — the yaw step rotates
+ *  the camera's screen axes with it, so the pitch axis is the post-yaw right
+ *  axis the camera actually has, NOT the pre-yaw one; for an unrolled camera
+ *  that axis is horizontal ⊥ the yawed view azimuth, so pitch changes ONLY
+ *  the elevation and a combined diagonal drag is the EXACT turntable update
+ *  az += yaw, el −= pitch), elevation clamped to ±ORBIT_ELEVATION_CLAMP_DEG.
+ *  The target stays FIXED (the orbit pivot); distance eye↔target is preserved
  *  exactly through both rotations (rotation matrices are applied to the
  *  eye−target vector). Returns null when the input camera is degenerate. */
 export function orbitCamera(camera: Camera3DState, yawDeg: number, pitchDeg: number): Camera3DState | null {
@@ -178,9 +185,16 @@ export function orbitCamera(camera: Camera3DState, yawDeg: number, pitchDeg: num
     v[0] * sy + v[1] * cy,
     v[2],
   ];
-  // Pitch: rotate about the camera right axis (pre-yaw right — the screen
-  // the user is looking at), then clamp elevation.
-  const right = frame.right;
+  // Pitch: rotate about the YAW-UPDATED camera right axis — the turntable
+  // frame. The yaw step rotates the camera's screen axes with it, so the
+  // post-yaw right axis is the screen axis the user is actually looking at;
+  // for an unrolled camera it is horizontal ⊥ the yawed azimuth, so the
+  // combined diagonal drag is the exact turntable update (az += yaw,
+  // el −= pitch) rather than a pre-yaw-axis composite (the PR #92 review
+  // round-2 defect: the pre-yaw axis tilts the yawed position sideways).
+  const yawedFrame = cameraFrame({ ...camera, eye: v3Add(camera.target, afterYaw) });
+  if (yawedFrame === null) return null;
+  const right = yawedFrame.right;
   const pitchRad = (pitchDeg * Math.PI) / 180;
   const cp = Math.cos(pitchRad);
   const sp = Math.sin(pitchRad);
@@ -278,8 +292,14 @@ export const FIT_MARGIN = 1.1;
  *  origin (the EMPTY_MODEL_EXTENTS precedent). The fitted camera keeps the
  *  CURRENT eye direction (fit does not reorient — it recenters + resizes;
  *  deterministic and non-surprising), and keeps the mode/fovDeg. For
- *  orthographic it derives orthoHalfHeight = max(halfY, halfX/aspect)·
- *  FIT_MARGIN. For PERSPECTIVE the distance is the EXACT per-corner solve:
+ *  ORTHOGRAPHIC the half-height is the EXACT per-corner bound: the viewport
+ *  shows |xc| ≤ H·aspect ∧ |yc| ≤ H in the camera's own right/up frame, so
+ *      H ≥ max over the 8 corners of max(|v·up|, |v·right|/aspect)
+ *  is the minimal half-height that puts all 8 corners inside the view for
+ *  ARBITRARY camera direction/aspect (and roll — the frame's right/up are
+ *  the rolled camera's own axes; world X/Y extents only govern the six axis
+ *  views, where the bound degenerates to max(halfY, halfX/aspect) exactly).
+ *  For PERSPECTIVE the distance is the EXACT per-corner solve:
  *  the camera sits at eye = center + dir·d (dir the kept eye direction, so
  *  forward = −dir and the frame's right/up stay ⊥ dir), and each corner
  *  offset v ∈ {±halfX,±halfY,±halfZ} has camera-plane coordinates
@@ -313,7 +333,28 @@ export function fitCameraToBBox(
   const halfY = (effective.maxY - effective.minY) / 2;
   const halfZ = (effective.maxZ - effective.minZ) / 2;
   if (camera.mode === "orthographic") {
-    const halfHeight = Math.max(halfY, halfX / aspect) * FIT_MARGIN;
+    // The EXACT per-corner orthographic bound (the PR #92 review round-2
+    // fix): each corner offset v ∈ {±halfX,±halfY,±halfZ} projects onto the
+    // camera plane at xc = v·right, yc = v·up — the world Z axis contributes
+    // to both projected width and height for oblique/iso directions, and
+    // world X/Y project onto BOTH camera axes. The max over the 8 corners of
+    // max(|yc|, |xc|/aspect) is the minimal sufficient half-height (the old
+    // world-extent max(halfY, halfX/aspect) put 2/8 iso corners ~145px
+    // outside a 600px viewport); · FIT_MARGIN keeps the 10% margin. The
+    // frame derives from the same eye−target offset + up the returned camera
+    // keeps (eye = center + (eye−target) → the frame is EXACTLY preserved).
+    let required = 0;
+    for (const sx of [-1, 1]) {
+      for (const sy of [-1, 1]) {
+        for (const sz of [-1, 1]) {
+          const v: Vec3 = [sx * halfX, sy * halfY, sz * halfZ];
+          const xc = v3Dot(v, frame.right);
+          const yc = v3Dot(v, frame.up);
+          required = Math.max(required, Math.abs(yc), Math.abs(xc) / aspect);
+        }
+      }
+    }
+    const halfHeight = required * FIT_MARGIN;
     // Keep the current eye DIRECTION; distance irrelevant for ortho —
     // keep the current distance (deterministic: reuse the existing offset).
     const v = v3Sub(camera.eye, camera.target);

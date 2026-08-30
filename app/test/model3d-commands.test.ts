@@ -225,17 +225,24 @@ test("view3d.standard: each of the 7 views persists an echo-able standard camera
   assert.equal(errCode(await cmd(h, "view3d.standard", { view: "diagonal" })), "bad_payload");
 });
 
-test("view3d.fit derives the camera from the model extents (half-height grows with the model)", async () => {
+test("view3d.fit derives the camera from the model extents (the exact per-corner half-height grows with the model)", async () => {
   const h = make();
   val(await cmd(h, "model3d.box", { width: 10, depth: 10, height: 10, ucsId: "world" }));
   const small = val<{ camera: Camera3DState }>(await cmd(h, "view3d.fit", { aspect: 1 })).camera;
-  // halfHeight = max(halfY, halfX/aspect) · 1.1 — the exact same arithmetic.
-  assert.equal(small.orthoHalfHeight, 5 * 1.1);
+  // The default camera is the ISO view → the fit keeps the iso direction and
+  // solves the EXACT per-camera-frame bound: with right = (1,1,0)/√2,
+  // up = (−1,1,2)/√6 the binding corner is (−,+,+) → |v·up| = 20/√6 (the
+  // world Z axis contributes to the projected height — the old world-extent
+  // max(halfY, halfX/aspect)·1.1 = 5.5 ignored it and left 2/8 corners
+  // outside the view; the PR #92 review round-2 fix).
+  assert.ok(Math.abs(small.orthoHalfHeight - (20 / Math.sqrt(6)) * 1.1) < 1e-9, `small half-height ${small.orthoHalfHeight}`);
   assert.deepEqual(small.target, [5, 5, 5]);
   // A far bigger solid grows the extents → the fitted half-height grows.
   val(await cmd(h, "model3d.box", { width: 100, depth: 100, height: 100, ucsId: "world", at: [200, 0, 0] }));
   const big = val<{ camera: Camera3DState }>(await cmd(h, "view3d.fit", { aspect: 1 })).camera;
-  assert.equal(big.orthoHalfHeight, 150 * 1.1);
+  // Extents x∈[0,300], y,z∈[0,100] (halfX 150, halfY/Z 50): the horizontal
+  // |v·right| = 200/√2 = 100√2 dominates the vertical 300/√6 → 100√2·1.1.
+  assert.ok(Math.abs(big.orthoHalfHeight - 100 * Math.SQRT2 * 1.1) < 1e-9, `big half-height ${big.orthoHalfHeight}`);
   assert.deepEqual(big.target, [150, 50, 50]);
   assert.ok(big.orthoHalfHeight > small.orthoHalfHeight * 10);
 });

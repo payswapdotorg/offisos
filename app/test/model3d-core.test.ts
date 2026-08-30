@@ -2,11 +2,13 @@
  * CAD-PARITY-009 deterministic 3D core tests (Issue #90) — the engine-free
  * model3d shared core: the camera algebra (frame derivation/validation/
  * normalization with degenerate frames rejected; turntable orbit with the
- * ±89.9° elevation clamp; pan; zoom with clamp bounds in both modes;
- * fit-extents with the unit-box fallback AND the exact per-corner
- * perspective solve (every corner strictly inside the viewport for arbitrary
- * direction/aspect/fov — the PR #92 remediation); the exact standard-view
- * frames;
+ * ±89.9° elevation clamp AND the exact combined diagonal-drag update
+ * (pitch about the YAW-UPDATED right axis — the PR #92 review round-2 fix);
+ * pan; zoom with clamp bounds in both modes; fit-extents with the unit-box
+ * fallback AND the exact per-corner solve in BOTH modes (every corner
+ * strictly inside the viewport for arbitrary direction/aspect/fov —
+ * including roll and strongly non-cubic boxes; the PR #92 remediation); the
+ * exact standard-view frames;
  * the view-cube zone model), the projection math (exact orthographic AND
  * perspective screen math, unprojectAtDepth as the bit-exact inverse,
  * picking rays, the ray/AABB slab test, pickElements with the EXACT
@@ -214,6 +216,66 @@ test("orbitCamera: elevation clamps at ±89.9° (deterministic saturation)", () 
   assert.ok(Math.abs(dist - 10) < 1e-9);
 });
 
+test("orbitCamera: combined diagonal drag is the EXACT turntable update (pitch about the YAW-UPDATED right axis)", () => {
+  // The PR #92 review round-2 defect: the pitch was applied about the
+  // PRE-yaw right axis, so a diagonal drag (the Web viewport's
+  // orbitCamera(camera, dx·0.5°, dy·0.5°) with BOTH non-zero — a normal
+  // interaction path) composited a DIFFERENT rotation than the documented
+  // turntable: the old composite landed at (6.1237, 7.0711, −3.5355) for a
+  // 45°+30° drag from eye (10,0,0) — a 1.74-unit sideways drift from the
+  // exact turntable position (6.1237, 6.1237, −5). The yaw-updated right
+  // axis is horizontal ⊥ the yawed azimuth, so the pitch changes ONLY the
+  // elevation and the combined drag is exactly az += yaw, el −= pitch.
+  const azOf = (c: Camera3DState): number =>
+    Math.atan2(c.eye[1] - c.target[1], c.eye[0] - c.target[0]);
+  const elOf = (c: Camera3DState): number =>
+    Math.atan2(c.eye[2] - c.target[2], Math.hypot(c.eye[0] - c.target[0], c.eye[1] - c.target[1]));
+  const deg = (rad: number): number => (rad * 180) / Math.PI;
+  const distOf = (c: Camera3DState): number =>
+    Math.hypot(c.eye[0] - c.target[0], c.eye[1] - c.target[1], c.eye[2] - c.target[2]);
+  // From the axis-aligned side camera: (yaw 45, pitch 30) → az +45°, el −30°
+  // — the exact turntable position 10·(cos30°·cos45°, cos30°·sin45°, −sin30°).
+  const dragged = orbitCamera(SIDE_CAMERA, 45, 30)!;
+  assert.ok(dragged !== null);
+  assert.ok(Math.abs(deg(azOf(dragged)) - 45) < 1e-9, `az ${deg(azOf(dragged))}`);
+  assert.ok(Math.abs(deg(elOf(dragged)) + 30) < 1e-9, `el ${deg(elOf(dragged))}`);
+  const c30 = Math.cos((30 * Math.PI) / 180);
+  const s30 = Math.sin((30 * Math.PI) / 180);
+  const c45 = Math.SQRT1_2;
+  const exactTurntable: Vec3 = [10 * c30 * c45, 10 * c30 * c45, -10 * s30];
+  for (let i = 0; i < 3; i += 1) {
+    assert.ok(Math.abs(dragged.eye[i]! - exactTurntable[i]!) < 1e-9, `turntable eye[${i}] ${dragged.eye[i]}`);
+  }
+  assert.ok(Math.abs(distOf(dragged) - 10) < 1e-9, "distance preserved through BOTH rotations");
+  assert.deepEqual(dragged.target, [0, 0, 0], "the orbit pivot never moves");
+  // From an oblique (iso-like) start with a NON-ZERO start elevation:
+  // (yaw 30, pitch −20) → az +30°, el +20° — exact regardless of start pose.
+  const isoStart: Camera3DState = { eye: [10, -10, 10], target: [0, 0, 0], up: [0, 0, 1], mode: "orthographic", orthoHalfHeight: 5, fovDeg: 60 };
+  const az0 = deg(azOf(isoStart)); // −45°
+  const el0 = deg(elOf(isoStart)); // atan2(10, √200) ≈ 35.264°
+  const dragged2 = orbitCamera(isoStart, 30, -20)!;
+  assert.ok(dragged2 !== null);
+  assert.ok(Math.abs(deg(azOf(dragged2)) - (az0 + 30)) < 1e-9, `oblique az ${deg(azOf(dragged2))} vs ${az0 + 30}`);
+  assert.ok(Math.abs(deg(elOf(dragged2)) - (el0 + 20)) < 1e-9, `oblique el ${deg(elOf(dragged2))} vs ${el0 + 20}`);
+  assert.ok(Math.abs(distOf(dragged2) - distOf(isoStart)) < 1e-9, "oblique distance preserved");
+  // Negative yaw + positive pitch (the other diagonal) is exact too
+  // (positive pitch LOWERS: el −= pitch → el −25°).
+  const dragged3 = orbitCamera(SIDE_CAMERA, -60, 25)!;
+  assert.ok(Math.abs(deg(azOf(dragged3)) + 60) < 1e-9);
+  assert.ok(Math.abs(deg(elOf(dragged3)) + 25) < 1e-9);
+  // A diagonal drag landing within 0.1° of the pole saturates at exactly
+  // +89.9° with the azimuth exact and the distance preserved (the
+  // elevation-only saturation; a pitch that passes fully OVER the pole keeps
+  // rotating to the mirrored far side — deterministic pre-existing geometry).
+  const clamped = orbitCamera(SIDE_CAMERA, 20, -89.95)!;
+  assert.ok(clamped !== null);
+  assert.ok(Math.abs(deg(elOf(clamped)) - 89.9) < 1e-9, `clamped el ${deg(elOf(clamped))}`);
+  assert.ok(Math.abs(deg(azOf(clamped)) - 20) < 1e-9, `clamped az ${deg(azOf(clamped))}`);
+  assert.ok(Math.abs(distOf(clamped) - 10) < 1e-9, "clamped distance preserved");
+  // A degenerate camera still declines.
+  assert.equal(orbitCamera({ ...SIDE_CAMERA, eye: [0, 0, 0] }, 10, 10), null);
+});
+
 test("panCamera translates eye AND target by (right·dx + up·dy)·worldPerPixel exactly", () => {
   const frame = cameraFrame(SIDE_CAMERA)!;
   const panned = panCamera(SIDE_CAMERA, 10, -5, 2)!;
@@ -262,7 +324,9 @@ test("fitCameraToBBox: all 8 corners land inside the viewport; empty box → uni
   const fitted = fitCameraToBBox(front, BOX_10, aspect)!;
   assert.ok(fitted !== null);
   assert.deepEqual(fitted.target, [5, 5, 5]);
-  // halfHeight = max(halfY, halfX/aspect) · 1.1 — the exact same arithmetic.
+  // For the six AXIS views the camera frame's right/up coincide with world
+  // axes, so the exact per-corner bound degenerates to the previous
+  // max(halfY, halfX/aspect) · 1.1 arithmetic EXACTLY (the same float ops).
   assert.equal(fitted.orthoHalfHeight, Math.max(5, 5 / aspect) * 1.1);
   let cornersChecked = 0;
   for (const x of [BOX_10.minX, BOX_10.maxX]) {
@@ -295,12 +359,18 @@ test("fitCameraToBBox: all 8 corners land inside the viewport; empty box → uni
   // EVERY corner projects STRICTLY INSIDE the viewport (the prior suite only
   // proved the corners stayed in front of the eye plane — the review gap).
   assert.equal(assertAllCornersInsideViewport(fittedPersp, BOX_10, viewport), 8);
-  // An arbitrary (iso) direction recenters on the box and derives the same
-  // documented half-height while keeping the eye direction.
+  // An arbitrary (iso) direction recenters on the box, derives the EXACT
+  // per-corner camera-frame half-height (the PR #92 review round-2 fix — see
+  // the dedicated isometric orthographic test below) while keeping the eye
+  // direction.
   const iso = standardCameraFor("iso", BOX_10, aspect, 60, "orthographic");
   const fittedIso = fitCameraToBBox(iso, BOX_10, aspect)!;
   assert.deepEqual(fittedIso.target, [5, 5, 5]);
-  assert.equal(fittedIso.orthoHalfHeight, Math.max(5, 5 / aspect) * 1.1);
+  assert.ok(
+    Math.abs(fittedIso.orthoHalfHeight - (20 / Math.sqrt(6)) * FIT_MARGIN) < 1e-9,
+    `iso ortho half-height ${fittedIso.orthoHalfHeight}`,
+  );
+  assert.equal(assertAllCornersInsideViewport(fittedIso, BOX_10, viewport), 8, "iso ortho fit: every corner strictly inside");
   const dirBefore: Vec3 = [iso.eye[0] - 5, iso.eye[1] - 5, iso.eye[2] - 5];
   const dirAfter: Vec3 = [fittedIso.eye[0] - 5, fittedIso.eye[1] - 5, fittedIso.eye[2] - 5];
   const lb = Math.hypot(dirBefore[0], dirBefore[1], dirBefore[2]);
@@ -311,8 +381,15 @@ test("fitCameraToBBox: all 8 corners land inside the viewport; empty box → uni
   // Empty box → the unit box centered at the origin (EMPTY_MODEL_EXTENTS).
   const fitEmpty = fitCameraToBBox(iso, EMPTY_BBOX3D, 1)!;
   assert.deepEqual(fitEmpty.target, [0, 0, 0]);
-  assert.equal(fitEmpty.orthoHalfHeight, Math.max(0.5, 0.5 / 1) * 1.1);
-  // …and the perspective empty fallback keeps the unit box's corners inside.
+  assert.ok(
+    Math.abs(fitEmpty.orthoHalfHeight - (2 / Math.sqrt(6)) * FIT_MARGIN) < 1e-9,
+    `empty ortho half-height ${fitEmpty.orthoHalfHeight}`,
+  );
+  // …and BOTH empty fallbacks keep the unit box's corners inside.
+  assert.equal(
+    assertAllCornersInsideViewport(fitEmpty, { minX: -0.5, minY: -0.5, minZ: -0.5, maxX: 0.5, maxY: 0.5, maxZ: 0.5 }, { width: 800, height: 800 }),
+    8,
+  );
   const fitEmptyPersp = fitCameraToBBox(frontPersp, EMPTY_BBOX3D, 1)!;
   assert.deepEqual(fitEmptyPersp.target, [0, 0, 0]);
   assert.equal(
@@ -429,6 +506,125 @@ test("fitCameraToBBox perspective (arbitrary orientation + roll + narrow fov): a
     assert.deepEqual(cam.up, camera.up);
     // The recenters on the box center.
     assert.deepEqual(cam.target, [20, 2, 3]);
+  }
+});
+
+test("fitCameraToBBox orthographic (isometric): all 8 corners strictly inside the viewport for every aspect — the exact per-corner bound", () => {
+  // The PR #92 review round-2 named failure: the world-extent bound
+  // max(halfY, halfX/aspect) put 2/8 corners OUTSIDE for the isometric
+  // direction (screen y −145.4 / 745.4 on an 800×600 viewport) — the world Z
+  // axis contributes to the projected height, which the world-X/Y-extent
+  // bound cannot see. The exact per-corner camera-frame bound puts every
+  // corner strictly inside.
+  const aspect = 800 / 600;
+  const iso = standardCameraFor("iso", BOX_10, aspect, 60, "orthographic");
+  const fitted = fitCameraToBBox(iso, BOX_10, aspect)!;
+  assert.ok(fitted !== null);
+  assert.deepEqual(fitted.target, [5, 5, 5]);
+  assert.equal(fitted.mode, "orthographic");
+  // The eye direction is the kept iso direction (1,−1,1)/√3.
+  const v: Vec3 = [fitted.eye[0] - 5, fitted.eye[1] - 5, fitted.eye[2] - 5];
+  const len = Math.hypot(v[0], v[1], v[2]);
+  const invSqrt3 = 1 / Math.sqrt(3);
+  assert.ok(Math.abs(v[0] / len - invSqrt3) < 1e-12);
+  assert.ok(Math.abs(v[1] / len + invSqrt3) < 1e-12);
+  assert.ok(Math.abs(v[2] / len - invSqrt3) < 1e-12);
+  // The exact closed form: with right = (1,1,0)/√2, up = (−1,1,2)/√6 the
+  // binding corner is (−,+,+) (world (0,10,10)): the vertical requirement
+  // |v·up| = 20/√6 dominates the horizontal (10/√2)/aspect → (20/√6)·FIT_MARGIN
+  // (vs the old insufficient 5·1.1 = 5.5).
+  const expectedHalf = (20 / Math.sqrt(6)) * FIT_MARGIN;
+  assert.ok(Math.abs(fitted.orthoHalfHeight - expectedHalf) < 1e-9, `iso ortho half-height ${fitted.orthoHalfHeight} vs ${expectedHalf}`);
+  // The regression assertion: EVERY corner strictly inside the viewport,
+  // across a fixed table of aspects (square, wide, tall).
+  for (const [w, h] of [
+    [800, 600], [600, 600], [1000, 400], [400, 1000], [1280, 720],
+  ] as const) {
+    const cam = fitCameraToBBox(
+      { eye: [invSqrt3 * 30, -invSqrt3 * 30, invSqrt3 * 30], target: [0, 0, 0], up: [0, 0, 1], mode: "orthographic", orthoHalfHeight: 5, fovDeg: 60 },
+      BOX_10,
+      w / h,
+    )!;
+    assert.ok(cam !== null);
+    assert.equal(assertAllCornersInsideViewport(cam, BOX_10, { width: w, height: h }), 8, `iso ortho fit ${w}x${h}`);
+  }
+});
+
+test("fitCameraToBBox orthographic (strongly non-cubic boxes + arbitrary oblique directions): all 8 corners strictly inside", () => {
+  // A wide slab, a tall column, a beam and a zero-height plane (the shapes
+  // where world-extent heuristics diverge most from the exact camera-frame
+  // bound) × the three axes, iso, a view-cube corner blend and two arbitrary
+  // oblique directions — every orthographic fit puts ALL 8 corners strictly
+  // inside the viewport.
+  const boxes: readonly BBox3D[] = [
+    { minX: 0, minY: 0, minZ: 0, maxX: 40, maxY: 4, maxZ: 6 },   // wide slab 40×4×6
+    { minX: -1, minY: -1, minZ: 0, maxX: 1, maxY: 1, maxZ: 30 },  // tall column 2×2×30
+    { minX: 0, minY: 0, minZ: 0, maxX: 25, maxY: 1, maxZ: 1 },    // beam 25×1×1
+    { minX: -5, minY: -5, minZ: 2, maxX: 5, maxY: 5, maxZ: 2 },   // flat plane 10×10×0
+  ];
+  const dirs: readonly Vec3[] = [
+    [0, -1, 0], [0, 0, 1], [1, 0, 0],
+    [1 / Math.sqrt(3), -1 / Math.sqrt(3), 1 / Math.sqrt(3)],
+    [1, 1, 1].map((n) => n / Math.sqrt(3)) as unknown as Vec3,
+    [3, -7, 5], [0.2, 0.9, -0.4],
+  ];
+  let fits = 0;
+  for (const box of boxes) {
+    for (const d of dirs) {
+      const len = Math.hypot(d[0], d[1], d[2]);
+      const dir: Vec3 = [d[0] / len, d[1] / len, d[2] / len];
+      // A near-vertical view direction with a +Z up hint is a degenerate
+      // frame (correctly declined) — top/bottom directions use a +Y hint.
+      const upHint: Vec3 = Math.abs(dir[2]) > 0.99 ? [0, 1, 0] : [0, 0, 1];
+      for (const [w, h] of [[800, 600], [600, 800], [1000, 250]] as const) {
+        const cam = fitCameraToBBox(
+          { eye: [dir[0] * 40, dir[1] * 40, dir[2] * 40], target: [0, 0, 0], up: upHint, mode: "orthographic", orthoHalfHeight: 5, fovDeg: 60 },
+          box,
+          w / h,
+        )!;
+        assert.ok(cam !== null);
+        assert.equal(assertAllCornersInsideViewport(cam, box, { width: w, height: h }), 8);
+        fits += 1;
+      }
+    }
+  }
+  assert.ok(fits >= 80, `expected a broad sweep, got ${fits} fits`);
+});
+
+test("fitCameraToBBox orthographic (rolled camera orientation): all 8 corners strictly inside; direction/up kept", () => {
+  // Oblique directions with ROLLED up hints (up not world +Z — the camera's
+  // right/up frame is rotated about the view axis): the exact per-corner
+  // bound is solved in the camera's OWN right/up frame, so it must hold
+  // under arbitrary roll (a world-axis formula cannot even express roll —
+  // the projected extents rotate with the frame).
+  const rolledUps: readonly Vec3[] = [
+    [0.1, 0.2, 1],   // a mild roll
+    [1, 0.5, 1],     // a strong roll
+  ];
+  const box: BBox3D = { minX: 0, minY: 0, minZ: 0, maxX: 40, maxY: 4, maxZ: 6 };
+  for (const up of rolledUps) {
+    const camera: Camera3DState = {
+      eye: [3 * 9, -7 * 9, 5 * 9], target: [1, 2, -1], up,
+      mode: "orthographic", orthoHalfHeight: 5, fovDeg: 50,
+    };
+    for (const [w, h] of [
+      [1000, 800], [800, 1000], [240, 960], [1920, 480],
+    ] as const) {
+      const cam = fitCameraToBBox(camera, box, w / h)!;
+      assert.ok(cam !== null);
+      assert.equal(assertAllCornersInsideViewport(cam, box, { width: w, height: h }), 8, `rolled ortho fit ${w}x${h} up=${up.join(",")}`);
+      // Fit keeps the eye direction exactly, never reorients, keeps the up
+      // hint and recenters on the box center.
+      const before: Vec3 = [camera.eye[0] - camera.target[0], camera.eye[1] - camera.target[1], camera.eye[2] - camera.target[2]];
+      const after: Vec3 = [cam.eye[0] - cam.target[0], cam.eye[1] - cam.target[1], cam.eye[2] - cam.target[2]];
+      const lb = Math.hypot(before[0], before[1], before[2]);
+      const la = Math.hypot(after[0], after[1], after[2]);
+      for (let i = 0; i < 3; i += 1) {
+        assert.ok(Math.abs(after[i]! / la - before[i]! / lb) < 1e-12, "fit keeps the eye direction");
+      }
+      assert.deepEqual(cam.up, camera.up);
+      assert.deepEqual(cam.target, [20, 2, 3]);
+    }
   }
 });
 
