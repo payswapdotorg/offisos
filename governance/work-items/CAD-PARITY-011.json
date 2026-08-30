@@ -53,7 +53,7 @@
     "Exact-head Vercel deployment and real-browser verification of the representative P011 workflows.",
     "Governance evidence bound to exact implementation revisions and CI/deployment identities."
   ],
-  "state": "IMPLEMENTING",
+  "state": "VERIFYING",
   "transitions": [
     {
       "from": "DRAFT",
@@ -90,8 +90,80 @@
         "issue": 97,
         "commit": "83929518d3eb177b37ce22f857aa3b3c7b435900"
       }
+    },
+    {
+      "from": "IMPLEMENTING",
+      "to": "PR_OPEN",
+      "at": "2026-08-30T15:03:46Z",
+      "actor": "z-ai-implementation-agent",
+      "role": "implementer",
+      "reason": "PR #99 opened with the CAD-PARITY-011 implementation (shared core → App API command/query surface → deterministic suites → Web host → Electron host → CI). The PR opened at head ee3d14c; the strict-tsc test fix 6c21766 (the P011 OCCT suite's realize() parameter through the adapter factory types) was pushed 15:11:32Z and re-ran the full CI matrix; all implementation evidence below is bound to the final implementation head 6c21766.",
+      "references": {
+        "issue": 97,
+        "pr": 99,
+        "commit": "6c21766d782e32e5edab7ded09893b1321204cb4",
+        "evidence": [
+          "EV-001",
+          "EV-002",
+          "EV-003"
+        ]
+      }
+    },
+    {
+      "from": "PR_OPEN",
+      "to": "VERIFYING",
+      "at": "2026-08-30T16:15:16Z",
+      "actor": "z-ai-implementation-agent",
+      "role": "implementer",
+      "reason": "Complete implementation evidence submitted for Architect review.",
+      "references": {
+        "pr": 99,
+        "evidence": [
+          "EV-001",
+          "EV-002",
+          "EV-003"
+        ]
+      }
     }
   ],
-  "evidence": [],
+  "evidence": [
+    {
+      "id": "EV-001",
+      "type": "automated-test-suite",
+      "description": "Full P011 implementation suite at implementation head 6c21766: 1106 tests / 1079 pass / 0 fail / 27 engine-gated skips (the P010 baseline 1057 + 49 new P011 tests: elements 16, geometry 13, workflow 13, real-OCCT 7 incl. the cross-engine volume agreements); tsc --noEmit clean; LOCK-018 forbidden-import scan 4/4 (src/bim incl. the new meta/lifecycle/relationships modules); governance validate 313/313 (the subordinate spec/<product>/requirements.md registries now resolve additively) and the governance tool's own suite 58/58.",
+      "produced_at": "2026-08-30T16:13:00Z",
+      "reproducible": true,
+      "reproduction": "cd app && npm run typecheck && npm test && npm run test:forbidden-imports; npm run governance -- validate; npm test (repo root, the governance tool suite).",
+      "references": {
+        "commit": "6c21766d782e32e5edab7ded09893b1321204cb4",
+        "pr": 99
+      }
+    },
+    {
+      "id": "EV-002",
+      "type": "ci-run",
+      "description": "All 20 PR-head workflows succeeded on implementation head 6c21766 (runs created 2026-08-30T15:11:35Z, last completed 15:34:03Z), including the dedicated cad-parity-011 pipeline run 33318946075 — the three-job pattern: the workspace deterministic suite (OCCT 7.8.1.1 + ifcopenshell 0.8.5 toolchains + the P011 cross-engine suites), the web host (Next.js 16 + ALL NINE workspace smokes + ALL NINE parity fixtures), the electron host (build + 18 smokes incl. the new BIM P011 real-UI smoke) — plus governance validation run 33318946013 and the full CAD-PARITY-002..010 / BIM / IFC / research / implement regression matrix.",
+      "produced_at": "2026-08-30T15:34:03Z",
+      "reproducible": true,
+      "reproduction": "Inspect PR #99 Actions results for implementation head 6c21766.",
+      "references": {
+        "commit": "6c21766d782e32e5edab7ded09893b1321204cb4",
+        "pr": 99,
+        "workflow_run": "33318946075"
+      }
+    },
+    {
+      "id": "EV-003",
+      "type": "inspectable-artifact",
+      "description": "The exact-head Vercel deployment dpl_AN2LGEzA4uZZaSXqBGq1SCCq3LEp (githubCommitSha == 6c21766, PR 99) READY at https://offisos-fm2vdlvbu-ekonplacidegmailcoms-projects.vercel.app (created 2026-08-30T15:38:35Z); ALL NINE fixture smokes pass against the deployment byte-identically (workspace a48a29a8…, layers/styles f92be229…, annotation a14ce71c…, blocks a7d7ff4c…, constraints cd9f3f61…, layouts 139ff4df…, model3d d2e7a95e…, model3d-p010 59ba5025… and the NEW pinned bim-p011 fixture — save sha c4cc742b…, 30 commands, 50 echo lines); the deployed real-UI browser verification exercised the P011 golden path: the BIM workbench rendering the authored model (12 elements — stories/walls/spaces/roof/stair/railings/zone/option group — with the iso·orthographic camera derived from the model bbox and the wireframe viewport), the P011 authoring tabs (Story…Option group), the lifecycle panel applying renovation status through bim.setRenovation, the Build geometry action reporting typed counts + skips + engine provenance (reference@1.1.0, the honest serverless OCCT-unavailable fallback), the deterministic ACTIVE-OPTION build behavior (built 8 → 7 with wall-b explicitly skipped-but-preserved when the active option changes), the classification applies-to gate rejecting a Wall code on a stair with a typed bim_invalid, and typed validation errors surfaced in the UI banner (never silent; the serverless in-memory document is per lambda instance, and every cross-instance command landed as a precise typed decline rather than a silent approximation).",
+      "produced_at": "2026-08-30T16:10:00Z",
+      "reproducible": true,
+      "reproduction": "Run the nine fixture smokes with OFFISOS_WEB_URL=https://offisos-fm2vdlvbu-ekonplacidegmailcoms-projects.vercel.app; open https://offisos-fm2vdlvbu-ekonplacidegmailcoms-projects.vercel.app in a browser and exercise the BIM workbench.",
+      "references": {
+        "commit": "6c21766d782e32e5edab7ded09893b1321204cb4",
+        "pr": 99
+      }
+    }
+  ],
   "decisions": []
 }
