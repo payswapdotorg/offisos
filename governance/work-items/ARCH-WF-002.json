@@ -1,0 +1,56 @@
+{
+  "id": "ARCH-WF-002",
+  "title": "Establish architecture lock, change-request, and verification controls",
+  "issue": 12,
+  "objective": "Establish repository-backed controls that preserve the frozen architecture while enabling deliberate evolution through explicit Architecture Change Requests, stronger protected-path enforcement, revision-bound verification, and auditable governance reconciliation.",
+  "architecture_version": "1.0",
+  "requirements": [
+    "FLOW-001",
+    "FLOW-002",
+    "FLOW-003",
+    "FLOW-004",
+    "FLOW-005"
+  ],
+  "dependencies": ["ARCH-WF-001"],
+  "acceptance_criteria": [
+    "A canonical ACR identifier, template and lifecycle are repository-backed and reproducible.",
+    "Protected architecture changes are routed through an explicit ACR path and cannot be silently introduced through implementation PRs.",
+    "Architect review and Product Owner approval responsibilities are explicit and machine-checkable where applicable.",
+    "Verification evidence remains revision-bound and later material implementation changes can invalidate prior verification.",
+    "A sanctioned reconciliation mechanism exists for already-merged historical governance defects without rewriting Git history or weakening normal transition validation.",
+    "At least one auditable example demonstrates architecture-change routing and one demonstrates historical governance reconciliation.",
+    "Existing normal lifecycle transitions and evidence requirements remain enforced for ordinary work items."
+  ],
+  "non_goals": [
+    "No change to CAD/BIM product-domain behavior.",
+    "No automatic approval of ACRs or work items.",
+    "No weakening of evidence requirements or transition ownership.",
+    "No rewriting of historical Git merge commits or recorded event timestamps.",
+    "No architecture-version change as part of this work item unless an explicitly approved ACR authorizes it."
+  ],
+  "risk_assumptions": [
+    "ARCH-WF-001 is VERIFIED and provides the baseline state machine, schema and validator controls.",
+    "The active repository architecture is v1.1 while this governance control work item preserves the original ARCH-WF-002 issue contract targeting the v1.0 workflow-control baseline.",
+    "The reconciliation mechanism must be additive and must not create an unrestricted alternate route to VERIFIED.",
+    "All changes to protected governance definitions remain subject to Architect review and the repository's protected-path mechanism."
+  ],
+  "evidence_requirements": [
+    "Deterministic governance tests for ACR routing, protected-path enforcement, revision-bound verification and historical reconciliation.",
+    "Governance validation over the complete work-item registry with exit 0.",
+    "CI evidence showing governance and protected-path checks execute on pull requests.",
+    "A reproducible example covering architecture-change approval and one covering a historical merged-record reconciliation.",
+    "Evidence that existing normal lifecycle and VERIFIED gating behavior remains unchanged."
+  ],
+  "state": "READY",
+  "transitions": [
+    {
+      "from": "DRAFT",
+      "to": "READY",
+      "at": "2026-08-30T17:50:00Z",
+      "actor": "pectoraux",
+      "role": "architect",
+      "reason": "Issue #12 is now activated as the governance-controls work item required to resolve the P011 historical merge defect without weakening the frozen workflow controls.",
+      "references": {"issue": 12}
+    }
+  ]
+}
