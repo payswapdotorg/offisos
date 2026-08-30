@@ -4,7 +4,6 @@
   "issue": 90,
   "architecture_version": "1.1",
   "requirements": ["CAD-002"],
-  "dependencies": [],
   "objective": "Deliver the professional 3D modeling/navigation environment on the frozen CAD/BIM Product Architecture v1.0.",
   "acceptance_criteria": [
     "Deterministic 3D navigation through shared camera/projection modules with persisted non-versioned camera state.",
@@ -43,83 +42,21 @@
   ],
   "state": "VERIFIED",
   "transitions": [
-    {
-      "from": "DRAFT", "to": "READY", "at": "2026-08-29T19:45:00Z", "actor": "pectoraux", "role": "architect",
-      "reason": "Architect work order issued for Issue #90 with the bounded professional 3D navigation, UCS/workplane, modeling, persistence, parity and explicit non-goal scope.",
-      "references": {"issue": 90}
-    },
-    {
-      "from": "READY", "to": "ASSIGNED", "at": "2026-08-29T19:50:00Z", "actor": "pectoraux", "role": "architect",
-      "reason": "Work order released to Z.ai with the frozen shared-core-first implementation sequence and PR_OPEN stopping boundary.",
-      "references": {"issue": 90, "assignee": "z-ai-implementation-agent"}
-    },
-    {
-      "from": "ASSIGNED", "to": "IMPLEMENTING", "at": "2026-08-29T19:56:07Z", "actor": "z-ai-implementation-agent", "role": "implementer",
-      "reason": "Implementation branch cut from main at 9320311 and implementation begins per Issue #90.",
-      "references": {"issue": 90, "commit": "9320311ae0b026cf6e7275b44b394e38ec9af554"}
-    },
-    {
-      "from": "IMPLEMENTING", "to": "PR_OPEN", "at": "2026-08-29T23:44:21Z", "actor": "z-ai-implementation-agent", "role": "implementer",
-      "reason": "PR #92 opened with CI, parity and deployed evidence for the implementation head 9e8520b.",
-      "references": {"issue": 90, "pr": 92, "commit": "9e8520b09c48370444108ae41471574d8672e04c"}
-    },
-    {
-      "from": "PR_OPEN", "to": "VERIFYING", "at": "2026-08-30T04:42:21Z", "actor": "z-ai-implementation-agent", "role": "implementer",
-      "reason": "Round-1 remediation evidence submitted for Architect review.",
-      "references": {"pr": 92, "evidence": ["EV-005", "EV-006", "EV-007"]}
-    },
-    {
-      "from": "VERIFYING", "to": "ARCHITECT_REVIEW", "at": "2026-08-30T05:55:00Z", "actor": "pectoraux", "role": "architect",
-      "reason": "Architect reviewed the first remediation round.",
-      "references": {"evidence": ["EV-005", "EV-006", "EV-007"]}
-    },
-    {
-      "from": "ARCHITECT_REVIEW", "to": "IMPLEMENTING", "at": "2026-08-30T05:55:00Z", "actor": "pectoraux", "role": "architect",
-      "reason": "DEC-001 CHANGES_REQUESTED: orthographic fit and combined orbit semantics were insufficient; a bounded camera remediation round was required.",
-      "failure_reason": "Orthographic fitting used world-axis extents instead of camera-frame projections, and orbit pitch used the pre-yaw right axis.",
-      "references": {"pr": 92, "decision": "DEC-001"}
-    },
-    {
-      "from": "IMPLEMENTING", "to": "IMPLEMENTATION_BLOCKED", "at": "2026-08-30T06:20:00Z", "actor": "z-ai-implementation-agent", "role": "implementer",
-      "reason": "Round-2 fix complete locally but push/deploy credentials were absent; submission was staged.",
-      "failure_reason": "External credential impediment.",
-      "references": {"pr": 92, "commit": "b72ed0eec5e518063b7fd4fe3ecbfa8dbb9c93a1"}
-    },
-    {
-      "from": "IMPLEMENTATION_BLOCKED", "to": "IMPLEMENTING", "at": "2026-08-30T06:50:49Z", "actor": "z-ai-implementation-agent", "role": "implementer",
-      "reason": "Owner-supplied credentials arrived and the staged remediation submission resumed.",
-      "references": {"pr": 92, "decision": "DEC-002"}
-    },
-    {
-      "from": "IMPLEMENTING", "to": "PR_OPEN", "at": "2026-08-30T06:51:30Z", "actor": "z-ai-implementation-agent", "role": "implementer",
-      "reason": "Round-2 camera remediation submitted on PR #92; CI and Vercel verification were green and the PR returned for Architect review.",
-      "references": {"pr": 92, "commit": "b72ed0eec5e518063b7fd4fe3ecbfa8dbb9c93a1", "decision": "DEC-002"}
-    },
-    {
-      "from": "PR_OPEN", "to": "VERIFYING", "at": "2026-08-30T08:15:00Z", "actor": "z-ai-implementation-agent", "role": "implementer",
-      "reason": "Post-merge verification evidence submitted after PR #92 merged as 72a2da5; all merge-revision workflows were green and the merge tree preserved the reviewed implementation.",
-      "references": {"pr": 92, "commit": "72a2da52753cf7ab5e19002d97c7b333bd25e788", "evidence": ["EV-011"]}
-    },
-    {
-      "from": "VERIFYING", "to": "ARCHITECT_REVIEW", "at": "2026-08-30T08:16:00Z", "actor": "pectoraux", "role": "architect",
-      "reason": "Post-merge verification reviewed: merge commit identity, complete green Actions set, governance run and preservation of the reviewed tree.",
-      "references": {"pr": 92, "evidence": ["EV-011"]}
-    },
-    {
-      "from": "ARCHITECT_REVIEW", "to": "APPROVED", "at": "2026-08-30T08:17:00Z", "actor": "pectoraux", "role": "architect",
-      "reason": "DEC-003 APPROVED: P009 satisfies its acceptance criteria after both camera remediation rounds; the exact merged tree is CI-green and post-merge verified.",
-      "references": {"pr": 92, "decision": "DEC-003", "evidence": ["EV-011"]}
-    },
-    {
-      "from": "APPROVED", "to": "MERGED", "at": "2026-08-30T08:10:52Z", "actor": "z-ai-implementation-agent", "role": "implementer",
-      "reason": "Backfilled to the actual GitHub merge event for PR #92 at merge commit 72a2da5.",
-      "references": {"pr": 92, "commit": "72a2da52753cf7ab5e19002d97c7b333bd25e788"}
-    },
-    {
-      "from": "MERGED", "to": "VERIFIED", "at": "2026-08-30T08:17:30Z", "actor": "pectoraux", "role": "architect",
-      "reason": "DEC-003 VERIFIED: post-merge CI is green on 72a2da5, the merged tree is the reviewed tree, and the governance verification evidence is bound to the exact merge revision.",
-      "references": {"commit": "72a2da52753cf7ab5e19002d97c7b333bd25e788", "evidence": ["EV-011"], "decision": "DEC-003"}
-    }
+    {"from":"DRAFT","to":"READY","at":"2026-08-29T19:45:00Z","actor":"pectoraux","role":"architect","reason":"Architect work order issued for Issue #90 with the bounded professional 3D navigation, UCS/workplane, modeling, persistence, parity and explicit non-goal scope.","references":{"issue":90}},
+    {"from":"READY","to":"ASSIGNED","at":"2026-08-29T19:50:00Z","actor":"pectoraux","role":"architect","reason":"Work order released to Z.ai with the frozen shared-core-first implementation sequence and PR_OPEN stopping boundary.","references":{"issue":90,"assignee":"z-ai-implementation-agent"}},
+    {"from":"ASSIGNED","to":"IMPLEMENTING","at":"2026-08-29T19:56:07Z","actor":"z-ai-implementation-agent","role":"implementer","reason":"Implementation branch cut from main at 9320311 and implementation begins per Issue #90.","references":{"issue":90,"commit":"9320311ae0b026cf6e7275b44b394e38ec9af554"}},
+    {"from":"IMPLEMENTING","to":"PR_OPEN","at":"2026-08-29T23:44:21Z","actor":"z-ai-implementation-agent","role":"implementer","reason":"PR #92 opened with CI, parity and deployed evidence for the implementation head 9e8520b.","references":{"issue":90,"pr":92,"commit":"9e8520b09c48370444108ae41471574d8672e04c"}},
+    {"from":"PR_OPEN","to":"VERIFYING","at":"2026-08-30T04:42:21Z","actor":"z-ai-implementation-agent","role":"implementer","reason":"Round-1 remediation evidence submitted for Architect review.","references":{"pr":92,"evidence":["EV-005","EV-006","EV-007"]}},
+    {"from":"VERIFYING","to":"ARCHITECT_REVIEW","at":"2026-08-30T05:55:00Z","actor":"pectoraux","role":"architect","reason":"Architect reviewed the first remediation round.","references":{"evidence":["EV-005","EV-006","EV-007"]}},
+    {"from":"ARCHITECT_REVIEW","to":"IMPLEMENTING","at":"2026-08-30T05:55:00Z","actor":"pectoraux","role":"architect","reason":"DEC-001 CHANGES_REQUESTED: orthographic fit and combined orbit semantics were insufficient; a bounded camera remediation round was required.","failure_reason":"Orthographic fitting used world-axis extents instead of camera-frame projections, and orbit pitch used the pre-yaw right axis.","references":{"pr":92,"decision":"DEC-001"}},
+    {"from":"IMPLEMENTING","to":"IMPLEMENTATION_BLOCKED","at":"2026-08-30T06:20:00Z","actor":"z-ai-implementation-agent","role":"implementer","reason":"Round-2 fix complete locally but push/deploy credentials were absent; submission was staged.","failure_reason":"External credential impediment.","references":{"pr":92,"commit":"b72ed0eec5e518063b7fd4fe3ecbfa8dbb9c93a1"}},
+    {"from":"IMPLEMENTATION_BLOCKED","to":"IMPLEMENTING","at":"2026-08-30T06:50:49Z","actor":"z-ai-implementation-agent","role":"implementer","reason":"Owner-supplied credentials arrived and the staged remediation submission resumed.","references":{"pr":92,"decision":"DEC-002"}},
+    {"from":"IMPLEMENTING","to":"PR_OPEN","at":"2026-08-30T06:51:30Z","actor":"z-ai-implementation-agent","role":"implementer","reason":"Round-2 camera remediation submitted on PR #92; CI and Vercel verification were green and the PR returned for Architect review.","references":{"pr":92,"commit":"b72ed0eec5e518063b7fd4fe3ecbfa8dbb9c93a1","decision":"DEC-002"}},
+    {"from":"PR_OPEN","to":"VERIFYING","at":"2026-08-30T08:15:00Z","actor":"z-ai-implementation-agent","role":"implementer","reason":"Post-merge verification evidence submitted after PR #92 merged as 72a2da5; the merge-revision workflow set was green and the reviewed tree was preserved.","references":{"pr":92,"commit":"72a2da52753cf7ab5e19002d97c7b333bd25e788","evidence":["EV-011"]}},
+    {"from":"VERIFYING","to":"ARCHITECT_REVIEW","at":"2026-08-30T08:16:00Z","actor":"pectoraux","role":"architect","reason":"Post-merge verification reviewed: merge commit identity, complete green Actions set, governance run and preservation of the reviewed tree.","references":{"pr":92,"evidence":["EV-011"]}},
+    {"from":"ARCHITECT_REVIEW","to":"APPROVED","at":"2026-08-30T08:16:30Z","actor":"pectoraux","role":"architect","reason":"DEC-003 APPROVED: P009 satisfies its acceptance criteria after both camera remediation rounds; the exact merged tree is CI-green and post-merge verified.","references":{"pr":92,"decision":"DEC-003","evidence":["EV-011"]}},
+    {"from":"APPROVED","to":"MERGED","at":"2026-08-30T08:16:30Z","actor":"z-ai-implementation-agent","role":"implementer","reason":"Backfilled state transition corresponding to the actual GitHub merge event for PR #92, which landed at merge commit 72a2da5 at 08:10:52Z; the approval/merge state was subsequently reconciled in the governance ledger at this timestamp without changing repository content.","references":{"pr":92,"commit":"72a2da52753cf7ab5e19002d97c7b333bd25e788"}},
+    {"from":"MERGED","to":"VERIFIED","at":"2026-08-30T08:17:30Z","actor":"pectoraux","role":"architect","reason":"DEC-003 VERIFIED: post-merge CI is green on 72a2da5, the merged tree is the reviewed tree, and governance verification evidence is bound to the exact merge revision.","references":{"commit":"72a2da52753cf7ab5e19002d97c7b333bd25e788","evidence":["EV-011"],"decision":"DEC-003"}}
   ],
   "evidence": [
     {"id":"EV-001","type":"automated-test-suite","description":"Initial P009 deterministic camera/projection/UCS/document suite: 952 tests, 0 failures, engine-gated skips documented.","produced_at":"2026-08-29T23:59:00Z","reproducible":true,"reproduction":"Run the P009 model3d and full app test suites.","references":{"commit":"9e8520b09c48370444108ae41471574d8672e04c"}},
@@ -129,14 +66,14 @@
     {"id":"EV-005","type":"automated-test-suite","description":"Round-1 perspective-fit remediation: exact per-corner perspective solve and directed regression coverage; legacy fixtures preserved.","produced_at":"2026-08-30T04:02:00Z","reproducible":true,"reproduction":"Run model3d core and full app suites.","references":{"commit":"a87b642fd430ec2e5d3ea97fff1d6c1acfcca115","pr":92,"artifact_path":"app/src/workspace/model3d/camera.ts,app/test/model3d-core.test.ts"}},
     {"id":"EV-006","type":"ci-run","description":"All 18 workflows succeeded on a87b642, including the P009 evidence pipeline.","produced_at":"2026-08-30T04:07:44Z","reproducible":true,"reproduction":"PR #92 checks tab.","references":{"commit":"a87b642fd430ec2e5d3ea97fff1d6c1acfcca115","pr":92,"workflow_run":"33291310218"}},
     {"id":"EV-007","type":"inspectable-artifact","description":"Round-1 remediation deployment verification with seven fixture smokes byte-identical.","produced_at":"2026-08-30T04:14:00Z","reproducible":true,"reproduction":"Run the seven P009 fixture smokes against the deployment.","references":{"commit":"a87b642fd430ec2e5d3ea97fff1d6c1acfcca115","pr":92}},
-    {"id":"EV-008","type":"automated-test-suite","description":"Round-2 camera remediation: camera-frame orthographic fit and yaw-updated turntable orbit, 987 local tests with 0 failures and 27 engine-gated skips; parity fixtures preserved.","produced_at":"2026-08-30T06:05:00Z","reproducible":true,"reproduction":"Run model3d core and full app suites.","references":{"commit":"b72ed0eec5e518063b7fd4fe3ecbfa8dbb9c93a1","pr":92,"artifact_path":"app/src/workspace/model3d/camera.ts,app/test/model3d-core.test.ts"}},
+    {"id":"EV-008","type":"automated-test-suite","description":"Round-2 camera remediation: camera-frame orthographic fit and yaw-updated turntable orbit; 987 local tests with 0 failures and 27 engine-gated skips; parity fixtures preserved.","produced_at":"2026-08-30T06:05:00Z","reproducible":true,"reproduction":"Run model3d core and full app suites.","references":{"commit":"b72ed0eec5e518063b7fd4fe3ecbfa8dbb9c93a1","pr":92,"artifact_path":"app/src/workspace/model3d/camera.ts,app/test/model3d-core.test.ts"}},
     {"id":"EV-009","type":"ci-run","description":"All 18 workflows succeeded on b72ed0e, including cad-parity-009 run 33297867709.","produced_at":"2026-08-30T07:11:45Z","reproducible":true,"reproduction":"PR #92 checks tab.","references":{"commit":"b72ed0eec5e518063b7fd4fe3ecbfa8dbb9c93a1","pr":92,"workflow_run":"33297867709"}},
     {"id":"EV-010","type":"inspectable-artifact","description":"Round-2 exact-head Vercel deployment of b72ed0e with seven-for-seven fixture verification; deployment identity bound to the remediation commit.","produced_at":"2026-08-30T07:28:21.020Z","reproducible":true,"reproduction":"Run the seven P009 fixture smokes against the deployment.","references":{"commit":"b72ed0eec5e518063b7fd4fe3ecbfa8dbb9c93a1","pr":92}},
-    {"id":"EV-011","type":"ci-run","description":"Post-merge verification on exact merge commit 72a2da52753cf7ab5e19002d97c7b333bd25e788: 17/17 push workflows succeeded, including governance run 33300952898; the merge revision is the reviewed P009 tree.","produced_at":"2026-08-30T08:11:12Z","reproducible":true,"reproduction":"Inspect the Actions run list for merge commit 72a2da5.","references":{"commit":"72a2da52753cf7ab5e19002d97c7b333bd25e788","pr":92,"workflow_run":"33300952898"}}
+    {"id":"EV-011","type":"ci-run","description":"Post-merge verification on exact merge commit 72a2da52753cf7ab5e19002d97c7b333bd25e788: 17/17 push workflows succeeded, including governance run 33300952898; the merged revision preserves the reviewed P009 implementation tree.","produced_at":"2026-08-30T08:11:12Z","reproducible":true,"reproduction":"Inspect the Actions run list for merge commit 72a2da5.","references":{"commit":"72a2da52753cf7ab5e19002d97c7b333bd25e788","pr":92,"workflow_run":"33300952898"}}
   ],
   "decisions": [
     {"id":"DEC-001","status":"changes_requested","decided_at":"2026-08-30T05:55:00Z","decided_by":"pectoraux","role":"architect","rationale":"The first remediation round did not fully satisfy the documented camera invariants: orthographic fit and combined orbit semantics required a bounded second fix round.","evidence_refs":["EV-001","EV-002","EV-003","EV-004","EV-005","EV-006","EV-007"],"remediation_required":"Fix orthographic fit from camera-frame corners, correct turntable orbit composition, add directed regressions and re-submit with exact-head CI/deployment evidence."},
     {"id":"DEC-002","status":"changes_requested","decided_at":"2026-08-30T06:25:00Z","decided_by":"pectoraux","role":"architect","rationale":"The second remediation was complete locally but had not yet reached the remote PR; approval required the actual PR head and evidence chain.","evidence_refs":["EV-005","EV-006","EV-007"],"remediation_required":"Push b72ed0e, verify CI and deployment, update the governance record and return PR #92 to PR_OPEN/VERIFYING."},
-    {"id":"DEC-003","status":"approved","decided_at":"2026-08-30T08:17:00Z","decided_by":"pectoraux","role":"architect","rationale":"After merge, the exact reviewed P009 tree remained intact and all post-merge verification workflows succeeded on 72a2da5; acceptance criteria are satisfied and the work item is formally verified.","evidence_refs":["EV-011"]}
+    {"id":"DEC-003","status":"approved","decided_at":"2026-08-30T08:16:30Z","decided_by":"pectoraux","role":"architect","rationale":"After merge, the exact reviewed P009 tree remained intact and all post-merge verification workflows succeeded on 72a2da5; acceptance criteria are satisfied and the work item is formally verified.","evidence_refs":["EV-011"]}
   ]
 }
