@@ -40,15 +40,16 @@ jobs:
         run: |
           # ARCH-WF-002: an implementation PR may only touch architecture-controlled
           # paths when it explicitly cites an APPROVED ACR covering them. The citation
-          # channel is a single "ACR-Routing: ACR-003, ACR-004" line in the PR body.
-          ACR_LINE=$(printf '%s\n' "$PR_BODY" | grep -iE '^[[:space:]]*ACR-Routing:' | tail -1 || true)
+          # channel is the PR body's ACR-Routing line, parsed by the shared, tested
+          # helper (tools/governance/src/parse-acr-routing.ts — bare, list-item and
+          # bold forms accepted; HTML comments stripped fail-closed; only the
+          # constrained ACR-NNN token pattern is extracted, so the line is
+          # injection-safe).
+          ACR_IDS=$(printf '%s' "$PR_BODY" | npx tsx tools/governance/src/parse-acr-routing.ts || true)
           ACR_ARGS=""
-          if [ -n "$ACR_LINE" ]; then
-            ACR_IDS=$(printf '%s' "$ACR_LINE" | sed -E 's/^[Aa][Cc][Rr]-[Rr][Oo][Uu][Tt][Ii][Nn][Gg]:[[:space:]]*//' | tr -d ' ')
-            if [ -n "$ACR_IDS" ]; then
-              ACR_ARGS="--acr ${ACR_IDS}"
-              echo "Routing cited ACRs: ${ACR_IDS}"
-            fi
+          if [ -n "$ACR_IDS" ]; then
+            ACR_ARGS="--acr ${ACR_IDS}"
+            echo "Routing cited ACRs: ${ACR_IDS}"
           fi
           npm run governance -- check-protected --base origin/${{ github.base_ref }} ${ACR_ARGS}
 

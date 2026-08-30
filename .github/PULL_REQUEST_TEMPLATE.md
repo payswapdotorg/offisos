@@ -15,7 +15,7 @@ governance/work-items/ are the canonical state; keep them in sync with this PR.
 - Architecture version targeted: 1.0
 - [ ] This PR does not modify architecture-controlled artifacts (`spec/architecture.md`, `spec/architecture-lock.md`, `spec/adr/**`, `spec/00-readme.md`, `spec/SPEC-MANIFEST.md`, `governance/workflow-states.json`, `governance/architecture-versions.json`, `governance/protected-paths.json`, `governance/schemas/**`, existing files under `governance/acr/**` and `governance/reconciliations/**`) — enforced by `npm run governance -- check-protected`
 - If this PR must change an architecture-controlled artifact, it is routed through an Architecture Change Request instead of a silent change:
-  - ACR-Routing: <!-- e.g. ACR-Routing: ACR-003 — the single line the governance CI reads; the cited ACR must be APPROVED or IMPLEMENTED and must enumerate the exact changed paths in its authorized_paths -->
+  - ACR-Routing: <!-- fill in as its own line, e.g. "ACR-Routing: ACR-003" or comma-separated "ACR-Routing: ACR-003, ACR-004". The governance CI parses this line (bare, list-item and bold forms all accepted; HTML comments like this one are ignored fail-closed, so remove or replace this whole comment). The cited ACR must be APPROVED or IMPLEMENTED and must enumerate the exact changed paths in its authorized_paths. -->
   - ACR record: governance/acr/ACR-<!-- NNN -->.json (status: <!-- PROPOSED / ENDORSED / APPROVED / IMPLEMENTED -->)
 
 ## What was implemented
