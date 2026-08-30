@@ -43,7 +43,7 @@
     "A reproducible example covering architecture-change approval and one covering a historical merged-record reconciliation.",
     "Evidence that existing normal lifecycle and VERIFIED gating behavior remains unchanged."
   ],
-  "state": "IMPLEMENTATION_BLOCKED",
+  "state": "VERIFYING",
   "transitions": [
     {
       "from": "DRAFT",
@@ -91,6 +91,106 @@
       "failure_reason": "No GitHub credential available in this session (git push to origin fails: could not read Username); the push + PR submission cannot execute until the credential arrives.",
       "references": {
         "issue": 12
+      }
+    },
+    {
+      "from": "IMPLEMENTATION_BLOCKED",
+      "to": "IMPLEMENTING",
+      "at": "2026-08-30T18:48:24Z",
+      "actor": "z-ai-implementation-agent",
+      "role": "implementer",
+      "reason": "Unblocked: the GitHub credential (GITHUB_TOKEN) is available in this session, resolving the recorded blocker. The locally-verified implementation (102/102 tests, tsc clean, validate 368/371 with only the three intentionally-preserved CAD-PARITY-011 historical failures, drift audit green, the architect-act dry run at 371/371 exit 0) now executes the staged submission: branch push, PR, this record and the review-submission comments.",
+      "references": {
+        "issue": 12,
+        "commit": "7b1a2385f7f3d29a10c3a27fd8b22f3c34f392e2"
+      }
+    },
+    {
+      "from": "IMPLEMENTING",
+      "to": "PR_OPEN",
+      "at": "2026-08-30T18:48:33Z",
+      "actor": "z-ai-implementation-agent",
+      "role": "implementer",
+      "reason": "PR opened with the complete ARCH-WF-002 implementation at head 7b1a238: the ACR registry lifecycle (acr/ + acr.schema.json + acr.ts), ACR-routed protected-path enforcement (protected-paths.ts + the PR-body ACR-Routing parsing in governance.yml), revision-bound verification controls (revision-binding.ts + the check-verified-revisions audit), and the auditable historical reconciliation mechanism (reconciliations/ + reconciliation.ts + the waiver engine in rules.ts) staged for the CAD-PARITY-011 ledger defect (Issue #100). This PR's own protected-path changes are routed through the architect's ACR-003 (PROPOSED at this head; the Architect approves at review).",
+      "references": {
+        "issue": 12,
+        "pr": 101,
+        "commit": "7b1a2385f7f3d29a10c3a27fd8b22f3c34f392e2",
+        "evidence": [
+          "EV-001",
+          "EV-002",
+          "EV-003",
+          "EV-004"
+        ]
+      }
+    },
+    {
+      "from": "PR_OPEN",
+      "to": "VERIFYING",
+      "at": "2026-08-30T18:49:36Z",
+      "actor": "z-ai-implementation-agent",
+      "role": "implementer",
+      "reason": "Complete implementation evidence submitted for Architect review. The governance CI at this head is intentionally red on the acceptance target: validate fails only on the three known CAD-PARITY-011 historical failures (the staged reconciliation REC-CAD-PARITY-011 awaits the Architect decision; waivers inactive, nothing suppressed) and check-protected refuses the ACR-003 routing while ACR-003 is PROPOSED. Both convert to green when the Architect records the two review-time acts documented on the PR (dry-run verified 371/371, exit 0).",
+      "references": {
+        "pr": 101,
+        "evidence": [
+          "EV-001",
+          "EV-002",
+          "EV-003",
+          "EV-004"
+        ]
+      }
+    }
+  ],
+  "evidence": [
+    {
+      "id": "EV-001",
+      "type": "automated-test-suite",
+      "description": "Full deterministic suites at implementation head 7b1a238: the governance tool suite 102/102 (58 pre-existing + 44 new: acr 10, reconciliation 15, revision-binding 9, protected-paths +9, repo-integration +1 — every pre-existing test unchanged and passing, the regression proof that ordinary lifecycle enforcement is untouched); tsc --noEmit clean; governance validate 368/371 with exactly the three known CAD-PARITY-011 historical failures (transition-legality, temporal-ordering, decisions on transition #8) intentionally preserved; check-verified-revisions drift audit green (all 15 real VERIFIED revision bindings intact); check-protected --acr ACR-003 refuses with the explicit 'cited ACR ACR-003 is PROPOSED' routing refusal.",
+      "produced_at": "2026-08-30T18:48:24Z",
+      "reproducible": true,
+      "reproduction": "npm ci && npm run typecheck && npm test && npm run governance -- validate && npm run governance -- check-verified-revisions && npm run governance -- check-protected --base origin/main --acr ACR-003",
+      "references": {
+        "commit": "7b1a2385f7f3d29a10c3a27fd8b22f3c34f392e2",
+        "pr": 101
+      }
+    },
+    {
+      "id": "EV-002",
+      "type": "ci-run",
+      "description": "Governance CI run 33329124353 on the PR head 7b1a238 (pull_request event; the product-workflow path filters do not match governance/, tools/governance/ or the non-workflow .github/ files, so governance is the only workflow on this PR). Expected red at the validate step by design: exactly the three CAD-PARITY-011 historical failures, nothing else; the run completed 2026-08-30T18:48:56Z. The red is the acceptance-target state — it converts to 371/371 green when the Architect records the two review-time acts (ACR-003 approval + the REC-CAD-PARITY-011 decision; dry-run verified exit 0).",
+      "produced_at": "2026-08-30T18:48:56Z",
+      "reproducible": true,
+      "reproduction": "Inspect the Actions results for this PR head 7b1a238 (governance run 33329124353): the validate step log lists exactly the three work-item/CAD-PARITY-011 FAIL lines.",
+      "references": {
+        "commit": "7b1a2385f7f3d29a10c3a27fd8b22f3c34f392e2",
+        "pr": 101,
+        "workflow_run": "33329124353"
+      }
+    },
+    {
+      "id": "EV-003",
+      "type": "reproducible-script",
+      "description": "The two reproducible examples required by the acceptance criteria, always green at this head: (a) architecture-change approval — ACR-901, the demo ACR exercising the full PROPOSED → ENDORSED → APPROVED → IMPLEMENTED chain with role ownership and ordering enforced; (b) historical merged-record reconciliation — SAMPLE-002, the demo work item carrying the same three-defect merged ledger, reconciled by the DECIDED REC-SAMPLE-002 with three active waivers and explicit [RECONCILED] annotations in the validate output. Plus the end-to-end architect-act dry run over a scratch copy: ACR-003 APPROVED + REC-CAD-PARITY-011 DECIDED → validate 371/371, exit 0, the three P011 checks converted to [RECONCILED] passes, and check-protected --acr ACR-003 passing with the three paths explicitly ROUTED.",
+      "produced_at": "2026-08-30T18:48:24Z",
+      "reproducible": true,
+      "reproduction": "npm run governance -- validate — inspect acr/ACR-901/lifecycle, work-item/SAMPLE-002/*, reconciliation/SAMPLE-002/* and reconciliation/active-waivers in the output; the architect-act dry run mutates a scratch copy of governance/acr/ACR-003.json (add review + approval, status APPROVED) and governance/reconciliations/CAD-PARITY-011.json (status DECIDED + the decision fields), then re-runs validate and check-protected.",
+      "references": {
+        "commit": "7b1a2385f7f3d29a10c3a27fd8b22f3c34f392e2",
+        "pr": 101
+      }
+    },
+    {
+      "id": "EV-004",
+      "type": "inspectable-artifact",
+      "description": "The staged acceptance-target artifacts, inspectable in this PR: governance/reconciliations/CAD-PARITY-011.json (REC-CAD-PARITY-011, STAGED — the honest defect description with three verbatim citations of the original transition #8 facts, real evidence: the git topology EV-001, the deterministic validator failures EV-002, the post-merge CI run 33324496738 EV-003; no waivers active — the ledger failures stay visible until the Architect decides) and governance/acr/ACR-003.json (the architect's own 3dbe166 proposal re-registered verbatim in the machine-readable registry, PROPOSED at this head). The three CAD-PARITY-011 failures remain intentionally visible in validate — exactly as the ASSIGNED transition recorded.",
+      "produced_at": "2026-08-30T18:48:33Z",
+      "reproducible": true,
+      "reproduction": "Inspect governance/reconciliations/CAD-PARITY-011.json and governance/acr/ACR-003.json at the PR head; npm run governance -- validate shows the three unreconciled CAD-PARITY-011 failures.",
+      "references": {
+        "commit": "7b1a2385f7f3d29a10c3a27fd8b22f3c34f392e2",
+        "pr": 101,
+        "path": "governance/reconciliations/CAD-PARITY-011.json"
       }
     }
   ],
