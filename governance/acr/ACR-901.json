@@ -1,0 +1,51 @@
+{
+  "id": "ACR-901",
+  "demo": true,
+  "disclaimer": "Demonstration fixture only. This ACR exercises the machine-checkable ACR lifecycle end-to-end (PROPOSED → ENDORSED → APPROVED → IMPLEMENTED) with synthetic actors, timestamps and references. It makes no claim about real architecture changes and cannot route real protected-path changes or sanction real reconciliations.",
+  "title": "Demo: sample architecture-control change approval lifecycle",
+  "status": "IMPLEMENTED",
+  "requested_by": "demo-requester",
+  "requested_at": "2026-09-01T00:00:00Z",
+  "problem": "Demo fixture: a sample architecture-control change needs the full machine-checkable approval chain — Architect review and Product Owner approval with explicit roles, verdicts and ordering — before it may be cited by work-item records or route protected-path changes.",
+  "evidence": [
+    "Demo fixture evidence: the lifecycle rules in governance/README.md (Architecture changes).",
+    "Demo fixture evidence: acr.schema.json defines the machine-checkable gates."
+  ],
+  "impact": "Demo fixture: demonstrates that an ACR cannot be cited by an acr_resolved work-item transition before its Product Owner approval, and that implementation tracking is bidirectional with the implementing work item's acr field.",
+  "alternatives": [
+    "Demo alternative one: skip the lifecycle and let any PR touch protected paths — rejected (silent architecture changes).",
+    "Demo alternative two: single-role approval — rejected (both gates are required)."
+  ],
+  "recommendation": "Demo fixture: exercise the full PROPOSED → ENDORSED → APPROVED → IMPLEMENTED chain with the sample architecture-control change implemented by SAMPLE-002.",
+  "migration_plan": "Demo fixture: SAMPLE-002 resumes implementation through the acr_resolved transition citing this ACR, then proceeds through the normal lifecycle to a historical merged-record reconciliation.",
+  "compatibility": "Demo fixture: no real record, registry or path is affected; the demo id range ACR-9xx keeps this record excluded from real routing and real reconciliation sanctioning.",
+  "security_impact": "Demo fixture: the record proves the validator rejects demo ACRs from real routing, real citations and real reconciliations (demo marking is enforced on both sides of every reference).",
+  "affected_requirements": ["FLOW-004", "FLOW-005"],
+  "affected_work_items": ["SAMPLE-002"],
+  "architecture_version_from": "1.1",
+  "architecture_version_to": "1.1",
+  "authorized_paths": [],
+  "review": {
+    "reviewed_by": "demo-architect",
+    "role": "architect",
+    "reviewed_at": "2026-09-01T00:10:00Z",
+    "verdict": "endorsed",
+    "rationale": "Demo fixture: the sample change preserves frozen boundaries and the ACR lifecycle rules are satisfied."
+  },
+  "approval": {
+    "approved_by": "demo-owner",
+    "role": "product-owner",
+    "approved_at": "2026-09-01T00:20:00Z",
+    "decision": "approved",
+    "rationale": "Demo fixture: the Product Owner authorizes the sample architecture-control change after the Architect endorsement."
+  },
+  "implementation": {
+    "work_item": "SAMPLE-002",
+    "references": {
+      "pr": 4242,
+      "commit": "deadbeef1"
+    }
+  },
+  "related_issue": 999002,
+  "provenance": "Demo fixture created by ARCH-WF-002 (Issue #12) as the reproducible architecture-change approval example required by the work item's acceptance criteria."
+}

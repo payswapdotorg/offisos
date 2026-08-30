@@ -1,0 +1,35 @@
+{
+  "id": "ACR-003",
+  "title": "Add auditable reconciliation path for already-merged governance defects",
+  "status": "PROPOSED",
+  "requested_by": "pectoraux",
+  "requested_at": "2026-08-30T17:40:00Z",
+  "problem": "CAD-PARITY-011 was merged before its Architect approval was recorded. The frozen lifecycle validator correctly rejects the historical record, but the current state machine provides no lawful transition for reconciling an already-MERGED historical governance defect without rewriting history.",
+  "evidence": [
+    "Issue #100: governance reconciliation required for CAD-PARITY-011.",
+    "Governance run 33324942893: transition-legality, temporal-ordering and decisions failures for CAD-PARITY-011.",
+    "workflow-states.json: APPROVED -> MERGED is restricted to product-owner/implementer and MERGED requires a prior approved decision.",
+    "Physical git history: the approval record commit cc5f43a (authored 2026-08-30T17:10:05Z) was the head of PR #99 at its merge (f593b06, 2026-08-30T17:10:16Z), while the ledger records the approval at 17:12:30Z — the ledger timestamps are internally inconsistent with the merge event they surround."
+  ],
+  "impact": "Introduce a narrowly scoped, audit-preserving reconciliation mechanism for historical governance records only. It must not authorize implementation agents to approve or verify work, must not rewrite Git merge history, and must not weaken existing evidence or state-machine integrity checks.",
+  "alternatives": [
+    "Rewrite the historical approval timestamp or actor role: rejected because it falsifies the audit trail.",
+    "Weaken validator checks for P011: rejected because it would reduce governance integrity.",
+    "Manually mark P011 VERIFIED without a legal lifecycle path: rejected because VERIFIED is Architect-owned and must be validator-backed."
+  ],
+  "recommendation": "Add an explicit Architect-owned reconciliation pathway for pre-existing MERGED records with immutable historical transitions, requiring a new reconciliation record/evidence chain and preventing ordinary implementation workflows from using the pathway. Acceptance criteria (from the original proposal): a historical MERGED record can be reconciled without modifying its original merge event; the reconciliation event is separately auditable, revision-bound and Architect-authorized; the normal APPROVED -> MERGED -> VERIFIED lifecycle remains unchanged for new work; the validator continues rejecting malformed or unauthorized normal transitions; P011 can reach VERIFIED only after the reconciled record satisfies all evidence and decision requirements.",
+  "migration_plan": "ARCH-WF-002 (Issue #12) implements the mechanism: the reconciliation record schema and registry (governance/reconciliations/), the Architect-only waiver activation validated by the governance CLI, and the staged CAD-PARITY-011 reconciliation whose facts and verbatim original-event citations are complete at staging. The Architect records the reconciliation decision (advancing it from STAGED to DECIDED) only after this ACR is endorsed and approved; the decision activates the three enumerated waivers and nothing else. This ACR additionally authorizes the protected-path manifest extension that brings the ACR registry, the reconciliation registry and the governance schemas under architecture control, plus the two new schema files defining those records.",
+  "compatibility": "Existing work-item records and normal lifecycle transitions remain unchanged. The reconciliation mechanism applies only to records identified as requiring historical governance repair and must preserve original transition timestamps, actors, roles and merge commits. The waiver engine covers exactly three violation classes (unauthorized merge role, merge timestamp preceding the recorded approval, missing prior approved decision at the merge entry gate); every other rule — including VERIFIED evidence gating — is never waivable.",
+  "security_impact": "The pathway is Architect-only (role-checked), ACR-sanctioned (the sanctioning ACR must be APPROVED or IMPLEMENTED and must list the affected work item), evidence-backed (at least one reproducible revision-bound evidence item), and post-dating every event it reconciles. It grants no implementation agent any approval or verification authority, creates no alternate route to VERIFIED, and cites the original ledger events verbatim so any later tampering with the historical record breaks validation (tamper evidence).",
+  "affected_requirements": ["FLOW-001", "FLOW-002"],
+  "affected_work_items": ["CAD-PARITY-011"],
+  "architecture_version_from": "1.1",
+  "architecture_version_to": "1.1",
+  "authorized_paths": [
+    "governance/protected-paths.json",
+    "governance/schemas/acr.schema.json",
+    "governance/schemas/reconciliation.schema.json"
+  ],
+  "related_issue": 100,
+  "provenance": "Proposed by pectorux as a registry artifact in commit 3dbe166 (2026-08-30T17:36:51Z) and removed as premature in commit 210e044 because the ACR lifecycle it presupposes did not exist yet ('the full ACR template/lifecycle is owned by ARCH-WF-002'). Re-registered here verbatim in the machine-readable registry by the implementation agent under ARCH-WF-002; the requirement mapping (FLOW-001/FLOW-002), the security-impact analysis and the authorized-path enumeration were added while porting, everything else carries the original proposal's content. The Architect completes the lifecycle (review, then Product Owner approval) before the reconciliation it sanctions may be decided."
+}

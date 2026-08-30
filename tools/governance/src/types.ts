@@ -149,6 +149,14 @@ export interface ArchitectureVersionsFile {
 export interface ProtectedPathPattern {
   pattern: string;
   reason: string;
+  /**
+   * "allowed" marks registry trees whose additions are the normal flow
+   * (e.g. governance/acr/** — proposing a new ACR must not itself require an
+   * ACR). Only modifications/deletions/renames of existing paths remain
+   * violations for such patterns. Absent (default): additions inside an
+   * existing protected tree are violations too (ARCH-WF-002).
+   */
+  additions?: "allowed";
 }
 
 export interface ProtectedPathsFile {

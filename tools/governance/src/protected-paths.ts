@@ -40,6 +40,8 @@ export interface ProtectedPathViolation {
   path: string;
   pattern: string;
   reason: string;
+  /** True when the matched pattern allows pure additions (registry trees). */
+  additionsAllowed?: boolean;
 }
 
 export interface ProtectedCheckOptions {
@@ -53,7 +55,12 @@ export interface ProtectedCheckOptions {
 export function matchProtectedPath(path: string, patterns: ProtectedPathPattern[]): ProtectedPathViolation | undefined {
   for (const entry of patterns) {
     if (globToRegex(entry.pattern).test(path)) {
-      return { path, pattern: entry.pattern, reason: entry.reason };
+      return {
+        path,
+        pattern: entry.pattern,
+        reason: entry.reason,
+        ...(entry.additions === "allowed" ? { additionsAllowed: true } : {}),
+      };
     }
   }
   return undefined;
@@ -176,8 +183,20 @@ export function checkProtectedPathsWithRouting(
     const pathExists = options.existsOnBase ? options.existsOnBase(trimmed) : true;
     const prefix = treePrefix(violation.pattern);
     const treeExists = prefix !== undefined && options.existsOnBase ? options.existsOnBase(prefix) : prefix !== undefined;
-    if (!pathExists && !treeExists) {
-      continue; // Bootstrap case: brand-new protected file where nothing existed.
+
+    if (violation.additionsAllowed === true) {
+      // Registry tree (e.g. governance/acr/**): additions are the normal flow
+      // (proposing an ACR must not itself require an ACR); only modifications,
+      // deletions or renames of already-existing paths are violations. In
+      // strict mode (no base ref) additions cannot be distinguished and stay
+      // violations.
+      if (options.existsOnBase !== undefined && !pathExists) {
+        continue;
+      }
+    } else if (!pathExists && !treeExists) {
+      // Bootstrap case: brand-new protected file where nothing existed before
+      // (e.g. the PR introducing the governance system itself).
+      continue;
     }
 
     // Protected change: explicit ACR routing only.
