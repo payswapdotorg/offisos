@@ -1,0 +1,69 @@
+{
+  "id": "CAD-PARITY-012",
+  "title": "Components, materials and coordination expansion",
+  "issue": 102,
+  "architecture_version": "1.1",
+  "requirements": ["BIM-001", "BIM-002", "IFC-001"],
+  "dependencies": ["CAD-PARITY-011", "COMPAT-BIM-003", "RESEARCH-CAD-007", "COMPAT-IFC-001"],
+  "objective": "Extend the verified CAD/BIM product from the compatibility-grade reusable components/materials/coordination baseline into a bounded professional parity layer, adding richer component-library semantics, deterministic definition-to-instance propagation, canonical material authoring/assignment, stronger coordination data and parity-grade persistence/exchange while preserving frozen ConstructionOS Architecture v1.1.",
+  "acceptance_criteria": [
+    "Representative reusable component definitions produce multiple instances with stable canonical definition/instance relationships, extending rather than duplicating COMPAT-BIM-003 semantics.",
+    "Definition edits propagate deterministically, expose affected instances, create immutable revisions and preserve per-instance overrides.",
+    "Material definitions and assignments are canonical, deterministic and independent of OCCT/IfcOpenShell internals, with explicit type-vs-instance precedence.",
+    "Coordination sets, grids, levels, reference planes and supported alignment/reference relationships persist through save/open/replay with deterministic semantics.",
+    "Construction Graph mappings remain keyed by document-owned canonical identities; engine-native ids remain provenance only.",
+    "Web and Electron produce equivalent semantic streams and canonical serialized results for representative P012 workflows.",
+    "IFC import/export preserves supported component/material semantics and reports explicit LOSSY/UNSUPPORTED outcomes outside the supported exchange contract.",
+    "Existing CAD-PARITY-002..011, COMPAT-BIM-003 and COMPAT-IFC-001 fixtures remain green and byte-identical unless an explicitly reviewed migration is necessary.",
+    "Real OCCT/IFC behavior continues through the existing EngineAdapterBundle/worker boundary; no renderer/application engine-internal imports are introduced.",
+    "The exact final implementation head is CI-verified and browser/Electron verified; implementation stops at PR_OPEN/VERIFYING.",
+    "No protected architecture paths are modified."
+  ],
+  "non_goals": [
+    "Full Revit/Archicad family-system parity.",
+    "Full general-purpose constraint solving.",
+    "Advanced MEP/structural authoring.",
+    "Point-cloud/terrain/mesh sculpting.",
+    "Project scheduling, 4D or cost-planning workflows.",
+    "Renderer replacement or engine-boundary changes.",
+    "Architecture changes without an explicit ACR."
+  ],
+  "risk_assumptions": [
+    "CAD-PARITY-011 is now VERIFIED after its original historical governance defects were reconciled through ARCH-WF-002 without rewriting the original merge event.",
+    "COMPAT-BIM-003 is VERIFIED and is the compatibility-grade component/material/coordination baseline; P012 must extend it rather than recreate it.",
+    "RESEARCH-CAD-007 is VERIFIED and establishes the engine-independent canonical semantics and replaceable adapter boundary.",
+    "COMPAT-IFC-001 is VERIFIED and provides the production IFC exchange baseline and pinned toolchain behavior.",
+    "Architecture v1.1 remains frozen throughout P012."
+  ],
+  "evidence_requirements": [
+    "Deterministic component-definition/instance, propagation, material, coordination and revision tests.",
+    "Web/Electron parity fixtures for representative P012 workflows.",
+    "Real-OCCT/IFC coverage through the existing adapter/worker boundary plus explicit typed declines for unsupported features.",
+    "Regression proof that CAD-PARITY-002..011, COMPAT-BIM-003 and COMPAT-IFC-001 remain green and byte-identical.",
+    "Exact-head Vercel deployment and real-browser/Electron evidence.",
+    "Revision-bound governance evidence covering the final implementation and post-merge verification."
+  ],
+  "state": "ASSIGNED",
+  "transitions": [
+    {
+      "from": "DRAFT",
+      "to": "READY",
+      "at": "2026-08-31T03:09:30Z",
+      "actor": "pectoraux",
+      "role": "architect",
+      "reason": "CAD-PARITY-012 is released from the authoritative CAD/BIM roadmap as the next bounded parity slice after verified CAD-PARITY-011 and ARCH-WF-002. Scope explicitly layers professional parity on top of the verified COMPAT-BIM-003 compatibility baseline.",
+      "references": {"issue": 102}
+    },
+    {
+      "from": "READY",
+      "to": "ASSIGNED",
+      "at": "2026-08-31T03:09:45Z",
+      "actor": "pectoraux",
+      "role": "architect",
+      "reason": "All declared P012 dependencies are VERIFIED on main: CAD-PARITY-011, COMPAT-BIM-003, RESEARCH-CAD-007 and COMPAT-IFC-001. The work item is assigned to the logical implementation agent z-ai-implementation-agent; the implementation must stop at PR_OPEN/VERIFYING for Architect review.",
+      "references": {"issue": 102, "assignee": "z-ai-implementation-agent"}
+    }
+  ],
+  "evidence": [],
+  "decisions": []
+}
