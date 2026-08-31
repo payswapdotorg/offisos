@@ -1,13 +1,32 @@
 /**
  * Orchestration for the `validate` command: loads every governance artifact,
  * runs all deterministic checks and produces a report.
+ *
+ * ARCH-WF-002: the ACR registry (governance/acr/) and the reconciliation
+ * registry (governance/reconciliations/) are validated in dependency order —
+ * ACRs first, then reconciliations (which may cite ACR approvals), then work
+ * items (which may consume active reconciliation waivers and ACR reference
+ * integrity). A reconciliation that fails its own checks never activates
+ * waivers.
  */
 import { join } from "node:path";
+import { existsSync, readdirSync } from "node:fs";
 import Ajv from "ajv";
 import addFormats from "ajv-formats";
-import { loadWorkItems, loadRequirementIds, readJson } from "./loaders.js";
+import {
+  loadAcrs,
+  loadReconciliations,
+  loadWorkItems,
+  loadRequirementIds,
+  readJson,
+} from "./loaders.js";
 import { validateStateMachineDefinition } from "./state-machine.js";
 import { validateWorkItem } from "./rules.js";
+import {
+  validateAcrRegistry,
+  validateArchitectureVersionAcrBinding,
+} from "./acr.js";
+import { validateReconciliationRegistry } from "./reconciliation.js";
 import type {
   ArchitectureVersionsFile,
   CheckResult,
@@ -93,12 +112,12 @@ export function validateRepository(root: string): ValidateOutcome {
   checks.push(validateProtectedPathsManifest(protectedPaths, versions));
 
   // ------------------------------------------------------------------
-  // Requirement IDs from spec/requirements.md.
+  // Requirement IDs from spec/requirements.md (root + product registries).
   // ------------------------------------------------------------------
   const requirementIds = loadRequirementIds(root);
   checks.push(
     requirementIds.size > 0
-      ? pass("requirements/parsable", `Parsed ${requirementIds.size} requirement IDs from spec/requirements.md.`)
+      ? pass("requirements/parsable", `Parsed ${requirementIds.size} requirement IDs from the spec requirement registries.`)
       : fail("requirements/parsable", "Could not parse any requirement IDs from spec/requirements.md.", []),
   );
 
@@ -108,6 +127,76 @@ export function validateRepository(root: string): ValidateOutcome {
   const workItemSchema = readJson<object>(join(root, "governance", "schemas", "work-item.schema.json"));
   const itemValidator = ajv.compile(workItemSchema);
   const loaded = loadWorkItems(root);
+  const allWorkItems = new Map<string, WorkItemRecord>(loaded.map((l) => [l.record.id, l.record]));
+
+  // ------------------------------------------------------------------
+  // ACR registry (ARCH-WF-002, Issue #12).
+  // ------------------------------------------------------------------
+  const acrSchema = readJson<object>(join(root, "governance", "schemas", "acr.schema.json"));
+  const acrValidator = ajv.compile(acrSchema);
+  const loadedAcrs = loadAcrs(root);
+
+  // Legacy markdown ACR ids (ACR-001, ACR-002) that resolve without records.
+  const legacyAcrIds = new Set<string>();
+  const architectureChangesDir = join(root, "governance", "architecture-changes");
+  if (existsSync(architectureChangesDir)) {
+    for (const f of readdirSync(architectureChangesDir)) {
+      const match = f.match(/^(ACR-[0-9]{3})-.*\.md$/);
+      if (match?.[1] !== undefined) legacyAcrIds.add(match[1]);
+    }
+  }
+
+  const schemaValidAcrs = new Set<string>();
+  for (const { file, record } of loadedAcrs) {
+    const schemaValid: boolean = acrValidator(record);
+    if (schemaValid) schemaValidAcrs.add(record.id);
+    checks.push(
+      schemaValid
+        ? pass(`acr/${record.id}/schema`, `'${file}' conforms to acr.schema.json.`)
+        : fail(`acr/${record.id}/schema`, `'${file}' violates acr.schema.json.`, (acrValidator.errors ?? []).map((e) => `${e.instancePath} ${e.message ?? ""}`.trim())),
+    );
+  }
+  const acrOutcome = validateAcrRegistry(
+    loadedAcrs.filter((l) => schemaValidAcrs.has(l.record.id)),
+    { architectureVersions: versions, requirementIds, workItems: allWorkItems },
+    legacyAcrIds,
+  );
+  checks.push(...acrOutcome.checks);
+  checks.push(validateArchitectureVersionAcrBinding(versions, acrOutcome.registry, legacyAcrIds));
+
+  // ------------------------------------------------------------------
+  // Historical reconciliation registry (ARCH-WF-002, Issue #12).
+  // ------------------------------------------------------------------
+  const reconciliationSchema = readJson<object>(join(root, "governance", "schemas", "reconciliation.schema.json"));
+  const reconciliationValidator = ajv.compile(reconciliationSchema);
+  const loadedReconciliations = loadReconciliations(root);
+  const schemaValidReconciliations = new Set<string>();
+  for (const { file, record } of loadedReconciliations) {
+    const schemaValid: boolean = reconciliationValidator(record);
+    if (schemaValid) schemaValidReconciliations.add(record.id);
+    const checkId = `reconciliation/${file.replace(/\.json$/, "")}`;
+    checks.push(
+      schemaValid
+        ? pass(`${checkId}/schema`, `'${file}' conforms to reconciliation.schema.json.`)
+        : fail(`${checkId}/schema`, `'${file}' violates reconciliation.schema.json.`, (reconciliationValidator.errors ?? []).map((e) => `${e.instancePath} ${e.message ?? ""}`.trim())),
+    );
+  }
+  const reconciliationOutcome = validateReconciliationRegistry(
+    loadedReconciliations.filter((l) => schemaValidReconciliations.has(l.record.id)),
+    { machine, workItems: allWorkItems, acrRecords: acrOutcome.allRecords },
+  );
+  checks.push(...reconciliationOutcome.checks);
+  checks.push(
+    reconciliationOutcome.active.size > 0
+      ? pass(
+          "reconciliation/active-waivers",
+          `${reconciliationOutcome.active.size} DECIDED reconciliation(s) with active, narrowly-scoped waivers: ${[...reconciliationOutcome.active.values()].map((r) => `${r.id} (${r.workItem}, ${r.waivedKeys.size} waived violation(s))`).join("; ")}.`,
+        )
+      : pass(
+          "reconciliation/active-waivers",
+          "No DECIDED reconciliation is active; all historical ledger failures (if any) remain fully visible.",
+        ),
+  );
 
   // Registry of real (non-demo) records for dependency resolution.
   const registry = new Map<string, WorkItemRecord>();
@@ -153,6 +242,9 @@ export function validateRepository(root: string): ValidateOutcome {
     architectureVersions: versions,
     requirementIds,
     registry,
+    acrRegistry: acrOutcome.allRecords,
+    legacyAcrIds,
+    activeReconciliations: reconciliationOutcome.active,
   };
 
   const demoDeps: string[] = [];

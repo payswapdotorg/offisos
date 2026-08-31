@@ -1,0 +1,86 @@
+{
+  "id": "REC-CAD-PARITY-011",
+  "work_item": "CAD-PARITY-011",
+  "status": "DECIDED",
+  "problem": "CAD-PARITY-011 was merged on GitHub at 2026-08-30T17:10:16Z (merge commit f593b06) while its Architect approval was recorded in the ledger with timestamps of 17:12:30Z — after the merge event. The physical git history shows the approval record (commit cc5f43a, authored 17:10:05Z) was the head of PR #99 at the moment of the merge, so the approval content physically predates the merge; the ledger's approval timestamps, however, postdate it. The record consequently violates three rules: the APPROVED → MERGED transition was recorded under the architect role (authorized roles: product-owner, implementer); its timestamp precedes the recorded approval; and no approved decision exists at or before the merge event. The historical record is immutable — rewriting the timestamps or role would falsify the audit trail — so the defect is reconciled through this Architect-owned, ACR-sanctioned overlay (Issue #100).",
+  "defects": [
+    {
+      "rule": "transition-legality",
+      "violation": "unauthorized-role",
+      "transition": 8,
+      "original": {
+        "from": "APPROVED",
+        "to": "MERGED",
+        "at": "2026-08-30T17:10:16Z",
+        "actor": "pectoraux",
+        "role": "architect"
+      },
+      "explanation": "The GitHub merge of PR #99 was performed by pectoraux, who holds product-owner authority (the repo owner; the Product Owner of record for every prior merge, e.g. ARCH-WF-001's APPROVED → MERGED under the product-owner role). The ledger recorded the event under the architect role — a role mis-recording, not an authority failure."
+    },
+    {
+      "rule": "temporal-ordering",
+      "violation": "precedes-previous",
+      "transition": 8,
+      "original": {
+        "from": "APPROVED",
+        "to": "MERGED",
+        "at": "2026-08-30T17:10:16Z",
+        "actor": "pectoraux",
+        "role": "architect"
+      },
+      "explanation": "The recorded approval timestamps (ARCHITECT_REVIEW → APPROVED at 17:12:30Z; DEC-001 decided_at 17:12:30Z) postdate the merge event at 17:10:16Z, inverting the required ordering. The physical history contradicts the ledger's timestamps: the approval record commit cc5f43a was authored at 17:10:05Z — eleven seconds before the merge — and was the PR head that got merged, so the approval existed in the repository before the merge; the 17:12:30Z ledger values are internally inconsistent with the git events they describe."
+    },
+    {
+      "rule": "decisions",
+      "violation": "no-prior-approved-decision",
+      "state_entry": "MERGED",
+      "original": {
+        "from": "APPROVED",
+        "to": "MERGED",
+        "at": "2026-08-30T17:10:16Z",
+        "actor": "pectoraux",
+        "role": "architect"
+      },
+      "explanation": "Because DEC-001 carries decided_at 17:12:30Z, no approved decision exists at or before the merge timestamp. The decision itself is real — it rests on EV-001..EV-004 and its record commit (cc5f43a) predates the merge — but as recorded it does not precede the merge event."
+    }
+  ],
+  "evidence": [
+    {
+      "id": "EV-001",
+      "type": "reproducible-script",
+      "description": "The physical git topology: commit cc5f43a ('Governance: record Architect approval for CAD-PARITY-011', authored 2026-08-30T17:10:05Z) is the second parent of the merge commit f593b06 (2026-08-30T17:10:16Z) — the approval record was the PR #99 head at the moment of the merge, so the approval content physically predates the merge even though the ledger timestamps it at 17:12:30Z.",
+      "produced_at": "2026-08-30T17:10:16Z",
+      "reproducible": true,
+      "reproduction": "git log --format='%h %cI %s' -1 cc5f43a && git rev-parse f593b06^2 && git log --format='%h %cI %s' -1 f593b06",
+      "references": { "commit": "f593b0604ed2cd23b443b1b5958568d19923ed72" }
+    },
+    {
+      "id": "EV-002",
+      "type": "reproducible-script",
+      "description": "The ledger defect is deterministic and attributable: at main commit 62055d2 the governance validator reports exactly three failures for CAD-PARITY-011 — transition-legality (role 'architect' not authorized on transition #8), temporal-ordering (transition #8 precedes the previous transition), and decisions (entering MERGED requires a prior recorded decision).",
+      "produced_at": "2026-08-30T17:40:34Z",
+      "reproducible": true,
+      "reproduction": "git checkout 62055d2 && npm run governance -- validate",
+      "references": { "commit": "62055d2a2cb2d43efbf119f9a567e96f56984e24" }
+    },
+    {
+      "id": "EV-003",
+      "type": "ci-run",
+      "description": "Post-merge verification of the exact merge revision f593b06 completed successfully (Actions run 33324496738: BIM deterministic suite with OCCT, the full app suite, LOCK-018, engine probes, Web host build and BIM authoring smoke, Electron build and regression/BIM smoke — the three completed jobs all succeeded), recorded as EV-005 in the CAD-PARITY-011 work-item record.",
+      "produced_at": "2026-08-30T17:16:10Z",
+      "reproducible": true,
+      "reproduction": "Inspect Actions run 33324496738 for head f593b0604ed2cd23b443b1b5958568d19923ed72.",
+      "references": {
+        "commit": "f593b0604ed2cd23b443b1b5958568d19923ed72",
+        "workflow_run": "33324496738",
+        "pr": 99
+      }
+    }
+  ],
+  "acr": "ACR-003",
+  "decided_by": "architect",
+  "role": "architect",
+  "decided_at": "2026-08-30T21:26:30Z",
+  "rationale": "Architect decision: the three enumerated historical governance defects in CAD-PARITY-011 are substantiated by the immutable event citations and evidence; exactly those three violations are reconciled. No implementation or VERIFIED evidence rule is waived, the original merge history is not rewritten, and the work item must still satisfy the normal Architect-owned MERGED → VERIFIED gate.",
+  "remediation": "Reconciliation does not authorize VERIFIED. CAD-PARITY-011 remains subject to the normal verification evidence and Architect-owned MERGED → VERIFIED transition; future governance records must use the corrected lifecycle controls established by ARCH-WF-002."
+}

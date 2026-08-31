@@ -1,0 +1,69 @@
+{
+  "id": "REC-SAMPLE-002",
+  "work_item": "SAMPLE-002",
+  "status": "DECIDED",
+  "demo": true,
+  "disclaimer": "Demonstration fixture only. This reconciliation is the reproducible, always-green example of the historical merged-record reconciliation mechanism required by ARCH-WF-002's acceptance criteria. Its actors, timestamps and references are synthetic; it sanctions nothing real.",
+  "problem": "Demo fixture: SAMPLE-002's immutable ledger reproduces the exact defect shape of the real CAD-PARITY-011 record — the merge event (2026-09-01T01:08:00Z, recorded under the architect role) precedes the recorded approval decision (DEC-001 at 2026-09-01T01:10:00Z), so the raw ledger violates the transition-legality, temporal-ordering and merge-entry decision rules. The three violations are reconciled by this Architect decision without modifying any original event.",
+  "defects": [
+    {
+      "rule": "transition-legality",
+      "violation": "unauthorized-role",
+      "transition": 13,
+      "original": {
+        "from": "APPROVED",
+        "to": "MERGED",
+        "at": "2026-09-01T01:08:00Z",
+        "actor": "demo-architect",
+        "role": "architect"
+      },
+      "explanation": "Demo: the merge was performed by an actor holding product-owner authority but the event was recorded under the architect role — the same mis-recording class as CAD-PARITY-011 transition #8."
+    },
+    {
+      "rule": "temporal-ordering",
+      "violation": "precedes-previous",
+      "transition": 13,
+      "original": {
+        "from": "APPROVED",
+        "to": "MERGED",
+        "at": "2026-09-01T01:08:00Z",
+        "actor": "demo-architect",
+        "role": "architect"
+      },
+      "explanation": "Demo: the merge timestamp (01:08:00Z) precedes the recorded approval (01:10:00Z) — the ledger's timestamps are internally inconsistent with the approval-first ordering the state machine requires."
+    },
+    {
+      "rule": "decisions",
+      "violation": "no-prior-approved-decision",
+      "state_entry": "MERGED",
+      "original": {
+        "from": "APPROVED",
+        "to": "MERGED",
+        "at": "2026-09-01T01:08:00Z",
+        "actor": "demo-architect",
+        "role": "architect"
+      },
+      "explanation": "Demo: no approved decision exists at or before the merge event; DEC-001 was decided at 01:10:00Z, after the merge."
+    }
+  ],
+  "evidence": [
+    {
+      "id": "EV-001",
+      "type": "ci-run",
+      "description": "Demo fixture evidence: the deterministic governance suite proving the waiver engine reconciles exactly these three violations and refuses every invalid reconciliation (wrong role, pre-dating decision, unapproved ACR, stale citation).",
+      "produced_at": "2026-09-01T01:15:00Z",
+      "reproducible": true,
+      "reproduction": "npm test (tools/governance/test — reconciliation.test.ts)",
+      "references": {
+        "commit": "deadbee11",
+        "pr": 4242
+      }
+    }
+  ],
+  "acr": "ACR-901",
+  "decided_by": "demo-architect",
+  "role": "architect",
+  "decided_at": "2026-09-01T01:20:00Z",
+  "rationale": "Demo: the approval decision DEC-001 exists and covers the merged implementation; the defect was a recording-order failure, not a substance failure. The historical events are preserved verbatim; exactly the three enumerated violations are waived.",
+  "remediation": "Demo: the item may proceed toward VERIFIED only through the normal architect-owned MERGED → VERIFIED path with its own decision and qualifying revision-bound evidence; this reconciliation waives nothing else."
+}

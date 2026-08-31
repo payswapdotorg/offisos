@@ -1,0 +1,198 @@
+{
+  "id": "SAMPLE-002",
+  "demo": true,
+  "disclaimer": "Demonstration fixture only. This synthetic work item exercises two governance mechanisms with fake references: (1) architecture-change routing — work pauses in ARCHITECTURE_CHANGE_REQUEST and resumes through acr_resolved under an approved demo ACR (ACR-901); (2) historical merged-record reconciliation — its ledger intentionally reproduces the same three defect classes as the real CAD-PARITY-011 record (merge performed under an unauthorized role, merge timestamp preceding the recorded approval, no approved decision at or before the merge) and is reconciled by a DECIDED demo reconciliation (governance/reconciliations/SAMPLE-002.json). It makes no claim about real work.",
+  "title": "Demo: ACR routing and historical merged-record reconciliation fixture",
+  "issue": 999002,
+  "objective": "Provide the reproducible, always-green example of the two ARCH-WF-002 mechanisms: an implementation that legally pauses for an architecture change, resumes under an approved ACR, and later carries a historical merged-record defect reconciled by an Architect decision without modifying the immutable ledger.",
+  "architecture_version": "1.1",
+  "requirements": [
+    "FLOW-001",
+    "FLOW-002",
+    "FLOW-005"
+  ],
+  "dependencies": [],
+  "acceptance_criteria": [
+    "The record legally enters ARCHITECTURE_CHANGE_REQUEST and resumes through acr_resolved citing ACR-901, which was approved before the resume.",
+    "The record carries the three reconcilable defect classes in its historical ledger (unauthorized merge role, merge timestamp preceding the recorded approval, no approved decision at or before the merge).",
+    "The DECIDED demo reconciliation waives exactly those three violations; the validator reports them as [RECONCILED] rather than silently passing.",
+    "No other rule is waived: the record's non-reconcilable rules all hold."
+  ],
+  "non_goals": [
+    "Any claim about real work or real authorization.",
+    "Any use of the demo ACR outside the demo id range."
+  ],
+  "risk_assumptions": [
+    "The demo reconciliation mirrors the real CAD-PARITY-011 defect shape so the waiver mechanics are exercised identically."
+  ],
+  "evidence_requirements": [
+    "One qualifying revision-bound evidence item backing the demo reconciliation decision."
+  ],
+  "acr": "ACR-901",
+  "state": "MERGED",
+  "transitions": [
+    {
+      "from": "DRAFT",
+      "to": "READY",
+      "at": "2026-09-01T00:30:00Z",
+      "actor": "demo-owner",
+      "role": "product-owner",
+      "reason": "Demo fixture specification complete.",
+      "references": {
+        "issue": 999002
+      }
+    },
+    {
+      "from": "READY",
+      "to": "ASSIGNED",
+      "at": "2026-09-01T00:31:00Z",
+      "actor": "demo-owner",
+      "role": "product-owner",
+      "reason": "Demo fixture assigned to the demo implementer.",
+      "references": {
+        "issue": 999002,
+        "assignee": "demo-implementer"
+      }
+    },
+    {
+      "from": "ASSIGNED",
+      "to": "IMPLEMENTING",
+      "at": "2026-09-01T00:32:00Z",
+      "actor": "demo-implementer",
+      "role": "implementer",
+      "reason": "Demo implementation starts."
+    },
+    {
+      "from": "IMPLEMENTING",
+      "to": "PR_OPEN",
+      "at": "2026-09-01T00:35:00Z",
+      "actor": "demo-implementer",
+      "role": "implementer",
+      "reason": "Demo pull request opened.",
+      "references": {
+        "pr": 4242
+      }
+    },
+    {
+      "from": "PR_OPEN",
+      "to": "VERIFYING",
+      "at": "2026-09-01T00:40:00Z",
+      "actor": "demo-implementer",
+      "role": "implementer",
+      "reason": "Demo evidence submitted for verification."
+    },
+    {
+      "from": "VERIFYING",
+      "to": "ARCHITECT_REVIEW",
+      "at": "2026-09-01T00:45:00Z",
+      "actor": "demo-ci",
+      "role": "automation",
+      "reason": "Demo verification evidence complete.",
+      "references": {
+        "evidence": [
+          "EV-001"
+        ]
+      }
+    },
+    {
+      "from": "ARCHITECT_REVIEW",
+      "to": "ARCHITECTURE_CHANGE_REQUEST",
+      "at": "2026-09-01T00:50:00Z",
+      "actor": "demo-architect",
+      "role": "architect",
+      "reason": "Demo: the review determined the work requires an architecture-control change; work pauses pending the ACR process (the legal ARCHITECT_REVIEW -> ARCHITECTURE_CHANGE_REQUEST path in workflow-states.json)."
+    },
+    {
+      "from": "ARCHITECTURE_CHANGE_REQUEST",
+      "to": "IMPLEMENTING",
+      "at": "2026-09-01T00:55:00Z",
+      "actor": "demo-architect",
+      "role": "architect",
+      "reason": "Demo: ACR-901 was endorsed and approved (Product Owner approval at 2026-09-01T00:20:00Z, before this resume); implementation continues under it.",
+      "references": {
+        "acr": "ACR-901"
+      }
+    },
+    {
+      "from": "IMPLEMENTING",
+      "to": "PR_OPEN",
+      "at": "2026-09-01T01:00:00Z",
+      "actor": "demo-implementer",
+      "role": "implementer",
+      "reason": "Demo round-two pull request opened after the ACR was resolved.",
+      "references": {
+        "pr": 4243
+      }
+    },
+    {
+      "from": "PR_OPEN",
+      "to": "VERIFYING",
+      "at": "2026-09-01T01:02:00Z",
+      "actor": "demo-implementer",
+      "role": "implementer",
+      "reason": "Demo round-two evidence submitted."
+    },
+    {
+      "from": "VERIFYING",
+      "to": "ARCHITECT_REVIEW",
+      "at": "2026-09-01T01:04:00Z",
+      "actor": "demo-ci",
+      "role": "automation",
+      "reason": "Demo round-two verification evidence complete.",
+      "references": {
+        "evidence": [
+          "EV-001"
+        ]
+      }
+    },
+    {
+      "from": "ARCHITECT_REVIEW",
+      "to": "APPROVED",
+      "at": "2026-09-01T01:10:00Z",
+      "actor": "demo-architect",
+      "role": "architect",
+      "reason": "Demo approval decision recorded (DEC-001).",
+      "references": {
+        "decision": "DEC-001"
+      }
+    },
+    {
+      "from": "APPROVED",
+      "to": "MERGED",
+      "at": "2026-09-01T01:08:00Z",
+      "actor": "demo-architect",
+      "role": "architect",
+      "reason": "Demo historical defect: the merge event (01:08:00Z) precedes the recorded approval (01:10:00Z) and was recorded under the architect role — the same defect shape as CAD-PARITY-011, preserved immutably and reconciled by REC-SAMPLE-002.",
+      "references": {
+        "merge_commit": "deadbee11"
+      }
+    }
+  ],
+  "evidence": [
+    {
+      "id": "EV-001",
+      "type": "automated-test-suite",
+      "description": "Demo fixture evidence: the deterministic governance test suite covering ACR routing, protected-path routing, revision binding and historical reconciliation.",
+      "produced_at": "2026-09-01T00:58:00Z",
+      "reproducible": true,
+      "reproduction": "npm test (tools/governance/test)",
+      "references": {
+        "pr": 4242,
+        "commit": "deadbeef1"
+      }
+    }
+  ],
+  "decisions": [
+    {
+      "id": "DEC-001",
+      "status": "approved",
+      "decided_at": "2026-09-01T01:10:00Z",
+      "decided_by": "demo-architect",
+      "role": "architect",
+      "rationale": "Demo approval recorded after the merge event — the temporal defect this fixture exists to demonstrate.",
+      "evidence_refs": [
+        "EV-001"
+      ]
+    }
+  ]
+}

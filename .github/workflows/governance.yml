@@ -30,13 +30,39 @@ jobs:
       - name: Deterministic governance test suite
         run: npm test
 
-      - name: Validate work-item records against the canonical state machine
+      - name: Validate work-item, ACR and reconciliation records against the canonical state machine
         run: npm run governance -- validate
 
       - name: Check protected architecture paths (pull requests)
         if: github.event_name == 'pull_request'
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
-          npm run governance -- check-protected --base origin/${{ github.base_ref }}
+          # ARCH-WF-002: evaluate protected-path history against the actual PR
+          # head. GitHub checks out refs/pull/<n>/merge for pull_request events;
+          # that synthetic merge commit can appear as a registry-record
+          # introduction and corrupt lifecycle traversal. origin/${{ github.base_ref }}
+          # remains the comparison base.
+          git checkout --detach "$PR_HEAD_SHA"
+
+          # ARCH-WF-002: an implementation PR may only touch architecture-controlled
+          # paths when it explicitly cites an APPROVED ACR covering them. The citation
+          # channel is the PR body's ACR-Routing line, parsed by the shared, tested
+          # helper (tools/governance/src/parse-acr-routing.ts — bare, list-item and
+          # bold forms accepted; HTML comments stripped fail-closed; only the
+          # constrained ACR-NNN token pattern is extracted, so the line is
+          # injection-safe).
+          ACR_IDS=$(printf '%s' "$PR_BODY" | npx tsx tools/governance/src/parse-acr-routing.ts || true)
+          ACR_ARGS=""
+          if [ -n "$ACR_IDS" ]; then
+            ACR_ARGS="--acr ${ACR_IDS}"
+            echo "Routing cited ACRs: ${ACR_IDS}"
+          fi
+          npm run governance -- check-protected --base origin/${{ github.base_ref }} ${ACR_ARGS}
+
+      - name: Audit VERIFIED revision bindings (stale-verification drift check)
+        run: npm run governance -- check-verified-revisions
 
       - name: Upload governance report artifact
         if: always()

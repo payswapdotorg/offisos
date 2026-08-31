@@ -13,8 +13,10 @@ governance/work-items/ are the canonical state; keep them in sync with this PR.
 ## Architecture
 
 - Architecture version targeted: 1.0
-- [ ] This PR does not modify architecture-controlled artifacts (`spec/architecture.md`, `spec/architecture-lock.md`, `spec/adr/**`, `spec/00-readme.md`, `spec/SPEC-MANIFEST.md`, `governance/workflow-states.json`, `governance/architecture-versions.json`, `governance/protected-paths.json`) — enforced by `npm run governance -- check-protected`
-- [ ] If an architecture-controlled artifact must change, an Architecture Change Request is referenced instead of a silent change (ACR lifecycle: ARCH-WF-002)
+- [ ] This PR does not modify architecture-controlled artifacts (`spec/architecture.md`, `spec/architecture-lock.md`, `spec/adr/**`, `spec/00-readme.md`, `spec/SPEC-MANIFEST.md`, `governance/workflow-states.json`, `governance/architecture-versions.json`, `governance/protected-paths.json`, `governance/schemas/**`, existing files under `governance/acr/**` and `governance/reconciliations/**`) — enforced by `npm run governance -- check-protected`
+- If this PR must change an architecture-controlled artifact, it is routed through an Architecture Change Request instead of a silent change:
+  - ACR-Routing: <!-- fill in as its own line, e.g. "ACR-Routing: ACR-003" or comma-separated "ACR-Routing: ACR-003, ACR-004". The governance CI parses this line (bare, list-item and bold forms all accepted; HTML comments like this one are ignored fail-closed, so remove or replace this whole comment). The cited ACR must be APPROVED or IMPLEMENTED and must enumerate the exact changed paths in its authorized_paths. -->
+  - ACR record: governance/acr/ACR-<!-- NNN -->.json (status: <!-- PROPOSED / ENDORSED / APPROVED / IMPLEMENTED -->)
 
 ## What was implemented
 
@@ -29,7 +31,8 @@ governance/work-items/ are the canonical state; keep them in sync with this PR.
 <!-- Evidence entries must also be recorded in the governance work-item record. -->
 
 - [ ] `npm test` — deterministic test suite, exit 0
-- [ ] `npm run governance -- validate` — all work-item records valid, exit 0
+- [ ] `npm run governance -- validate` — all records valid
+- [ ] `npm run governance -- check-verified-revisions` — no stale VERIFIED bindings
 - [ ] CI run for this PR is green (governance workflow)
 - Evidence entries recorded in the governance record: <!-- EV-xxx… -->
 
@@ -41,6 +44,7 @@ governance/work-items/ are the canonical state; keep them in sync with this PR.
 npm ci
 npm test
 npm run governance -- validate
+npm run governance -- check-verified-revisions
 ```
 
 ## Not verified / limitations

@@ -1,0 +1,28 @@
+{
+  "id": "ACR-NNN",
+  "title": "<One-line title of the architecture change request>",
+  "status": "PROPOSED",
+  "requested_by": "<github-username>",
+  "requested_at": "<ISO-8601 timestamp of the request>",
+  "problem": "<Problem statement with evidence: what is broken or missing, backed by issue references, CI runs or ledger facts (spec/architecture-lock.md Section 3).>",
+  "evidence": [
+    "<Evidence item: issue number, governance run id, ledger fact, benchmark, …>"
+  ],
+  "impact": "<Current architecture impact: what the change does to the frozen architecture and what it must never do.>",
+  "alternatives": [
+    "<Alternative considered> — rejected because <reason>."
+  ],
+  "recommendation": "<Recommended change, with acceptance criteria the Architect and Product Owner can check.>",
+  "migration_plan": "<Migration plan: who implements it (work item), what records are created, how existing records remain valid.>",
+  "compatibility": "<Compatibility / backward-impact analysis: which existing records, registries and checks remain byte-identical.>",
+  "security_impact": "<Security impact: authority model, what new capability is granted and to whom, tamper evidence.>",
+  "affected_requirements": ["<REQ-001>"],
+  "affected_work_items": ["<WORK-ITEM-001>"],
+  "architecture_version_from": "1.1",
+  "architecture_version_to": "1.1",
+  "authorized_paths": [
+    "<exact/repository/path/this/acr/authorizes/changing>"
+  ],
+  "related_issue": 0,
+  "provenance": "<Optional: where the request originated (an issue, an earlier proposal commit, a review finding).>"
+}
