@@ -1,0 +1,67 @@
+{
+  "id": "CAD-PARITY-013",
+  "title": "Documentation, Navigator and Layout Book parity",
+  "issue": 103,
+  "architecture_version": "1.1",
+  "requirements": ["BIM-002", "IFC-001"],
+  "dependencies": ["CAD-PARITY-012", "COMPAT-CAD-003", "COMPAT-IFC-001"],
+  "objective": "Extend the verified CAD/BIM product into a bounded professional documentation-production layer covering Navigator/project map, saved views, details, sections/elevations, associative documentation, layouts and master layouts, subsets, title blocks, schedules/index presentation, revisions and publisher sets while preserving ConstructionOS Architecture v1.1.",
+  "acceptance_criteria": [
+    "Navigator/project-map records are document-owned, deterministic and persist through save/open/replay with stable canonical identities.",
+    "Representative plan, elevation, section and detail views regenerate deterministically from canonical model state with explicit source/view lineage.",
+    "Associative documentation annotations remain bound to canonical document identities and report typed dangling/source-loss outcomes rather than silently detaching.",
+    "Layouts, master layouts, subsets and title-block placement persist deterministically and produce stable serialized sheet/documentation results.",
+    "Schedules and indexes can present supported model/property data deterministically without introducing a parallel source of truth.",
+    "Revision metadata and publisher sets remain canonical, revision-aware and replay-safe.",
+    "Web and Electron share the same documentation semantic contracts and produce equivalent canonical results for representative workflows.",
+    "IFC/documentation export preserves supported semantics and reports explicit LOSSY/UNSUPPORTED outcomes outside the supported exchange contract.",
+    "Existing CAD-PARITY-002..012, COMPAT-CAD-003 and COMPAT-IFC-001 fixtures remain green and byte-identical unless an explicitly reviewed migration is necessary.",
+    "Real engine behavior remains behind the existing EngineAdapterBundle/worker boundary; no renderer/application engine-internal imports are introduced.",
+    "The exact final implementation head is CI-verified, Vercel-deployed, browser/Electron verified and revision-bound before merge.",
+    "No protected architecture paths are modified."
+  ],
+  "non_goals": [
+    "Full InDesign-style publishing/layout software.",
+    "Unbounded document graphics or freeform page-design tooling.",
+    "Full enterprise print-management infrastructure.",
+    "New renderer architecture or engine-boundary changes.",
+    "General-purpose BIM scheduling/4D/cost planning.",
+    "Architecture changes without an explicit ACR."
+  ],
+  "risk_assumptions": [
+    "CAD-PARITY-012 is VERIFIED and is the current component/material/coordination baseline.",
+    "COMPAT-CAD-003 provides an existing verified documentation compatibility baseline that P013 extends rather than duplicates.",
+    "COMPAT-IFC-001 is VERIFIED and remains the IFC exchange baseline.",
+    "Architecture v1.1 remains frozen throughout P013."
+  ],
+  "evidence_requirements": [
+    "Deterministic view, annotation, layout, master-layout, schedule/index, revision and publisher tests.",
+    "Web/Electron parity fixtures for representative documentation workflows.",
+    "Real-OCCT/IFC coverage where documentation paths depend on model exchange, with typed unsupported outcomes where appropriate.",
+    "Regression proof that CAD-PARITY-002..012, COMPAT-CAD-003 and COMPAT-IFC-001 remain green and byte-identical.",
+    "Exact-head Vercel deployment plus real-browser/Electron evidence.",
+    "Revision-bound governance evidence covering implementation, merge and post-merge verification."
+  ],
+  "state": "ASSIGNED",
+  "transitions": [
+    {
+      "from": "DRAFT",
+      "to": "READY",
+      "at": "2026-08-31T16:40:00Z",
+      "actor": "pectoraux",
+      "role": "architect",
+      "reason": "Release CAD-PARITY-013 as the next bounded documentation-production slice from the authoritative CAD/BIM roadmap after CAD-PARITY-012 verification.",
+      "references": {"issue": 103}
+    },
+    {
+      "from": "READY",
+      "to": "ASSIGNED",
+      "at": "2026-08-31T16:40:15Z",
+      "actor": "pectoraux",
+      "role": "architect",
+      "reason": "All declared P013 dependencies are verified on main. Assign the implementation to the logical implementation agent and require stopping at PR_OPEN/VERIFYING for Architect review.",
+      "references": {"issue": 103, "assignee": "z-ai-implementation-agent"}
+    }
+  ],
+  "evidence": []
+}
