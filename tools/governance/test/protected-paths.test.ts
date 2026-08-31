@@ -284,21 +284,21 @@ test("protected schema trees: additions need ACR routing too", () => {
   assert.equal(outcome.violations[0]!.path, "governance/schemas/new-control.schema.json");
 });
 
-test("the real ACR-003 is PROPOSED and therefore cannot yet route its paths", () => {
+test("the real ACR-003 is now APPROVED and therefore can route its authorized paths", () => {
   const manifest = loadProtectedPaths(REPO_ROOT);
   const registry = new Map<string, AcrRecord>();
   for (const { record } of loadAcrs(REPO_ROOT)) registry.set(record.id, record);
   const acr003 = registry.get("ACR-003");
   assert.ok(acr003 !== undefined, "ACR-003 must be registered");
-  assert.equal(acr003.status, "PROPOSED", "ACR-003 awaits Architect review and Product Owner approval");
+  assert.equal(acr003.status, "APPROVED", "ACR-003 has received Architect endorsement and Product Owner approval");
   const result = routedResult(
     ["governance/protected-paths.json", "governance/schemas/acr.schema.json"],
     manifest,
     { acrRouting: { registry, citedAcrs: ["ACR-003"] } },
   );
-  assert.equal(result.status, "fail", "until approved, the ARCH-WF-002 protected-path change must stay unrouted");
+  assert.equal(result.status, "pass", "approved ACR-003 must authorize the protected-path and schema changes");
   const message = (result.details ?? []).join(" ");
-  assert.ok(message.includes("'ACR-003' is PROPOSED"));
+  assert.ok(message.includes("ROUTED via ACR-003"), "must report the explicit routing");
 });
 
 test("when ACR-003 is approved it routes exactly its three authorized paths", () => {
