@@ -1408,3 +1408,242 @@ export async function layoutsList(): Promise<CommandQueryResponse> {
 export async function plotPreview(target: { id?: string; name?: string }): Promise<CommandQueryResponse> {
   return query("plot.preview", target);
 }
+
+// --- CAD-PARITY-012 (Issue #102): materials, components & coordination ------
+
+/** One `materials.list` row (the bim.material parity fields — absent
+ *  optional fields are OMITTED entirely by the server, the canonical form). */
+export interface MaterialListRow {
+  readonly id: string;
+  readonly name: string;
+  readonly category?: string;
+  /** [r, g, b] integers 0..255 (the bim color convention). */
+  readonly color?: readonly number[];
+  readonly lineweight?: number;
+  readonly density?: number;
+  readonly description?: string;
+}
+
+/** One `components.list` row — the block-system component inventory with the
+ *  materialId default and the instance scan (id-sorted). */
+export interface ComponentListRow {
+  readonly id: string;
+  readonly name: string;
+  readonly materialId: string | null;
+  readonly instanceCount: number;
+  readonly instanceIds: readonly string[];
+}
+
+/** One `grids.list` row — the bim.grid entities with the DERIVED Excel-style
+ *  labels (A, B, C… / 1, 2, 3… minted from the sorted order, never stored). */
+export interface GridListRow {
+  readonly id: string;
+  readonly name: string;
+  readonly storyId: string | null;
+  readonly uLines: readonly number[];
+  readonly vLines: readonly number[];
+  readonly uLabels: readonly string[];
+  readonly vLabels: readonly string[];
+}
+
+/** One `materials.bom` row (the deterministic quantity takeoff over the
+ *  concrete 2D view; the unassigned row is LAST with materialId null). */
+export interface BomListRow {
+  readonly materialId: string | null;
+  readonly name: string;
+  readonly count: number;
+  readonly length: number;
+  readonly area: number;
+}
+
+/** Response value of `materials.bom` (mirror of the wire). */
+export interface BomListResult {
+  readonly unit: string;
+  readonly rows: readonly BomListRow[];
+}
+
+/** One intersection point of a clash pair. */
+export interface ClashListPoint {
+  readonly x: number;
+  readonly y: number;
+}
+
+/** One `coordination.clash` pair (a/b are element ids — block INSTANCE ids
+ *  for instance hits; deterministic (a, b) ordering). */
+export interface ClashListPair {
+  readonly a: string;
+  readonly b: string;
+  readonly points: readonly ClashListPoint[];
+}
+
+/** Response value of `coordination.clash` (mirror of the wire; `checked` =
+ *  participants, `excluded` = the typed exclusions). */
+export interface ClashListResult {
+  readonly pairs: readonly ClashListPair[];
+  readonly checked: number;
+  readonly excluded: number;
+}
+
+/** Generic P012 op outcome (material.create/update/remove/assign,
+ *  grid.create/update, revcloud.create — the runBimLifecycleEdit shape). */
+export interface P012OpResult {
+  applied: boolean;
+  reason?: string;
+  summary?: string;
+  created?: string[];
+}
+
+/** `material.create` — ONE atomic revision through the bim createElement
+ *  path (typed material_exists / material_invalid failures; absent color
+ *  resolves to the deterministic category default server-side). */
+export async function materialCreate(payload: {
+  name: string;
+  category: string;
+  color?: readonly number[];
+  lineweight?: number;
+  density?: number;
+  description?: string;
+}): Promise<CommandQueryResponse> {
+  return command("material.create", payload);
+}
+
+/** `material.update` — patch a material through a FULL-RECORD setProps
+ *  rewrite (null in the patch CLEARS an optional field; the undo inverse
+ *  restores the previous record byte-identically). */
+export async function materialUpdate(
+  elementId: string,
+  patch: Record<string, unknown>,
+): Promise<CommandQueryResponse> {
+  return command("material.update", { elementId, patch });
+}
+
+/** `material.remove` — REFERENCE-CHECKED removal (material_in_use while any
+ *  element assignment or block-definition default references it). */
+export async function materialRemove(elementId: string): Promise<CommandQueryResponse> {
+  return command("material.remove", { elementId });
+}
+
+/** `material.assign` — assign (or unassign with null) a material to a batch
+ *  of elements in ONE versioned batch (full-record setProps rewrites). */
+export async function materialAssign(
+  ids: readonly string[],
+  materialId: string | null,
+): Promise<CommandQueryResponse> {
+  return command("material.assign", { ids: [...ids], materialId });
+}
+
+/** `grid.create` — the full strictly-ascending u/v-set grammar → ONE bim
+ *  createElement revision (grid_bad_payload / grid_invalid). */
+export async function gridCreate(payload: {
+  name?: string;
+  storyId?: string;
+  uLines: readonly number[];
+  vLines: readonly number[];
+}): Promise<CommandQueryResponse> {
+  return command("grid.create", payload);
+}
+
+/** `grid.update` — patch a bim.grid (name / whole-array uLines / vLines
+ *  replacements; full re-validation). */
+export async function gridUpdate(
+  elementId: string,
+  patch: Record<string, unknown>,
+): Promise<CommandQueryResponse> {
+  return command("grid.update", { elementId, patch });
+}
+
+/** `revcloud.create` — persist the closed scalloped revision-cloud polyline
+ *  with the bounded marker "revcloud" as ONE atomic revision. */
+export async function revcloudCreate(payload: {
+  cornerA: { x: number; y: number };
+  cornerB: { x: number; y: number };
+  layer?: string;
+}): Promise<CommandQueryResponse> {
+  return command("revcloud.create", payload);
+}
+
+/** `components.list` (query) — the component inventory (id-sorted). */
+export async function componentsList(): Promise<CommandQueryResponse> {
+  return query("components.list", {});
+}
+
+/** `materials.list` (query) — the material table with the parity fields. */
+export async function materialsList(): Promise<CommandQueryResponse> {
+  return query("materials.list", {});
+}
+
+/** `materials.bom` (query) — the deterministic quantity takeoff. */
+export async function materialsBom(): Promise<CommandQueryResponse> {
+  return query("materials.bom", {});
+}
+
+/** `grids.list` (query) — the bim.grid entities with derived labels. */
+export async function gridsList(): Promise<CommandQueryResponse> {
+  return query("grids.list", {});
+}
+
+/** `coordination.clash` (query) — the deterministic pairwise clash result. */
+export async function coordinationClash(): Promise<CommandQueryResponse> {
+  return query("coordination.clash", {});
+}
+
+/** Extract a P012OpResult from an ok response (defensive, null on
+ *  mismatch — the unwrapBimOp precedent). */
+export function unwrapP012Op(res: CommandQueryResponse): P012OpResult | null {
+  if (!res.ok) return null;
+  const v = res.value as Partial<P012OpResult> | null;
+  if (typeof v !== "object" || v === null || typeof v.applied !== "boolean") return null;
+  return v as P012OpResult;
+}
+
+/** Extract a MaterialListRow[] from a materials.list ok response (null on
+ *  any shape mismatch). */
+export function unwrapMaterialsList(res: CommandQueryResponse): MaterialListRow[] | null {
+  if (!res.ok) return null;
+  const v = res.value as { materials?: unknown } | null;
+  if (typeof v !== "object" || v === null || !Array.isArray(v.materials)) return null;
+  return v.materials as MaterialListRow[];
+}
+
+/** Extract a ComponentListRow[] from a components.list ok response. */
+export function unwrapComponentsList(res: CommandQueryResponse): ComponentListRow[] | null {
+  if (!res.ok) return null;
+  const v = res.value as { components?: unknown } | null;
+  if (typeof v !== "object" || v === null || !Array.isArray(v.components)) return null;
+  return v.components as ComponentListRow[];
+}
+
+/** Extract a GridListRow[] from a grids.list ok response. */
+export function unwrapGridsList(res: CommandQueryResponse): GridListRow[] | null {
+  if (!res.ok) return null;
+  const v = res.value as { grids?: unknown } | null;
+  if (typeof v !== "object" || v === null || !Array.isArray(v.grids)) return null;
+  return v.grids as GridListRow[];
+}
+
+/** Extract a BomListResult from a materials.bom ok response. */
+export function unwrapMaterialsBom(res: CommandQueryResponse): BomListResult | null {
+  if (!res.ok) return null;
+  const v = res.value as Partial<BomListResult> | null;
+  if (
+    typeof v !== "object" || v === null ||
+    typeof v.unit !== "string" || !Array.isArray(v.rows)
+  ) {
+    return null;
+  }
+  return v as BomListResult;
+}
+
+/** Extract a ClashListResult from a coordination.clash ok response. */
+export function unwrapCoordinationClash(res: CommandQueryResponse): ClashListResult | null {
+  if (!res.ok) return null;
+  const v = res.value as Partial<ClashListResult> | null;
+  if (
+    typeof v !== "object" || v === null ||
+    !Array.isArray(v.pairs) ||
+    typeof v.checked !== "number" || typeof v.excluded !== "number"
+  ) {
+    return null;
+  }
+  return v as ClashListResult;
+}

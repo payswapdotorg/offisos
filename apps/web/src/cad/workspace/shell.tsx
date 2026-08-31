@@ -31,14 +31,20 @@ import {
   getImpactCascade,
   getSelection,
   getState,
+  materialsBom,
+  materialsList,
+  coordinationClash,
   openFromText,
   replayModel,
   save,
   send,
   setSelection as setDocumentSelection,
+  unwrapCoordinationClash,
   unwrapGraphEvents,
   unwrapHistory,
   unwrapImpactCascade,
+  unwrapMaterialsBom,
+  unwrapMaterialsList,
   unwrapReplay,
   unwrapSaveBytes,
 } from "@/cad/client/http-transport";
@@ -71,6 +77,17 @@ import { BimWorkbench } from "@/cad/bim/workbench";
 import { DocsWorkbench } from "@/cad/docs/workbench";
 import { IfcWorkbench } from "@/cad/ifc/workbench";
 import { ComponentsWorkbench } from "@/cad/components/workbench";
+// CAD-PARITY-012 (Issue #102): the shared material display helpers — the
+// SAME resolution the canvas paint loop and the Coordination palette run;
+// materialViewsOf derives the id-sorted table rows from the snapshot (the
+// SAME data the materials.list query serves) that feed the CommandContext
+// materials table the MATSET builder resolves names against (LOCK-004
+// parity by construction).
+import {
+  DEFAULT_LINEWEIGHT,
+  materialColorHex,
+  materialViewsOf,
+} from "@/cad/workspace/material-display";
 
 const VIEW_TABS: readonly { id: WorkspaceView; label: string }[] = [
   { id: "model", label: "Model" },
@@ -216,6 +233,11 @@ export function WorkspaceShell(): React.JSX.Element {
       model3dSolidCount: (snapshot?.elements ?? []).filter(
         (el) => (el.props as { type?: unknown } | null)?.type === "model3d.solid",
       ).length,
+      // CAD-PARITY-012 (Issue #102): the document material table (the
+      // bim.material elements with the parity fields) — the MATERIAL/MATSET
+      // builders resolve names through it (the SAME document state the
+      // App API queries serve; absent parity fields stay absent).
+      materials: materialViewsOf(elements),
     });
   }, [snapshot, selection, activeLayer, activeStoryId]);
 
@@ -360,8 +382,87 @@ export function WorkspaceShell(): React.JSX.Element {
               // per-viewport layer visibility).
               setDockTab("layouts");
               setDockVisible(true);
+            } else if (palette === "coordination") {
+              // CAD-PARITY-012 (Issue #102): MATLIST/BOM/CLASH — the
+              // Coordination palette (materials, components, grids, the
+              // clash result and the bill of materials).
+              setDockTab("coordination");
+              setDockVisible(true);
             } else if (palette === "workspace") {
               setPreset((p) => (p === "compact" ? "drafting" : "compact"));
+            }
+            break;
+          }
+          // CAD-PARITY-012 (Issue #102): the report ui actions — the host
+          // intercepts them and renders the REAL query results to the
+          // command-line history (deterministic formatting; failures print
+          // a typed *ERROR* history line, never crash the shell).
+          case "report.matlist": {
+            try {
+              const res = await materialsList();
+              const rows = unwrapMaterialsList(res);
+              if (rows === null) {
+                setHistoryLines((h) => [
+                  ...h,
+                  `*ERROR* report.matlist: ${res.ok ? "unexpected response shape" : `${res.code} — ${res.message}`}`,
+                ]);
+                break;
+              }
+              const lines = [`MATLIST: ${rows.length} material${rows.length === 1 ? "" : "s"}.`];
+              for (const row of rows) {
+                lines.push(
+                  `MATLIST: ${row.name} | ${row.category ?? "(no category)"} | ${materialColorHex(row)} | ${(row.lineweight ?? DEFAULT_LINEWEIGHT).toFixed(2)} mm`,
+                );
+              }
+              setHistoryLines((h) => [...h, ...lines]);
+            } catch {
+              setHistoryLines((h) => [...h, "*ERROR* report.matlist: the query failed."]);
+            }
+            break;
+          }
+          case "report.bom": {
+            try {
+              const res = await materialsBom();
+              const bom = unwrapMaterialsBom(res);
+              if (bom === null) {
+                setHistoryLines((h) => [
+                  ...h,
+                  `*ERROR* report.bom: ${res.ok ? "unexpected response shape" : `${res.code} — ${res.message}`}`,
+                ]);
+                break;
+              }
+              const lines = [`BOM: ${bom.rows.length} row${bom.rows.length === 1 ? "" : "s"} (${bom.unit}).`];
+              for (const row of bom.rows) {
+                lines.push(
+                  `BOM: ${row.name} | ${row.count} | ${row.length.toFixed(2)} | ${row.area.toFixed(2)}`,
+                );
+              }
+              setHistoryLines((h) => [...h, ...lines]);
+            } catch {
+              setHistoryLines((h) => [...h, "*ERROR* report.bom: the query failed."]);
+            }
+            break;
+          }
+          case "report.clash": {
+            try {
+              const res = await coordinationClash();
+              const clash = unwrapCoordinationClash(res);
+              if (clash === null) {
+                setHistoryLines((h) => [
+                  ...h,
+                  `*ERROR* report.clash: ${res.ok ? "unexpected response shape" : `${res.code} — ${res.message}`}`,
+                ]);
+                break;
+              }
+              const lines = [
+                `CLASH: ${clash.pairs.length} pair${clash.pairs.length === 1 ? "" : "s"} (checked ${clash.checked}, excluded ${clash.excluded}).`,
+              ];
+              for (const pair of clash.pairs) {
+                lines.push(`CLASH: ${pair.a} ↔ ${pair.b} at ${pair.points.length} point${pair.points.length === 1 ? "" : "s"}.`);
+              }
+              setHistoryLines((h) => [...h, ...lines]);
+            } catch {
+              setHistoryLines((h) => [...h, "*ERROR* report.clash: the query failed."]);
             }
             break;
           }

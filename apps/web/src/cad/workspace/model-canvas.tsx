@@ -104,9 +104,32 @@ import {
   expandInstanceElement,
   isBlockRefElement,
   isXrefRefElement,
+  blockRefFromElement,
   type BlockTable,
   type ExpandedEntity,
 } from "@offisos/cad-app-shell/workspace/blocks";
+// CAD-PARITY-012 (Issue #102): the shared materials/coordination cores — the
+// materialId readers (entity + block-instance resolution), the revcloud
+// marker constant, the grid display geometry + the document content bounds
+// (the SAME modules the App API and the Electron host run; LOCK-004).
+import {
+  materialIdOf,
+  resolvedBlockMaterialId,
+  REVCLOUD_MARKER,
+} from "@offisos/cad-app-shell/workspace/materials";
+import {
+  documentContentBounds,
+  gridLines,
+  type GridLineView,
+} from "@offisos/cad-app-shell/workspace/coordination";
+// CAD-PARITY-012: the material display resolution helpers (color/lineweight
+// — the same module the shell + palettes run).
+import {
+  materialColorHex,
+  materialLineweight,
+  materialViewsOf,
+  type MaterialView,
+} from "@/cad/workspace/material-display";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -117,6 +140,8 @@ import {
   drawEntity,
   drawGeomEmphasis,
   drawGrid,
+  drawGridBubbles,
+  drawGridDatumLines,
   drawGrips,
   drawInstancePlaceholder,
   drawPendingPolyline,
@@ -300,9 +325,46 @@ export function ModelCanvas(props: ModelCanvasProps): React.JSX.Element {
     });
   }, [snapshot, layers]);
 
+  // CAD-PARITY-006: the document block/xref tables — the lookup view the
+  // shared expansion resolves definitions and reference records through.
+  // (Hoisted above displayById for the CAD-PARITY-012 material resolution.)
+  const blockTable = React.useMemo<BlockTable>(
+    () => ({
+      blockDefById: (id: string) => (snapshot?.blockDefs ?? []).find((b) => b.id === id),
+      xrefById: (id: string) => (snapshot?.xrefs ?? []).find((x) => x.id === id),
+    }),
+    [snapshot],
+  );
+
+  // CAD-PARITY-012 (Issue #102): the document material table (the bim.material
+  // elements with the parity fields — the SAME rows materials.list serves).
+  const materialsById = React.useMemo<ReadonlyMap<string, MaterialView>>(
+    () => new Map(materialViewsOf(snapshot?.elements ?? []).map((m) => [m.id, m] as const)),
+    [snapshot],
+  );
+
+  /** CAD-PARITY-012: the RESOLVED material id of one element — block
+   *  instances resolve instance.materialId ?? definition default ?? null;
+   *  everything else reads its own props (null = unassigned). */
+  const resolvedMaterialIdOf = React.useCallback(
+    (el: Element): string | null => {
+      if (isBlockRefElement(el)) {
+        const ref = blockRefFromElement(el);
+        const def = ref !== null ? blockTable.blockDefById(ref.blockId) : undefined;
+        return resolvedBlockMaterialId(el.props as Record<string, unknown>, def?.materialId);
+      }
+      return materialIdOf(el.props as Record<string, unknown>);
+    },
+    [blockTable],
+  );
+
   /** CAD-PARITY-004: resolved display per drawable entity (the SAME
    *  standards resolution on both hosts): linetype dash in device px,
-   *  lineweight px, transparency alpha + locked-layer fade. */
+   *  lineweight px, transparency alpha + locked-layer fade.
+   *  CAD-PARITY-012: the material display precedence — entity explicit
+   *  override > material (color else category default; lineweight else 1.4)
+   *  > layer — the material resolution runs through the SAME shared helpers
+   *  the Properties swatches and the App API run. */
   const displayById = React.useMemo(() => {
     const userLtypes = snapshot?.ltypes ?? [];
     const standards = settings?.standards;
@@ -313,14 +375,22 @@ export function ModelCanvas(props: ModelCanvasProps): React.JSX.Element {
       const layer = layerById.get(layerId);
       if (layer === undefined) continue;
       try {
-        const resolved = resolveDisplay(displayOverridesOf(props), layer, standards, userLtypes);
+        const overrides = displayOverridesOf(props);
+        const resolved = resolveDisplay(overrides, layer, standards, userLtypes);
+        // CAD-PARITY-012: the material slot (null when unassigned or the id
+        // no longer resolves — the layer fallback).
+        const materialId = resolvedMaterialIdOf(el);
+        const material = materialId !== null ? materialsById.get(materialId) : undefined;
+        const color = overrides.color ?? (material !== undefined ? materialColorHex(material) : resolved.color);
+        const lineweight =
+          overrides.lineweight ?? (material !== undefined ? materialLineweight(material) : resolved.lineweight);
         let alpha = transparencyToAlpha(resolved.transparency);
         if (layer.locked === true) alpha *= LOCKED_LAYER_FADE_ALPHA;
         map.set(el.id, {
           dash: resolved.dash.length > 0 ? dashToDevicePx(resolved.dash, zoom) : null,
-          weightPx: lineweightToDevicePx(resolved.lineweight, zoom, lweightDisplay),
+          weightPx: lineweightToDevicePx(lineweight, zoom, lweightDisplay),
           alpha,
-          color: resolved.color,
+          color,
         });
       } catch {
         // Unresolvable display (stale linetype reference) falls back to the
@@ -329,7 +399,7 @@ export function ModelCanvas(props: ModelCanvasProps): React.JSX.Element {
       }
     }
     return map;
-  }, [drawableEntities, layerById, snapshot, settings, zoom, lweightDisplay]);
+  }, [drawableEntities, layerById, snapshot, settings, zoom, lweightDisplay, materialsById, resolvedMaterialIdOf]);
 
   /** CAD-PARITY-004: the resolved ACTIVE dimension style (dims render with
    *  its text height, arrow size, scale and precision). */
@@ -347,15 +417,24 @@ export function ModelCanvas(props: ModelCanvasProps): React.JSX.Element {
     [snapshot, settings],
   );
 
-  // CAD-PARITY-006: the document block/xref tables — the lookup view the
-  // shared expansion resolves definitions and reference records through.
-  const blockTable = React.useMemo<BlockTable>(
-    () => ({
-      blockDefById: (id: string) => (snapshot?.blockDefs ?? []).find((b) => b.id === id),
-      xrefById: (id: string) => (snapshot?.xrefs ?? []).find((x) => x.id === id),
-    }),
-    [snapshot],
-  );
+  // CAD-PARITY-012 (Issue #102): the bim.grid coordination datums — their
+  // DERIVED display segments (full-span over the document content bounds,
+  // labels minted from the sorted line order — never stored). The SAME
+  // gridLines/documentContentBounds the App API grids.list query runs.
+  const gridLineViews = React.useMemo(() => {
+    const gridElements = (snapshot?.elements ?? []).filter(
+      (el) => el.kind === "bim" && (el.props as Record<string, unknown>).type === "bim.grid",
+    );
+    if (gridElements.length === 0) return [] as readonly GridLineView[];
+    const bounds = documentContentBounds(snapshot?.elements ?? [], blockTable, 500);
+    const out: GridLineView[] = [];
+    for (const el of gridElements) {
+      const p = el.props as Record<string, unknown>;
+      if (!Array.isArray(p.uLines) || !Array.isArray(p.vLines)) continue;
+      out.push(...gridLines({ uLines: p.uLines as number[], vLines: p.vLines as number[] }, bounds));
+    }
+    return out;
+  }, [snapshot, blockTable]);
 
   /** CAD-PARITY-006: the DERIVED content of every block/xref instance (the
    *  ONE shared expansion — render, pick and bounds all read this view, so a
@@ -474,14 +553,25 @@ export function ModelCanvas(props: ModelCanvasProps): React.JSX.Element {
 
   // ZOOMEXTENTS: fit every visible entity in the viewport (deterministic
   // bounds + padding; stories are excluded — they have no plan geometry).
+  // CAD-PARITY-012 (Issue #102): the grid datum segments (which span the
+  // document content bounds) are included so the fit shows the full
+  // coordination frame; a document with only grids still fits them.
   React.useEffect(() => {
     if (props.zoomExtentsSignal === 0) return;
     const elements = visibleEntities;
-    if (elements.length === 0) return;
+    if (elements.length === 0 && gridLineViews.length === 0) return;
     let minX = Infinity;
     let minY = Infinity;
     let maxX = -Infinity;
     let maxY = -Infinity;
+    // The grid datum spans (the full content-bounds segments the paint loop
+    // renders — revcloud polylines already contribute as ordinary geoms).
+    for (const line of gridLineViews) {
+      minX = Math.min(minX, line.p1.x, line.p2.x);
+      minY = Math.min(minY, line.p1.y, line.p2.y);
+      maxX = Math.max(maxX, line.p1.x, line.p2.x);
+      maxY = Math.max(maxY, line.p1.y, line.p2.y);
+    }
     for (const el of elements) {
       // CAD-PARITY-006: block/xref instances contribute their DERIVED content
       // bounds (the same shared expansion the paint loop runs — the zoom fits
@@ -844,6 +934,14 @@ export function ModelCanvas(props: ModelCanvasProps): React.JSX.Element {
       drawGrid(ctx, { size: settings.grid.size, pan, zoom, w, h, toScreen });
     }
 
+    // CAD-PARITY-012 (Issue #102): the bim.grid coordination datum segments —
+    // thin dashed slate lines under the entities (the shared
+    // gridLines/documentContentBounds derivation — deterministic from the
+    // snapshot; the label bubbles paint over the entities below).
+    if (gridLineViews.length > 0) {
+      drawGridDatumLines(ctx, gridLineViews, toScreen);
+    }
+
     const layerById = new Map<string, LayerRecord>(layers.map((l) => [l.id, l] as const));
     // CAD-PARITY-005: the shared painter takes Pt objects ({x, y}) — the
     // canvas transform stays tuple-based (Vec2), so adapt once per frame.
@@ -856,24 +954,33 @@ export function ModelCanvas(props: ModelCanvasProps): React.JSX.Element {
     // CAD-PARITY-006: the resolved display of one DERIVED instance entity —
     // the SAME standards resolution (ByLayer chain, dash/lineweight px,
     // transparency + locked-layer fade) the displayById memo runs for
-    // standalone entities, resolved from the CONTENT's own layer. Rendering
-    // never throws (an unresolvable display falls back to the layer color,
-    // solid, hairline).
+    // standalone entities, resolved from the CONTENT's own layer.
+    // CAD-PARITY-012 (Issue #102): the INSTANCE's resolved material
+    // (instance.materialId ?? definition default ?? null) applies between
+    // the piece's explicit override and its layer — precedence: piece
+    // explicit > instance material > layer. Rendering never throws (an
+    // unresolvable display falls back to the layer color, solid, hairline).
     const resolveDerivedDisplay = (
       props: Record<string, unknown>,
+      instanceMaterialId: string | null,
     ): { dash: readonly number[] | null; weightPx: number; alpha: number; color: string } => {
       const layerId = typeof props.layer === "string" ? props.layer : "0";
       const layer = layerById.get(layerId);
       if (layer === undefined) return { dash: null, weightPx: 1, alpha: 1, color: "#111827" };
       try {
-        const resolved = resolveDisplay(displayOverridesOf(props), layer, settings?.standards, snapshot?.ltypes ?? []);
+        const overrides = displayOverridesOf(props);
+        const resolved = resolveDisplay(overrides, layer, settings?.standards, snapshot?.ltypes ?? []);
+        const material = instanceMaterialId !== null ? materialsById.get(instanceMaterialId) : undefined;
+        const color = overrides.color ?? (material !== undefined ? materialColorHex(material) : resolved.color);
+        const lineweight =
+          overrides.lineweight ?? (material !== undefined ? materialLineweight(material) : resolved.lineweight);
         let alpha = transparencyToAlpha(resolved.transparency);
         if (layer.locked === true) alpha *= LOCKED_LAYER_FADE_ALPHA;
         return {
           dash: resolved.dash.length > 0 ? dashToDevicePx(resolved.dash, zoom) : null,
-          weightPx: lineweightToDevicePx(resolved.lineweight, zoom, lweightDisplay),
+          weightPx: lineweightToDevicePx(lineweight, zoom, lweightDisplay),
           alpha,
-          color: resolved.color,
+          color,
         };
       } catch {
         return { dash: null, weightPx: 1, alpha: layer.locked === true ? LOCKED_LAYER_FADE_ALPHA : 1, color: layer.color };
@@ -888,6 +995,9 @@ export function ModelCanvas(props: ModelCanvasProps): React.JSX.Element {
     // drawableEntities); the whole instance highlights when selected.
     const drawExpandedInstance = (el: Element, entities: readonly ExpandedEntity[]): void => {
       const selected = selectedSet.has(el.id);
+      // CAD-PARITY-012: the instance's RESOLVED material (instance ??
+      // definition default ?? null) governs every piece of the expansion.
+      const instanceMaterialId = resolvedMaterialIdOf(el);
       for (const entity of entities) {
         if (entity.kind === "placeholder") {
           drawInstancePlaceholder(ctx, entity.box, entity.label, toScreen);
@@ -898,7 +1008,7 @@ export function ModelCanvas(props: ModelCanvasProps): React.JSX.Element {
           if (anno === null) continue;
           const layer = layerById.get(anno.layer);
           if (layer !== undefined && (layer.frozen === true || !layer.visible)) continue;
-          const derived = resolveDerivedDisplay(entity.props);
+          const derived = resolveDerivedDisplay(entity.props, instanceMaterialId);
           paintAnnotationPrimitives(ctx, annotationPrimitives(anno, annotationStyleCtx), {
             toScreen: toScreenPt,
             zoom,
@@ -914,7 +1024,7 @@ export function ModelCanvas(props: ModelCanvasProps): React.JSX.Element {
         const layerId = typeof entity.props.layer === "string" ? entity.props.layer : "0";
         const layer = layerById.get(layerId);
         if (layer !== undefined && (layer.frozen === true || !layer.visible)) continue;
-        const derived = resolveDerivedDisplay(entity.props);
+        const derived = resolveDerivedDisplay(entity.props, instanceMaterialId);
         drawCanonicalEntity(ctx, geom, {
           color: derived.color,
           selected,
@@ -942,7 +1052,11 @@ export function ModelCanvas(props: ModelCanvasProps): React.JSX.Element {
       // included).
       // CAD-PARITY-004: the resolved display (dash/lineweight/alpha) flows
       // through the SAME standards resolution on both hosts.
+      // CAD-PARITY-012: revision-cloud markup (the bounded marker
+      // "revcloud") paints the amber family in BOTH states — the polyline
+      // geometry stays exactly as persisted.
       const display = displayById.get(el.id);
+      const isRevcloud = (el.props as Record<string, unknown>).marker === REVCLOUD_MARKER;
       const canonical = geomEntityMap.get(el.id);
       if (canonical !== undefined) {
         const layer = layerById.get(canonical.layer);
@@ -956,6 +1070,7 @@ export function ModelCanvas(props: ModelCanvasProps): React.JSX.Element {
           dash: display?.dash ?? null,
           weightPx: display?.weightPx,
           alpha: display?.alpha,
+          markerStroke: isRevcloud ? (selectedSet.has(el.id) ? "#d97706" : "#f59e0b") : undefined,
         });
         continue;
       }
@@ -1001,6 +1116,13 @@ export function ModelCanvas(props: ModelCanvasProps): React.JSX.Element {
         continue;
       }
       drawBimPlanElement(ctx, el, { selected: selectedSet.has(el.id), toScreen, zoom });
+    }
+
+    // CAD-PARITY-012 (Issue #102): the grid label bubbles — screen-space
+    // circles (~24px) with the DERIVED label (A…/1…) at BOTH segment ends,
+    // painted OVER the entities (the standard bubble presentation).
+    if (gridLineViews.length > 0) {
+      drawGridBubbles(ctx, gridLineViews, toScreen);
     }
 
     // CAD-PARITY-007 (Issue #86): the constraint bar badges — one glyph per
@@ -1052,8 +1174,14 @@ export function ModelCanvas(props: ModelCanvasProps): React.JSX.Element {
       });
     }
 
-    // Rubber band for the active point/distance/displacement step.
-    if (activeStep !== null && stepBase !== null && cursor !== null && (activeStep.kind === "point" || activeStep.kind === "distance" || activeStep.kind === "displacement")) {
+    // Rubber band for the active point/distance/displacement step
+    // (CAD-PARITY-012: REVCLOUD skips it — its command preview draws the live
+    // rectangle + scalloped cloud instead of the diagonal rubber line).
+    if (
+      activeStep !== null && stepBase !== null && cursor !== null &&
+      (activeStep.kind === "point" || activeStep.kind === "distance" || activeStep.kind === "displacement") &&
+      command?.id !== "revcloud"
+    ) {
       const constrained = constrainedSnapped(cursor, false).point;
       drawRubberBand(ctx, stepBase, constrained, toScreen);
     }
@@ -1078,7 +1206,7 @@ export function ModelCanvas(props: ModelCanvasProps): React.JSX.Element {
     if (cursor !== null) {
       drawCrosshair(ctx, toScreen(cursor), w, h);
     }
-  }, [settings, layers, drawableEntities, geomEntityMap, selectedSet, toScreen, pan, zoom, cursor, selectionRect, snapPreview, polylinePending, activeStep, stepBase, singleSelected, grips, hotGrip, constrainedSnapped, command, engineState.values, targetGeoms, geomById, pickEntityAt, displayById, activeDimStyle, annotationStyleCtx, expandedInstances, lweightDisplay]);
+  }, [settings, layers, drawableEntities, geomEntityMap, selectedSet, toScreen, pan, zoom, cursor, selectionRect, snapPreview, polylinePending, activeStep, stepBase, singleSelected, grips, hotGrip, constrainedSnapped, command, engineState.values, targetGeoms, geomById, pickEntityAt, displayById, activeDimStyle, annotationStyleCtx, expandedInstances, lweightDisplay, gridLineViews, materialsById, resolvedMaterialIdOf]);
 
   // --- mini-toolbar position -------------------------------------------------------------
 
