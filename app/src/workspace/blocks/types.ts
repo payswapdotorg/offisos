@@ -17,7 +17,9 @@
  *
  *   block-ref:  { drafting, type:"block-ref", layer,
  *                 blockId, x, y, scale, rotation, attributes?,
- *                 color?, linetype?, …display }
+ *                 color?, linetype?, …display, materialId? }
+ *                 // CAD-PARITY-012: materialId = the per-INSTANCE material
+ *                 //                override (?? definition default ?? null)
  *   xref-ref:   { drafting, type:"xref-ref", layer,
  *                 xrefId, x, y, scale, rotation, …display }
  *
@@ -96,6 +98,11 @@ export interface BlockRefView {
   /** Rotation in radians CCW from +X. */
   readonly rotation: number;
   readonly attributes?: readonly AttributeValue[];
+  /** CAD-PARITY-012 (additive): per-instance material association — the
+   *  RESOLVED material of an instance is instance.materialId ??
+   *  definition.materialId ?? null. Absent = inherit the definition
+   *  default (the canonical no-override form). */
+  readonly materialId?: string;
 }
 
 export interface XrefRefView {
@@ -215,6 +222,10 @@ export function makeBlockRef(input: Record<string, unknown>): BlockRefView {
   const scale = pos(input.scale, "block-ref scale");
   const rotation = fin(input.rotation, "block-ref rotation");
   const attributes = attributesOf(input.attributes, "block-ref attributes");
+  // CAD-PARITY-012 (additive): optional per-instance material association —
+  // the strict/soft parsers are tolerant of it by construction (this
+  // constructor re-validates stored props on every read).
+  const materialId = optString(input.materialId, "block-ref materialId");
   return {
     type: "block-ref",
     layer,
@@ -224,6 +235,7 @@ export function makeBlockRef(input: Record<string, unknown>): BlockRefView {
     scale,
     rotation,
     ...(attributes !== undefined ? { attributes } : {}),
+    ...(materialId !== undefined ? { materialId } : {}),
   };
 }
 
@@ -297,6 +309,9 @@ export function blockRefToProps(ref: BlockRefView): Record<string, unknown> {
     rotation: ref.rotation,
   };
   if (ref.attributes !== undefined) props.attributes = ref.attributes.map((a) => ({ tag: a.tag, value: a.value }));
+  // CAD-PARITY-012 (additive): written ONLY when set (absence = inherit the
+  // definition's material default — never an undefined value).
+  if (ref.materialId !== undefined) props.materialId = ref.materialId;
   return props;
 }
 

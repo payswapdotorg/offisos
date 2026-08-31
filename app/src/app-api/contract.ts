@@ -144,6 +144,24 @@ import {
 } from "../workspace/layouts/index.js";
 import type { LayoutRecord, PageSetup, ViewportRecord } from "../contracts/caddocument.js";
 import type { PlotIRInput } from "../workspace/layouts/index.js";
+// CAD-PARITY-012 (additive, Issue #102): the shared materials +
+// coordination cores (engine-free — the deterministic quantity takeoff, the
+// pairwise clash kernel view, the revision-cloud scallop geometry and the
+// DERIVED grid labels).
+import {
+  billOfMaterials,
+  categoryDefaultColor,
+  DEFAULT_LINEWEIGHT,
+  materialIdOf,
+  validateMaterialFields,
+} from "../workspace/materials.js";
+import {
+  detectClashes,
+  gridULabels,
+  gridVLabels,
+  isDegenerateRect,
+  revisionCloudGeom,
+} from "../workspace/coordination.js";
 // CAD-PARITY-009 (additive): the shared 3D navigation/UCS/workplane/
 // bounded-modeling core (engine-free — the deterministic camera, the
 // projection/picking math, the UCS transforms, the section-preview
@@ -212,12 +230,14 @@ import type { GeometryDescriptor, Vec3 } from "../contracts/geometry.js";
 // COMPAT-CAD-002: the pure BIM authoring core (LOCK-018 scanned).
 import {
   buildBimCreate,
+  bimEntityToElement,
   bimGeometryContext,
   bimModelBBox,
   bimSolidDescriptor,
   copyBimElements,
   deleteBimElements,
   elementToBimEntityOrNull,
+  makeMaterial,
   extractElementSemanticsSafe,
   moveBimElements,
   setBimProperties,
@@ -515,6 +535,23 @@ export class AppApiHandler {
         return await this.cmdModel3dBoolean(command.payload);
       case "model3d.tessellate":
         return await this.cmdModel3dTessellate(command.payload);
+      // --- CAD-PARITY-012 (additive, Issue #102): components, materials and
+      // coordination commands (one payload = ONE DocumentEdit = one version
+      // = one undo entry; typed failure codes) ---
+      case "material.create":
+        return this.cmdMaterialCreate(command.payload);
+      case "material.update":
+        return this.cmdMaterialUpdate(command.payload);
+      case "material.remove":
+        return this.cmdMaterialRemove(command.payload);
+      case "material.assign":
+        return this.cmdMaterialAssign(command.payload);
+      case "grid.create":
+        return this.cmdGridCreate(command.payload);
+      case "grid.update":
+        return this.cmdGridUpdate(command.payload);
+      case "revcloud.create":
+        return this.cmdRevcloudCreate(command.payload);
       // --- COMPAT-CAD-002 (additive): 3D/BIM authoring commands ---
       case "bim.createElements":
         return this.cmdBimCreate(command.payload);
@@ -921,6 +958,19 @@ export class AppApiHandler {
         return await this.qModel3dTopology(query.payload);
       case "model3d.cacheStats":
         return this.qModel3dCacheStats();
+      // --- CAD-PARITY-012 (additive, Issue #102): the components/materials/
+      // coordination read surfaces (non-mutating, computed fresh every
+      // call, never persisted stale) ---
+      case "components.list":
+        return this.qComponentsList();
+      case "materials.list":
+        return this.qMaterialsList();
+      case "materials.bom":
+        return this.qMaterialsBom();
+      case "grids.list":
+        return this.qGridsList();
+      case "coordination.clash":
+        return this.qCoordinationClash();
       default: {
         const _exhaustive: never = query.name;
         return err("unknown_query", `unknown query: ${JSON.stringify(_exhaustive)}`);
@@ -1871,7 +1921,10 @@ export class AppApiHandler {
   }
 
   /** block.update — patch a definition (name/basePoint/description/
-   *  entities); instances propagate through the shared expansion. */
+   *  entities/materialId); instances propagate through the shared expansion.
+   *  CAD-PARITY-012: materialId must reference an EXISTING bim.material
+   *  element or be null (clear) — validated here, where the element world is
+   *  visible (typed failure, never a silent dangling reference). */
   private cmdBlockUpdate(payload: unknown): CommandQueryResponse {
     const p = payload as { name?: unknown; blockId?: unknown; patch?: unknown } | null;
     if (
@@ -1880,9 +1933,23 @@ export class AppApiHandler {
     ) {
       return err("bad_payload", "block.update requires name|blockId + patch", true);
     }
+    const patch = p.patch as Record<string, unknown>;
+    if (patch.materialId !== undefined && patch.materialId !== null) {
+      if (typeof patch.materialId !== "string" || patch.materialId.length === 0) {
+        return err("bad_payload", "block.update materialId must be a material element id or null (clear)", true);
+      }
+      const mat = this.doc.elementById(patch.materialId);
+      if (mat === undefined || (mat.props as Record<string, unknown>).type !== "bim.material") {
+        return err(
+          "material_not_found",
+          `material '${patch.materialId}' does not exist — block definitions may reference bim.material elements only`,
+          false,
+        );
+      }
+    }
     try {
       const def = this.resolveBlockDef(p);
-      this.doc.execute({ type: "updateBlockDef", blockId: def.id, patch: p.patch as Record<string, unknown> });
+      this.doc.execute({ type: "updateBlockDef", blockId: def.id, patch });
       return ok({ blockId: def.id, snapshot: this.doc.snapshot() });
     } catch (e) {
       if (e instanceof BlockError) return err(e.code, e.message, false);
@@ -5458,6 +5525,614 @@ export class AppApiHandler {
     } catch (e) {
       return err("bim_invalid", (e as Error).message, false);
     }
+  }
+
+  // --- CAD-PARITY-012 (additive, Issue #102): materials, grids, revcloud ---
+  // Typed-error convention: material_bad_payload / grid_bad_payload /
+  // revcloud_bad_payload = payload shape failures; material_invalid /
+  // grid_invalid / revcloud_invalid = semantic validation failures;
+  // material_exists / material_not_found / material_in_use /
+  // grid_not_found = the reference-integrity codes. All explicit, no silent
+  // approximation (LOCK-007). One payload = ONE atomic revision = one undo
+  // entry throughout.
+
+  /** The document's material entities (bim.material elements, id-sorted). */
+  private bimMaterialEntities(): MaterialEntity[] {
+    return this.doc
+      .allElements()
+      .map((el) => elementToBimEntityOrNull(el))
+      .filter((x): x is MaterialEntity => x !== null && x.type === "bim.material")
+      .sort((a, b) => (a.id < b.id ? -1 : 1));
+  }
+
+  /** The document's grid entities (bim.grid elements, id-sorted). */
+  private bimGridEntities(): GridEntity[] {
+    return this.doc
+      .allElements()
+      .map((el) => elementToBimEntityOrNull(el))
+      .filter((x): x is GridEntity => x !== null && x.type === "bim.grid")
+      .sort((a, b) => (a.id < b.id ? -1 : 1));
+  }
+
+  /** The block/xref table view the shared blocks expansion needs. */
+  private blockTable(): { blockDefById: (id: string) => BlockDefinitionRecord | undefined; xrefById: (id: string) => XrefRecord | undefined } {
+    return {
+      blockDefById: (id: string) => this.doc.blockDefById(id),
+      xrefById: (id: string) => this.doc.xrefById(id),
+    };
+  }
+
+  /** material.create — validate + apply ONE atomic create through the bim
+   *  createElement path (one revision, one undo entry; ids minted by the
+   *  document). Absent color resolves to the deterministic category default. */
+  private cmdMaterialCreate(payload: unknown): CommandQueryResponse {
+    const p = payload as {
+      name?: unknown;
+      category?: unknown;
+      color?: unknown;
+      lineweight?: unknown;
+      density?: unknown;
+      description?: unknown;
+    } | null;
+    if (p === null || typeof p !== "object" || typeof p.name !== "string" || p.name.trim().length === 0) {
+      return err("material_bad_payload", "material.create requires a non-empty name", true);
+    }
+    if (typeof p.category !== "string" || p.category.length === 0) {
+      return err(
+        "material_bad_payload",
+        "material.create requires a category (Concrete|Steel|Masonry|Timber|Glass|Insulation|Finishes|Generic)",
+        true,
+      );
+    }
+    const name = p.name.trim();
+    let color: readonly [number, number, number] | undefined;
+    if (p.color !== undefined && p.color !== null) {
+      if (
+        !Array.isArray(p.color) || p.color.length !== 3 ||
+        !p.color.every((c) => typeof c === "number" && Number.isInteger(c) && c >= 0 && c <= 255)
+      ) {
+        return err("material_invalid", "material.create color must be [r, g, b] integers in 0..255", false);
+      }
+      color = [p.color[0] as number, p.color[1] as number, p.color[2] as number];
+    }
+    let lineweight: number = DEFAULT_LINEWEIGHT;
+    if (p.lineweight !== undefined && p.lineweight !== null) {
+      if (typeof p.lineweight !== "number" || !Number.isFinite(p.lineweight)) {
+        return err("material_invalid", "material.create lineweight must be a finite number", false);
+      }
+      lineweight = p.lineweight;
+    }
+    let density: number | null = null;
+    if (p.density !== undefined && p.density !== null) {
+      if (typeof p.density !== "number" || !Number.isFinite(p.density)) {
+        return err("material_invalid", "material.create density must be a finite number", false);
+      }
+      density = p.density;
+    }
+    const description =
+      typeof p.description === "string" && p.description.trim().length > 0 ? p.description.trim() : null;
+    if (this.bimMaterialEntities().some((m) => m.name === name)) {
+      return err("material_exists", `material name '${name}' is already taken (names are the document-unique exchange key)`, false);
+    }
+    const validation = validateMaterialFields({
+      name,
+      category: p.category,
+      color: color ?? categoryDefaultColor(p.category),
+      lineweight,
+      density,
+    });
+    if (!validation.ok) {
+      return err("material_invalid", validation.reason, false);
+    }
+    try {
+      const before = new Set(this.doc.allElements().map((el) => el.id));
+      const outcome = buildBimCreate(this.doc.allElements(), [
+        {
+          type: "bim.material",
+          name,
+          properties: {},
+          ...(color !== undefined ? { color: [...color] } : {}),
+          category: p.category,
+          lineweight,
+          ...(density !== null ? { density } : {}),
+          ...(description !== null ? { description } : {}),
+        },
+      ]);
+      this.doc.execute(outcome.edit);
+      const created = this.doc.allElements().filter((el) => !before.has(el.id)).map((el) => el.id);
+      return ok({
+        applied: true,
+        summary: `material '${name}' (${p.category}) created`,
+        materialId: created[0] ?? null,
+        created,
+        snapshot: this.doc.snapshot(),
+      });
+    } catch (e) {
+      const message = (e as Error).message;
+      if (message.includes("already taken")) return err("material_exists", message, false);
+      return err("material_invalid", message, false);
+    }
+  }
+
+  /** material.update — patch a material through a FULL-RECORD setProps
+   *  rewrite (the canonical optional fields stay exactly absent when unset;
+   *  null in the patch clears an optional field; the undo inverse restores
+   *  the previous record byte-identically). */
+  private cmdMaterialUpdate(payload: unknown): CommandQueryResponse {
+    const p = payload as { elementId?: unknown; patch?: unknown } | null;
+    if (
+      p === null || typeof p !== "object" || typeof p.elementId !== "string" || p.elementId.length === 0 ||
+      typeof p.patch !== "object" || p.patch === null || Array.isArray(p.patch)
+    ) {
+      return err("material_bad_payload", "material.update requires elementId + patch", true);
+    }
+    const el = this.doc.elementById(p.elementId);
+    if (el === undefined || (el.props as Record<string, unknown>).type !== "bim.material") {
+      return err("material_not_found", `no material '${p.elementId}'`, false);
+    }
+    const patch = p.patch as Record<string, unknown>;
+    const allowed = ["name", "category", "color", "lineweight", "density", "description"];
+    for (const key of Object.keys(patch)) {
+      if (!allowed.includes(key)) {
+        return err(
+          "material_invalid",
+          `material.update: '${key}' is not a settable material field (allowed: ${allowed.join(", ")})`,
+          false,
+        );
+      }
+    }
+    if (patch.name !== undefined && (typeof patch.name !== "string" || patch.name.trim().length === 0)) {
+      return err("material_invalid", "material.update name must be a non-empty string (the exchange key cannot be cleared)", false);
+    }
+    if (patch.category !== undefined && patch.category !== null && typeof patch.category !== "string") {
+      return err("material_invalid", "material.update category must be a category string or null (clear)", false);
+    }
+    if (
+      patch.color !== undefined && patch.color !== null &&
+      (!Array.isArray(patch.color) || patch.color.length !== 3 ||
+        !patch.color.every((c) => typeof c === "number" && Number.isInteger(c) && c >= 0 && c <= 255))
+    ) {
+      return err("material_invalid", "material.update color must be [r, g, b] integers in 0..255 or null (clear)", false);
+    }
+    if (
+      patch.lineweight !== undefined && patch.lineweight !== null &&
+      (typeof patch.lineweight !== "number" || !Number.isFinite(patch.lineweight))
+    ) {
+      return err("material_invalid", "material.update lineweight must be a finite number or null (clear)", false);
+    }
+    if (
+      patch.density !== undefined && patch.density !== null &&
+      (typeof patch.density !== "number" || !Number.isFinite(patch.density))
+    ) {
+      return err("material_invalid", "material.update density must be a finite number or null (clear)", false);
+    }
+    if (patch.description !== undefined && patch.description !== null && typeof patch.description !== "string") {
+      return err("material_invalid", "material.update description must be a string or null (clear)", false);
+    }
+    const clearable = new Set(["category", "color", "lineweight", "density", "description"]);
+    const merged: Record<string, unknown> = { ...(el.props as Record<string, unknown>) };
+    for (const [key, value] of Object.entries(patch)) {
+      if (value === null && clearable.has(key)) {
+        delete merged[key];
+        continue;
+      }
+      if (key === "name" && typeof value === "string") {
+        merged[key] = value.trim();
+        continue;
+      }
+      if (key === "description" && typeof value === "string") {
+        merged.description = value.trim().length > 0 ? value.trim() : undefined;
+        if (merged.description === undefined) delete merged.description;
+        continue;
+      }
+      merged[key] = value;
+    }
+    try {
+      const entity = makeMaterial(merged);
+      if (entity.name !== (el.props as Record<string, unknown>).name) {
+        if (this.bimMaterialEntities().some((m) => m.id !== p.elementId && m.name === entity.name)) {
+          return err("material_exists", `material name '${entity.name}' is already taken (names are the document-unique exchange key)`, false);
+        }
+      }
+      const element = bimEntityToElement({ ...entity, id: p.elementId });
+      const nextProps = element.props as Record<string, unknown>;
+      const prevProps = el.props as Record<string, unknown>;
+      if (canonicalStringify(nextProps) === canonicalStringify(prevProps)) {
+        return ok({ applied: false, reason: "update: no changes", snapshot: this.doc.snapshot() });
+      }
+      this.doc.execute({ type: "setProps", elementId: p.elementId, patch: nextProps });
+      return ok({
+        applied: true,
+        summary: `material '${String(prevProps.name)}' updated`,
+        snapshot: this.doc.snapshot(),
+      });
+    } catch (e) {
+      return err("material_invalid", (e as Error).message, false);
+    }
+  }
+
+  /** material.remove — REFERENCE-CHECKED removal (any element's materialId
+   *  assignment or any block definition's materialId default blocks the
+   *  removal — no cascade, no silent orphaning). */
+  private cmdMaterialRemove(payload: unknown): CommandQueryResponse {
+    const p = payload as { elementId?: unknown } | null;
+    if (p === null || typeof p !== "object" || typeof p.elementId !== "string" || p.elementId.length === 0) {
+      return err("material_bad_payload", "material.remove requires elementId", true);
+    }
+    const el = this.doc.elementById(p.elementId);
+    if (el === undefined || (el.props as Record<string, unknown>).type !== "bim.material") {
+      return err("material_not_found", `no material '${p.elementId}'`, false);
+    }
+    const assigned: string[] = [];
+    for (const other of this.doc.allElements()) {
+      if (other.id !== p.elementId && materialIdOf(other.props as Record<string, unknown>) === p.elementId) {
+        assigned.push(other.id);
+      }
+    }
+    const defs: string[] = [];
+    for (const def of this.doc.blockDefTable) {
+      if (def.materialId === p.elementId) defs.push(def.id);
+    }
+    if (assigned.length > 0 || defs.length > 0) {
+      const refs = [...assigned, ...defs].sort();
+      return err(
+        "material_in_use",
+        `material '${String((el.props as Record<string, unknown>).name)}' is still referenced by ${refs.length} element(s): ${refs.join(", ")} — unassign them first (no silent cascade)`,
+        false,
+      );
+    }
+    this.doc.execute({ type: "removeElement", elementId: p.elementId });
+    return ok({
+      applied: true,
+      summary: `material '${String((el.props as Record<string, unknown>).name)}' removed`,
+      snapshot: this.doc.snapshot(),
+    });
+  }
+
+  /** material.assign — assign (or unassign with null) a material to a batch
+   *  of elements through FULL-RECORD setProps rewrites in ONE versioned
+   *  batch: absence is exactly representable and the undo inverse restores
+   *  the previous props byte-identically (no undefined-hole class). */
+  private cmdMaterialAssign(payload: unknown): CommandQueryResponse {
+    const p = payload as { ids?: unknown; materialId?: unknown } | null;
+    if (
+      p === null || typeof p !== "object" ||
+      !Array.isArray(p.ids) || p.ids.length === 0 || !p.ids.every((x) => typeof x === "string" && x.length > 0)
+    ) {
+      return err("material_bad_payload", "material.assign requires a non-empty ids string array", true);
+    }
+    if (p.materialId !== null && typeof p.materialId !== "string") {
+      return err("material_bad_payload", "material.assign requires materialId (a material element id) or null (unassign)", true);
+    }
+    const materialId = p.materialId as string | null;
+    if (materialId !== null) {
+      const mat = this.doc.elementById(materialId);
+      if (mat === undefined || (mat.props as Record<string, unknown>).type !== "bim.material") {
+        return err("material_not_found", `no material '${materialId}'`, false);
+      }
+    }
+    const edits: DocumentEdit[] = [];
+    for (const id of p.ids as string[]) {
+      const el = this.doc.elementById(id);
+      if (el === undefined) {
+        return err("material_invalid", `no such element: '${id}'`, false);
+      }
+      // Full-record setProps rewrite: the whole previous props with exactly
+      // the materialId binding written (absence restored by the exact
+      // inverse — canonical absence, never an undefined hole).
+      const props: Record<string, unknown> = { ...(el.props as Record<string, unknown>) };
+      if (materialId === null) {
+        delete props.materialId;
+      } else {
+        props.materialId = materialId;
+      }
+      edits.push({ type: "setProps", elementId: id, patch: props });
+    }
+    this.doc.execute({ type: "applyEdits", edits });
+    const target = materialId !== null
+      ? `material '${String((this.doc.elementById(materialId)?.props as Record<string, unknown> | undefined)?.name ?? materialId)}'`
+      : "(unassigned)";
+    const n = (p.ids as string[]).length;
+    return ok({
+      applied: true,
+      summary: `${n} element${n === 1 ? "" : "s"} assigned to ${target}`,
+      assigned: n,
+      snapshot: this.doc.snapshot(),
+    });
+  }
+
+  /** grid.create — validate the full strictly-ascending u/v-set grammar and
+   *  apply ONE atomic create through the bim createElement path (one
+   *  revision, one undo entry). The story resolves from the explicit id or
+   *  the document's single story; the name defaults deterministically. */
+  private cmdGridCreate(payload: unknown): CommandQueryResponse {
+    const p = payload as { name?: unknown; storyId?: unknown; uLines?: unknown; vLines?: unknown } | null;
+    if (p === null || typeof p !== "object") {
+      return err("grid_bad_payload", "grid.create requires a payload object", true);
+    }
+    const linesFailure = (value: unknown, axis: "u" | "v"): string | null => {
+      if (!Array.isArray(value) || value.length === 0) {
+        return `${axis}Lines must be a non-empty array of offsets`;
+      }
+      if (value.length > 64) {
+        return `${axis}Lines exceeds the 64-line bound`;
+      }
+      for (const [i, x] of value.entries()) {
+        if (typeof x !== "number" || !Number.isFinite(x)) {
+          return `${axis}Lines[${i}] must be a finite number`;
+        }
+      }
+      for (let i = 1; i < value.length; i++) {
+        if ((value[i] as number) <= (value[i - 1] as number)) {
+          return `${axis}Lines must be strictly ascending (entry ${i} is not greater than entry ${i - 1}; duplicates are rejected)`;
+        }
+      }
+      return null;
+    };
+    const uFailure = linesFailure(p.uLines, "u");
+    if (uFailure !== null) return err("grid_invalid", uFailure, false);
+    const vFailure = linesFailure(p.vLines, "v");
+    if (vFailure !== null) return err("grid_invalid", vFailure, false);
+    const uLines = p.uLines as number[];
+    const vLines = p.vLines as number[];
+    // Story resolution: explicit id, else the document's single story.
+    let storyId: string | null = null;
+    if (p.storyId !== undefined && p.storyId !== null) {
+      if (typeof p.storyId !== "string" || p.storyId.length === 0) {
+        return err("grid_bad_payload", "grid.create storyId must be a story element id when present", true);
+      }
+      storyId = p.storyId;
+    } else {
+      const stories = this.doc
+        .allElements()
+        .filter((el) => (el.props as Record<string, unknown>).type === "bim.story");
+      if (stories.length === 1) {
+        storyId = stories[0]!.id;
+      }
+    }
+    if (storyId === null) {
+      return err(
+        "grid_bad_payload",
+        "grid.create requires a storyId (the document carries zero or multiple stories — the grid's host story must be explicit)",
+        true,
+      );
+    }
+    // Deterministic default name: Grid N over the existing grid count.
+    let name: string;
+    if (typeof p.name === "string" && p.name.trim().length > 0) {
+      name = p.name.trim();
+    } else {
+      name = `Grid ${this.bimGridEntities().length + 1}`;
+    }
+    try {
+      const before = new Set(this.doc.allElements().map((el) => el.id));
+      const outcome = buildBimCreate(this.doc.allElements(), [
+        { type: "bim.grid", storyId, name, uLines: [...uLines], vLines: [...vLines] },
+      ]);
+      this.doc.execute(outcome.edit);
+      const created = this.doc.allElements().filter((el) => !before.has(el.id)).map((el) => el.id);
+      return ok({
+        applied: true,
+        summary: `grid '${name}' created (${uLines.length} u-lines, ${vLines.length} v-lines)`,
+        gridId: created[0] ?? null,
+        created,
+        snapshot: this.doc.snapshot(),
+      });
+    } catch (e) {
+      const message = (e as Error).message;
+      if (message.includes("must reference a story")) return err("grid_bad_payload", message, true);
+      return err("grid_invalid", message, false);
+    }
+  }
+
+  /** grid.update — patch a bim.grid element (name / whole-array uLines /
+   *  vLines replacements; full re-validation through the strict
+   *  constructor). */
+  private cmdGridUpdate(payload: unknown): CommandQueryResponse {
+    const p = payload as { elementId?: unknown; patch?: unknown } | null;
+    if (
+      p === null || typeof p !== "object" || typeof p.elementId !== "string" || p.elementId.length === 0 ||
+      typeof p.patch !== "object" || p.patch === null || Array.isArray(p.patch)
+    ) {
+      return err("grid_bad_payload", "grid.update requires elementId + patch", true);
+    }
+    const el = this.doc.elementById(p.elementId);
+    if (el === undefined || (el.props as Record<string, unknown>).type !== "bim.grid") {
+      return err("grid_not_found", `no grid '${p.elementId}'`, false);
+    }
+    const patch = p.patch as Record<string, unknown>;
+    const allowed = ["name", "uLines", "vLines"];
+    for (const key of Object.keys(patch)) {
+      if (!allowed.includes(key)) {
+        return err(
+          "grid_invalid",
+          `grid.update: '${key}' is not a settable grid field (allowed: ${allowed.join(", ")})`,
+          false,
+        );
+      }
+    }
+    const linesFailure = (value: unknown, axis: "u" | "v"): string | null => {
+      if (!Array.isArray(value) || value.length === 0) {
+        return `${axis}Lines must be a non-empty array of offsets`;
+      }
+      if (value.length > 64) {
+        return `${axis}Lines exceeds the 64-line bound`;
+      }
+      for (const [i, x] of value.entries()) {
+        if (typeof x !== "number" || !Number.isFinite(x)) {
+          return `${axis}Lines[${i}] must be a finite number`;
+        }
+      }
+      for (let i = 1; i < value.length; i++) {
+        if ((value[i] as number) <= (value[i - 1] as number)) {
+          return `${axis}Lines must be strictly ascending (entry ${i} is not greater than entry ${i - 1}; duplicates are rejected)`;
+        }
+      }
+      return null;
+    };
+    if (patch.uLines !== undefined) {
+      const failure = linesFailure(patch.uLines, "u");
+      if (failure !== null) return err("grid_invalid", failure, false);
+    }
+    if (patch.vLines !== undefined) {
+      const failure = linesFailure(patch.vLines, "v");
+      if (failure !== null) return err("grid_invalid", failure, false);
+    }
+    if (patch.name !== undefined && (typeof patch.name !== "string" || patch.name.trim().length === 0)) {
+      return err("grid_invalid", "grid.update name must be a non-empty string", false);
+    }
+    const normalized: Record<string, unknown> = { ...patch };
+    if (typeof normalized.name === "string") normalized.name = normalized.name.trim();
+    try {
+      const outcome = setBimProperties(this.doc.allElements(), p.elementId, normalized);
+      if (outcome.status === "no-op") {
+        return ok({ applied: false, reason: outcome.reason, snapshot: this.doc.snapshot() });
+      }
+      this.doc.execute(outcome.edit);
+      return ok({ applied: true, summary: outcome.summary, snapshot: this.doc.snapshot() });
+    } catch (e) {
+      return err("grid_invalid", (e as Error).message, false);
+    }
+  }
+
+  /** revcloud.create — persist the closed scalloped revision-cloud polyline
+   *  with the bounded marker "revcloud" as ONE atomic revision. The element
+   *  canonical-serializes, open-validates and is excluded from clash. */
+  private cmdRevcloudCreate(payload: unknown): CommandQueryResponse {
+    const p = payload as { cornerA?: unknown; cornerB?: unknown; layer?: unknown } | null;
+    const pointOf = (v: unknown, field: string): { x: number; y: number } | null => {
+      if (typeof v !== "object" || v === null) return null;
+      const o = v as { x?: unknown; y?: unknown };
+      if (typeof o.x !== "number" || !Number.isFinite(o.x) || typeof o.y !== "number" || !Number.isFinite(o.y)) {
+        return null;
+      }
+      void field;
+      return { x: o.x, y: o.y };
+    };
+    if (p === null || typeof p !== "object") {
+      return err("revcloud_bad_payload", "revcloud.create requires a payload object", true);
+    }
+    const cornerA = pointOf(p.cornerA, "cornerA");
+    if (cornerA === null) {
+      return err("revcloud_bad_payload", "revcloud.create requires cornerA {x, y} finite numbers", true);
+    }
+    const cornerB = pointOf(p.cornerB, "cornerB");
+    if (cornerB === null) {
+      return err("revcloud_bad_payload", "revcloud.create requires cornerB {x, y} finite numbers", true);
+    }
+    if (isDegenerateRect(cornerA, cornerB)) {
+      return err(
+        "revcloud_invalid",
+        "revision cloud corners must span a non-degenerate rectangle (zero width or height has no edge to scallop)",
+        false,
+      );
+    }
+    const layer = typeof p.layer === "string" && p.layer.length > 0 ? p.layer : "0";
+    if (!this.doc.layerTable.some((l) => l.id === layer)) {
+      return err("revcloud_invalid", `layer '${layer}' does not exist`, false);
+    }
+    const vertices = revisionCloudGeom(cornerA, cornerB);
+    const props: Record<string, unknown> = {
+      drafting: true,
+      type: "polyline",
+      layer,
+      vertices: vertices.map((v) => ({ x: v.x, y: v.y })),
+      closed: true,
+      marker: "revcloud",
+    };
+    try {
+      const before = new Set(this.doc.allElements().map((el) => el.id));
+      this.doc.execute({
+        type: "applyEdits",
+        edits: [{ type: "addElement", element: { id: "", kind: "geometry", engineId: null, props } }],
+      });
+      const created = this.doc.allElements().filter((el) => !before.has(el.id)).map((el) => el.id);
+      return ok({
+        applied: true,
+        summary: `revision cloud created (${vertices.length} vertices on layer '${layer}')`,
+        elementId: created[0] ?? null,
+        created,
+        snapshot: this.doc.snapshot(),
+      });
+    } catch (e) {
+      return err("revcloud_invalid", (e as Error).message, false);
+    }
+  }
+
+  // --- CAD-PARITY-012 (additive, Issue #102): the read surfaces ------------
+
+  /** components.list (query) — the component (block-definition) inventory
+   *  with the materialId default + instance counts and ids (the
+   *  block-ref element scan, id-sorted). */
+  private qComponentsList(): CommandQueryResponse {
+    const elements = this.doc.allElements();
+    const out = [...this.doc.blockDefTable]
+      .sort((a, b) => (a.id < b.id ? -1 : 1))
+      .map((def) => {
+        const instanceIds = elements
+          .filter((el) => {
+            const props = el.props as Record<string, unknown>;
+            return props.drafting === true && props.type === "block-ref" && props.blockId === def.id;
+          })
+          .map((el) => el.id)
+          .sort();
+        return {
+          id: def.id,
+          name: def.name,
+          materialId: def.materialId ?? null,
+          instanceCount: instanceIds.length,
+          instanceIds,
+        };
+      });
+    return ok({ components: out });
+  }
+
+  /** materials.list (query) — the material table with the parity fields
+   *  (absent optional fields omitted entirely — the canonical form). */
+  private qMaterialsList(): CommandQueryResponse {
+    const materials = this.bimMaterialEntities().map((m) => ({
+      id: m.id,
+      name: m.name,
+      ...(m.category !== undefined ? { category: m.category } : {}),
+      ...(m.color !== undefined ? { color: [...m.color] } : {}),
+      ...(m.lineweight !== undefined ? { lineweight: m.lineweight } : {}),
+      ...(m.density !== undefined ? { density: m.density } : {}),
+      ...(m.description !== undefined ? { description: m.description } : {}),
+    }));
+    return ok({ materials });
+  }
+
+  /** materials.bom (query) — the deterministic quantity takeoff over the
+   *  concrete 2D view (block instances measure their expanded content as
+   *  ONE element; the unassigned row is last). */
+  private qMaterialsBom(): CommandQueryResponse {
+    const materialsById = new Map(this.bimMaterialEntities().map((m) => [m.id, m] as const));
+    const rows = billOfMaterials(this.doc.allElements(), materialsById, this.blockTable());
+    return ok({ unit: "document units", rows });
+  }
+
+  /** grids.list (query) — the bim.grid entities with DERIVED Excel-style
+   *  labels (A, B, C… for u; 1, 2, 3… for v — minted from the sorted line
+   *  order, never stored). */
+  private qGridsList(): CommandQueryResponse {
+    const grids = this.bimGridEntities().map((g) => ({
+      id: g.id,
+      name: g.name,
+      storyId: g.storyId,
+      uLines: [...g.uLines],
+      vLines: [...g.vLines],
+      uLabels: gridULabels(g),
+      vLabels: gridVLabels(g),
+    }));
+    return ok({ grids });
+  }
+
+  /** coordination.clash (query) — the deterministic pairwise clash result
+   *  over the concrete 2D view (BBox prefilter + the exact kernel; hits map
+   *  back to block INSTANCE ids). */
+  private qCoordinationClash(): CommandQueryResponse {
+    const result = detectClashes({ elements: this.doc.allElements(), blockTable: this.blockTable() });
+    return ok(result);
   }
 
   // --- COMPAT-CAD-003 (additive): documentation commands --------------------

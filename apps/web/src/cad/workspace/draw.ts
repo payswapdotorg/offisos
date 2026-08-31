@@ -25,6 +25,10 @@ import { mirrorGeom, rotateGeom, scaleGeom } from "@offisos/cad-app-shell/worksp
 import { offsetGeom } from "@offisos/cad-app-shell/workspace/geometry/offset";
 import { optionValue } from "@offisos/cad-app-shell/workspace/prompt-engine";
 import type { PromptValue } from "@offisos/cad-app-shell/workspace/types";
+// CAD-PARITY-012 (Issue #102): the shared coordination core — the exact
+// revision-cloud scallop sampling (the SAME deterministic geometry the
+// revcloud.create command persists; pure, engine-free).
+import { revisionCloudGeom } from "@offisos/cad-app-shell/workspace/coordination";
 
 export interface ScreenTransform {
   readonly toScreen: (p: Vec2) => [number, number];
@@ -59,6 +63,10 @@ export interface GeomDrawOptions {
   readonly weightPx?: number;
   /** CAD-PARITY-004: composite alpha (transparency + locked-layer fade). */
   readonly alpha?: number;
+  /** CAD-PARITY-012 (Issue #102): force the stroke color regardless of the
+   *  selection state — revision-cloud markup (marker "revcloud") paints the
+   *  amber family in BOTH states (the selected boost still thickens). */
+  readonly markerStroke?: string;
 }
 
 interface GeomStroke {
@@ -292,7 +300,9 @@ export function drawCanonicalEntity(ctx: CanvasRenderingContext2D, geom: Geom, o
   const isConstruction = geom.type === "ray" || geom.type === "xline";
   const legacyWidth = Math.max(isConstruction ? 0.75 : 1, (selected ? 1.8 : isConstruction ? 0.8 : 1) * Math.min(2, zoom));
   const style: GeomStroke = {
-    stroke: selected ? SELECTED_STROKE : color,
+    // CAD-PARITY-012: the forced marker stroke (revision-cloud amber) wins
+    // over both the entity color and the selection stroke.
+    stroke: opts.markerStroke ?? (selected ? SELECTED_STROKE : color),
     lineWidth: selected ? legacyWidth : Math.max(isConstruction ? 0.75 : 1, opts.weightPx ?? legacyWidth),
     dash: selected ? null : (opts.dash ?? (geom.type === "xline" ? [6, 4] : null)),
     fill:
@@ -755,6 +765,78 @@ export function drawGrid(
 }
 
 // ---------------------------------------------------------------------------
+// CAD-PARITY-012 (Issue #102): the bim.grid coordination datums.
+// ---------------------------------------------------------------------------
+
+/** One derived grid datum segment (structural — the shared coordination
+ *  core's GridLineView rows: full-span world segments + the DERIVED label). */
+export interface GridDatumLine {
+  readonly p1: { readonly x: number; readonly y: number };
+  readonly p2: { readonly x: number; readonly y: number };
+  readonly label: string;
+}
+
+const GRID_DATUM_STROKE = "#94a3b8";
+const GRID_BUBBLE_STROKE = "#0d9488";
+const GRID_BUBBLE_TEXT = "#0f766e";
+/** Screen-space bubble radius (~24px diameter — zoom-aware by construction). */
+const GRID_BUBBLE_RADIUS = 12;
+
+/** Draw the grid datum lines — thin dashed slate segments (the subtle
+ *  coordination frame UNDER the entities; deterministic from the snapshot). */
+export function drawGridDatumLines(
+  ctx: CanvasRenderingContext2D,
+  lines: readonly GridDatumLine[],
+  toScreen: (p: Vec2) => [number, number],
+): void {
+  if (lines.length === 0) return;
+  ctx.save();
+  ctx.strokeStyle = GRID_DATUM_STROKE;
+  ctx.lineWidth = 1;
+  ctx.setLineDash([8, 6]);
+  ctx.beginPath();
+  for (const line of lines) {
+    const a = toScreen([line.p1.x, line.p1.y]);
+    const b = toScreen([line.p2.x, line.p2.y]);
+    ctx.moveTo(a[0], a[1]);
+    ctx.lineTo(b[0], b[1]);
+  }
+  ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.restore();
+}
+
+/** Draw the grid label bubbles — screen-space circles with the DERIVED label
+ *  (A…/1…) centered at BOTH segment ends (over the entities — the standard
+ *  bubble presentation; deterministic and zoom-aware). */
+export function drawGridBubbles(
+  ctx: CanvasRenderingContext2D,
+  lines: readonly GridDatumLine[],
+  toScreen: (p: Vec2) => [number, number],
+): void {
+  if (lines.length === 0) return;
+  ctx.save();
+  ctx.font = "10px ui-monospace, monospace";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  for (const line of lines) {
+    for (const p of [line.p1, line.p2]) {
+      const s = toScreen([p.x, p.y]);
+      ctx.beginPath();
+      ctx.arc(s[0], s[1], GRID_BUBBLE_RADIUS, 0, TAU);
+      ctx.fillStyle = "#ffffff";
+      ctx.fill();
+      ctx.strokeStyle = GRID_BUBBLE_STROKE;
+      ctx.lineWidth = 1.25;
+      ctx.stroke();
+      ctx.fillStyle = GRID_BUBBLE_TEXT;
+      ctx.fillText(line.label, s[0], s[1] + 0.5);
+    }
+  }
+  ctx.restore();
+}
+
+// ---------------------------------------------------------------------------
 // CAD-PARITY-003 rubber-band command previews.
 // ---------------------------------------------------------------------------
 
@@ -882,6 +964,23 @@ export function drawCommandPreview(ctx: CanvasRenderingContext2D, input: Command
       if (base === null) break;
       // Infinite dashed construction line through base → cursor.
       drawInfinite(base, cursor, rubber);
+      break;
+    }
+    case "revcloud": {
+      // CAD-PARITY-012 (Issue #102): the live rectangle + the EXACT scalloped
+      // preview — revisionCloudGeom runs the same deterministic sampling the
+      // revcloud.create command persists (degenerate rects show the
+      // rectangle only; the command rejects them typed).
+      const a = pointOf(values, "cornerA");
+      if (a === null) break;
+      drawGhost({
+        type: "polyline",
+        vertices: [a, { x: cursor.x, y: a.y }, cursor, { x: a.x, y: cursor.y }],
+        closed: true,
+      });
+      if (cursor.x !== a.x && cursor.y !== a.y) {
+        drawGhost({ type: "polyline", vertices: revisionCloudGeom(a, cursor), closed: true });
+      }
       break;
     }
     case "rotate": {

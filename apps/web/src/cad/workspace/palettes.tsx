@@ -40,6 +40,7 @@ import {
   Lock,
   LockOpen,
   Navigation,
+  Network,
   PackagePlus,
   Paperclip,
   Plus,
@@ -58,6 +59,9 @@ import {
   Printer,
   FileOutput,
   Copy,
+  // CAD-PARITY-012 (Issue #102): the Coordination palette icons.
+  Cloud,
+  ClipboardList,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -114,8 +118,28 @@ import {
   type LayerFilterMode,
 } from "@offisos/cad-app-shell/workspace/standards";
 import { setSelection } from "@/cad/client/http-transport";
+// CAD-PARITY-012 (Issue #102): the shared materials/coordination cores — the
+// SAME vocabulary the App API and the canvas run (the constrained category
+// list, the materialId readers, the block-instance material resolution and
+// the grid-label minting; LOCK-004 parity by construction).
+import {
+  MATERIAL_CATEGORIES,
+  materialIdOf,
+  resolvedBlockMaterialId,
+} from "@offisos/cad-app-shell/workspace/materials";
+import {
+  gridULabels,
+  gridVLabels,
+} from "@offisos/cad-app-shell/workspace/coordination";
+// CAD-PARITY-012: the shared material display helpers (swatch colors +
+// lineweight resolution — the same module the shell and the canvas run).
+import {
+  materialColorHex,
+  materialLineweight,
+  materialViewsOf,
+} from "@/cad/workspace/material-display";
 
-export type DockTab = "properties" | "layers" | "styles" | "blocks" | "constraints" | "layouts" | "navigator";
+export type DockTab = "properties" | "layers" | "styles" | "blocks" | "constraints" | "layouts" | "coordination" | "navigator";
 
 export interface PalettesProps {
   readonly snapshot: CADDocumentSnapshot | null;
@@ -183,6 +207,49 @@ function PropSection(props: { title: string; children: React.ReactNode }): React
       <div className="mb-0.5 mt-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{props.title}</div>
       {props.children}
     </div>
+  );
+}
+
+/** CAD-PARITY-012 (Issue #102): the Material assignment row — the id-sorted
+ *  material select (+ Unassigned) with the RESOLVED color swatch. The
+ *  assignment dispatches through material.assign (ONE atomic revision per
+ *  change, full-record setProps rewrites — the exact undo inverse). */
+function MaterialAssignRow(props: {
+  readonly materials: readonly { id: string; name: string; category?: string; color?: readonly number[]; lineweight?: number }[];
+  /** The element's OWN assignment (null = unassigned/inherit). */
+  readonly value: string | null;
+  /** The RESOLVED material (instance ?? definition default ?? null). */
+  readonly resolvedId: string | null;
+  readonly disabled?: boolean;
+  readonly testId: string;
+  readonly onAssign: (materialId: string | null) => void;
+}): React.JSX.Element {
+  const resolved = props.materials.find((m) => m.id === props.resolvedId);
+  return (
+    <PropRow label="material">
+      <select
+        aria-label="assigned material"
+        className="rounded border bg-background px-1 py-0.5 text-xs"
+        value={props.value ?? ""}
+        disabled={props.disabled}
+        data-testid={props.testId}
+        title="Assign (or clear) the material — MATSET semantics, one atomic revision"
+        onChange={(e) => props.onAssign(e.target.value.length === 0 ? null : e.target.value)}
+      >
+        <option value="">Unassigned</option>
+        {props.materials.map((m) => (
+          <option key={m.id} value={m.id}>{m.name}</option>
+        ))}
+      </select>
+      {resolved !== undefined && (
+        <span
+          className="h-3 w-3 shrink-0 rounded-sm border"
+          style={{ background: materialColorHex(resolved) }}
+          title={`${resolved.name} — ${materialColorHex(resolved)} · ${materialLineweight(resolved).toFixed(2)} mm`}
+          aria-label={`resolved material ${resolved.name}`}
+        />
+      )}
+    </PropRow>
   );
 }
 
@@ -644,6 +711,9 @@ function PropertiesPanel(props: PalettesProps): React.JSX.Element {
   const elements = props.snapshot?.elements ?? [];
   const layers = props.snapshot?.layers ?? [];
   const layerById = React.useMemo(() => new Map(layers.map((l) => [l.id, l] as const)), [layers]);
+  // CAD-PARITY-012 (Issue #102): the material table (id-sorted — the SAME
+  // rows the materials.list query serves) for the Material assignment rows.
+  const materials = React.useMemo(() => materialViewsOf(elements), [elements]);
   const selected = React.useMemo(
     () => elements.filter((el) => props.selection.includes(el.id)),
     [elements, props.selection],
@@ -872,6 +942,40 @@ function PropertiesPanel(props: PalettesProps): React.JSX.Element {
           </PropSection>
         )}
 
+        {/* CAD-PARITY-012 (Issue #102): the Material assignment row — the
+            select dispatches material.assign (ONE atomic revision; the
+            resolved swatch + lineweight readout show exactly what the canvas
+            paints: entity explicit > material > layer). Geometry elements
+            only — annotations carry no material association. */}
+        {p.drafting === true && anno === null && blockRef === null && xrefRef === null && (
+          <PropSection title="Material">
+            <MaterialAssignRow
+              materials={materials}
+              value={materialIdOf(p)}
+              resolvedId={materialIdOf(p)}
+              disabled={locked}
+              testId="properties-material-select"
+              onAssign={(materialId) =>
+                commit("material.assign", async () => {
+                  const { materialAssign } = await import("@/cad/client/http-transport");
+                  return materialAssign([el.id], materialId);
+                })
+              }
+            />
+            {materialIdOf(p) !== null && materials.some((m) => m.id === materialIdOf(p)) ? (
+              <PropRow label="↳ resolved lw">
+                <code className="font-mono text-[11px]">
+                  {materialLineweight(materials.find((m) => m.id === materialIdOf(p))!).toFixed(2)} mm
+                </code>
+              </PropRow>
+            ) : (
+              <PropRow label="↳ effective lw">
+                <code className="font-mono text-[11px]">{(layer?.lineweight ?? 0.25).toFixed(2)} mm (layer)</code>
+              </PropRow>
+            )}
+          </PropSection>
+        )}
+
         {p.drafting === true && anno === null && blockRef === null && xrefRef === null && (
           <PropSection title="Geometry">
             {p.type === "circle" && Array.isArray(p.center) && (
@@ -947,6 +1051,36 @@ function PropertiesPanel(props: PalettesProps): React.JSX.Element {
                 onCommit={(v) => setDraft({ rotation: v * DEG })}
               />
             </PropRow>
+            {/* CAD-PARITY-012 (Issue #102): the per-INSTANCE material override
+                — material.assign writes the element props (ONE atomic
+                revision); the resolved row shows instance ?? definition
+                default (exactly what the canvas paints on every piece). */}
+            <MaterialAssignRow
+              materials={materials}
+              value={blockRef.materialId ?? materialIdOf(p)}
+              resolvedId={resolvedBlockMaterialId(p, blockDef?.materialId)}
+              disabled={locked}
+              testId="properties-instance-material-select"
+              onAssign={(materialId) =>
+                commit("material.assign", async () => {
+                  const { materialAssign } = await import("@/cad/client/http-transport");
+                  return materialAssign([el.id], materialId);
+                })
+              }
+            />
+            {(() => {
+              const resolvedMaterial = materials.find(
+                (m) => m.id === resolvedBlockMaterialId(p, blockDef?.materialId),
+              );
+              if (resolvedMaterial === undefined) return null;
+              return (
+                <PropRow label="↳ resolved">
+                  <code className="font-mono text-[11px]">
+                    {resolvedMaterial.name} · {materialLineweight(resolvedMaterial).toFixed(2)} mm
+                  </code>
+                </PropRow>
+              );
+            })()}
             {blockDef !== undefined && (
               <>
                 <div className="mb-0.5 mt-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
@@ -2816,6 +2950,766 @@ function LayoutsPanel(props: PalettesProps): React.JSX.Element {
   );
 }
 
+// ---------------------------------------------------------------------------
+// CAD-PARITY-012 (Issue #102): the Coordination manager — materials,
+// components and coordination. The MATLIST/BOM/CLASH commands and the
+// Materials/Coordination ribbon tabs open this palette.
+//
+// The tables load through the SAME App API queries the report commands run
+// (materials.list / components.list / grids.list — the live document state,
+// never a cached copy) and reload whenever the document version changes
+// (every commit goes through onCommitEdit → the shell refresh → a new
+// version). Every write is ONE atomic App API command (one revision, one
+// undo entry; typed failures surface through the shell's error channel —
+// e.g. material_in_use on a referenced material).
+// ---------------------------------------------------------------------------
+
+/** [r, g, b] 0..255 parsed from a #RRGGBB input (defensive — malformed
+ *  values read as the Generic default, never throw). */
+function hexToRgb(hex: string): [number, number, number] {
+  const m = /^#?([0-9a-fA-F]{2})([0-9a-fA-F]{2})([0-9a-fA-F]{2})$/.exec(hex.trim());
+  if (m === null) return [161, 161, 170];
+  return [parseInt(m[1]!, 16), parseInt(m[2]!, 16), parseInt(m[3]!, 16)];
+}
+
+/** Parse a comma-separated strictly-ascending offset list (the CGRID line
+ *  grammar — same rules the server validates). */
+function parseAscendingOffsets(text: string): number[] | null {
+  const parts = text.split(",").map((s) => s.trim()).filter((s) => s.length > 0);
+  if (parts.length === 0) return null;
+  const values: number[] = [];
+  for (const part of parts) {
+    const n = Number(part);
+    if (!Number.isFinite(n)) return null;
+    values.push(n);
+  }
+  for (let i = 1; i < values.length; i++) {
+    if (values[i]! <= values[i - 1]!) return null;
+  }
+  return values;
+}
+
+/** Format a grid's derived labels like "A,B,C / 1,2,3" (bounded preview). */
+function gridLabelPreview(labels: readonly string[]): string {
+  if (labels.length <= 6) return labels.join(",");
+  return `${labels.slice(0, 6).join(",")}…`;
+}
+
+/** Describe one failed query response for the palette error surface
+ *  (typed code/message on err; honest "unexpected shape" on ok mismatches). */
+function describeQueryFailure(res: CommandQueryResponse): string {
+  return res.ok ? "unexpected response shape" : `${res.code} — ${res.message}`;
+}
+
+function CoordinationPanel(props: PalettesProps): React.JSX.Element {
+  const commit = props.onCommitEdit;
+  // The live tables (loaded through the App API queries; null = loading).
+  const [materials, setMaterials] = React.useState<readonly {
+    id: string; name: string; category?: string; color?: readonly number[]; lineweight?: number;
+  }[] | null>(null);
+  const [components, setComponents] = React.useState<readonly {
+    id: string; name: string; materialId: string | null; instanceCount: number; instanceIds: readonly string[];
+  }[] | null>(null);
+  const [grids, setGrids] = React.useState<readonly {
+    id: string; name: string; storyId: string | null; uLines: readonly number[]; vLines: readonly number[];
+    uLabels: readonly string[]; vLabels: readonly string[];
+  }[] | null>(null);
+  // The on-demand coordination reports.
+  const [bom, setBom] = React.useState<{ unit: string; rows: readonly { materialId: string | null; name: string; count: number; length: number; area: number }[] } | null>(null);
+  const [clash, setClash] = React.useState<{ pairs: readonly { a: string; b: string; points: readonly { x: number; y: number }[] }[]; checked: number; excluded: number } | null>(null);
+  const [queryError, setQueryError] = React.useState<string | null>(null);
+  // The create-material form (color defaults to the category default — the
+  // MATERIAL command's "Enter = category default" semantics).
+  const [newName, setNewName] = React.useState("");
+  const [newCategory, setNewCategory] = React.useState<string>("Generic");
+  const [newColor, setNewColor] = React.useState<string>(materialColorHex({ category: "Generic" }));
+  const [newLineweight, setNewLineweight] = React.useState<number>(1.4);
+  // The create-grid form (the CGRID grammar).
+  const [gridName, setGridName] = React.useState("");
+  const [gridU, setGridU] = React.useState("0,6000");
+  const [gridV, setGridV] = React.useState("0,4000");
+  // The assign-to-selection select (resets after every dispatch).
+  const [assignTarget, setAssignTarget] = React.useState<string>("");
+
+  // The document version the loaded tables were read at.
+  const version = props.snapshot?.version?.version_number ?? 0;
+
+  // Load the tables through the App API queries (fresh on mount and on every
+  // document version change — the commit path bumps the version).
+  React.useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const transport = await import("@/cad/client/http-transport");
+      const [matRes, compRes, gridRes, bomRes, clashRes] = await Promise.all([
+        transport.materialsList(),
+        transport.componentsList(),
+        transport.gridsList(),
+        transport.materialsBom(),
+        transport.coordinationClash(),
+      ]);
+      if (cancelled) return;
+      const mats = transport.unwrapMaterialsList(matRes);
+      const comps = transport.unwrapComponentsList(compRes);
+      const grs = transport.unwrapGridsList(gridRes);
+      const bomResult = transport.unwrapMaterialsBom(bomRes);
+      const clashResult = transport.unwrapCoordinationClash(clashRes);
+      if (mats === null || comps === null || grs === null || bomResult === null || clashResult === null) {
+        const [label, failure] = mats === null
+          ? ["materials.list", matRes]
+          : comps === null
+            ? ["components.list", compRes]
+            : grs === null
+              ? ["grids.list", gridRes]
+              : bomResult === null
+                ? ["materials.bom", bomRes]
+                : ["coordination.clash", clashRes];
+        setQueryError(`[${label}] ${describeQueryFailure(failure)}`);
+        return;
+      }
+      setQueryError(null);
+      setMaterials(mats);
+      setComponents(comps);
+      setGrids(grs);
+      setBom(bomResult);
+      setClash(clashResult);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [version]);
+
+  /** Re-run the on-demand reports (the Clash/BOM buttons). */
+  const runReports = React.useCallback(async (): Promise<void> => {
+    const transport = await import("@/cad/client/http-transport");
+    const [bomRes, clashRes] = await Promise.all([transport.materialsBom(), transport.coordinationClash()]);
+    const bomResult = transport.unwrapMaterialsBom(bomRes);
+    const clashResult = transport.unwrapCoordinationClash(clashRes);
+    if (bomResult === null || clashResult === null) {
+      const [label, failure] = bomResult === null ? ["materials.bom", bomRes] : ["coordination.clash", clashRes];
+      setQueryError(`[${label}] ${describeQueryFailure(failure)}`);
+      return;
+    }
+    setBom(bomResult);
+    setClash(clashResult);
+  }, []);
+
+  const materialRows = materials ?? [];
+
+  const assignSelection = (materialId: string | null): void => {
+    if (props.selection.length === 0) return;
+    const ids = [...props.selection];
+    setAssignTarget("");
+    void commit("material.assign", async () => {
+      const { materialAssign } = await import("@/cad/client/http-transport");
+      return materialAssign(ids, materialId);
+    });
+  };
+
+  const createMaterial = (): void => {
+    const name = newName.trim();
+    if (name.length === 0) return;
+    void commit("material.create", async () => {
+      const { materialCreate } = await import("@/cad/client/http-transport");
+      return materialCreate({
+        name,
+        category: newCategory,
+        color: hexToRgb(newColor),
+        lineweight: Number.isFinite(newLineweight) ? newLineweight : 1.4,
+      });
+    });
+    setNewName("");
+  };
+
+  const createGrid = (): void => {
+    const uLines = parseAscendingOffsets(gridU);
+    const vLines = parseAscendingOffsets(gridV);
+    if (uLines === null || vLines === null) {
+      void commit("grid.create", async () =>
+        Promise.resolve(
+          apiErr(
+            "grid_invalid",
+            `u/v line offsets must be comma-separated finite strictly-ascending numbers (got '${gridU}' / '${gridV}')`,
+            false,
+          ),
+        ),
+      );
+      return;
+    }
+    const payload: { uLines: number[]; vLines: number[]; name?: string; storyId?: string } = { uLines, vLines };
+    const name = gridName.trim();
+    if (name.length > 0) payload.name = name;
+    if (props.activeStoryId !== null) payload.storyId = props.activeStoryId;
+    void commit("grid.create", async () => {
+      const { gridCreate } = await import("@/cad/client/http-transport");
+      return gridCreate(payload);
+    });
+    setGridName("");
+  };
+
+  return (
+    <div className="flex h-full flex-col" data-testid="coordination-panel">
+      <ScrollArea className="min-h-0 flex-1">
+        <div className="p-1">
+          {queryError !== null && (
+            <div className="m-1 rounded border border-red-300 bg-red-50 px-2 py-1 text-[10px] text-red-800" role="alert">
+              {queryError}
+            </div>
+          )}
+
+          {/* --- Materials ------------------------------------------------- */}
+          <div className="px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+            Materials ({materialRows.length})
+          </div>
+          {/* The create form + the assign-to-selection action. */}
+          <div className="flex flex-wrap items-center gap-1 px-2 py-1" data-testid="material-create-form">
+            <input
+              className={TEXT_INPUT + " !w-24"}
+              aria-label="new material name"
+              placeholder="name"
+              value={newName}
+              data-testid="material-create-name"
+              onChange={(e) => setNewName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") createMaterial();
+              }}
+            />
+            <select
+              className="rounded border bg-background px-1 py-0.5 text-xs"
+              aria-label="new material category"
+              value={newCategory}
+              data-testid="material-create-category"
+              title="The constrained 8-value category vocabulary"
+              onChange={(e) => {
+                setNewCategory(e.target.value);
+                // The color input follows the category default (Enter =
+                // category default — the MATERIAL command semantics).
+                setNewColor(materialColorHex({ category: e.target.value }));
+              }}
+            >
+              {MATERIAL_CATEGORIES.map((category) => (
+                <option key={category} value={category}>{category}</option>
+              ))}
+            </select>
+            <input
+              type="color"
+              className="h-5 w-7 cursor-pointer rounded border bg-background"
+              aria-label="new material color"
+              value={newColor}
+              data-testid="material-create-color"
+              title={`Color #RRGGBB — the category default of ${newCategory}`}
+              onChange={(e) => setNewColor(e.target.value)}
+            />
+            <input
+              type="number"
+              step="0.1"
+              min="0.5"
+              max="8"
+              className={NUM_INPUT + " !w-14"}
+              aria-label="new material lineweight"
+              value={newLineweight}
+              data-testid="material-create-lineweight"
+              title="Display lineweight in mm [0.5..8]"
+              onChange={(e) => setNewLineweight(Number(e.target.value))}
+            />
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-6 gap-1 px-1.5 text-[10px]"
+              data-testid="material-create"
+              title="MATERIAL — create the record (one atomic revision)"
+              disabled={newName.trim().length === 0}
+              onClick={createMaterial}
+            >
+              <Plus className="h-3 w-3" aria-hidden /> Add
+            </Button>
+          </div>
+          {/* Assign to selection (MATSET semantics — unassign option). */}
+          <div className="flex items-center gap-1 px-2 pb-1">
+            <select
+              className="min-w-0 flex-1 rounded border bg-background px-1 py-0.5 text-[11px]"
+              aria-label="assign material to selection"
+              value={assignTarget}
+              data-testid="material-assign"
+              disabled={props.selection.length === 0}
+              title={
+                props.selection.length === 0
+                  ? "Assign to selection — pick entities in the Model viewport first"
+                  : `Assign a material to the ${props.selection.length} selected entit${props.selection.length === 1 ? "y" : "ies"} (MATSET semantics)`
+              }
+              onChange={(e) => {
+                const value = e.target.value;
+                if (value === "") return;
+                if (value === "__unassign__") assignSelection(null);
+                else assignSelection(value);
+              }}
+            >
+              <option value="">
+                {props.selection.length === 0 ? "Assign to selection (nothing selected)" : `Assign to selection (${props.selection.length})`}
+              </option>
+              {materialRows.map((m) => (
+                <option key={m.id} value={m.id}>{m.name}</option>
+              ))}
+              <option value="__unassign__">Unassign selection</option>
+            </select>
+          </div>
+          <ul aria-label="materials" data-testid="materials-section">
+            {materialRows.map((m) => (
+              <li
+                key={m.id}
+                className="flex items-center gap-1 rounded px-2 py-1 text-[11px] hover:bg-muted/50"
+                data-testid={`material-row-${m.name}`}
+              >
+                <span
+                  className="h-3 w-3 shrink-0 rounded-sm border"
+                  style={{ background: materialColorHex(m) }}
+                  title={`${materialColorHex(m)} · lw ${materialLineweight(m).toFixed(2)} mm`}
+                  aria-label={`material ${m.name} color`}
+                />
+                <input
+                  className={TEXT_INPUT + " !w-24"}
+                  aria-label={`rename material ${m.name}`}
+                  defaultValue={m.name}
+                  key={`name-${m.id}:${m.name}`}
+                  title="Rename (material.update — names are the document-unique exchange key)"
+                  onBlur={(e) => {
+                    const value = e.target.value.trim();
+                    if (value.length > 0 && value !== m.name) {
+                      void commit("material.update", async () => {
+                        const { materialUpdate } = await import("@/cad/client/http-transport");
+                        return materialUpdate(m.id, { name: value });
+                      });
+                    }
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+                  }}
+                />
+                <Badge variant="outline" className="h-4 shrink-0 px-1 text-[9px]">
+                  {m.category ?? "—"}
+                </Badge>
+                <input
+                  type="color"
+                  className="h-5 w-7 shrink-0 cursor-pointer rounded border bg-background"
+                  aria-label={`material ${m.name} color`}
+                  defaultValue={materialColorHex(m)}
+                  key={`color-${m.id}:${materialColorHex(m)}`}
+                  title="Edit the color (material.update)"
+                  onBlur={(e) => {
+                    if (e.target.value !== materialColorHex(m)) {
+                      void commit("material.update", async () => {
+                        const { materialUpdate } = await import("@/cad/client/http-transport");
+                        return materialUpdate(m.id, { color: hexToRgb(e.target.value) });
+                      });
+                    }
+                  }}
+                />
+                <input
+                  type="number"
+                  step="0.1"
+                  min="0.5"
+                  max="8"
+                  className={NUM_INPUT + " !w-14"}
+                  aria-label={`material ${m.name} lineweight`}
+                  defaultValue={materialLineweight(m)}
+                  key={`lw-${m.id}:${materialLineweight(m)}`}
+                  title="Display lineweight in mm [0.5..8] (material.update)"
+                  onBlur={(e) => {
+                    const n = Number(e.target.value);
+                    if (Number.isFinite(n) && n !== materialLineweight(m)) {
+                      void commit("material.update", async () => {
+                        const { materialUpdate } = await import("@/cad/client/http-transport");
+                        return materialUpdate(m.id, { lineweight: n });
+                      });
+                    }
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+                  }}
+                />
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-6 w-6 shrink-0 p-0 text-muted-foreground hover:text-destructive"
+                  aria-label={`remove material ${m.name}`}
+                  title="Remove (material.remove — reference-checked: material_in_use while elements or block defaults reference it)"
+                  onClick={() =>
+                    void commit("material.remove", async () => {
+                      const { materialRemove } = await import("@/cad/client/http-transport");
+                      return materialRemove(m.id);
+                    })
+                  }
+                >
+                  <Trash2 className="h-3.5 w-3.5" aria-hidden />
+                </Button>
+              </li>
+            ))}
+            {materials !== null && materialRows.length === 0 && (
+              <li className="px-2 py-1 text-xs text-muted-foreground">
+                No materials — the form above (or the MATERIAL command) creates one.
+              </li>
+            )}
+            {materials === null && (
+              <li className="px-2 py-1 text-xs text-muted-foreground">Loading materials…</li>
+            )}
+          </ul>
+
+          <Separator className="my-1" />
+
+          {/* --- Components ------------------------------------------------ */}
+          <div className="px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+            Components ({components?.length ?? 0})
+          </div>
+          <ul aria-label="components" data-testid="components-section">
+            {(components ?? []).map((c) => (
+              <li
+                key={c.id}
+                className="rounded px-2 py-1 text-[11px] hover:bg-muted/50"
+                data-testid={`component-row-${c.name}`}
+              >
+                <div className="flex items-center gap-1">
+                  <Boxes className="h-3 w-3 shrink-0 text-muted-foreground" aria-hidden />
+                  <input
+                    className={TEXT_INPUT + " !w-24"}
+                    aria-label={`rename component ${c.name}`}
+                    defaultValue={c.name}
+                    key={`cname-${c.id}:${c.name}`}
+                    title="Rename the block definition (block.update)"
+                    onBlur={(e) => {
+                      const value = e.target.value.trim();
+                      if (value.length > 0 && value !== c.name) {
+                        void commit("block.update", async () => {
+                          const { blockUpdate } = await import("@/cad/client/http-transport");
+                          return blockUpdate(c.name, { name: value });
+                        });
+                      }
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+                    }}
+                  />
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-6 px-1.5 text-[10px]"
+                    aria-label={`insert component ${c.name}`}
+                    title="INSERT the component (the command line continues with the insertion point)"
+                    onClick={() => props.onRunCommand("insert", c.name)}
+                  >
+                    <PackagePlus className="h-3 w-3" aria-hidden /> Insert
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-6 w-6 shrink-0 p-0 text-muted-foreground hover:text-destructive"
+                    aria-label={`remove component ${c.name}`}
+                    title="Remove the definition (block.remove — reference-checked)"
+                    onClick={() =>
+                      void commit("block.remove", async () => {
+                        const { blockRemove } = await import("@/cad/client/http-transport");
+                        return blockRemove(c.name);
+                      })
+                    }
+                  >
+                    <Trash2 className="h-3.5 w-3.5" aria-hidden />
+                  </Button>
+                </div>
+                <div className="truncate text-[10px] text-muted-foreground" title={c.instanceIds.join(", ")}>
+                  {c.instanceCount} instance{c.instanceCount === 1 ? "" : "s"}
+                  {c.instanceCount > 0 ? ` · ${c.instanceIds.slice(0, 4).join(", ")}${c.instanceIds.length > 4 ? "…" : ""}` : ""}
+                  {" · EXPLODE inherits the resolved material"}
+                </div>
+                <div className="flex items-center gap-1">
+                  <span className="shrink-0 text-[10px] text-muted-foreground">material</span>
+                  <select
+                    className="min-w-0 flex-1 rounded border bg-background px-1 py-0.5 text-[10px]"
+                    aria-label={`component ${c.name} default material`}
+                    value={c.materialId ?? ""}
+                    data-testid={`component-material-${c.name}`}
+                    title="The definition's DEFAULT material (block.update materialId — instances resolve instance ?? this ?? null)"
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      void commit("block.update", async () => {
+                        const { blockUpdate } = await import("@/cad/client/http-transport");
+                        return blockUpdate(c.name, { materialId: value.length === 0 ? null : value });
+                      });
+                    }}
+                  >
+                    <option value="">(none)</option>
+                    {materialRows.map((m) => (
+                      <option key={m.id} value={m.id}>{m.name}</option>
+                    ))}
+                  </select>
+                </div>
+              </li>
+            ))}
+            {components !== null && components.length === 0 && (
+              <li className="px-2 py-1 text-xs text-muted-foreground">
+                No components — BLOCK (B) creates one from selected entities.
+              </li>
+            )}
+            {components === null && (
+              <li className="px-2 py-1 text-xs text-muted-foreground">Loading components…</li>
+            )}
+          </ul>
+
+          <Separator className="my-1" />
+
+          {/* --- Coordination (grids + clash + BOM + revcloud) -------------- */}
+          <div className="px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+            Coordination
+          </div>
+          <div className="flex flex-wrap items-center gap-1 px-2 py-1">
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-6 gap-1 px-1.5 text-[10px]"
+              data-testid="clash-run"
+              title="CLASH — run the pairwise clash detection over the concrete 2D view"
+              onClick={() => void runReports()}
+            >
+              <RefreshCw className="h-3 w-3" aria-hidden /> Clash
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-6 gap-1 px-1.5 text-[10px]"
+              data-testid="bom-refresh"
+              title="BOM — refresh the bill of materials (the deterministic quantity takeoff)"
+              onClick={() => void runReports()}
+            >
+              <ClipboardList className="h-3 w-3" aria-hidden /> BOM
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-6 gap-1 px-1.5 text-[10px]"
+              data-testid="revcloud-button"
+              title="REVCLOUD — draw a revision cloud around two corner picks"
+              onClick={() => props.onRunCommand("revcloud")}
+            >
+              <Cloud className="h-3 w-3" aria-hidden /> Revision cloud
+            </Button>
+          </div>
+
+          {/* Grids + the create form. */}
+          <div className="flex flex-wrap items-center gap-1 px-2 py-1" data-testid="grid-create-form">
+            <input
+              className={TEXT_INPUT + " !w-20"}
+              aria-label="new grid name"
+              placeholder="name"
+              value={gridName}
+              data-testid="grid-create-name"
+              onChange={(e) => setGridName(e.target.value)}
+            />
+            <input
+              className={TEXT_INPUT + " !w-24"}
+              aria-label="new grid u line offsets"
+              placeholder="u offsets"
+              value={gridU}
+              data-testid="grid-create-u"
+              title="U grid line offsets — comma-separated strictly-ascending (the CGRID grammar)"
+              onChange={(e) => setGridU(e.target.value)}
+            />
+            <input
+              className={TEXT_INPUT + " !w-24"}
+              aria-label="new grid v line offsets"
+              placeholder="v offsets"
+              value={gridV}
+              data-testid="grid-create-v"
+              title="V grid line offsets — comma-separated strictly-ascending (the CGRID grammar)"
+              onChange={(e) => setGridV(e.target.value)}
+            />
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-6 gap-1 px-1.5 text-[10px]"
+              data-testid="grid-create"
+              title="CGRID — create the coordination grid datum (one atomic revision)"
+              onClick={createGrid}
+            >
+              <Plus className="h-3 w-3" aria-hidden /> Add grid
+            </Button>
+          </div>
+          <ul aria-label="grids" data-testid="grids-section">
+            {(grids ?? []).map((g) => (
+              <li
+                key={g.id}
+                className="rounded px-2 py-1 text-[11px] hover:bg-muted/50"
+                data-testid={`grid-row-${g.id}`}
+              >
+                <div className="flex items-center gap-1">
+                  <input
+                    className={TEXT_INPUT + " !w-20"}
+                    aria-label={`rename grid ${g.name}`}
+                    defaultValue={g.name}
+                    key={`gname-${g.id}:${g.name}`}
+                    title="Rename (grid.update)"
+                    onBlur={(e) => {
+                      const value = e.target.value.trim();
+                      if (value.length > 0 && value !== g.name) {
+                        void commit("grid.update", async () => {
+                          const { gridUpdate } = await import("@/cad/client/http-transport");
+                          return gridUpdate(g.id, { name: value });
+                        });
+                      }
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+                    }}
+                  />
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-6 w-6 shrink-0 p-0 text-muted-foreground hover:text-destructive"
+                    aria-label={`remove grid ${g.name}`}
+                    title="Remove the grid datum (bim.delete — one atomic revision)"
+                    onClick={() =>
+                      void commit("bim.delete", async () => {
+                        const { bimOp } = await import("@/cad/client/http-transport");
+                        return bimOp("bim.delete", { ids: [g.id] });
+                      })
+                    }
+                  >
+                    <Trash2 className="h-3.5 w-3.5" aria-hidden />
+                  </Button>
+                </div>
+                <div className="truncate text-[10px] text-muted-foreground" title={g.id}>
+                  {g.uLines.length}u × {g.vLines.length}v · labels {gridLabelPreview(g.uLabels)} / {gridLabelPreview(g.vLabels)}
+                  {g.storyId !== null ? ` · story ${g.storyId}` : ""}
+                </div>
+                <div className="flex items-center gap-1">
+                  <input
+                    className={TEXT_INPUT + " !w-24"}
+                    aria-label={`grid ${g.name} u line offsets`}
+                    defaultValue={g.uLines.join(",")}
+                    key={`gu-${g.id}:${g.uLines.join(",")}`}
+                    title="U offsets — comma-separated strictly-ascending (grid.update replaces the whole array)"
+                    onBlur={(e) => {
+                      const parsed = parseAscendingOffsets(e.target.value);
+                      if (parsed === null) return;
+                      if (parsed.length === g.uLines.length && parsed.every((v, i) => v === g.uLines[i])) return;
+                      void commit("grid.update", async () => {
+                        const { gridUpdate } = await import("@/cad/client/http-transport");
+                        return gridUpdate(g.id, { uLines: parsed });
+                      });
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+                    }}
+                  />
+                  <input
+                    className={TEXT_INPUT + " !w-24"}
+                    aria-label={`grid ${g.name} v line offsets`}
+                    defaultValue={g.vLines.join(",")}
+                    key={`gv-${g.id}:${g.vLines.join(",")}`}
+                    title="V offsets — comma-separated strictly-ascending (grid.update replaces the whole array)"
+                    onBlur={(e) => {
+                      const parsed = parseAscendingOffsets(e.target.value);
+                      if (parsed === null) return;
+                      if (parsed.length === g.vLines.length && parsed.every((v, i) => v === g.vLines[i])) return;
+                      void commit("grid.update", async () => {
+                        const { gridUpdate } = await import("@/cad/client/http-transport");
+                        return gridUpdate(g.id, { vLines: parsed });
+                      });
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+                    }}
+                  />
+                </div>
+              </li>
+            ))}
+            {grids !== null && grids.length === 0 && (
+              <li className="px-2 py-1 text-xs text-muted-foreground">
+                No grids — the form above (or CGRID) creates one; labels derive A,B,C… / 1,2,3….
+              </li>
+            )}
+            {grids === null && (
+              <li className="px-2 py-1 text-xs text-muted-foreground">Loading grids…</li>
+            )}
+          </ul>
+
+          {/* The clash result — clicking a pair selects BOTH elements. */}
+          {clash !== null && (
+            <div className="mt-1 px-2" data-testid="clash-result">
+              <div className="py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                Clash pairs ({clash.pairs.length}) — checked {clash.checked}, excluded {clash.excluded}
+              </div>
+              <ul aria-label="clash pairs">
+                {clash.pairs.map((pair, i) => (
+                  <li key={`${pair.a}:${pair.b}`}>
+                    <button
+                      type="button"
+                      className="flex w-full items-center gap-1 rounded px-1 py-0.5 text-left text-[10px] hover:bg-muted/50"
+                      data-testid={`clash-row-${i}`}
+                      title="Select the clashing pair"
+                      onClick={() => props.onSelection([pair.a, pair.b])}
+                    >
+                      <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-red-500" aria-hidden />
+                      <span className="truncate font-mono">{pair.a} ↔ {pair.b}</span>
+                      <span className="ml-auto shrink-0 text-muted-foreground">{pair.points.length} pt</span>
+                    </button>
+                  </li>
+                ))}
+                {clash.pairs.length === 0 && (
+                  <li className="px-1 py-0.5 text-[10px] text-muted-foreground">
+                    No clashes detected (checked {clash.checked}, excluded {clash.excluded}).
+                  </li>
+                )}
+              </ul>
+            </div>
+          )}
+
+          {/* The bill of materials — the same deterministic takeoff the BOM
+              command reports. */}
+          {bom !== null && (
+            <div className="mt-1 px-2" data-testid="bom-result">
+              <div className="py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                Bill of materials ({bom.rows.length} rows · {bom.unit})
+              </div>
+              <table className="w-full text-[10px]" data-testid="bom-table">
+                <thead>
+                  <tr className="border-b text-left text-muted-foreground">
+                    <th className="py-0.5 pr-1 font-medium">material</th>
+                    <th className="py-0.5 pr-1 font-medium">count</th>
+                    <th className="py-0.5 pr-1 font-medium">length</th>
+                    <th className="py-0.5 font-medium">area</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {bom.rows.map((row) => (
+                    <tr
+                      key={row.materialId ?? "unassigned"}
+                      className="border-b border-border/40"
+                      data-testid={`bom-row-${row.materialId ?? "unassigned"}`}
+                    >
+                      <td className="py-0.5 pr-1">{row.name}</td>
+                      <td className="py-0.5 pr-1 text-right font-mono">{row.count}</td>
+                      <td className="py-0.5 pr-1 text-right font-mono">{row.length.toFixed(2)}</td>
+                      <td className="py-0.5 text-right font-mono">{row.area.toFixed(2)}</td>
+                    </tr>
+                  ))}
+                  {bom.rows.length === 0 && (
+                    <tr>
+                      <td className="py-0.5 text-muted-foreground" colSpan={4}>
+                        No measurable content yet.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          <div className="p-2 text-[10px] text-muted-foreground">
+            MATERIAL/MATSET/CGRID/REVCLOUD drive the same commands from the command line; MATLIST/BOM/CLASH echo the reports to the history.
+          </div>
+        </div>
+      </ScrollArea>
+    </div>
+  );
+}
+
 export function RightDock(props: PalettesProps): React.JSX.Element | null {
   if (!props.visible) return null;
   const tabs: readonly { id: DockTab; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
@@ -2833,6 +3727,10 @@ export function RightDock(props: PalettesProps): React.JSX.Element | null {
     // page setup, viewport scale/rotation/lock + per-viewport layer
     // visibility — the VPLAYER surface).
     { id: "layouts", label: "Layouts", icon: LayoutTemplate },
+    // CAD-PARITY-012 (Issue #102): the Coordination manager (materials,
+    // components, grids, clash + BOM + revcloud — the MATLIST/BOM/CLASH
+    // commands' palette.show target).
+    { id: "coordination", label: "Coord", icon: Network },
     { id: "navigator", label: "Nav", icon: Navigation },
   ];
   return (
@@ -2864,6 +3762,7 @@ export function RightDock(props: PalettesProps): React.JSX.Element | null {
         {props.activeTab === "blocks" && <BlocksPanel {...props} />}
         {props.activeTab === "constraints" && <ConstraintsPanel {...props} />}
         {props.activeTab === "layouts" && <LayoutsPanel {...props} />}
+        {props.activeTab === "coordination" && <CoordinationPanel {...props} />}
         {props.activeTab === "navigator" && <NavigatorPanel {...props} />}
       </div>
       <div className="border-t p-2 text-[10px] text-muted-foreground">

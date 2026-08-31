@@ -28,7 +28,10 @@
  *                       storyId, position:[x,y], rotation, baseOffset,
  *                       overrides:{...}, materialId?, name? }
  *   bim.material:  { bim, type:"bim.material", name, description?,
- *                       color?:[r,g,b], properties:{...} }
+ *                       color?:[r,g,b], properties:{...},
+ *                       // CAD-PARITY-012 (additive parity fields — absent =
+ *                       // canonical default form, never undefined):
+ *                       category?, lineweight?, density? }
  *   bim.grid:      { bim, type:"bim.grid", storyId, name,
  *                       uLines:[x…], vLines:[y…] }   // story-local, ascending
  *   bim.referencePlane: { bim, type:"bim.referencePlane", storyId, name,
@@ -84,6 +87,52 @@ export const BIM_MAX_MATERIAL_PROPERTIES = 32;
 export const BIM_MAX_GRID_LINES = 64;
 /** Maximum component instances addressable in one batch (bound guard). */
 export const BIM_MAX_COMPONENT_BATCH = 512;
+
+// --- CAD-PARITY-012 (additive, Issue #102): material parity vocabulary -----
+
+/** Constrained material category vocabulary (CAD-PARITY-012 — the shared
+ *  semantic boundary: deterministic, no free text; every host offers the
+ *  same fixed set through workspace/materials.ts). */
+export const MATERIAL_CATEGORIES = [
+  "Concrete",
+  "Steel",
+  "Masonry",
+  "Timber",
+  "Glass",
+  "Insulation",
+  "Finishes",
+  "Generic",
+] as const;
+
+export type MaterialCategory = (typeof MATERIAL_CATEGORIES)[number];
+
+/** Is the value part of the material category vocabulary? */
+export function isMaterialCategory(value: unknown): value is MaterialCategory {
+  return (
+    value === "Concrete" || value === "Steel" || value === "Masonry" ||
+    value === "Timber" || value === "Glass" || value === "Insulation" ||
+    value === "Finishes" || value === "Generic"
+  );
+}
+
+/** Deterministic default display color per category (RGB 0–255). */
+export const CATEGORY_DEFAULT_COLOR: Readonly<Record<MaterialCategory, readonly [number, number, number]>> = {
+  Concrete: [168, 162, 158],
+  Steel: [139, 139, 150],
+  Masonry: [194, 133, 95],
+  Timber: [176, 137, 104],
+  Glass: [156, 199, 196],
+  Insulation: [212, 196, 154],
+  Finishes: [201, 173, 167],
+  Generic: [161, 161, 170],
+};
+
+/** Default material display lineweight (CAD-PARITY-012). */
+export const DEFAULT_LINEWEIGHT = 1.4;
+/** Minimum material display lineweight (inclusive). */
+export const LINEWEIGHT_MIN = 0.5;
+/** Maximum material display lineweight (inclusive). */
+export const LINEWEIGHT_MAX = 8;
 
 // --- Shared strict value helpers (LOCK-007: reject, never guess) -------------
 
@@ -263,6 +312,17 @@ export interface MaterialEntity {
   readonly color?: readonly [number, number, number];
   /** Material properties (canonical domain data; bounded count). */
   readonly properties: Readonly<Record<string, string | number | boolean>>;
+  /** CAD-PARITY-012 (additive parity field): the constrained category
+   *  (MATERIAL_CATEGORIES vocabulary). Absent = the canonical default form
+   *  (no category); NEVER undefined-valued in stored props. */
+  readonly category?: MaterialCategory;
+  /** CAD-PARITY-012 (additive parity field): display lineweight in
+   *  [LINEWEIGHT_MIN, LINEWEIGHT_MAX]. Absent = DEFAULT_LINEWEIGHT applies
+   *  at resolution time (the shared materials module). */
+  readonly lineweight?: number;
+  /** CAD-PARITY-012 (additive parity field): density, kg/m³ (> 0,
+   *  informational only). Absent = unset. */
+  readonly density?: number;
   /** CAD-PARITY-011: the cross-cutting semantic meta overlay. */
   readonly meta?: BimElementMeta;
 }
@@ -349,6 +409,23 @@ export function makeComponentInstance(input: Record<string, unknown>): Omit<Comp
 export function makeMaterial(input: Record<string, unknown>): Omit<MaterialEntity, "id"> {
   const name = requireNonEmptyString(input.name, "material.name");
   const description = optionalDescription(input.description, "material.description");
+  // CAD-PARITY-012 (additive): the constrained parity fields — every one
+  // OPTIONAL and validated strictly when present (LOCK-007: reject, never
+  // guess; absence = the canonical default form, never undefined).
+  const category = input.category === undefined || input.category === null ? undefined : input.category;
+  if (category !== undefined && !isMaterialCategory(category)) {
+    throw new Error(
+      `material.category must be one of ${MATERIAL_CATEGORIES.join("|")} (got ${JSON.stringify(input.category)})`,
+    );
+  }
+  const lineweight = input.lineweight === undefined || input.lineweight === null ? undefined : assertFinite(input.lineweight, "material.lineweight");
+  if (lineweight !== undefined && (lineweight < LINEWEIGHT_MIN || lineweight > LINEWEIGHT_MAX)) {
+    throw new Error(`material.lineweight must be in [${LINEWEIGHT_MIN}, ${LINEWEIGHT_MAX}] (got ${lineweight})`);
+  }
+  const density = input.density === undefined || input.density === null ? undefined : assertFinite(input.density, "material.density");
+  if (density !== undefined && density <= 0) {
+    throw new Error(`material.density must be > 0 (got ${density})`);
+  }
   let color: readonly [number, number, number] | undefined;
   if (input.color !== undefined) {
     if (!Array.isArray(input.color) || input.color.length !== 3 || !input.color.every((c) => typeof c === "number" && Number.isInteger(c) && c >= 0 && c <= 255)) {
@@ -378,7 +455,10 @@ export function makeMaterial(input: Record<string, unknown>): Omit<MaterialEntit
   }
   const base: Omit<MaterialEntity, "id"> = { type: "bim.material", name, properties, ...metaField("bim.material", input, "material.meta") };
   const withDescription = description === undefined ? base : { ...base, description };
-  return color === undefined ? withDescription : { ...withDescription, color };
+  const withColor = color === undefined ? withDescription : { ...withDescription, color };
+  const withCategory = category === undefined ? withColor : { ...withColor, category };
+  const withLineweight = lineweight === undefined ? withCategory : { ...withCategory, lineweight };
+  return density === undefined ? withLineweight : { ...withLineweight, density };
 }
 
 export function makeGrid(input: Record<string, unknown>): Omit<GridEntity, "id"> {

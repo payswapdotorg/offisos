@@ -1153,10 +1153,18 @@ export const COMMAND_PAYLOAD_SCHEMAS: Readonly<Record<CommandName, object>> = {
               maxItems: 64,
               items: { $ref: "#/$defs/vec2" },
             },
-            // COMPAT-BIM-003 (additive).
+            // COMPAT-BIM-003 (additive) + CAD-PARITY-012 (Issue #102): the
+            // shared entity bag carries BOTH category vocabularies — the
+            // component categories (COMPAT-BIM-003) and the material
+            // categories (the 8-value P012 parity vocabulary). The schema is
+            // the coarse wire shape; the handler validates strictly per
+            // entity type through the strict constructors.
             category: {
               type: "string",
-              enum: ["wall", "door", "window", "furniture", "fixture"],
+              enum: [
+                "wall", "door", "window", "furniture", "fixture",
+                "Concrete", "Steel", "Masonry", "Timber", "Glass", "Insulation", "Finishes", "Generic",
+              ],
             },
             parameters: { type: "object" },
             definitionId: { type: "string" },
@@ -1167,6 +1175,11 @@ export const COMMAND_PAYLOAD_SCHEMAS: Readonly<Record<CommandName, object>> = {
             description: { type: "string" },
             color: { type: "array", items: { type: "integer", minimum: 0, maximum: 255 }, minItems: 3, maxItems: 3 },
             properties: { type: "object" },
+            // CAD-PARITY-012 (additive, Issue #102): the material parity
+            // fields (validated strictly by the handlers — the schema is the
+            // coarse wire shape).
+            lineweight: { type: "number", minimum: 0.5, maximum: 8 },
+            density: { type: "number", exclusiveMinimum: 0 },
             uLines: { type: "array", minItems: 1, maxItems: 64, items: { type: "number" } },
             vLines: { type: "array", minItems: 1, maxItems: 64, items: { type: "number" } },
             // CAD-PARITY-011 (additive, Issue #97): the Archicad-class
@@ -1520,6 +1533,104 @@ export const COMMAND_PAYLOAD_SCHEMAS: Readonly<Record<CommandName, object>> = {
     },
     required: ["topics"],
   },
+
+  // --- CAD-PARITY-012 (additive, Issue #102): materials, grids and revision
+  // clouds. Coarse wire shapes; the handlers validate strictly (the 8-value
+  // category vocabulary, the lineweight range, the strictly-ascending u/v
+  // line sets and the non-degenerate rectangle — LOCK-007 typed failures). ---
+  "material.create": {
+    type: "object",
+    properties: {
+      name: { type: "string", minLength: 1 },
+      category: {
+        type: "string",
+        enum: ["Concrete", "Steel", "Masonry", "Timber", "Glass", "Insulation", "Finishes", "Generic"],
+      },
+      color: { type: "array", items: { type: "integer", minimum: 0, maximum: 255 }, minItems: 3, maxItems: 3 },
+      lineweight: { type: "number", minimum: 0.5, maximum: 8 },
+      density: { type: "number", exclusiveMinimum: 0 },
+      description: { type: "string" },
+    },
+    required: ["name", "category"],
+  },
+  "material.update": {
+    type: "object",
+    properties: {
+      elementId: { type: "string", minLength: 1 },
+      patch: {
+        type: "object",
+        minProperties: 1,
+        properties: {
+          name: { type: "string", minLength: 1 },
+          category: {
+            type: "string",
+            enum: ["Concrete", "Steel", "Masonry", "Timber", "Glass", "Insulation", "Finishes", "Generic"],
+          },
+          color: { type: ["array", "null"], items: { type: "integer", minimum: 0, maximum: 255 }, minItems: 3, maxItems: 3 },
+          lineweight: { type: ["number", "null"], minimum: 0.5, maximum: 8 },
+          density: { type: ["number", "null"], exclusiveMinimum: 0 },
+          description: { type: ["string", "null"] },
+        },
+      },
+    },
+    required: ["elementId", "patch"],
+  },
+  "material.remove": {
+    type: "object",
+    properties: { elementId: { type: "string", minLength: 1 } },
+    required: ["elementId"],
+  },
+  "material.assign": {
+    type: "object",
+    properties: {
+      ids: { type: "array", minItems: 1, items: { type: "string", minLength: 1 } },
+      materialId: { type: ["string", "null"] },
+    },
+    required: ["ids", "materialId"],
+  },
+  "grid.create": {
+    type: "object",
+    properties: {
+      name: { type: "string", minLength: 1 },
+      storyId: { type: "string", minLength: 1 },
+      uLines: { type: "array", minItems: 1, maxItems: 64, items: { type: "number" } },
+      vLines: { type: "array", minItems: 1, maxItems: 64, items: { type: "number" } },
+    },
+    required: ["uLines", "vLines"],
+  },
+  "grid.update": {
+    type: "object",
+    properties: {
+      elementId: { type: "string", minLength: 1 },
+      patch: {
+        type: "object",
+        minProperties: 1,
+        properties: {
+          name: { type: "string", minLength: 1 },
+          uLines: { type: "array", minItems: 1, maxItems: 64, items: { type: "number" } },
+          vLines: { type: "array", minItems: 1, maxItems: 64, items: { type: "number" } },
+        },
+      },
+    },
+    required: ["elementId", "patch"],
+  },
+  "revcloud.create": {
+    type: "object",
+    properties: {
+      cornerA: {
+        type: "object",
+        properties: { x: { type: "number" }, y: { type: "number" } },
+        required: ["x", "y"],
+      },
+      cornerB: {
+        type: "object",
+        properties: { x: { type: "number" }, y: { type: "number" } },
+        required: ["x", "y"],
+      },
+      layer: { type: "string", minLength: 1 },
+    },
+    required: ["cornerA", "cornerB"],
+  },
 };
 
 export const QUERY_PAYLOAD_SCHEMAS: Readonly<Record<QueryName, object>> = {
@@ -1763,6 +1874,13 @@ export const QUERY_PAYLOAD_SCHEMAS: Readonly<Record<QueryName, object>> = {
     required: ["elementId"],
   },
   "model3d.cacheStats": { type: "object", properties: {} },
+  // --- CAD-PARITY-012 (additive, Issue #102): the components/materials/
+  // coordination read surfaces (computed fresh, no payload). ---
+  "components.list": { type: "object", properties: {} },
+  "materials.list": { type: "object", properties: {} },
+  "materials.bom": { type: "object", properties: {} },
+  "grids.list": { type: "object", properties: {} },
+  "coordination.clash": { type: "object", properties: {} },
 };
 
 export const WIRE_ENVELOPE_SCHEMA = {

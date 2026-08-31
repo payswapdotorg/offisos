@@ -69,6 +69,12 @@ import {
   Unlink,
   Undo2,
   Waypoints,
+  // CAD-PARITY-012 (Issue #102): the Materials/Coordination tab icons.
+  AlertTriangle,
+  Cloud,
+  ClipboardList,
+  PaintBucket,
+  SwatchBook,
   // CAD-PARITY-009 (Issue #90): the 3D Model tab icons.
   Activity,
   Camera,
@@ -268,6 +274,22 @@ export function MenuBar(props: MenuBarProps): React.JSX.Element {
         <div className="my-1 border-t" />
         <MenuItem label="3D BIM view…" onClick={() => props.onSwitchView("bim3d")} />
       </Menu>
+      {/* CAD-PARITY-012 (Issue #102): the components/materials/coordination
+          vocabulary — every item resolves to the canonical registry command
+          (the same command line, ribbon and palette paths). */}
+      <Menu label="Coordination">
+        <MenuItem label="Material… (MATERIAL)" onClick={() => props.onCommand("material")} />
+        <MenuItem label="Set Material (MSET)" onClick={() => props.onCommand("matset")} />
+        <MenuItem label="Material List (MATLIST)" onClick={() => props.onCommand("matlist")} />
+        <div className="my-1 border-t" />
+        <MenuItem label="Grid (CGRID / GRIDLINE)" onClick={() => props.onCommand("cgrid")} />
+        <MenuItem label="Revision Cloud (RVC)" onClick={() => props.onCommand("revcloud")} />
+        <div className="my-1 border-t" />
+        <MenuItem label="Bill of Materials (BOM / BOQ)" onClick={() => props.onCommand("bom")} />
+        <MenuItem label="Clash Check (CLASH)" onClick={() => props.onCommand("clash")} />
+        <div className="my-1 border-t" />
+        <MenuItem label="Components & materials…" onClick={() => props.onSwitchView("components")} />
+      </Menu>
       <Menu label="Document">
         <MenuItem label="Documentation workbench…" onClick={() => props.onSwitchView("docs")} />
         <MenuItem label="Regenerate documentation" onClick={() => props.onSwitchView("docs")} />
@@ -320,6 +342,14 @@ const RIBBON_TABS: readonly { id: string; label: string }[] = [
   // ZOOM3D, the solid primitives + transforms, the section planes and the
   // 3DSTATE echo — auto-mapped from the registry like every other tab).
   { id: "3D Model", label: "3D Model" },
+  // CAD-PARITY-012 (Issue #102): the Materials tab (MATERIAL/MATSET/
+  // MATLIST — the material table + assignment surface, auto-mapped from
+  // the registry).
+  { id: "Materials", label: "Materials" },
+  // CAD-PARITY-012 (Issue #102): the Coordination tab (CGRID/REVCLOUD/
+  // BOM/CLASH — the grids, clash, bill-of-materials and revision-markup
+  // surface, auto-mapped from the registry).
+  { id: "Coordination", label: "Coordination" },
   { id: "BIM", label: "BIM" },
   { id: "Document", label: "Document" },
   { id: "View", label: "View" },
@@ -427,6 +457,16 @@ const TAB_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
   move: MousePointer2,
   copy: Clipboard,
   erase: Trash2,
+  // CAD-PARITY-012 (Issue #102): the Materials/Coordination vocabulary —
+  // MATERIAL/MATSET/MATLIST, CGRID/REVCLOUD/BOM/CLASH (the two new
+  // auto-mapped ribbon tabs + the tool palette group).
+  material: SwatchBook,
+  matset: PaintBucket,
+  matlist: List,
+  cgrid: Grid3x3,
+  revcloud: Cloud,
+  bom: ClipboardList,
+  clash: AlertTriangle,
 };
 
 export interface RibbonProps {
@@ -658,6 +698,13 @@ export function ToolPalette(props: ToolPaletteProps): React.JSX.Element | null {
       ids: ["block", "insert", "attdef", "attedit", "xattach", "xdetach", "xref", "blocklist"],
     },
     { label: "BIM", ids: ["story", "wall", "slab", "door", "window"] },
+    // CAD-PARITY-012 (Issue #102): the components/materials/coordination
+    // vocabulary — ids resolve through the registry (icons through
+    // TAB_ICONS; the same commands the ribbon + menu run).
+    {
+      label: "Coord",
+      ids: ["material", "matset", "cgrid", "revcloud", "clash", "bom", "matlist"],
+    },
     {
       label: "Modify",
       ids: [

@@ -66,13 +66,26 @@ function vecList(v: unknown): readonly Pt[] | null {
  */
 export function geomFromElement(el: Element): Geom | null {
   if (!isDraftingGeometry(el)) return null;
-  const props = el.props as Record<string, unknown>;
+  return geomFromProps(el.props as Record<string, unknown>);
+}
 
+/**
+ * Decode entity props into the canonical Geom view from EITHER storage
+ * convention — the flat CAD-PARITY-003 form first (exact round-trip), then
+ * the COMPAT-CAD-001 drafting-marker form. Bare-props variant of
+ * {@link geomFromElement} for views that hold props without an Element
+ * wrapper (block-definition inline entities) and for element props decoded
+ * directly (CAD-PARITY-012: the concrete 2D coordination view/measure must
+ * accept both conventions — command-line authored geometry measures and
+ * clash-checks identically to palette-authored flat entities).
+ */
+export function geomFromProps(props: Readonly<Record<string, unknown>>): Geom | null {
   // Canonical (flat) convention first — exact round-trip.
   const canonical = propsToGeom(props);
   if (canonical !== null) return canonical;
 
-  // COMPAT-CAD-001 drafting convention.
+  // COMPAT-CAD-001 drafting convention (the drafting-marker form).
+  if (props.drafting !== true) return null;
   switch (props.type) {
     case "line": {
       const from = vec(props.from);

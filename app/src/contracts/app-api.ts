@@ -224,7 +224,27 @@ export type CommandName =
   // read-only representation — the source solid remains the editing
   // surface). ---
   | "model3d.boolean"
-  | "model3d.tessellate";
+  // --- CAD-PARITY-012 (additive, Issue #102): components, materials and
+  // coordination expansion. Materials ARE the bim.material elements + the
+  // additive parity fields (category/lineweight/density over the closed
+  // 8-value vocabulary); material.create/update/remove/assign run through
+  // the bim createElement/edit paths with typed failure codes
+  // (material_exists/invalid/not_found/in_use) and FULL-RECORD setProps
+  // rewrites for assignment (absence exactly representable, exact undo
+  // inverse). grid.create/grid.update author bim.grid entities with the
+  // full strictly-ascending u/v-set grammar (grid_bad_payload/grid_invalid/
+  // grid_not_found). revcloud.create persists the closed scalloped polyline
+  // with the bounded marker:"revcloud" (revcloud_bad_payload/
+  // revcloud_invalid). One payload = ONE DocumentEdit = one version = one
+  // undo entry. ---
+  | "model3d.tessellate"
+  | "material.create"
+  | "material.update"
+  | "material.remove"
+  | "material.assign"
+  | "grid.create"
+  | "grid.update"
+  | "revcloud.create";
 
 // --- Query names (non-mutating) ---
 // `document.getSelection` returns the ephemeral editor selection (orthogonal
@@ -331,7 +351,22 @@ export type QueryName =
   // cache's exact counters (the performance-budget evidence). ---
   | "model3d.section"
   | "model3d.topology"
-  | "model3d.cacheStats";
+  | "model3d.cacheStats"
+  // --- CAD-PARITY-012 (additive, Issue #102): the components/materials/
+  // coordination read surfaces (non-mutating, computed fresh every call,
+  // never persisted stale). components.list = the block-system component
+  // inventory with materialId + instance counts/ids; materials.list = the
+  // material table with the parity fields (absent optional fields omitted
+  // entirely); materials.bom = the deterministic quantity takeoff over the
+  // concrete 2D view (unassigned row last); grids.list = the bim.grid
+  // entities with DERIVED Excel-style labels (A,B,C…/1,2,3… — never
+  // stored); coordination.clash = the deterministic pairwise clash result
+  // (pairs + points + checked/excluded counts). ---
+  | "components.list"
+  | "materials.list"
+  | "materials.bom"
+  | "grids.list"
+  | "coordination.clash";
 
 export interface Command {
   readonly type: "command";
