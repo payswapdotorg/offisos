@@ -350,7 +350,14 @@ export const COMMANDS_DOCUMENTATION: readonly WorkspaceCommand[] = [
       {
         id: "kind",
         kind: "text",
-        prompt: "Assign a [View/Layout]:",
+        // The keyword-selection default (the MATERIAL category-step pattern):
+        // the VIEW/LAYOUT flag sets the answer, Enter advances past the step
+        // with the declared default text — the builder's flag check wins, so
+        // LAYOUT + Enter still files a layout. Without the default the step
+        // could not complete cleanly after the flag (typed keyword matches
+        // the option and re-prompts; plain Enter demands a text).
+        prompt: "Assign a [View/Layout] <view>:",
+        defaultValue: "view",
         options: [
           { keyword: "VIEW", label: "view", flag: true },
           { keyword: "LAYOUT", label: "layout", flag: true },
