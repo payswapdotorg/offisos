@@ -29,6 +29,7 @@ import { COMMANDS_BLOCK } from "./commands-blocks.js";
 import { COMMANDS_PARAMETRICS } from "./commands-parametrics.js";
 import { COMMANDS_LAYOUTS } from "./commands-layouts.js";
 import { COMMANDS_MODEL3D } from "./commands-model3d.js";
+import { COMMANDS_COORDINATION } from "./commands-coordination.js";
 import type {
   AppApiCommandPlanEntry,
   CommandCategory,
@@ -1296,6 +1297,10 @@ export const WORKSPACE_COMMANDS: readonly WorkspaceCommand[] = [
   // --- CAD-PARITY-009 (Issue #90): 3D navigation, UCS/workplanes, the
   // bounded modeling vocabulary + section planes ---
   ...COMMANDS_MODEL3D,
+  // --- CAD-PARITY-012 (Issue #102): components, materials and coordination
+  // (the material records, grid datums, clash/report surfaces and revision
+  // clouds) ---
+  ...COMMANDS_COORDINATION,
 ];
 
 function normalize(a: number): number {

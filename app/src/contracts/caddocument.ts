@@ -199,6 +199,14 @@ export interface BlockDefinitionRecord {
   readonly entities: readonly BlockEntityRecord[];
   /** Free-form description. Absent = none. */
   readonly description?: string;
+  /** CAD-PARITY-012 (additive, Issue #102): the definition's DEFAULT
+   *  material association — must reference an existing bim.material
+   *  element while set (validated at the command layer, where the element
+   *  world is visible). An instance's own materialId overrides it. Absent
+   *  = no definition default; NEVER undefined-valued in stored records
+   *  (the additive-optional contract keeps pre-P012 fixtures
+   *  byte-identical). */
+  readonly materialId?: string;
   /** Fixed deterministic timestamp (provenance; mirrors the IFC records). */
   readonly createdAt: string;
 }

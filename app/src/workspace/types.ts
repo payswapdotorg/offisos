@@ -204,6 +204,18 @@ export interface CommandPlan {
 // Command context — host-provided, deterministic inputs the builders need.
 // ---------------------------------------------------------------------------
 
+/** CAD-PARITY-012 (Issue #102): one material-table entry the MATERIAL/MATSET
+ *  builders resolve names against (the bim.material parity fields — a pure
+ *  read view; category/lineweight optional, absent = the canonical default
+ *  form). */
+export interface MaterialContextEntry {
+  readonly id: string;
+  readonly name: string;
+  readonly category?: string;
+  readonly color?: readonly [number, number, number];
+  readonly lineweight?: number;
+}
+
 export interface CommandDefaults {
   readonly wallWidth: number;
   readonly wallHeight: number;
@@ -313,6 +325,11 @@ export interface CommandContext {
   readonly view3d: Camera3DState | null;
   /** CAD-PARITY-009: the count of model3d solid elements (the 3DSTATE echo). */
   readonly model3dSolidCount: number;
+  /** CAD-PARITY-012 (Issue #102): the document material table (the bim.material
+   *  elements with the parity fields) for the MATERIAL/MATSET builders — the
+   *  name resolution surface. Empty on contexts that predate the field (every
+   *  builder treats it as "no known materials" — legacy hosts stay green). */
+  readonly materials: readonly MaterialContextEntry[];
 }
 
 export function defaultCommandContext(overrides?: Partial<CommandContext>): CommandContext {
@@ -339,6 +356,8 @@ export function defaultCommandContext(overrides?: Partial<CommandContext>): Comm
     activeUcsId: "world",
     view3d: null,
     model3dSolidCount: 0,
+    // CAD-PARITY-012 (Issue #102): additive default (empty — legacy contexts).
+    materials: [],
     ...overrides,
   };
 }

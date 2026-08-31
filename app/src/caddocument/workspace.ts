@@ -1067,6 +1067,12 @@ export function validateBlockDefinitionRecord(
   if (b.description !== undefined && b.description !== null && typeof b.description !== "string") {
     throw new Error(`blockDef '${b.name}': description must be a string when present`);
   }
+  // CAD-PARITY-012 (additive): the definition's default material association
+  // (structural validation only — the EXISTING-material reference check runs
+  // at the command layer, where the element world is visible).
+  if (b.materialId !== undefined && b.materialId !== null && (typeof b.materialId !== "string" || b.materialId.length === 0)) {
+    throw new Error(`blockDef '${b.name}': materialId must be a non-empty material element id when present`);
+  }
   if (!Array.isArray(b.entities)) {
     throw new Error(`blockDef '${b.name}': entities must be an array`);
   }
@@ -1094,11 +1100,14 @@ export function validateBlockDefinitionRecord(
     createdAt: b.createdAt,
   };
   if (typeof b.description === "string" && b.description.length > 0) out.description = b.description;
+  // CAD-PARITY-012 (additive): written ONLY when set (the additive-optional
+  // contract — absence is the canonical no-default form, never undefined).
+  if (typeof b.materialId === "string" && b.materialId.length > 0) out.materialId = b.materialId;
   return out as unknown as BlockDefinitionRecord;
 }
 
 /** Keys a block-definition patch may carry (id/createdAt are immutable). */
-const BLOCK_DEF_PATCH_KEYS = ["name", "basePoint", "description", "entities"] as const;
+const BLOCK_DEF_PATCH_KEYS = ["name", "basePoint", "description", "entities", "materialId"] as const;
 
 /** Validate + merge an updateBlockDef patch (entities replaces the whole
  *  inline array — the canonical full-array-replace convention). */
@@ -1118,8 +1127,8 @@ export function applyBlockDefPatch(
   const cleaned: Record<string, unknown> = { ...current };
   for (const [key, value] of Object.entries(patch)) {
     if (value === undefined) continue;
-    // null RESETS the optional description to absent.
-    if (value === null && key === "description") {
+    // null RESETS the optional description/materialId to absent.
+    if (value === null && (key === "description" || key === "materialId")) {
       delete cleaned[key];
       continue;
     }

@@ -891,7 +891,11 @@ const PROPERTY_KEYS: Record<BimEntity["type"], readonly string[]> = {
   // surface (declared limitation, never a silent approximation).
   "bim.componentDef": ["name", "parameters", "materialId"],
   "bim.componentInstance": ["position", "rotation", "baseOffset", "overrides", "materialId", "name"],
-  "bim.material": ["name", "description", "color", "properties"],
+  // CAD-PARITY-012 (additive): the material parity fields are settable
+  // through this surface too (validated by makeMaterial — the category
+  // vocabulary + the lineweight range + positive density; absence stays the
+  // canonical default form).
+  "bim.material": ["name", "description", "color", "properties", "category", "lineweight", "density"],
   "bim.grid": ["name", "uLines", "vLines"],
   "bim.referencePlane": ["name", "start", "end"],
   // CAD-PARITY-011 (additive, Issue #97): the Archicad-class authoring

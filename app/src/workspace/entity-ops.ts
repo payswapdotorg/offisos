@@ -70,6 +70,9 @@ import {
   normalizedRotation,
   xrefRefFromElement,
 } from "./blocks/index.js";
+// CAD-PARITY-012: the shared materials core (engine-free — the resolved
+// material inheritance for exploded block pieces).
+import { resolvedBlockMaterialId } from "./materials.js";
 import type { BlockDefinitionRecord, ConstraintRecord } from "../contracts/caddocument.js";
 // CAD-PARITY-007: the parametric-constraints core (engine-free — the
 // constraint-aware editing cascade: severance + the deterministic re-solve,
@@ -1461,8 +1464,19 @@ function opExplode(
       }
       try {
         const pieces = explodeBlockInstance(ref, { blockDefById, xrefById: () => undefined });
+        // CAD-PARITY-012: every exploded piece inherits the RESOLVED material
+        // of the instance — instance.materialId ?? definition.materialId ??
+        // null — written into its element props ONLY when non-null (absence
+        // is the canonical no-assignment form, never undefined).
+        const def = blockDefById(ref.blockId);
+        const materialId = resolvedBlockMaterialId(
+          el.props as Record<string, unknown>,
+          def?.materialId,
+        );
         edits.push(removeEdit(el.id));
         for (const piece of pieces) {
+          const props: Record<string, unknown> =
+            materialId !== null ? { ...piece.props, materialId } : { ...piece.props };
           if (piece.kind === "text") {
             edits.push({
               type: "addElement",
@@ -1470,13 +1484,13 @@ function opExplode(
                 id: "",
                 kind: "annotation",
                 engineId: null,
-                props: { drafting: true, annotation: true, ...piece.props },
+                props: { drafting: true, annotation: true, ...props },
               },
             });
           } else {
             edits.push({
               type: "addElement",
-              element: { id: "", kind: "geometry", engineId: null, props: piece.props },
+              element: { id: "", kind: "geometry", engineId: null, props },
             });
           }
           materialized++;

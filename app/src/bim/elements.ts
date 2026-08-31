@@ -803,6 +803,12 @@ export function bimEntityToElement(entity: BimEntityInput): Element {
       if (entity.description !== undefined) props.description = entity.description;
       if (entity.color !== undefined) props.color = entity.color;
       props.properties = entity.properties;
+      // CAD-PARITY-012 (additive parity fields): written ONLY when set so
+      // pre-P012 snapshots stay byte-identical (absence = canonical default
+      // form, never an undefined value).
+      if (entity.category !== undefined) props.category = entity.category;
+      if (entity.lineweight !== undefined) props.lineweight = entity.lineweight;
+      if (entity.density !== undefined) props.density = entity.density;
       setMeta(entity);
       break;
     case "bim.grid":
