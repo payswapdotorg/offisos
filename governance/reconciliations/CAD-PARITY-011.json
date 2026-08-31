@@ -1,7 +1,7 @@
 {
   "id": "REC-CAD-PARITY-011",
   "work_item": "CAD-PARITY-011",
-  "status": "STAGED",
+  "status": "DECIDED",
   "problem": "CAD-PARITY-011 was merged on GitHub at 2026-08-30T17:10:16Z (merge commit f593b06) while its Architect approval was recorded in the ledger with timestamps of 17:12:30Z — after the merge event. The physical git history shows the approval record (commit cc5f43a, authored 17:10:05Z) was the head of PR #99 at the moment of the merge, so the approval content physically predates the merge; the ledger's approval timestamps, however, postdate it. The record consequently violates three rules: the APPROVED → MERGED transition was recorded under the architect role (authorized roles: product-owner, implementer); its timestamp precedes the recorded approval; and no approved decision exists at or before the merge event. The historical record is immutable — rewriting the timestamps or role would falsify the audit trail — so the defect is reconciled through this Architect-owned, ACR-sanctioned overlay (Issue #100).",
   "defects": [
     {
@@ -77,5 +77,10 @@
       }
     }
   ],
-  "acr": "ACR-003"
+  "acr": "ACR-003",
+  "decided_by": "architect",
+  "role": "architect",
+  "decided_at": "2026-08-30T21:26:30Z",
+  "rationale": "Architect decision: the three enumerated historical governance defects in CAD-PARITY-011 are substantiated by the immutable event citations and evidence; exactly those three violations are reconciled. No implementation or VERIFIED evidence rule is waived, the original merge history is not rewritten, and the work item must still satisfy the normal Architect-owned MERGED → VERIFIED gate.",
+  "remediation": "Reconciliation does not authorize VERIFIED. CAD-PARITY-011 remains subject to the normal verification evidence and Architect-owned MERGED → VERIFIED transition; future governance records must use the corrected lifecycle controls established by ARCH-WF-002."
 }
