@@ -3,14 +3,122 @@
   "title": "Documentation, Navigator and Layout Book parity",
   "issue": 104,
   "architecture_version": "1.1",
-  "requirements": ["BIM-002", "IFC-001"],
-  "dependencies": ["CAD-PARITY-012", "COMPAT-CAD-003", "COMPAT-IFC-001"],
+  "requirements": [
+    "BIM-002",
+    "IFC-001"
+  ],
+  "dependencies": [
+    "CAD-PARITY-012",
+    "COMPAT-CAD-003",
+    "COMPAT-IFC-001"
+  ],
   "objective": "Extend the verified CAD/BIM product into a bounded professional documentation-production layer covering Navigator/project map, saved views, details, sections/elevations, associative documentation, layouts and master layouts, subsets, title blocks, schedules/index presentation, revisions and publisher sets while preserving ConstructionOS Architecture v1.1.",
-  "acceptance_criteria": ["Navigator/project-map records are document-owned, deterministic and persist through save/open/replay with stable canonical identities.","Representative plan, elevation, section and detail views regenerate deterministically from canonical model state with explicit source/view lineage.","Associative documentation annotations remain bound to canonical document identities and report typed dangling/source-loss outcomes rather than silently detaching.","Layouts, master layouts, subsets and title-block placement persist deterministically and produce stable serialized sheet/documentation results.","Schedules and indexes can present supported model/property data deterministically without introducing a parallel source of truth.","Revision metadata and publisher sets remain canonical, revision-aware and replay-safe.","Web and Electron share the same documentation semantic contracts and produce equivalent canonical results for representative workflows.","IFC/documentation export preserves supported semantics and reports explicit LOSSY/UNSUPPORTED outcomes outside the supported exchange contract.","Existing CAD-PARITY-002..012, COMPAT-CAD-003 and COMPAT-IFC-001 fixtures remain green and byte-identical unless an explicitly reviewed migration is necessary.","Real engine behavior remains behind the existing EngineAdapterBundle/worker boundary; no renderer/application engine-internal imports are introduced.","The exact final implementation head is CI-verified, Vercel-deployed, browser/Electron verified and revision-bound before merge.","No protected architecture paths are modified."],
-  "non_goals": ["Full InDesign-style publishing/layout software.","Unbounded document graphics or freeform page-design tooling.","Full enterprise print-management infrastructure.","New renderer architecture or engine-boundary changes.","General-purpose BIM scheduling/4D/cost planning.","Architecture changes without an explicit ACR."],
-  "risk_assumptions": ["CAD-PARITY-012 is VERIFIED and is the current component/material/coordination baseline.","COMPAT-CAD-003 provides an existing verified documentation compatibility baseline that P013 extends rather than duplicates.","COMPAT-IFC-001 is VERIFIED and remains the IFC exchange baseline.","Architecture v1.1 remains frozen throughout P013."],
-  "evidence_requirements": ["Deterministic view, annotation, layout, master-layout, schedule/index, revision and publisher tests.","Web/Electron parity fixtures for representative documentation workflows.","Real-OCCT/IFC coverage where documentation paths depend on model exchange, with typed unsupported outcomes where appropriate.","Regression proof that CAD-PARITY-002..012, COMPAT-CAD-003 and COMPAT-IFC-001 remain green and byte-identical.","Exact-head Vercel deployment plus real-browser/Electron evidence.","Revision-bound governance evidence covering implementation, merge and post-merge verification."],
-  "state": "IMPLEMENTING",
-  "transitions": [{"from":"DRAFT","to":"READY","at":"2026-08-31T16:40:00Z","actor":"pectoraux","role":"architect","reason":"Release CAD-PARITY-013 as the next bounded documentation-production slice from the authoritative CAD/BIM roadmap after CAD-PARITY-012 verification.","references":{"issue":104}},{"from":"READY","to":"ASSIGNED","at":"2026-08-31T16:40:15Z","actor":"pectoraux","role":"architect","reason":"All declared P013 dependencies are verified on main. Assign the implementation to the logical implementation agent and require stopping at PR_OPEN/VERIFYING for Architect review.","references":{"issue":104,"assignee":"z-ai-implementation-agent"}},{"from":"ASSIGNED","to":"IMPLEMENTING","at":"2026-08-31T17:12:00Z","actor":"z-ai-implementation-agent","role":"implementer","reason":"Implementation begins for CAD-PARITY-013: the registration record at branch head 4c6502b references Issue #104 and program state on main (fedfe3dd) confirms CAD-PARITY-012 VERIFIED with P013 assigned. Scope is the bounded documentation-production layer per the Issue #104 acceptance contract; the implementation extends the COMPAT-CAD-003 docs baseline and the CAD-PARITY-008 layouts system additively and stops at PR_OPEN/VERIFYING for Architect review."}],
-  "evidence": []
+  "acceptance_criteria": [
+    "Navigator/project-map records are document-owned, deterministic and persist through save/open/replay with stable canonical identities.",
+    "Representative plan, elevation, section and detail views regenerate deterministically from canonical model state with explicit source/view lineage.",
+    "Associative documentation annotations remain bound to canonical document identities and report typed dangling/source-loss outcomes rather than silently detaching.",
+    "Layouts, master layouts, subsets and title-block placement persist deterministically and produce stable serialized sheet/documentation results.",
+    "Schedules and indexes can present supported model/property data deterministically without introducing a parallel source of truth.",
+    "Revision metadata and publisher sets remain canonical, revision-aware and replay-safe.",
+    "Web and Electron share the same documentation semantic contracts and produce equivalent canonical results for representative workflows.",
+    "IFC/documentation export preserves supported semantics and reports explicit LOSSY/UNSUPPORTED outcomes outside the supported exchange contract.",
+    "Existing CAD-PARITY-002..012, COMPAT-CAD-003 and COMPAT-IFC-001 fixtures remain green and byte-identical unless an explicitly reviewed migration is necessary.",
+    "Real engine behavior remains behind the existing EngineAdapterBundle/worker boundary; no renderer/application engine-internal imports are introduced.",
+    "The exact final implementation head is CI-verified, Vercel-deployed, browser/Electron verified and revision-bound before merge.",
+    "No protected architecture paths are modified."
+  ],
+  "non_goals": [
+    "Full InDesign-style publishing/layout software.",
+    "Unbounded document graphics or freeform page-design tooling.",
+    "Full enterprise print-management infrastructure.",
+    "New renderer architecture or engine-boundary changes.",
+    "General-purpose BIM scheduling/4D/cost planning.",
+    "Architecture changes without an explicit ACR."
+  ],
+  "risk_assumptions": [
+    "CAD-PARITY-012 is VERIFIED and is the current component/material/coordination baseline.",
+    "COMPAT-CAD-003 provides an existing verified documentation compatibility baseline that P013 extends rather than duplicates.",
+    "COMPAT-IFC-001 is VERIFIED and remains the IFC exchange baseline.",
+    "Architecture v1.1 remains frozen throughout P013."
+  ],
+  "evidence_requirements": [
+    "Deterministic view, annotation, layout, master-layout, schedule/index, revision and publisher tests.",
+    "Web/Electron parity fixtures for representative documentation workflows.",
+    "Real-OCCT/IFC coverage where documentation paths depend on model exchange, with typed unsupported outcomes where appropriate.",
+    "Regression proof that CAD-PARITY-002..012, COMPAT-CAD-003 and COMPAT-IFC-001 remain green and byte-identical.",
+    "Exact-head Vercel deployment plus real-browser/Electron evidence.",
+    "Revision-bound governance evidence covering implementation, merge and post-merge verification."
+  ],
+  "state": "PR_OPEN",
+  "transitions": [
+    {
+      "from": "DRAFT",
+      "to": "READY",
+      "at": "2026-08-31T16:40:00Z",
+      "actor": "pectoraux",
+      "role": "architect",
+      "reason": "Release CAD-PARITY-013 as the next bounded documentation-production slice from the authoritative CAD/BIM roadmap after CAD-PARITY-012 verification.",
+      "references": {
+        "issue": 104
+      }
+    },
+    {
+      "from": "READY",
+      "to": "ASSIGNED",
+      "at": "2026-08-31T16:40:15Z",
+      "actor": "pectoraux",
+      "role": "architect",
+      "reason": "All declared P013 dependencies are verified on main. Assign the implementation to the logical implementation agent and require stopping at PR_OPEN/VERIFYING for Architect review.",
+      "references": {
+        "issue": 104,
+        "assignee": "z-ai-implementation-agent"
+      }
+    },
+    {
+      "from": "ASSIGNED",
+      "to": "IMPLEMENTING",
+      "at": "2026-08-31T17:12:00Z",
+      "actor": "z-ai-implementation-agent",
+      "role": "implementer",
+      "reason": "Implementation begins for CAD-PARITY-013: the registration record at branch head 4c6502b references Issue #104 and program state on main (fedfe3dd) confirms CAD-PARITY-012 VERIFIED with P013 assigned. Scope is the bounded documentation-production layer per the Issue #104 acceptance contract; the implementation extends the COMPAT-CAD-003 docs baseline and the CAD-PARITY-008 layouts system additively and stops at PR_OPEN/VERIFYING for Architect review."
+    },
+    {
+      "from": "IMPLEMENTING",
+      "to": "PR_OPEN",
+      "at": "2026-08-31T18:20:00Z",
+      "actor": "z-ai-implementation-agent",
+      "role": "implementer",
+      "reason": "The CAD-PARITY-013 implementation is complete and submitted as PR #105 (implementation head 8bb6366: the shared core 896d671, the web host 8c5f637 and the evidence layer 8bb6366). All implementer gates are green — the full app suite (1162/1135/0/27 incl. 29 new P013 tests), the eleven-smoke web chain byte-identical (P002..P012 fixtures unchanged, the new P013 fixture 88f172dd), app+web tsc clean, web lint+build clean, governance validate 393 pass (the 3 failures are the pre-existing owner-side P012-record defects, identical on pristine main), check-protected and check-verified-revisions PASS. Stopping at PR_OPEN/VERIFYING for Architect review per the workflow lock.",
+      "references": {
+        "pr": 105
+      }
+    }
+  ],
+  "evidence": [
+    {
+      "id": "EV-001",
+      "type": "automated-test-suite",
+      "description": "Full implementation suite at implementation head 8bb6366: 1162 tests / 1135 pass / 0 fail / 27 pre-existing environmental skips (baseline 1133/1106/0/27), including the 29 new CAD-PARITY-013 tests — docs-p013-navigator (folders/subsets, cycles, view folderId, layout subsetId, removal gates, tree determinism, save/open stable ids, undo/redo, replay), docs-p013-book (masters incl. single-level enforcement, PLOT-IR master + title-block composition with byte-identity for non-P013 layouts, sheet numbering incl. custom subset numbering, revision lifecycle + gates), docs-p013-schedules (deterministic fresh rows + sha256, canonical-mutation tracking proving no parallel source of truth, ps: property columns, index sources, typed failures), docs-p013-publisher (duplicate-expansion rejection, book-order pages + per-page sha256 + revision codes, stable pdf bytes, exchange-report classification vocabulary), docs-p013-workflow (the representative end-to-end + version-count math + double-save byte-identity) and the 2nd docs-host-parity test (Web/Electron handler convergence on the P013 stream). App tsc clean; web tsc/lint/build clean; no-forbidden-imports green; governance validate 393 pass / 3 pre-existing owner-side P012-record failures (identical on pristine origin/main); check-protected PASS (33 paths vs base main); check-verified-revisions PASS.",
+      "produced_at": "2026-08-31T18:20:00Z",
+      "reproducible": true,
+      "reproduction": "From the repo root after npm install: cd app && node --import tsx --test test/*.test.ts; node_modules/.bin/tsc --noEmit -p app/tsconfig.json; cd apps/web && npx tsc --noEmit && npm run lint && npm run build; npm run governance -- validate; npm run governance -- check-protected --base main; npm run governance -- check-verified-revisions.",
+      "references": {
+        "commit": "8bb63668c6d7b5f9b131a5ac0cd4f619662e0d10",
+        "pr": 105
+      }
+    },
+    {
+      "id": "EV-002",
+      "type": "reproducible-script",
+      "description": "The pinned Web-host parity smoke apps/web/test/docs-p013-smoke.mjs against the dev server (OFFISOS_GEOMETRY_ENGINE=reference, port 3100): a 36-command / 75-echo-line semantic stream through the SHARED prompt-engine registry (NAVFOLDER, SUBSET x2 (none + custom numbering), NAVASSIGN (view->folder and layout->subset), TITLEBLOCK, TITLEPLACE, REVISION x2, REVLIST + SCHLIST instant report commands with their ui-action shapes asserted, SCHEDULE x2, LAYOUTMASTER, PUBSET, PUBLISHBOOK) plus the palette-path direct HTTP commands (navigator.createFolder, docs.updateView folderId, titleblock.create, revision.add + revision.update issued, schedule.create, publisher.create) and the fresh queries (navigator.tree incl. the layoutBook sheetNumbers/masterId/revisionCodes/titleBlockId, schedules.run determinism, revisions.list, publisher.list, docs.exchangeReport). Deterministic double-save, save/open round-trip with stable ids, undo/redo of the revision-update, and the non-versioned publisher.run asserted. The pinned fixture app/test/fixtures/cad-parity-013-documentation.json (saveSha256 88f172ddc2408158dda030da21855355754b1d524cd8303505590fb310d8b849, saveSize 29051, treeSha256 89a1bae9…, scheduleRunSha256 fc08bb82…, publisherRunSha256 48dfb738…, exchangeReportSha256 30a57ce6…, echoDigest e945b1f8…, the 36-entry commandStream) byte-matches on re-run INCLUDING after a fresh dev-server restart; the FULL eleven-smoke regression chain (workspace, layers-styles, annotation, blocks, constraints, layouts, model3d, model3d-p010, bim-p011, bim-p012, docs-p013) is byte-identical — the P012 fixture saveSha256 stays 94cca7b9d5c2b5297ca960132e150306a5b9e94247c7698843a5d5728337fe2e (the byte-identity acceptance criterion for CAD-PARITY-002..012).",
+      "produced_at": "2026-08-31T18:20:00Z",
+      "reproducible": true,
+      "reproduction": "cd apps/web && OFFISOS_GEOMETRY_ENGINE=reference npm run dev -- --webpack -p 3100 & then from the repo root: OFFISOS_WEB_URL=http://localhost:3100 node --import tsx apps/web/test/docs-p013-smoke.mjs (byte-match against the pinned fixture; --write-fixture re-pins). The same command with OFFISOS_WEB_URL=<deployment-url> runs the smoke against an exact-head Vercel deployment.",
+      "references": {
+        "commit": "8bb63668c6d7b5f9b131a5ac0cd4f619662e0d10",
+        "pr": 105,
+        "path": "apps/web/test/docs-p013-smoke.mjs"
+      }
+    }
+  ]
 }
