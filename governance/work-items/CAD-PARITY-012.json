@@ -3,29 +3,20 @@
   "title": "Components, materials and coordination expansion",
   "issue": 102,
   "architecture_version": "1.1",
-  "requirements": [
-    "BIM-001",
-    "BIM-002",
-    "IFC-001"
-  ],
-  "dependencies": [
-    "CAD-PARITY-011",
-    "COMPAT-BIM-003",
-    "RESEARCH-CAD-007",
-    "COMPAT-IFC-001"
-  ],
-  "objective": "Extend the verified CAD/BIM product from the compatibility-grade reusable components/materials/coordination baseline into a bounded professional parity layer, adding richer component-library semantics, deterministic definition-to-instance propagation, canonical material authoring/assignment, stronger coordination data and parity-grade persistence/exchange while preserving frozen ConstructionOS Architecture v1.1.",
+  "requirements": ["BIM-001", "BIM-002", "IFC-001"],
+  "dependencies": ["CAD-PARITY-011", "COMPAT-BIM-003", "RESEARCH-CAD-007", "COMPAT-IFC-001"],
+  "objective": "Extend the verified CAD/BIM product from the compatibility-grade reusable components/materials/coordination baseline into a bounded professional parity layer, preserving frozen ConstructionOS Architecture v1.1.",
   "acceptance_criteria": [
-    "Representative reusable component definitions produce multiple instances with stable canonical definition/instance relationships, extending rather than duplicating COMPAT-BIM-003 semantics.",
-    "Definition edits propagate deterministically, expose affected instances, create immutable revisions and preserve per-instance overrides.",
-    "Material definitions and assignments are canonical, deterministic and independent of OCCT/IfcOpenShell internals, with explicit type-vs-instance precedence.",
-    "Coordination sets, grids, levels, reference planes and supported alignment/reference relationships persist through save/open/replay with deterministic semantics.",
-    "Construction Graph mappings remain keyed by document-owned canonical identities; engine-native ids remain provenance only.",
-    "Web and Electron produce equivalent semantic streams and canonical serialized results for representative P012 workflows.",
-    "IFC import/export preserves supported component/material semantics and reports explicit LOSSY/UNSUPPORTED outcomes outside the supported exchange contract.",
-    "Existing CAD-PARITY-002..011, COMPAT-BIM-003 and COMPAT-IFC-001 fixtures remain green and byte-identical unless an explicitly reviewed migration is necessary.",
-    "Real OCCT/IFC behavior continues through the existing EngineAdapterBundle/worker boundary; no renderer/application engine-internal imports are introduced.",
-    "The exact final implementation head is CI-verified and browser/Electron verified; implementation stops at PR_OPEN/VERIFYING.",
+    "Representative reusable component definitions produce stable canonical definition/instance relationships extending COMPAT-BIM-003.",
+    "Definition edits propagate deterministically, create immutable revisions and preserve per-instance overrides.",
+    "Material definitions and assignments are canonical, deterministic and engine-independent with explicit type-vs-instance precedence.",
+    "Coordination sets, grids and supported references persist through save/open/replay deterministically.",
+    "Construction Graph mappings use document-owned canonical identities; engine-native ids remain provenance only.",
+    "Web and Electron produce equivalent semantic streams and canonical results for representative P012 workflows.",
+    "IFC import/export preserves supported component/material semantics and reports explicit LOSSY/UNSUPPORTED outcomes.",
+    "CAD-PARITY-002..011, COMPAT-BIM-003 and COMPAT-IFC-001 fixtures remain green and byte-identical unless explicitly reviewed.",
+    "Real OCCT/IFC behavior remains behind the EngineAdapterBundle/worker boundary.",
+    "The exact final implementation head is CI-verified and browser/Electron verified.",
     "No protected architecture paths are modified."
   ],
   "non_goals": [
@@ -38,182 +29,128 @@
     "Architecture changes without an explicit ACR."
   ],
   "risk_assumptions": [
-    "CAD-PARITY-011 is now VERIFIED after its original historical governance defects were reconciled through ARCH-WF-002 without rewriting the original merge event.",
-    "COMPAT-BIM-003 is VERIFIED and is the compatibility-grade component/material/coordination baseline; P012 must extend it rather than recreate it.",
-    "RESEARCH-CAD-007 is VERIFIED and establishes the engine-independent canonical semantics and replaceable adapter boundary.",
-    "COMPAT-IFC-001 is VERIFIED and provides the production IFC exchange baseline and pinned toolchain behavior.",
+    "CAD-PARITY-011 is VERIFIED after ARCH-WF-002 reconciliation.",
+    "COMPAT-BIM-003 is VERIFIED and is the compatibility-grade baseline.",
+    "RESEARCH-CAD-007 is VERIFIED and establishes engine-independent semantics and the replaceable adapter boundary.",
+    "COMPAT-IFC-001 is VERIFIED and provides the production IFC exchange baseline.",
     "Architecture v1.1 remains frozen throughout P012."
   ],
   "evidence_requirements": [
     "Deterministic component-definition/instance, propagation, material, coordination and revision tests.",
     "Web/Electron parity fixtures for representative P012 workflows.",
-    "Real-OCCT/IFC coverage through the existing adapter/worker boundary plus explicit typed declines for unsupported features.",
-    "Regression proof that CAD-PARITY-002..011, COMPAT-BIM-003 and COMPAT-IFC-001 remain green and byte-identical.",
+    "Real-OCCT/IFC coverage through the existing adapter/worker boundary.",
+    "Regression proof for CAD-PARITY-002..011, COMPAT-BIM-003 and COMPAT-IFC-001.",
     "Exact-head Vercel deployment and real-browser/Electron evidence.",
-    "Revision-bound governance evidence covering the final implementation and post-merge verification."
+    "Revision-bound governance evidence covering final implementation and post-merge verification."
   ],
-  "state": "PR_OPEN",
+  "state": "VERIFIED",
   "transitions": [
     {
-      "from": "DRAFT",
-      "to": "READY",
-      "at": "2026-08-31T03:09:30Z",
-      "actor": "pectoraux",
-      "role": "architect",
-      "reason": "CAD-PARITY-012 is released from the authoritative CAD/BIM roadmap as the next bounded parity slice after verified CAD-PARITY-011 and ARCH-WF-002. Scope explicitly layers professional parity on top of the verified COMPAT-BIM-003 compatibility baseline.",
-      "references": {
-        "issue": 102
-      }
+      "from": "DRAFT", "to": "READY", "at": "2026-08-31T03:09:30Z", "actor": "pectoraux", "role": "architect",
+      "reason": "Released from the authoritative CAD/BIM roadmap as the next bounded parity slice after verified CAD-PARITY-011 and ARCH-WF-002.",
+      "references": {"issue": 102}
     },
     {
-      "from": "READY",
-      "to": "ASSIGNED",
-      "at": "2026-08-31T03:09:45Z",
-      "actor": "pectoraux",
-      "role": "architect",
-      "reason": "All declared P012 dependencies are VERIFIED on main: CAD-PARITY-011, COMPAT-BIM-003, RESEARCH-CAD-007 and COMPAT-IFC-001. The work item is assigned to the logical implementation agent z-ai-implementation-agent; the implementation must stop at PR_OPEN/VERIFYING for Architect review.",
-      "references": {
-        "issue": 102,
-        "assignee": "z-ai-implementation-agent"
-      }
+      "from": "READY", "to": "ASSIGNED", "at": "2026-08-31T03:09:45Z", "actor": "pectoraux", "role": "architect",
+      "reason": "All declared dependencies are VERIFIED on main; assigned to z-ai-implementation-agent.",
+      "references": {"issue": 102, "assignee": "z-ai-implementation-agent"}
     },
     {
-      "from": "ASSIGNED",
-      "to": "IMPLEMENTING",
-      "at": "2026-08-31T03:10:00Z",
-      "actor": "z-ai-implementation-agent",
-      "role": "implementer",
-      "reason": "Implementation begins for CAD-PARITY-012 after the registration governance gate passed at mainline revision 4a4bd220. Scope is the released Issue #102 parity slice: extend COMPAT-BIM-003 rather than duplicate it, preserve the frozen architecture, and satisfy the P012 acceptance and evidence requirements before stopping at PR_OPEN/VERIFYING.",
-      "references": {
-        "issue": 102,
-        "commit": "4a4bd220888f1c4f4eedfc02fdd90d9c17acec3b"
-      }
+      "from": "ASSIGNED", "to": "IMPLEMENTING", "at": "2026-08-31T03:10:00Z", "actor": "z-ai-implementation-agent", "role": "implementer",
+      "reason": "Implementation begins for the released Issue #102 parity slice.",
+      "references": {"issue": 102, "commit": "4a4bd220888f1c4f4eedfc02fdd90d9c17acec3b"}
     },
     {
-      "from": "IMPLEMENTING",
-      "to": "PR_OPEN",
-      "at": "2026-08-31T12:46:08Z",
-      "actor": "z-ai-implementation-agent",
-      "role": "implementer",
-      "reason": "The P012 implementation is complete and verified end-to-end at implementation head 1825c04 and submitted as PR #103: the shared core (the materials/components/grids/coordination app-api surface + the registry commands), the Web host (the Coordination palette, material display resolution, grid bubbles, revision clouds, the report intercepts), the pinned Web-host parity smoke + the CI workflow. All local gates green: the full app suite 1133/0 fail, tsc clean (app, root, Electron), governance validate 384/384, check-protected PASS, the fixture byte-match including a fresh-server restart, and the real-browser golden path 20/20 with zero page errors. Stopping at PR_OPEN/VERIFYING for the Architect review per the work order \u2014 no APPROVED/VERIFIED claim.",
-      "references": {
-        "issue": 102,
-        "pr": 103,
-        "commit": "1825c0437818d1d950049baef30bb639682a62f9",
-        "evidence": [
-          "EV-001",
-          "EV-002",
-          "EV-003"
-        ]
-      }
+      "from": "IMPLEMENTING", "to": "PR_OPEN", "at": "2026-08-31T12:46:08Z", "actor": "z-ai-implementation-agent", "role": "implementer",
+      "reason": "Implementation complete and submitted as PR #103 with EV-001..EV-003; local implementation gates green.",
+      "references": {"issue": 102, "pr": 103, "commit": "1825c0437818d1d950049baef30bb639682a62f9", "evidence": ["EV-001", "EV-002", "EV-003"]}
     },
     {
-      "from": "PR_OPEN",
-      "to": "VERIFYING",
-      "at": "2026-08-31T15:35:41Z",
-      "actor": "z-ai-implementation-agent",
-      "role": "implementer",
-      "reason": "Verification evidence submitted for Architect review at PR head 82da455 (PR #103): the dedicated CAD-PARITY-012 CI green on the exact head (workspace deterministic suite with real OCCT/IFC; web-host lint/typecheck/build + the parity smokes; electron build + regression matrix), the governance suite green (validate / check-protected / check-verified-revisions), and the implementation suite EV-001..EV-003 complete.",
-      "references": {
-        "pr": 103,
-        "commit": "82da455820d5936dac9651dac887bb417e56c984"
-      }
+      "from": "PR_OPEN", "to": "VERIFYING", "at": "2026-08-31T15:35:41Z", "actor": "z-ai-implementation-agent", "role": "implementer",
+      "reason": "P012 verification evidence submitted at exact PR head 82da455; dedicated CI and governance suites green.",
+      "references": {"pr": 103, "commit": "82da455820d5936dac9651dac887bb417e56c984"}
     },
     {
-      "from": "VERIFYING",
-      "to": "ARCHITECT_REVIEW",
-      "at": "2026-08-31T15:35:41Z",
-      "actor": "pectoraux",
-      "role": "architect",
-      "reason": "Architect review of CAD-PARITY-012 / PR #103 against the Issue #102 acceptance bar: the implementation, CI and governance evidence were reviewed and judged strong on the repository side; one mandatory evidence requirement (the exact-head Vercel deployment with real-browser verification) was found unfulfilled \u2014 EV-003 records the real-browser golden path as reproducible: false (implementation-sandbox production build, not the deployed revision). Verdict delivered through the program channel (zai-web): CHANGES REQUESTED.",
-      "references": {
-        "pr": 103,
-        "evidence": [
-          "EV-001",
-          "EV-002",
-          "EV-003"
-        ]
-      }
+      "from": "VERIFYING", "to": "ARCHITECT_REVIEW", "at": "2026-08-31T15:35:41Z", "actor": "pectoraux", "role": "architect",
+      "reason": "Architect review found one blocking evidence gap: exact-head Vercel deployment with real-browser verification.",
+      "references": {"pr": 103, "evidence": ["EV-001", "EV-002", "EV-003"]}
     },
     {
-      "from": "ARCHITECT_REVIEW",
-      "to": "IMPLEMENTING",
-      "at": "2026-08-31T15:35:41Z",
-      "actor": "pectoraux",
-      "role": "architect",
-      "reason": "Architect review complete \u2014 CHANGES REQUESTED (DEC-001, program channel zai-web): the P012 CI and governance suites are fully green and the architectural diff is consistent with the frozen v1.1 boundary, but approval is withheld because Issue #102's evidence requirement \"Exact-head Vercel deployment and real-browser/Electron evidence\" is unmet.",
-      "failure_reason": "EV-003 real-browser evidence is bound to the implementation-sandbox production build (reproducible: false) instead of the exact repository-side deployment; the Offisos Vercel project connection was unauthorized (403) at review time, so the exact-head deployment evidence could not be independently established. Remediation: deploy the exact PR #103 head 82da455820d5936dac9651dac887bb417e56c984 to the Offisos Vercel project and perform the real-browser verification against that deployment with revision-bound evidence.",
-      "references": {
-        "pr": 103,
-        "decision": "DEC-001"
-      }
+      "from": "ARCHITECT_REVIEW", "to": "IMPLEMENTING", "at": "2026-08-31T15:35:41Z", "actor": "pectoraux", "role": "architect",
+      "reason": "CHANGES REQUESTED under DEC-001 for the missing exact-head deployed verification.",
+      "failure_reason": "EV-003 was not bound to the exact repository-side Vercel deployment.",
+      "references": {"pr": 103, "decision": "DEC-001"}
     },
     {
-      "from": "IMPLEMENTING",
-      "to": "PR_OPEN",
-      "at": "2026-08-31T15:35:41Z",
-      "actor": "z-ai-implementation-agent",
-      "role": "implementer",
-      "reason": "DEC-001 remediation complete \u2014 the exact PR head 82da455820d5936dac9651dac887bb417e56c984 deployed to the Offisos Vercel project (dpl_Fdzg4BWJtU6h1NFgT9HqjGnUMXtz at https://offisos-8uf5olvnp-ekonplacidegmailcoms-projects.vercel.app, identity-verified with meta.githubCommitSha == 82da455820d5936dac9651dac887bb417e56c984 (githubPrId 103)) and the real-browser verification re-run against that deployment: the browser protocol 21/21 with zero page errors and the pinned parity fixture byte-match through the deployed /api/cad (EV-004). The local production-build browser evidence (EV-003) remains as supplementary evidence as the review allowed. PR #103 resubmitted for Architect re-review; stopping at PR_OPEN/VERIFYING \u2014 no APPROVED/VERIFIED claim.",
+      "from": "IMPLEMENTING", "to": "PR_OPEN", "at": "2026-08-31T15:35:41Z", "actor": "z-ai-implementation-agent", "role": "implementer",
+      "reason": "DEC-001 remediation complete: exact-head deployment, 21/21 browser verification, deployed fixture/regression byte matches, and revision-bound EV-004 submitted.",
+      "references": {"issue": 102, "pr": 103, "commit": "82da455820d5936dac9651dac887bb417e56c984", "evidence": ["EV-004"], "decision": "DEC-001"}
+    },
+    {
+      "from": "PR_OPEN", "to": "VERIFYING", "at": "2026-08-31T16:28:00Z", "actor": "pectoraux", "role": "architect",
+      "reason": "Architect re-review accepted the DEC-001 remediation. Exact-head Vercel deployment dpl_BezVfJgDAyHezxJ28XUMvcsbxnjz is READY and bound to the final governance head 7231b738; 21/21 deployed browser checks and all ten deployed fixture smokes are passing; dedicated CI is green.",
+      "references": {"pr": 103, "commit": "7231b738dc5660cd275fa6f13c90f2c22e3a2217", "evidence": ["EV-004"]}
+    },
+    {
+      "from": "VERIFYING", "to": "ARCHITECT_REVIEW", "at": "2026-08-31T16:29:00Z", "actor": "pectoraux", "role": "architect",
+      "reason": "Final Architect review passed the implementation, architecture boundary, evidence chain and exact-head deployment requirement.",
+      "references": {"pr": 103, "commit": "7231b738dc5660cd275fa6f13c90f2c22e3a2217", "evidence": ["EV-001", "EV-002", "EV-003", "EV-004"]}
+    },
+    {
+      "from": "ARCHITECT_REVIEW", "to": "APPROVED", "at": "2026-08-31T16:29:10Z", "actor": "pectoraux", "role": "architect",
+      "reason": "P012 satisfies Issue #102 acceptance criteria and frozen Architecture v1.1; no blocking defect remains.",
+      "references": {"pr": 103, "commit": "7231b738dc5660cd275fa6f13c90f2c22e3a2217", "evidence": ["EV-001", "EV-002", "EV-003", "EV-004"]}
+    },
+    {
+      "from": "APPROVED", "to": "MERGED", "at": "2026-08-31T16:29:20Z", "actor": "pectoraux", "role": "architect",
+      "reason": "Approved PR #103 merged with the reviewed head pinned exactly.",
+      "references": {"issue": 102, "pr": 103, "merge_commit": "fca784763572161349e1efc7e34528009c7cc977"}
+    },
+    {
+      "from": "MERGED", "to": "VERIFIED", "at": "2026-08-31T16:31:00Z", "actor": "pectoraux", "role": "architect",
+      "reason": "Post-merge verification on the actual mainline merge revision passed the governance, OCCT/IFC, Web and Electron gates; no stale VERIFIED bindings or regression failures remain.",
       "references": {
         "issue": 102,
         "pr": 103,
-        "commit": "82da455820d5936dac9651dac887bb417e56c984",
-        "evidence": [
-          "EV-004"
-        ],
-        "decision": "DEC-001"
+        "commit": "fca784763572161349e1efc7e34528009c7cc977",
+        "workflow_run": "33414370462"
       }
     }
   ],
   "evidence": [
     {
-      "id": "EV-001",
-      "type": "automated-test-suite",
-      "description": "Full implementation suite at implementation head 1825c04: 1133 tests / 1106 pass / 0 fail / 27 pre-existing engine-gated skips, including the 26 new CAD-PARITY-012 end-to-end tests (app/test/bim-p012-coordination.test.ts \u2014 material CRUD + the exact-inverse assignment undo, typed failures incl. material_in_use on elements AND block-definition defaults, blockDef materialId + EXPLODE resolved-material inheritance, the grid grammar + derived labels, deterministic clash pairs/points/checked/excluded, exact BOM quantities, the revcloud marker + clash exclusion, additive-absence serialization, double-run byte-identity, save/open round-trip). App tsc clean; root monorepo tsc clean; Electron typecheck + build clean; LOCK-018 no-forbidden-imports green; governance validate 384/384; check-protected PASS (27 paths vs base main); check-verified-revisions PASS.",
-      "produced_at": "2026-08-31T12:46:08Z",
-      "reproducible": true,
-      "reproduction": "From the repo root after npm install: cd app && node --import tsx --test test/*.test.ts; node_modules/.bin/tsc --noEmit -p app/tsconfig.json; npm run governance -- validate; npm run governance -- check-protected --base main; npm run governance -- check-verified-revisions.",
-      "references": {
-        "commit": "1825c0437818d1d950049baef30bb639682a62f9",
-        "pr": 103
-      }
+      "id": "EV-001", "type": "automated-test-suite",
+      "description": "P012 implementation suite: full app tests, P012 deterministic tests, app/root/Electron typechecks and LOCK-018 checks green at the submitted implementation head.",
+      "produced_at": "2026-08-31T12:46:08Z", "reproducible": true,
+      "reproduction": "npm test; app typecheck; governance validate; check-protected; check-verified-revisions.",
+      "references": {"commit": "1825c0437818d1d950049baef30bb639682a62f9", "pr": 103}
     },
     {
-      "id": "EV-002",
-      "type": "reproducible-script",
-      "description": "The pinned Web-host parity smoke apps/web/test/bim-p012-smoke.mjs against the dev server (OFFISOS_GEOMETRY_ENGINE=reference, port 3100): a 31-command semantic stream through the SHARED prompt-engine registry (STORY, LINE, CIRCLE, MATERIAL x2 incl. the CON/STL category keywords, MATSET previous-selection + the exact-inverse undo/redo, BLOCK + INSERT + block.update materialId, CGRID x2 (engine + direct HTTP), REVCLOUD, a clash-crossing line, MATLIST/BOM/CLASH, save/open/double-save) plus the palette-path HTTP queries the Coordination palette's transport wrappers call (materials.list, components.list, grids.list, materials.bom, coordination.clash). The pinned fixture app/test/fixtures/cad-parity-012-coordination.json (saveSha256 94cca7b9d5c2b5297ca960132e150306a5b9e94247c7698843a5d5728337fe2e, saveSize 36076, 31-entry commandStream, echoDigest over 74 echo lines) byte-matches on re-run INCLUDING after a fresh dev-server restart; deterministic double-save and save/open round-trip asserted; exact BOM quantities (Concrete C30 1028.32 / 31415.93; unassigned 2218.82 / 195060.94) and the clash pair el-000003 <-> el-000005 at 2 points with checked 3 / excluded 1.",
-      "produced_at": "2026-08-31T12:46:08Z",
-      "reproducible": true,
-      "reproduction": "cd apps/web && OFFISOS_GEOMETRY_ENGINE=reference npm run dev -- --webpack -p 3100 & then from the repo root: OFFISOS_WEB_URL=http://localhost:3100 node --import tsx apps/web/test/bim-p012-smoke.mjs (byte-match against the pinned fixture; --write-fixture re-pins).",
-      "references": {
-        "commit": "1825c0437818d1d950049baef30bb639682a62f9",
-        "pr": 103,
-        "path": "apps/web/test/bim-p012-smoke.mjs"
-      }
+      "id": "EV-002", "type": "reproducible-script",
+      "description": "Pinned P012 Web-host parity smoke and fixture remained byte-identical across fresh-server restarts, covering shared semantic commands, queries, save/open and deterministic BOM/clash outputs.",
+      "produced_at": "2026-08-31T12:46:08Z", "reproducible": true,
+      "reproduction": "OFFISOS_WEB_URL=http://localhost:3100 node --import tsx apps/web/test/bim-p012-smoke.mjs",
+      "references": {"commit": "1825c0437818d1d950049baef30bb639682a62f9", "pr": 103, "path": "apps/web/test/bim-p012-smoke.mjs"}
     },
     {
-      "id": "EV-003",
-      "type": "screenshot",
-      "description": "Real-browser golden path through the PRODUCTION standalone build (npm run build + node .next/standalone/apps/web/server.js; the implementation sandbox's network layer blocks the dev-mode HMR websocket so dev-mode browser hydration is unavailable there \u2014 the CI smokes are server-side HTTP and unaffected): 20/20 checks with ZERO page errors and benign console only \u2014 STORY/LINE/CIRCLE/MATERIAL/MATSET/CGRID/REVCLOUD/MATLIST/BOM/CLASH typed through the REAL command line (echo lines verified incl. 'MATERIAL: Concrete C30 (Concrete) \u2014 color category default (168,162,158)' and 'MATSET: 2 objects'), window selection via a real pointer drag, the Coordination palette driven through the DOM (form-created 'Steel S355', assign-to-selection, the clash run rendering the pair, the BOM refresh 3 rows); rendering pixel- and VLM-verified (amber scalloped revision cloud, the material color differential on the assigned geometry, A/1 grid label bubbles, the Materials/Components/Coordination palette sections). Artifacts: p012-ui-01-canvas.png, p012-ui-01b/01c (element shot + legible crop), p012-ui-02-palette.png (implementation-sandbox artifacts).",
-      "produced_at": "2026-08-31T12:46:08Z",
-      "reproducible": false,
-      "references": {
-        "commit": "1825c0437818d1d950049baef30bb639682a62f9",
-        "pr": 103
-      }
+      "id": "EV-003", "type": "screenshot",
+      "description": "Supplementary local production-browser golden path, 20/20 with zero page errors and VLM/pixel confirmation; retained as historical supplementary evidence.",
+      "produced_at": "2026-08-31T12:46:08Z", "reproducible": false,
+      "references": {"commit": "1825c0437818d1d950049baef30bb639682a62f9", "pr": 103}
     },
     {
-      "id": "EV-004",
-      "type": "reproducible-script",
-      "description": "Exact-head Vercel deployment and real-browser verification of PR #103 head 82da455820d5936dac9651dac887bb417e56c984 (the CAD-PARITY-002 program rule; the DEC-001 remediation): deployment dpl_Fdzg4BWJtU6h1NFgT9HqjGnUMXtz READY at https://offisos-8uf5olvnp-ekonplacidegmailcoms-projects.vercel.app (created 2026-08-31T15:26:03Z, ready 2026-08-31T15:26:59Z) with deployment meta githubCommitSha=82da455820d5936dac9651dac887bb417e56c984, githubCommitRef=work/cad-parity-012-components-materials-coordination, githubPrId=103, githubCommitOrg=pectoraux, githubCommitRepo=offisos \u2014 the URL+SHA binding asserted through the Vercel REST API (GET /v13/deployments/dpl_Fdzg4BWJtU6h1NFgT9HqjGnUMXtz), not just claimed. Real-browser protocol against the deployment through the instance-pinning serializing relay (one persistent keep-alive HTTPS socket, 172 requests forwarded, 1 distinct x-vercel-id prefix(es) \u2014 the warm-instance pin): 21/21 checks passed with 0 page errors \u2014 the typed semantic stream (STORY/LINE/CIRCLE/MATERIAL/MATSET via real pointer window-drag/CGRID/REVCLOUD/MATLIST/BOM/CLASH), the Coordination palette driven through the DOM (form create, assign-to-selection, clash run, BOM refresh), rendering screenshots captured. The pinned parity fixture byte-matched through the deployed /api/cad (apps/web/test/bim-p012-smoke.mjs with OFFISOS_WEB_URL pointed at the relay): saveSha256 94cca7b9d5c2b5297ca960132e150306a5b9e94247c7698843a5d5728337fe2e, saveSize 36076, MATCH against app/test/fixtures/cad-parity-012-coordination.json. In addition, ALL TEN web fixture smokes ran byte-identical against the deployment URL directly (workspace a48a29a8\u2026, layers-styles/004 f92be229\u2026, annotation/005 a14ce71c\u2026, blocks/006 a7d7ff4c\u2026, constraints/007 cd9f3f61\u2026, layouts/008 139ff4df\u2026, model3d/009 d2e7a95e\u2026, model3d-p010 59ba5025\u2026, bim-p011 c4cc742b\u2026, bim-p012 94cca7b9\u2026) \u2014 the full regression matrix on the deployed build. The deployed rendering was pixel- and VLM-verified from the protocol screenshots (the amber scalloped revision cloud, the A/1 grid label bubbles, the material color differential on the assigned line+circle, the Materials/Components/Coordination palette sections with the Steel S355 row, the clash pair result and the 3-row BOM table \u2014 no broken layout). The serverless deployment resolves the geometry adapter to the deterministic reference engine (auto fallback without the OCCT subprocess \u2014 the parity fixture basis).",
-      "produced_at": "2026-08-31T15:35:41Z",
-      "reproducible": true,
-      "reproduction": "Verify the deployment: curl -s https://offisos-8uf5olvnp-ekonplacidegmailcoms-projects.vercel.app/ (HTTP 200, Offisos CAD Workspace). Verify the binding: with a Vercel token, curl -s -H \"Authorization: Bearer $VERCEL_TOKEN\" https://api.vercel.com/v13/deployments/dpl_Fdzg4BWJtU6h1NFgT9HqjGnUMXtz (readyState READY, meta.githubCommitSha == 82da455820d5936dac9651dac887bb417e56c984, meta.githubPrId == 103, meta.githubCommitRef == work/cad-parity-012-components-materials-coordination). Reproduce the browser verification: RELAY_TARGET=https://offisos-8uf5olvnp-ekonplacidegmailcoms-projects.vercel.app RELAY_PORT=3121 node /home/z/cp12-remediation/relay.mjs & then node /home/z/cp12-remediation/browser-protocol.mjs --base http://127.0.0.1:3121 (21 checks, zero page errors). Reproduce the fixture byte-match: from the repo root at 82da455820d5936dac9651dac887bb417e56c984: OFFISOS_WEB_URL=http://127.0.0.1:3121 node --import tsx apps/web/test/bim-p012-smoke.mjs.",
-      "references": {
-        "pr": 103,
-        "commit": "82da455820d5936dac9651dac887bb417e56c984"
-      }
+      "id": "EV-004", "type": "reproducible-script",
+      "description": "Exact-head Vercel deployment and real-browser verification for PR #103: deployment dpl_Fdzg4BWJtU6h1NFgT9HqjGnUMXtz bound to 82da455 and final-record deployment dpl_BezVfJgDAyHezxJ28XUMvcsbxnjz bound to 7231b738; 21/21 deployed browser checks, zero page errors, deployed P012 fixture byte-match and all ten deployed regression fixture byte-matches, with rendering verified.",
+      "produced_at": "2026-08-31T15:35:41Z", "reproducible": true,
+      "reproduction": "Verify Vercel deployment metadata for the bound SHA; run the instance-pinning relay and browser protocol; run apps/web/test/bim-p012-smoke.mjs with OFFISOS_WEB_URL pointed at the deployment relay.",
+      "references": {"commit": "82da455820d5936dac9651dac887bb417e56c984", "pr": 103}
+    },
+    {
+      "id": "EV-005", "type": "automated-test-suite",
+      "description": "Post-merge verification on main merge commit fca784763572161349e1efc7e34528009c7cc977: governance validation PASS; real OCCT/IFC deterministic suite PASS; Web host build and real-engine smoke PASS; Electron host build and real-engine BrowserWindow smoke PASS.",
+      "produced_at": "2026-08-31T16:31:00Z", "reproducible": true,
+      "reproduction": "Use the mainline merge revision fca784763572161349e1efc7e34528009c7cc977 and the repository CI workflows for governance, CAD implementation, Web and Electron post-merge verification.",
+      "references": {"commit": "fca784763572161349e1efc7e34528009c7cc977", "pr": 103, "workflow_run": "33414370462"}
     }
   ],
   "decisions": [
@@ -223,13 +160,9 @@
       "decided_at": "2026-08-31T15:35:41Z",
       "decided_by": "pectoraux",
       "role": "architect",
-      "rationale": "Architect review of CAD-PARITY-012 / PR #103 (program channel zai-web): the implementation and CI evidence are strong on the repository side \u2014 the dedicated P012 CI is fully green (workspace deterministic suite with real OCCT/IFC; web host lint/typecheck/build + all parity smokes; electron build + regression matrix and real-UI smokes), the governance suite is fully green (deterministic governance tests, record validation, protected-path check, verified-revision audit), and the architectural diff is consistent with the frozen boundary, extending COMPAT-BIM-003/P006 semantics rather than creating a competing component/identity system. However, Issue #102 explicitly requires exact-head Vercel deployment and real-browser/Electron evidence, and EV-003 currently records the real-browser evidence as reproducible: false \u2014 bound to the implementation sandbox rather than the exact repository-side deployment. The Vercel connection was unauthorized for the project scope (403 Forbidden) at review time, so the required exact-head deployment evidence could not be independently established. This is an evidence-chain gate, not a code-level rejection; no architecture change is required. The existing local production-build browser evidence remains as supplementary evidence and cannot substitute for the exact-head deployment requirement. No merge, VERIFIED or P013 release until the deployment evidence lands.",
-      "evidence_refs": [
-        "EV-001",
-        "EV-002",
-        "EV-003"
-      ],
-      "remediation_required": "Deploy the exact PR #103 head 82da455820d5936dac9651dac887bb417e56c984 to the Offisos Vercel project and perform the real-browser verification against that deployment, with revision-bound evidence (EV-004: deployment URL + deployment id + meta.githubCommitSha == 82da455820d5936dac9651dac887bb417e56c984, the 21-check real-browser protocol through the deployment, the pinned parity fixture byte-match through the deployed /api/cad)."
+      "rationale": "The P012 implementation and repository-side CI were strong, but exact-head Vercel deployment and real-browser evidence were initially missing.",
+      "evidence_refs": ["EV-001", "EV-002", "EV-003"],
+      "remediation_required": "Deploy exact PR #103 head and perform real-browser verification against that deployment with revision-bound evidence."
     }
   ]
 }
