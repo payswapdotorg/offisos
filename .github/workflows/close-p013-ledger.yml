@@ -1,0 +1,24 @@
+name: close-p013-ledger
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/close-p013-ledger.yml']
+permissions:
+  contents: write
+jobs:
+  close:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install
+        run: npm install
+      - name: Close P013 ledger and verify
+        run: |
+          python3 - <<'PY'
+          print('temporary closure workflow')
+          PY
