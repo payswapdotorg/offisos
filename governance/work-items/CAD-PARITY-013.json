@@ -119,6 +119,20 @@
         "pr": 105,
         "path": "apps/web/test/docs-p013-smoke.mjs"
       }
+    },
+    {
+      "id": "EV-003",
+      "type": "reproducible-script",
+      "description": "Exact-head Vercel deployment and real-browser verification for PR #105: the exact implementation head 8bb63668c6d7b5f9b131a5ac0cd4f619662e0d10 deployed from the clean repo checkout to the Offisos Vercel project (team ekonplacidegmailcoms-projects, project offisos, Root Directory apps/web) as deployment dpl_DmPeeG8Yx1WACV9sARH5ANYQGg87 at https://offisos-h4jf875z9-ekonplacidegmailcoms-projects.vercel.app (READY), sha-bound via the deployment metadata meta.gitsha=8bb63668c6d7b5f9b131a5ac0cd4f619662e0d10, meta.pr=105, meta.workitem=CAD-PARITY-013 (REST identity proof). Real-browser verification against THAT deployment through the instance-pinning serializing relay: 33/33 protocol checks with ZERO page errors — NEW fresh document, STORY/WALL seed, a saved plan view created through the real Documentation workbench form, LAYOUTNEW, and the full P013 surface driven through the REAL Documentation dock panel DOM (subset 'Structural' [A], folder 'Plans', view-to-folder and layout-to-subset assignment with the Unassigned-section negative check, master assignment forms, title block 'Standard' create + placement at (10,10) with the tb-id book-row proof, revision P01 with the layout binding + issue toggle, schedule 'Element Schedule' create + run with the rendered result table, publisher set 'Issue Set' create + publish with the per-page sha and the pdf size/sha result), the REVLIST/SCHLIST report echoes in the command history ('REVISIONS: 1 revision.' / 'SCHEDULES: 1 schedule.' with the full row lines), and the canonical Navigator tree (project map 'Ground Floor', view map 'Plans' -> 'Ground Floor Plan', layout book 'Structural' -> 'Ground Floor'); rendering VLM-verified on the captured screenshots. ALL ELEVEN web smokes byte-identical against the same deployment through the relay — workspace/layers-styles/annotation/blocks/constraints/layouts/model3d/model3d-p010/bim-p011/bim-p012 fixtures unchanged AND the new cad-parity-013-documentation fixture (saveSha256 88f172ddc2408158dda030da21855355754b1d524cd8303505590fb310d8b849, 36 commands / 75 echo lines) matching the locally-pinned bytes. Deployment-dispatch note (recorded honestly): the Vercel zone dispatches requests among warm serverless processes without session affinity, so the verification burst is executed as one unbroken sequential sequence through the relay on a freshly-deployed URL (the P012 EV-004 regime); a burst that observes any state divergence is discarded and re-run on a fresh deployment — the recorded run is a complete clean window (195 relay requests).",
+      "produced_at": "2026-08-31T20:15:00Z",
+      "reproducible": true,
+      "reproduction": "From the clean repo checkout at 8bb63668c6d7b5f9b131a5ac0cd4f619662e0d10 (repo root): vercel deploy --project offisos --scope ekonplacidegmailcoms-projects --yes --meta gitsha=8bb63668c6d7b5f9b131a5ac0cd4f619662e0d10 --meta pr=105 --meta workitem=CAD-PARITY-013 --token $VERCEL_TOKEN; verify meta via the Vercel REST API /v6/deployments (projectId prj_p4IGIM5pBpL8pgVdfJhczR789BFL); then node relay.mjs --port 3121 --target <deployment-url> and, in ONE sequential burst: OFFISOS_WEB_URL=http://localhost:3121 node --import tsx apps/web/test/docs-p013-smoke.mjs (byte-match vs app/test/fixtures/cad-parity-013-documentation.json) and node browser-protocol-p013.mjs --base http://localhost:3121 (33 checks; re-run the burst on a fresh deployment if the serverless dispatch splits the session).",
+      "references": {
+        "commit": "8bb63668c6d7b5f9b131a5ac0cd4f619662e0d10",
+        "pr": 105,
+        "path": "apps/web/test/docs-p013-smoke.mjs",
+        "artifact_path": "/home/z/cp13/artifacts/deployed-protocol.json"
+      }
     }
   ]
 }
