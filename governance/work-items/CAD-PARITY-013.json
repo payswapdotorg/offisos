@@ -49,7 +49,7 @@
     "Exact-head Vercel deployment plus real-browser/Electron evidence.",
     "Revision-bound governance evidence covering implementation, merge and post-merge verification."
   ],
-  "state": "PR_OPEN",
+  "state": "IMPLEMENTING",
   "transitions": [
     {
       "from": "DRAFT",
@@ -92,6 +92,52 @@
       "references": {
         "pr": 105
       }
+    },
+    {
+      "from": "PR_OPEN",
+      "to": "VERIFYING",
+      "at": "2026-08-31T20:45:00Z",
+      "actor": "z-ai-implementation-agent",
+      "role": "implementer",
+      "reason": "Verification submitted at the exact final record head 08b8e64: the revision-bound evidence package is complete (EV-001 full app suite 1162/1135/0/27, EV-002 the eleven-smoke byte-identity chain, EV-003 the exact-head Vercel deployment dpl_DmPeeG8Y/dpl_9KUtpJdm with the 33/33 real-browser protocol and zero page errors) and CI on that head completed as 64 check runs: 63 SUCCESS plus the single governance.yml failure — disclosed as the inherited mainline CAD-PARITY-012 ledger defect (proven identical on pristine main), not a P013 implementation failure.",
+      "references": {
+        "pr": 105,
+        "commit": "08b8e648b193101d8c0eaffcdf9bec9ab581749d",
+        "evidence": [
+          "EV-001",
+          "EV-002",
+          "EV-003"
+        ]
+      }
+    },
+    {
+      "from": "VERIFYING",
+      "to": "ARCHITECT_REVIEW",
+      "at": "2026-08-31T20:52:00Z",
+      "actor": "pectoraux",
+      "role": "architect",
+      "reason": "The evidence package is complete and independently checked by the Architect: the dedicated cad-parity-013 workflow PASSES, the broader regression matrix PASSES, exact-head deployment/browser evidence is recorded, protected paths PASS, verified-revision audit PASS — but the repository-wide governance workflow is RED on the exact head (the inherited P012 ledger problem), so the review proceeds on that basis.",
+      "references": {
+        "pr": 105,
+        "evidence": [
+          "EV-001",
+          "EV-002",
+          "EV-003"
+        ]
+      }
+    },
+    {
+      "from": "ARCHITECT_REVIEW",
+      "to": "IMPLEMENTING",
+      "at": "2026-08-31T20:55:00Z",
+      "actor": "pectoraux",
+      "role": "architect",
+      "reason": "CHANGES REQUESTED (DEC-001): the implementation evidence is strong — the dedicated P013 workflow passes, the regression matrix passes, exact-head deployment/browser evidence is recorded — but the repository-wide governance workflow is red on the exact head 08b8e64 and a red governance gate is not mergeable even though the defect originates in pre-existing P012 mainline state. Remediation ordered: repair P012's invalid governance state through ARCH-WF-002's reconciliation mechanism (not by rewriting the historical merge), repair the stale governance assertion so the repository's expected failure set matches the authoritative reconciled state, then main governance green, P013 integrate/revalidate, and Architect re-review.",
+      "failure_reason": "governance.yml (the repository-wide Governance validation workflow) FAILED on the exact head 08b8e64: the governance suite detects the already-present CAD-PARITY-012 ledger problem that P013 inherited from main — malformed transition references (schema additionalProperties on /transitions/12/references), unauthorized roles (transitions #9 and #12 recorded under the architect role), and a post-DEC-001 merge/verification sequence without the required subsequent approval decision. Not fixable by weakening P013's governance test or a blanket waiver; owner-side governance remediation first.",
+      "references": {
+        "pr": 105,
+        "decision": "DEC-001"
+      }
     }
   ],
   "evidence": [
@@ -133,6 +179,22 @@
         "path": "apps/web/test/docs-p013-smoke.mjs",
         "artifact_path": "/home/z/cp13/artifacts/deployed-protocol.json"
       }
+    }
+  ],
+  "decisions": [
+    {
+      "id": "DEC-001",
+      "status": "changes_requested",
+      "decided_at": "2026-08-31T20:55:00Z",
+      "decided_by": "pectoraux",
+      "role": "architect",
+      "rationale": "Architect decision on CAD-PARITY-013 / PR #105 at head 08b8e64: the P013 work item itself is correctly scoped, its dependencies are satisfied, the dedicated cad-parity-013 workflow passes, the broader regression matrix passes, exact-head deployment/browser evidence is recorded, protected paths PASS and the verified-revision audit PASSES — P013 does not appear to be the source of the governance defect. However the repository-wide governance workflow is red on that exact head (the inherited mainline CAD-PARITY-012 ledger inconsistency: malformed transition references, unauthorized roles, and a post-DEC-001 merge/verification sequence without the required subsequent approval). 'The defect predates P013' does not make a red governance gate acceptable for merging P013. The correct remediation is NOT weakening P013's governance test or adding a blanket waiver: repair P012's invalid governance state through ARCH-WF-002's reconciliation mechanism (not by rewriting the historical merge), and repair the stale governance assertion so the repository's expected failure set matches the authoritative reconciled state, so main governance is green; then P013 integrates/revalidates against the repaired mainline and returns for Architect review.",
+      "evidence_refs": [
+        "EV-001",
+        "EV-002",
+        "EV-003"
+      ],
+      "remediation_required": "Governance remediation first, then P013 re-review: (1) repair CAD-PARITY-012's invalid governance state on main through ARCH-WF-002's reconciliation mechanism — complete the ledger's missing approval decision and required decision references, fix the malformed transition reference, and reconcile the two unauthorized-role violations through an ACR-sanctioned REC record (never rewriting the historical merge); (2) repair the stale governance assertion so the repository's expected failure set matches the authoritative reconciled state; (3) main governance green (validate + the governance test suite); (4) integrate the repaired mainline into PR #105, revalidate (CI + exact-head deployment and real-browser evidence at the new head), and resubmit for Architect review — APPROVED only after every required gate is green."
     }
   ]
 }
