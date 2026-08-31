@@ -1647,3 +1647,518 @@ export function unwrapCoordinationClash(res: CommandQueryResponse): ClashListRes
   }
   return v as ClashListResult;
 }
+
+// --- CAD-PARITY-013 (Issue #104): documentation-production surface ----------
+//
+// Mirror interfaces for the P013 ok-value shapes (defensive optional fields
+// exactly where the server records carry them; the canonical-minimal form
+// omits absent optionals entirely — the P012 MaterialListRow precedent).
+
+/** A navigator tree node (`nav-NNNNNN`): ONE kind-tagged tree serving both
+ *  documentation maps — `folder` nodes form the View Map, `subset` nodes
+ *  form the Layout Book. */
+export interface NavigatorNodeRecord {
+  readonly id: string;
+  readonly kind: "folder" | "subset";
+  readonly name: string;
+  readonly parentId: string | null;
+  readonly order: number;
+  /** Subset-only: the sheet-number prefix (e.g. "A"). */
+  readonly prefix?: string;
+  /** Subset-only: the sheet-numbering mode. */
+  readonly numbering?: "none" | "custom";
+  /** Subset-only: required iff numbering === "custom" (e.g. "01"). */
+  readonly customNumber?: string;
+}
+
+/** One title-block row field binding (`layoutName`/`sheetNumber`/`revisions`
+ *  resolve derived per layout; `text` carries a literal value). */
+export interface TitleBlockRow {
+  readonly label: string;
+  readonly field: "layoutName" | "sheetNumber" | "revisions" | "text";
+  readonly value?: string;
+}
+
+/** A reusable title-block definition (`tb-NNNNNN`; the name is the unique
+ *  user address). */
+export interface TitleBlockRecord {
+  readonly id: string;
+  readonly name: string;
+  readonly widthMm: number;
+  readonly heightMm: number;
+  readonly rowHeightMm: number;
+  readonly rows: readonly TitleBlockRow[];
+}
+
+/** The schedule source vocabulary (the canonical document state one
+ *  schedule indexes). */
+export type ScheduleSource = "elements" | "components" | "materials" | "views" | "layouts" | "sheets";
+
+/** One schedule column (a closed per-source key vocabulary + user label). */
+export interface ScheduleColumn {
+  readonly key: string;
+  readonly label: string;
+}
+
+/** A saved schedule/index definition (`sch-NNNNNN`; rows are computed fresh
+ *  by schedules.run and NEVER stored). */
+export interface ScheduleRecord {
+  readonly id: string;
+  readonly name: string;
+  readonly source: ScheduleSource;
+  readonly filter?: { readonly type?: string; readonly storyId?: string };
+  readonly columns: readonly ScheduleColumn[];
+}
+
+/** A document revision record (`rev-NNNNNN`; the code is unique). */
+export interface RevisionRecord {
+  readonly id: string;
+  readonly code: string;
+  readonly description: string;
+  readonly issued: boolean;
+  readonly createdAt: string;
+  readonly layoutIds: readonly string[];
+}
+
+/** One publisher set entry: a layout (lo-*) or a Layout Book subset (a
+ *  nav-* subset node) exported in one format. */
+export interface PublisherItem {
+  readonly kind: "layout" | "subset";
+  readonly id: string;
+  readonly format: "pdf" | "svg" | "plot-ir";
+}
+
+/** A saved publisher set (`pub-NNNNNN`; the name is unique). */
+export interface PublisherSetRecord {
+  readonly id: string;
+  readonly name: string;
+  readonly items: readonly PublisherItem[];
+}
+
+/** One `schedules.list` row (the inventory projection, NOT the full record —
+ *  columnCount is the derived count). */
+export interface SchedulesListRow {
+  readonly id: string;
+  readonly name: string;
+  readonly source: ScheduleSource;
+  readonly columnCount: number;
+}
+
+/** One navigator.tree View Map row (a saved view with its fresh content
+ *  hash — `scale`/`contentHash` are absent when unset/unprojectable). */
+export interface NavigatorViewRow {
+  readonly viewId: string;
+  readonly kind: string;
+  readonly title: string;
+  readonly scale?: number;
+  readonly contentHash?: string;
+}
+
+/** One View Map tree branch (a folder node with its filed views and child
+ *  folders — children by (order, id), views in document order). */
+export interface NavigatorViewBranch {
+  readonly node: NavigatorNodeRecord;
+  readonly views: readonly NavigatorViewRow[];
+  readonly children: readonly NavigatorViewBranch[];
+}
+
+/** One navigator.tree Layout Book row (a layout with its DERIVED sheet
+ *  number and revision-code join — `masterId`/`titleBlockId` absent when
+ *  unset). */
+export interface NavigatorLayoutRow {
+  readonly layoutId: string;
+  readonly name: string;
+  readonly sheetNumber: string;
+  readonly masterId?: string;
+  readonly titleBlockId?: string;
+  readonly revisionCodes: readonly string[];
+}
+
+/** One Layout Book tree branch (a subset node with its filed layouts and
+ *  child subsets). */
+export interface NavigatorBookBranch {
+  readonly node: NavigatorNodeRecord;
+  readonly layouts: readonly NavigatorLayoutRow[];
+  readonly children: readonly NavigatorBookBranch[];
+}
+
+/** Response value of `navigator.tree` — the full navigator projection: the
+ *  project map (stories + element counts), the View Map folder tree, the
+ *  Layout Book subset tree (derived sheet numbers) and the publisher-set
+ *  registry. Root-level views/layouts sit in the map roots' arrays. */
+export interface NavigatorTree {
+  readonly projectMap: {
+    readonly stories: readonly {
+      readonly id: string;
+      readonly name: string;
+      readonly level: number;
+      readonly height: number;
+      readonly elementCount: number;
+    }[];
+  };
+  readonly viewMap: {
+    readonly views: readonly NavigatorViewRow[];
+    readonly children: readonly NavigatorViewBranch[];
+  };
+  readonly layoutBook: {
+    readonly layouts: readonly NavigatorLayoutRow[];
+    readonly children: readonly NavigatorBookBranch[];
+  };
+  readonly publisherSets: readonly { readonly id: string; readonly name: string; readonly itemCount: number }[];
+}
+
+/** Response value of `schedules.run` — the FRESH deterministic row
+ *  derivation over the CURRENT canonical state (every cell a string; the
+ *  sha256 over the canonical rows serialization). */
+export interface ScheduleRunResult {
+  readonly schedule: ScheduleRecord;
+  readonly rows: readonly (readonly string[])[];
+  readonly rowCount: number;
+  readonly sha256: string;
+}
+
+/** Response value of `revisions.list` (the revision table, document order). */
+export interface RevisionsListResult {
+  readonly revisions: readonly RevisionRecord[];
+}
+
+/** Response value of `publisher.list` (the publisher-set table, document
+ *  order — the FULL records incl. items). */
+export interface PublisherListResult {
+  readonly publisherSets: readonly PublisherSetRecord[];
+}
+
+/** Response value of `publisher.run` (NON-VERSIONED output automation): the
+ *  deterministic per-page artifacts (sha256 over each page's serialized
+ *  output — the svg string or the canonical IR JSON) + the multi-page PDF
+ *  of the pdf-format pages (absent when the set has no pdf pages). */
+export interface PublisherRunResult {
+  readonly set: { readonly id: string; readonly name: string };
+  readonly pages: readonly {
+    readonly layoutId: string;
+    readonly layoutName: string;
+    readonly format: "pdf" | "svg" | "plot-ir";
+    readonly revisions: readonly string[];
+    readonly sha256: string;
+  }[];
+  readonly pdfSha256?: string;
+  readonly pdfSize?: number;
+}
+
+/** Response value of `docs.exchangeReport` — the typed IFC/documentation
+ *  exchange classification report (the ifc/report.ts classification
+ *  vocabulary over the documentation concepts + the current table counts). */
+export interface DocsExchangeReport {
+  readonly contract: string;
+  readonly classifications: readonly {
+    readonly concept: string;
+    readonly classification: string;
+    readonly note: string;
+  }[];
+  readonly counts: {
+    readonly views: number;
+    readonly sheets: number;
+    readonly layouts: number;
+    readonly titleBlocks: number;
+    readonly schedules: number;
+    readonly revisions: number;
+    readonly publisherSets: number;
+    readonly navigatorNodes: number;
+  };
+}
+
+/** Generic P013 op outcome (navigator.createFolder/createSubset/removeNode,
+ *  titleblock.create/update/remove, schedule.create/update/remove,
+ *  revision.add/update/remove, publisher.create/update/remove, layout.update —
+ *  exactly ONE of the record keys per command, `removed` for the removals,
+ *  `detachedLayouts` for the revision.remove explicit cascade). The ok value
+ *  of every VERSIONED P013 command also carries the post-edit `snapshot`
+ *  (typed `unknown` here — the shell re-reads state through getState). */
+export interface P013OpResult {
+  readonly node?: NavigatorNodeRecord;
+  readonly titleBlock?: TitleBlockRecord;
+  readonly schedule?: ScheduleRecord;
+  readonly revision?: RevisionRecord;
+  readonly publisherSet?: PublisherSetRecord;
+  readonly removed?: string;
+  readonly detachedLayouts?: readonly string[];
+  readonly layoutId?: string;
+  readonly layout?: unknown;
+  readonly snapshot?: unknown;
+}
+
+/** `navigator.createFolder` — add ONE View Map folder (strict payload:
+ *  subset-only fields are rejected, never repaired). */
+export async function navigatorCreateFolder(payload: {
+  name: string;
+  parentId?: string;
+}): Promise<CommandQueryResponse> {
+  return command("navigator.createFolder", payload);
+}
+
+/** `navigator.createSubset` — add ONE Layout Book subset (optional parent
+ *  subset, prefix, numbering none|custom with the counter start). */
+export async function navigatorCreateSubset(payload: {
+  name: string;
+  parentId?: string;
+  prefix?: string;
+  numbering?: "none" | "custom";
+  customNumber?: string;
+}): Promise<CommandQueryResponse> {
+  return command("navigator.createSubset", payload);
+}
+
+/** `navigator.removeNode` — gated removal (children, view folderId refs,
+ *  layout subsetId refs, publisher subset items — navigator_in_use). */
+export async function navigatorRemoveNode(id: string): Promise<CommandQueryResponse> {
+  return command("navigator.removeNode", { id });
+}
+
+/** `titleblock.create` — add ONE reusable title-block definition (the row
+ *  field grammar; the name is unique). */
+export async function titleblockCreate(payload: {
+  name: string;
+  widthMm: number;
+  heightMm: number;
+  rowHeightMm: number;
+  rows: readonly TitleBlockRow[];
+}): Promise<CommandQueryResponse> {
+  return command("titleblock.create", payload);
+}
+
+/** `titleblock.update` — whitelisted patch (name kept unique). */
+export async function titleblockUpdate(
+  id: string,
+  patch: Record<string, unknown>,
+): Promise<CommandQueryResponse> {
+  return command("titleblock.update", { id, patch });
+}
+
+/** `titleblock.remove` — gated (layout placements reference it). */
+export async function titleblockRemove(id: string): Promise<CommandQueryResponse> {
+  return command("titleblock.remove", { id });
+}
+
+/** `schedule.create` — add ONE schedule/index definition (the closed
+ *  per-source column vocabulary; rows are always derived fresh). */
+export async function scheduleCreate(payload: {
+  name: string;
+  source: ScheduleSource;
+  filter?: { type?: string; storyId?: string };
+  columns: readonly ScheduleColumn[];
+}): Promise<CommandQueryResponse> {
+  return command("schedule.create", payload);
+}
+
+/** `schedule.update` — whitelisted patch (name/source/filter/columns). */
+export async function scheduleUpdate(
+  id: string,
+  patch: Record<string, unknown>,
+): Promise<CommandQueryResponse> {
+  return command("schedule.update", { id, patch });
+}
+
+/** `schedule.remove` — no gates (nothing references a schedule). */
+export async function scheduleRemove(id: string): Promise<CommandQueryResponse> {
+  return command("schedule.remove", { id });
+}
+
+/** `revision.add` — add ONE document revision record (unique code, fixed
+ *  deterministic timestamp; layoutIds must all exist). */
+export async function revisionAdd(payload: {
+  code: string;
+  description?: string;
+  issued?: boolean;
+  layoutIds?: readonly string[];
+}): Promise<CommandQueryResponse> {
+  return command("revision.add", payload);
+}
+
+/** `revision.update` — whitelisted patch (code kept unique; id/createdAt
+ *  immutable). */
+export async function revisionUpdate(
+  id: string,
+  patch: Record<string, unknown>,
+): Promise<CommandQueryResponse> {
+  return command("revision.update", { id, patch });
+}
+
+/** `revision.remove` — strips the reference from every referencing layout in
+ *  the SAME atomic batch (detachedLayouts lists them). */
+export async function revisionRemove(id: string): Promise<CommandQueryResponse> {
+  return command("revision.remove", { id });
+}
+
+/** `publisher.create` — add ONE saved publisher set (targets validated; the
+ *  expanded layout list must contain no duplicate). */
+export async function publisherCreate(payload: {
+  name: string;
+  items: readonly PublisherItem[];
+}): Promise<CommandQueryResponse> {
+  return command("publisher.create", payload);
+}
+
+/** `publisher.update` — whitelisted patch (name/items). */
+export async function publisherUpdate(
+  id: string,
+  patch: Record<string, unknown>,
+): Promise<CommandQueryResponse> {
+  return command("publisher.update", { id, patch });
+}
+
+/** `publisher.remove` — no gates (publisher.run is non-versioned output
+ *  automation; nothing stored references a set). */
+export async function publisherRemove(id: string): Promise<CommandQueryResponse> {
+  return command("publisher.remove", { id });
+}
+
+/** `publisher.run` — NON-VERSIONED output automation (the plot.publish
+ *  precedent — NO snapshot in the ok value): expand the items, build the
+ *  Plot IRs + the multi-page PDF, report the deterministic artifacts. */
+export async function publisherRun(id: string): Promise<CommandQueryResponse> {
+  return command("publisher.run", { id });
+}
+
+/** `layout.update` — the P013 generic layout patch command (subsetId /
+ *  masterId / titleBlockPlacement / revisionIds — null unassigns; the
+ *  layout resolves by id, by name, or falls back to the active layout). */
+export async function layoutUpdate(payload: {
+  id?: string;
+  name?: string;
+  patch: Record<string, unknown>;
+}): Promise<CommandQueryResponse> {
+  return command("layout.update", payload);
+}
+
+/** `docs.updateView` {folderId} — the thin P013 View-Map assignment wrapper
+ *  over the existing docs.updateView patch surface (null unassigns — the
+ *  view files back at the map root). */
+export async function docsUpdateViewFolder(
+  viewId: string,
+  folderId: string | null,
+): Promise<CommandQueryResponse> {
+  return command("docs.updateView", { viewId, patch: { folderId } });
+}
+
+/** `navigator.tree` (query) — the full navigator projection (project map,
+ *  View Map tree, Layout Book tree with derived sheet numbers, publisher
+ *  set registry). */
+export async function navigatorTree(): Promise<CommandQueryResponse> {
+  return query("navigator.tree", {});
+}
+
+/** `schedules.list` (query) — the schedule inventory. */
+export async function schedulesList(): Promise<CommandQueryResponse> {
+  return query("schedules.list", {});
+}
+
+/** `schedules.run` (query) — the FRESH deterministic rows + sha256. */
+export async function schedulesRun(id: string): Promise<CommandQueryResponse> {
+  return query("schedules.run", { id });
+}
+
+/** `revisions.list` (query) — the revision table. */
+export async function revisionsList(): Promise<CommandQueryResponse> {
+  return query("revisions.list", {});
+}
+
+/** `publisher.list` (query) — the publisher-set table (full records). */
+export async function publisherList(): Promise<CommandQueryResponse> {
+  return query("publisher.list", {});
+}
+
+/** `docs.exchangeReport` (query) — the typed IFC/documentation exchange
+ *  classification report. */
+export async function docsExchangeReport(): Promise<CommandQueryResponse> {
+  return query("docs.exchangeReport", {});
+}
+
+/** Extract a P013OpResult from an ok response (defensive, null on mismatch —
+ *  the unwrapP012Op precedent: at least ONE identifying key must be
+ *  present, else the shape is not a P013 op outcome). */
+export function unwrapP013Op(res: CommandQueryResponse): P013OpResult | null {
+  if (!res.ok) return null;
+  const v = res.value as Partial<P013OpResult> | null;
+  if (typeof v !== "object" || v === null) return null;
+  if (
+    v.node === undefined && v.titleBlock === undefined && v.schedule === undefined &&
+    v.revision === undefined && v.publisherSet === undefined && v.removed === undefined &&
+    v.layoutId === undefined
+  ) {
+    return null;
+  }
+  return v as P013OpResult;
+}
+
+/** Extract a NavigatorTree from a navigator.tree ok response (null on any
+ *  shape mismatch — the panel keeps its loading fallback). */
+export function unwrapNavigatorTree(res: CommandQueryResponse): NavigatorTree | null {
+  if (!res.ok) return null;
+  const v = res.value as Partial<NavigatorTree> | null;
+  if (
+    typeof v !== "object" || v === null ||
+    typeof v.projectMap !== "object" || v.projectMap === null || !Array.isArray(v.projectMap.stories) ||
+    typeof v.viewMap !== "object" || v.viewMap === null || !Array.isArray(v.viewMap.views) || !Array.isArray(v.viewMap.children) ||
+    typeof v.layoutBook !== "object" || v.layoutBook === null || !Array.isArray(v.layoutBook.layouts) || !Array.isArray(v.layoutBook.children) ||
+    !Array.isArray(v.publisherSets)
+  ) {
+    return null;
+  }
+  return v as NavigatorTree;
+}
+
+/** Extract the SchedulesListRow[] from a schedules.list ok response. */
+export function unwrapSchedulesList(res: CommandQueryResponse): SchedulesListRow[] | null {
+  if (!res.ok) return null;
+  const v = res.value as { schedules?: unknown } | null;
+  if (typeof v !== "object" || v === null || !Array.isArray(v.schedules)) return null;
+  return v.schedules as SchedulesListRow[];
+}
+
+/** Extract a ScheduleRunResult from a schedules.run ok response. */
+export function unwrapScheduleRun(res: CommandQueryResponse): ScheduleRunResult | null {
+  if (!res.ok) return null;
+  const v = res.value as Partial<ScheduleRunResult> | null;
+  if (
+    typeof v !== "object" || v === null ||
+    typeof v.schedule !== "object" || v.schedule === null ||
+    !Array.isArray(v.rows) ||
+    typeof v.rowCount !== "number" ||
+    typeof v.sha256 !== "string"
+  ) {
+    return null;
+  }
+  return v as ScheduleRunResult;
+}
+
+/** Extract the RevisionRecord[] from a revisions.list ok response. */
+export function unwrapRevisionsList(res: CommandQueryResponse): RevisionRecord[] | null {
+  if (!res.ok) return null;
+  const v = res.value as Partial<RevisionsListResult> | null;
+  if (typeof v !== "object" || v === null || !Array.isArray(v.revisions)) return null;
+  return v.revisions as RevisionRecord[];
+}
+
+/** Extract the PublisherSetRecord[] from a publisher.list ok response. */
+export function unwrapPublisherList(res: CommandQueryResponse): PublisherSetRecord[] | null {
+  if (!res.ok) return null;
+  const v = res.value as Partial<PublisherListResult> | null;
+  if (typeof v !== "object" || v === null || !Array.isArray(v.publisherSets)) return null;
+  return v.publisherSets as PublisherSetRecord[];
+}
+
+/** Extract a PublisherRunResult from a publisher.run ok response (the
+ *  NON-VERSIONED run outcome — set + pages, optional pdf artifacts). */
+export function unwrapPublisherRun(res: CommandQueryResponse): PublisherRunResult | null {
+  if (!res.ok) return null;
+  const v = res.value as Partial<PublisherRunResult> | null;
+  if (
+    typeof v !== "object" || v === null ||
+    typeof v.set !== "object" || v.set === null ||
+    typeof v.set.id !== "string" || typeof v.set.name !== "string" ||
+    !Array.isArray(v.pages)
+  ) {
+    return null;
+  }
+  return v as PublisherRunResult;
+}

@@ -36,7 +36,9 @@ import {
   coordinationClash,
   openFromText,
   replayModel,
+  revisionsList,
   save,
+  schedulesList,
   send,
   setSelection as setDocumentSelection,
   unwrapCoordinationClash,
@@ -46,7 +48,9 @@ import {
   unwrapMaterialsBom,
   unwrapMaterialsList,
   unwrapReplay,
+  unwrapRevisionsList,
   unwrapSaveBytes,
+  unwrapSchedulesList,
 } from "@/cad/client/http-transport";
 import { commandById, WORKSPACE_COMMANDS, type WorkspaceCommand } from "@offisos/cad-app-shell/workspace/commands";
 import {
@@ -238,6 +242,18 @@ export function WorkspaceShell(): React.JSX.Element {
       // builders resolve names through it (the SAME document state the
       // App API queries serve; absent parity fields stay absent).
       materials: materialViewsOf(elements),
+      // CAD-PARITY-013 (Issue #104): the documentation-production context
+      // tables — the saved docs views, the navigator nodes (View Map folders
+      // + Layout Book subsets), the title blocks and the publisher sets.
+      // The NAVASSIGN/TITLEPLACE/PUBSET builders resolve names through them
+      // (the SAME document state the App API queries serve; the snapshot's
+      // optional fields are absent-when-empty, so legacy documents pass
+      // empty tables — the additive defaultCommandContext fields keep
+      // legacy contexts valid).
+      docsViews: snapshot?.docsViews ?? [],
+      navigatorNodes: snapshot?.navigatorNodes ?? [],
+      titleBlocks: snapshot?.titleBlocks ?? [],
+      publisherSets: snapshot?.publisherSets ?? [],
     });
   }, [snapshot, selection, activeLayer, activeStoryId]);
 
@@ -388,6 +404,14 @@ export function WorkspaceShell(): React.JSX.Element {
               // clash result and the bill of materials).
               setDockTab("coordination");
               setDockVisible(true);
+            } else if (palette === "documentation" || palette === "schedules") {
+              // CAD-PARITY-013 (Issue #104): REVLIST/SCHLIST — the
+              // Documentation palette (the navigator View Map + Layout Book,
+              // title blocks, revisions, schedules, publisher). The P1
+              // SCHLIST instant command emits palette "schedules" — it maps
+              // onto the same Documentation dock tab (its schedules section).
+              setDockTab("documentation");
+              setDockVisible(true);
             } else if (palette === "workspace") {
               setPreset((p) => (p === "compact" ? "drafting" : "compact"));
             }
@@ -463,6 +487,57 @@ export function WorkspaceShell(): React.JSX.Element {
               setHistoryLines((h) => [...h, ...lines]);
             } catch {
               setHistoryLines((h) => [...h, "*ERROR* report.clash: the query failed."]);
+            }
+            break;
+          }
+          // CAD-PARITY-013 (Issue #104): the report ui actions — the host
+          // intercepts them and renders the REAL query results to the
+          // command-line history (deterministic formatting; failures print
+          // a typed *ERROR* history line, never crash the shell — the
+          // report.matlist precedent).
+          case "report.revisions": {
+            try {
+              const res = await revisionsList();
+              const rows = unwrapRevisionsList(res);
+              if (rows === null) {
+                setHistoryLines((h) => [
+                  ...h,
+                  `*ERROR* report.revisions: ${res.ok ? "unexpected response shape" : `${res.code} — ${res.message}`}`,
+                ]);
+                break;
+              }
+              const lines = [`REVISIONS: ${rows.length} revision${rows.length === 1 ? "" : "s"}.`];
+              for (const row of rows) {
+                lines.push(
+                  `REVISIONS: ${row.code} | ${row.description} | ${row.issued ? "issued" : "draft"} | ${row.layoutIds.length} layout${row.layoutIds.length === 1 ? "" : "s"}.`,
+                );
+              }
+              setHistoryLines((h) => [...h, ...lines]);
+            } catch {
+              setHistoryLines((h) => [...h, "*ERROR* report.revisions: the query failed."]);
+            }
+            break;
+          }
+          case "report.schedule": {
+            try {
+              const res = await schedulesList();
+              const rows = unwrapSchedulesList(res);
+              if (rows === null) {
+                setHistoryLines((h) => [
+                  ...h,
+                  `*ERROR* report.schedule: ${res.ok ? "unexpected response shape" : `${res.code} — ${res.message}`}`,
+                ]);
+                break;
+              }
+              const lines = [`SCHEDULES: ${rows.length} schedule${rows.length === 1 ? "" : "s"}.`];
+              for (const row of rows) {
+                lines.push(
+                  `SCHEDULES: ${row.name} | ${row.source} | ${row.columnCount} column${row.columnCount === 1 ? "" : "s"}.`,
+                );
+              }
+              setHistoryLines((h) => [...h, ...lines]);
+            } catch {
+              setHistoryLines((h) => [...h, "*ERROR* report.schedule: the query failed."]);
             }
             break;
           }
@@ -784,6 +859,12 @@ export function WorkspaceShell(): React.JSX.Element {
         onPreset={applyPreset}
         preset={preset}
         onSearch={() => setPaletteOpen(true)}
+        onShowPalette={(palette) => {
+          // CAD-PARITY-013 (Issue #104): the Documentation panel… menu item —
+          // the palette.show ui-action channel surfaced for the menu.
+          setDockTab(palette);
+          setDockVisible(true);
+        }}
       />
       <Ribbon activeCommand={engineState.commandId} onCommand={startCommand} view={view} onSwitchView={setView} compact={compact} />
 
