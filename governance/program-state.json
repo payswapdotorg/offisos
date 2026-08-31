@@ -59,7 +59,7 @@
     "active_branch": "work/cad-parity-014-file-interoperability",
     "active_state": "ASSIGNED",
     "implementation_head": null,
-    "base_main_revision": "60d5b3d59ec3fca417813ef0cb338fcefacc7c73",
+    "base_main_revision": "d5825e9a7a71f85e2869516ef0467224ada5fe42",
     "blocking_gate": "P014 implementation submission.",
     "blocking_reason": "CAD-PARITY-013 is VERIFIED and CAD-PARITY-014 is registered and assigned. The implementer may now proceed to IMPLEMENTING, then PR_OPEN/VERIFYING for Architect review. No approval or verification is authorized before the complete P014 evidence package is available.",
     "next_after_p013": "CAD-PARITY-014"
