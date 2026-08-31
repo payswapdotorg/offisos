@@ -1,0 +1,79 @@
+{
+  "id": "CAD-PARITY-014",
+  "title": "IFC/BCF/IDS and file interoperability",
+  "issue": 107,
+  "architecture_version": "1.1",
+  "requirements": [
+    "IFC-001"
+  ],
+  "dependencies": [
+    "CAD-PARITY-013",
+    "COMPAT-IFC-001",
+    "COMPAT-CAD-003"
+  ],
+  "objective": "Extend the verified CAD/BIM product with a bounded interoperability layer covering IFC, IDS, BCF, DXF/DWG boundaries, PDF/SVG plotting/export and legally compatible archival formats while preserving ConstructionOS Architecture v1.1.",
+  "acceptance_criteria": [
+    "IFC import/export and round-trip preserve supported canonical semantics, identities/provenance and documentation relationships deterministically.",
+    "IDS validation is explicit, deterministic and reports structured pass/fail results without creating a parallel source of truth.",
+    "BCF issue exchange preserves supported references, viewpoints and source lineage with explicit LOSSY/UNSUPPORTED outcomes where needed.",
+    "DXF/DWG interoperability is implemented only within the approved boundary; unsupported features fail explicitly rather than fabricating semantics.",
+    "PDF/SVG plotting/export produces deterministic artifacts from the existing documentation/plot IR without replacing the renderer architecture.",
+    "Native archival formats are supported only where legally compatible and architecturally bounded.",
+    "Web and Electron share the same interoperability contracts and canonical results.",
+    "Existing CAD-PARITY-002..013, COMPAT-CAD-003 and COMPAT-IFC-001 fixtures remain green and byte-identical unless an explicitly reviewed migration is necessary.",
+    "Real engine/toolchain behavior remains behind the existing adapter/worker boundary.",
+    "The exact final implementation head is CI-verified, deployment-verified where applicable, browser/Electron verified and revision-bound before merge.",
+    "No protected architecture paths are modified."
+  ],
+  "non_goals": [
+    "Full proprietary DWG reverse engineering.",
+    "Replacing the CAD renderer or geometry engine.",
+    "Unbounded format coverage.",
+    "Cloud collaboration infrastructure.",
+    "General automation/API expansion.",
+    "Architecture changes without an ACR."
+  ],
+  "risk_assumptions": [
+    "CAD-PARITY-013 is VERIFIED and is the current documentation-production baseline.",
+    "COMPAT-IFC-001 is VERIFIED and remains the IFC exchange baseline.",
+    "COMPAT-CAD-003 remains available as the compatibility baseline.",
+    "Architecture v1.1 remains frozen throughout P014."
+  ],
+  "evidence_requirements": [
+    "Deterministic IFC/IDS/BCF and supported file-format import/export tests.",
+    "Round-trip fixtures with canonical identity/provenance checks and explicit loss classification.",
+    "Web/Electron semantic parity fixtures for representative interoperability workflows.",
+    "Real OCCT/IFC toolchain evidence through existing adapter/worker boundaries.",
+    "Regression proof that CAD-PARITY-002..013 and compatibility baselines remain green and byte-identical.",
+    "Exact-head deployment plus real-browser/Electron evidence where applicable.",
+    "Revision-bound governance evidence covering implementation, merge and post-merge verification."
+  ],
+  "state": "ASSIGNED",
+  "transitions": [
+    {
+      "from": "DRAFT",
+      "to": "READY",
+      "at": "2026-08-31T23:21:00Z",
+      "actor": "pectoraux",
+      "role": "architect",
+      "reason": "Release CAD-PARITY-014 as the bounded interoperability phase following verified documentation production.",
+      "references": {
+        "issue": 107
+      }
+    },
+    {
+      "from": "READY",
+      "to": "ASSIGNED",
+      "at": "2026-08-31T23:21:15Z",
+      "actor": "pectoraux",
+      "role": "architect",
+      "reason": "All declared P014 dependencies are verified on main. Assign implementation to the logical implementation agent and require stopping at PR_OPEN/VERIFYING for Architect review.",
+      "references": {
+        "issue": 107,
+        "assignee": "z-ai-implementation-agent"
+      }
+    }
+  ],
+  "evidence": [],
+  "decisions": []
+}
