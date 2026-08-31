@@ -3,8 +3,17 @@
   "title": "Components, materials and coordination expansion",
   "issue": 102,
   "architecture_version": "1.1",
-  "requirements": ["BIM-001", "BIM-002", "IFC-001"],
-  "dependencies": ["CAD-PARITY-011", "COMPAT-BIM-003", "RESEARCH-CAD-007", "COMPAT-IFC-001"],
+  "requirements": [
+    "BIM-001",
+    "BIM-002",
+    "IFC-001"
+  ],
+  "dependencies": [
+    "CAD-PARITY-011",
+    "COMPAT-BIM-003",
+    "RESEARCH-CAD-007",
+    "COMPAT-IFC-001"
+  ],
   "objective": "Extend the verified CAD/BIM product from the compatibility-grade reusable components/materials/coordination baseline into a bounded professional parity layer, adding richer component-library semantics, deterministic definition-to-instance propagation, canonical material authoring/assignment, stronger coordination data and parity-grade persistence/exchange while preserving frozen ConstructionOS Architecture v1.1.",
   "acceptance_criteria": [
     "Representative reusable component definitions produce multiple instances with stable canonical definition/instance relationships, extending rather than duplicating COMPAT-BIM-003 semantics.",
@@ -43,7 +52,7 @@
     "Exact-head Vercel deployment and real-browser/Electron evidence.",
     "Revision-bound governance evidence covering the final implementation and post-merge verification."
   ],
-  "state": "IMPLEMENTING",
+  "state": "PR_OPEN",
   "transitions": [
     {
       "from": "DRAFT",
@@ -52,7 +61,9 @@
       "actor": "pectoraux",
       "role": "architect",
       "reason": "CAD-PARITY-012 is released from the authoritative CAD/BIM roadmap as the next bounded parity slice after verified CAD-PARITY-011 and ARCH-WF-002. Scope explicitly layers professional parity on top of the verified COMPAT-BIM-003 compatibility baseline.",
-      "references": {"issue": 102}
+      "references": {
+        "issue": 102
+      }
     },
     {
       "from": "READY",
@@ -61,7 +72,10 @@
       "actor": "pectoraux",
       "role": "architect",
       "reason": "All declared P012 dependencies are VERIFIED on main: CAD-PARITY-011, COMPAT-BIM-003, RESEARCH-CAD-007 and COMPAT-IFC-001. The work item is assigned to the logical implementation agent z-ai-implementation-agent; the implementation must stop at PR_OPEN/VERIFYING for Architect review.",
-      "references": {"issue": 102, "assignee": "z-ai-implementation-agent"}
+      "references": {
+        "issue": 102,
+        "assignee": "z-ai-implementation-agent"
+      }
     },
     {
       "from": "ASSIGNED",
@@ -70,9 +84,67 @@
       "actor": "z-ai-implementation-agent",
       "role": "implementer",
       "reason": "Implementation begins for CAD-PARITY-012 after the registration governance gate passed at mainline revision 4a4bd220. Scope is the released Issue #102 parity slice: extend COMPAT-BIM-003 rather than duplicate it, preserve the frozen architecture, and satisfy the P012 acceptance and evidence requirements before stopping at PR_OPEN/VERIFYING.",
-      "references": {"issue": 102, "commit": "4a4bd220888f1c4f4eedfc02fdd90d9c17acec3b"}
+      "references": {
+        "issue": 102,
+        "commit": "4a4bd220888f1c4f4eedfc02fdd90d9c17acec3b"
+      }
+    },
+    {
+      "from": "IMPLEMENTING",
+      "to": "PR_OPEN",
+      "at": "2026-08-31T12:46:08Z",
+      "actor": "z-ai-implementation-agent",
+      "role": "implementer",
+      "reason": "The P012 implementation is complete and verified end-to-end at implementation head 1825c04 and submitted as PR #103: the shared core (the materials/components/grids/coordination app-api surface + the registry commands), the Web host (the Coordination palette, material display resolution, grid bubbles, revision clouds, the report intercepts), the pinned Web-host parity smoke + the CI workflow. All local gates green: the full app suite 1133/0 fail, tsc clean (app, root, Electron), governance validate 384/384, check-protected PASS, the fixture byte-match including a fresh-server restart, and the real-browser golden path 20/20 with zero page errors. Stopping at PR_OPEN/VERIFYING for the Architect review per the work order — no APPROVED/VERIFIED claim.",
+      "references": {
+        "issue": 102,
+        "pr": 103,
+        "commit": "1825c0437818d1d950049baef30bb639682a62f9",
+        "evidence": [
+          "EV-001",
+          "EV-002",
+          "EV-003"
+        ]
+      }
     }
   ],
-  "evidence": [],
+  "evidence": [
+    {
+      "id": "EV-001",
+      "type": "automated-test-suite",
+      "description": "Full implementation suite at implementation head 1825c04: 1133 tests / 1106 pass / 0 fail / 27 pre-existing engine-gated skips, including the 26 new CAD-PARITY-012 end-to-end tests (app/test/bim-p012-coordination.test.ts — material CRUD + the exact-inverse assignment undo, typed failures incl. material_in_use on elements AND block-definition defaults, blockDef materialId + EXPLODE resolved-material inheritance, the grid grammar + derived labels, deterministic clash pairs/points/checked/excluded, exact BOM quantities, the revcloud marker + clash exclusion, additive-absence serialization, double-run byte-identity, save/open round-trip). App tsc clean; root monorepo tsc clean; Electron typecheck + build clean; LOCK-018 no-forbidden-imports green; governance validate 384/384; check-protected PASS (27 paths vs base main); check-verified-revisions PASS.",
+      "produced_at": "2026-08-31T12:46:08Z",
+      "reproducible": true,
+      "reproduction": "From the repo root after npm install: cd app && node --import tsx --test test/*.test.ts; node_modules/.bin/tsc --noEmit -p app/tsconfig.json; npm run governance -- validate; npm run governance -- check-protected --base main; npm run governance -- check-verified-revisions.",
+      "references": {
+        "commit": "1825c0437818d1d950049baef30bb639682a62f9",
+        "pr": 103
+      }
+    },
+    {
+      "id": "EV-002",
+      "type": "reproducible-script",
+      "description": "The pinned Web-host parity smoke apps/web/test/bim-p012-smoke.mjs against the dev server (OFFISOS_GEOMETRY_ENGINE=reference, port 3100): a 31-command semantic stream through the SHARED prompt-engine registry (STORY, LINE, CIRCLE, MATERIAL x2 incl. the CON/STL category keywords, MATSET previous-selection + the exact-inverse undo/redo, BLOCK + INSERT + block.update materialId, CGRID x2 (engine + direct HTTP), REVCLOUD, a clash-crossing line, MATLIST/BOM/CLASH, save/open/double-save) plus the palette-path HTTP queries the Coordination palette's transport wrappers call (materials.list, components.list, grids.list, materials.bom, coordination.clash). The pinned fixture app/test/fixtures/cad-parity-012-coordination.json (saveSha256 94cca7b9d5c2b5297ca960132e150306a5b9e94247c7698843a5d5728337fe2e, saveSize 36076, 31-entry commandStream, echoDigest over 74 echo lines) byte-matches on re-run INCLUDING after a fresh dev-server restart; deterministic double-save and save/open round-trip asserted; exact BOM quantities (Concrete C30 1028.32 / 31415.93; unassigned 2218.82 / 195060.94) and the clash pair el-000003 <-> el-000005 at 2 points with checked 3 / excluded 1.",
+      "produced_at": "2026-08-31T12:46:08Z",
+      "reproducible": true,
+      "reproduction": "cd apps/web && OFFISOS_GEOMETRY_ENGINE=reference npm run dev -- --webpack -p 3100 & then from the repo root: OFFISOS_WEB_URL=http://localhost:3100 node --import tsx apps/web/test/bim-p012-smoke.mjs (byte-match against the pinned fixture; --write-fixture re-pins).",
+      "references": {
+        "commit": "1825c0437818d1d950049baef30bb639682a62f9",
+        "pr": 103,
+        "path": "apps/web/test/bim-p012-smoke.mjs"
+      }
+    },
+    {
+      "id": "EV-003",
+      "type": "screenshot",
+      "description": "Real-browser golden path through the PRODUCTION standalone build (npm run build + node .next/standalone/apps/web/server.js; the implementation sandbox's network layer blocks the dev-mode HMR websocket so dev-mode browser hydration is unavailable there — the CI smokes are server-side HTTP and unaffected): 20/20 checks with ZERO page errors and benign console only — STORY/LINE/CIRCLE/MATERIAL/MATSET/CGRID/REVCLOUD/MATLIST/BOM/CLASH typed through the REAL command line (echo lines verified incl. 'MATERIAL: Concrete C30 (Concrete) — color category default (168,162,158)' and 'MATSET: 2 objects'), window selection via a real pointer drag, the Coordination palette driven through the DOM (form-created 'Steel S355', assign-to-selection, the clash run rendering the pair, the BOM refresh 3 rows); rendering pixel- and VLM-verified (amber scalloped revision cloud, the material color differential on the assigned geometry, A/1 grid label bubbles, the Materials/Components/Coordination palette sections). Artifacts: p012-ui-01-canvas.png, p012-ui-01b/01c (element shot + legible crop), p012-ui-02-palette.png (implementation-sandbox artifacts).",
+      "produced_at": "2026-08-31T12:46:08Z",
+      "reproducible": false,
+      "references": {
+        "commit": "1825c0437818d1d950049baef30bb639682a62f9",
+        "pr": 103
+      }
+    }
+  ],
   "decisions": []
 }
