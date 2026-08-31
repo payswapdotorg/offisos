@@ -1,0 +1,245 @@
+{
+  "id": "CAD-PARITY-013",
+  "title": "Documentation, Navigator and Layout Book parity",
+  "issue": 104,
+  "architecture_version": "1.1",
+  "requirements": [
+    "BIM-002",
+    "IFC-001"
+  ],
+  "dependencies": [
+    "CAD-PARITY-012",
+    "COMPAT-CAD-003",
+    "COMPAT-IFC-001"
+  ],
+  "objective": "Extend the verified CAD/BIM product into a bounded professional documentation-production layer covering Navigator/project map, saved views, details, sections/elevations, associative documentation, layouts and master layouts, subsets, title blocks, schedules/index presentation, revisions and publisher sets while preserving ConstructionOS Architecture v1.1.",
+  "acceptance_criteria": [
+    "Navigator/project-map records are document-owned, deterministic and persist through save/open/replay with stable canonical identities.",
+    "Representative plan, elevation, section and detail views regenerate deterministically from canonical model state with explicit source/view lineage.",
+    "Associative documentation annotations remain bound to canonical document identities and report typed dangling/source-loss outcomes rather than silently detaching.",
+    "Layouts, master layouts, subsets and title-block placement persist deterministically and produce stable serialized sheet/documentation results.",
+    "Schedules and indexes can present supported model/property data deterministically without introducing a parallel source of truth.",
+    "Revision metadata and publisher sets remain canonical, revision-aware and replay-safe.",
+    "Web and Electron share the same documentation semantic contracts and produce equivalent canonical results for representative workflows.",
+    "IFC/documentation export preserves supported semantics and reports explicit LOSSY/UNSUPPORTED outcomes outside the supported exchange contract.",
+    "Existing CAD-PARITY-002..012, COMPAT-CAD-003 and COMPAT-IFC-001 fixtures remain green and byte-identical unless an explicitly reviewed migration is necessary.",
+    "Real engine behavior remains behind the existing EngineAdapterBundle/worker boundary; no renderer/application engine-internal imports are introduced.",
+    "The exact final implementation head is CI-verified, Vercel-deployed, browser/Electron verified and revision-bound before merge.",
+    "No protected architecture paths are modified."
+  ],
+  "non_goals": [
+    "Full InDesign-style publishing/layout software.",
+    "Unbounded document graphics or freeform page-design tooling.",
+    "Full enterprise print-management infrastructure.",
+    "New renderer architecture or engine-boundary changes.",
+    "General-purpose BIM scheduling/4D/cost planning.",
+    "Architecture changes without an explicit ACR."
+  ],
+  "risk_assumptions": [
+    "CAD-PARITY-012 is VERIFIED and is the current component/material/coordination baseline.",
+    "COMPAT-CAD-003 provides an existing verified documentation compatibility baseline that P013 extends rather than duplicates.",
+    "COMPAT-IFC-001 is VERIFIED and remains the IFC exchange baseline.",
+    "Architecture v1.1 remains frozen throughout P013."
+  ],
+  "evidence_requirements": [
+    "Deterministic view, annotation, layout, master-layout, schedule/index, revision and publisher tests.",
+    "Web/Electron parity fixtures for representative documentation workflows.",
+    "Real-OCCT/IFC coverage where documentation paths depend on model exchange, with typed unsupported outcomes where appropriate.",
+    "Regression proof that CAD-PARITY-002..012, COMPAT-CAD-003 and COMPAT-IFC-001 remain green and byte-identical.",
+    "Exact-head Vercel deployment plus real-browser/Electron evidence.",
+    "Revision-bound governance evidence covering implementation, merge and post-merge verification."
+  ],
+  "state": "VERIFYING",
+  "transitions": [
+    {
+      "from": "DRAFT",
+      "to": "READY",
+      "at": "2026-08-31T16:40:00Z",
+      "actor": "pectoraux",
+      "role": "architect",
+      "reason": "Release CAD-PARITY-013 as the next bounded documentation-production slice from the authoritative CAD/BIM roadmap after CAD-PARITY-012 verification.",
+      "references": {
+        "issue": 104
+      }
+    },
+    {
+      "from": "READY",
+      "to": "ASSIGNED",
+      "at": "2026-08-31T16:40:15Z",
+      "actor": "pectoraux",
+      "role": "architect",
+      "reason": "All declared P013 dependencies are verified on main. Assign the implementation to the logical implementation agent and require stopping at PR_OPEN/VERIFYING for Architect review.",
+      "references": {
+        "issue": 104,
+        "assignee": "z-ai-implementation-agent"
+      }
+    },
+    {
+      "from": "ASSIGNED",
+      "to": "IMPLEMENTING",
+      "at": "2026-08-31T17:12:00Z",
+      "actor": "z-ai-implementation-agent",
+      "role": "implementer",
+      "reason": "Implementation begins for CAD-PARITY-013: the registration record at branch head 4c6502b references Issue #104 and program state on main (fedfe3dd) confirms CAD-PARITY-012 VERIFIED with P013 assigned. Scope is the bounded documentation-production layer per the Issue #104 acceptance contract; the implementation extends the COMPAT-CAD-003 docs baseline and the CAD-PARITY-008 layouts system additively and stops at PR_OPEN/VERIFYING for Architect review."
+    },
+    {
+      "from": "IMPLEMENTING",
+      "to": "PR_OPEN",
+      "at": "2026-08-31T18:20:00Z",
+      "actor": "z-ai-implementation-agent",
+      "role": "implementer",
+      "reason": "The CAD-PARITY-013 implementation is complete and submitted as PR #105 (implementation head 8bb6366: the shared core 896d671, the web host 8c5f637 and the evidence layer 8bb6366). All implementer gates are green — the full app suite (1162/1135/0/27 incl. 29 new P013 tests), the eleven-smoke web chain byte-identical (P002..P012 fixtures unchanged, the new P013 fixture 88f172dd), app+web tsc clean, web lint+build clean, governance validate 393 pass (the 3 failures are the pre-existing owner-side P012-record defects, identical on pristine main), check-protected and check-verified-revisions PASS. Stopping at PR_OPEN/VERIFYING for Architect review per the workflow lock.",
+      "references": {
+        "pr": 105
+      }
+    },
+    {
+      "from": "PR_OPEN",
+      "to": "VERIFYING",
+      "at": "2026-08-31T20:45:00Z",
+      "actor": "z-ai-implementation-agent",
+      "role": "implementer",
+      "reason": "Verification submitted at the exact final record head 08b8e64: the revision-bound evidence package is complete (EV-001 full app suite 1162/1135/0/27, EV-002 the eleven-smoke byte-identity chain, EV-003 the exact-head Vercel deployment dpl_DmPeeG8Y/dpl_9KUtpJdm with the 33/33 real-browser protocol and zero page errors) and CI on that head completed as 64 check runs: 63 SUCCESS plus the single governance.yml failure — disclosed as the inherited mainline CAD-PARITY-012 ledger defect (proven identical on pristine main), not a P013 implementation failure.",
+      "references": {
+        "pr": 105,
+        "commit": "08b8e648b193101d8c0eaffcdf9bec9ab581749d",
+        "evidence": [
+          "EV-001",
+          "EV-002",
+          "EV-003"
+        ]
+      }
+    },
+    {
+      "from": "VERIFYING",
+      "to": "ARCHITECT_REVIEW",
+      "at": "2026-08-31T20:52:00Z",
+      "actor": "pectoraux",
+      "role": "architect",
+      "reason": "The evidence package is complete and independently checked by the Architect: the dedicated cad-parity-013 workflow PASSES, the broader regression matrix PASSES, exact-head deployment/browser evidence is recorded, protected paths PASS, verified-revision audit PASS — but the repository-wide governance workflow is RED on the exact head (the inherited P012 ledger problem), so the review proceeds on that basis.",
+      "references": {
+        "pr": 105,
+        "evidence": [
+          "EV-001",
+          "EV-002",
+          "EV-003"
+        ]
+      }
+    },
+    {
+      "from": "ARCHITECT_REVIEW",
+      "to": "IMPLEMENTING",
+      "at": "2026-08-31T20:55:00Z",
+      "actor": "pectoraux",
+      "role": "architect",
+      "reason": "CHANGES REQUESTED (DEC-001): the implementation evidence is strong — the dedicated P013 workflow passes, the regression matrix passes, exact-head deployment/browser evidence is recorded — but the repository-wide governance workflow is red on the exact head 08b8e64 and a red governance gate is not mergeable even though the defect originates in pre-existing P012 mainline state. Remediation ordered: repair P012's invalid governance state through ARCH-WF-002's reconciliation mechanism (not by rewriting the historical merge), repair the stale governance assertion so the repository's expected failure set matches the authoritative reconciled state, then main governance green, P013 integrate/revalidate, and Architect re-review.",
+      "failure_reason": "governance.yml (the repository-wide Governance validation workflow) FAILED on the exact head 08b8e64: the governance suite detects the already-present CAD-PARITY-012 ledger problem that P013 inherited from main — malformed transition references (schema additionalProperties on /transitions/12/references), unauthorized roles (transitions #9 and #12 recorded under the architect role), and a post-DEC-001 merge/verification sequence without the required subsequent approval decision. Not fixable by weakening P013's governance test or a blanket waiver; owner-side governance remediation first.",
+      "references": {
+        "pr": 105,
+        "decision": "DEC-001"
+      }
+    },
+    {
+      "from": "IMPLEMENTING",
+      "to": "PR_OPEN",
+      "at": "2026-08-31T21:30:00Z",
+      "actor": "z-ai-implementation-agent",
+      "role": "implementer",
+      "reason": "The DEC-001 remediation is complete and PR #105 resubmitted at the integrated head c538bcf (the branch merging the remediated mainline 866f730: the P012 ledger completion 2653a5e, ACR-004 ef866b0->8ec9a0e, REC-CAD-PARITY-012 c8361de->866f730). Main governance is green (validate 391/391; the governance test suite 199/199 — the stale expected-failure assertion repaired to match the authoritative reconciled state; check-verified-revisions PASS). The merged tree revalidates green (validate 402/402 incl. this record's 11 checks; the suite 199/199; check-protected and check-verified-revisions PASS) and the exact merged head is deployed and real-browser verified (EV-004: dpl_9Q87vMjRmX8S sha-bound to c538bcf3; the smoke byte-match 88f172dd + the 33/33 protocol, first attempt clean).",
+      "references": {
+        "pr": 105,
+        "commit": "c538bcf308c028ddb4012b10e743e63d3bbe9111",
+        "evidence": [
+          "EV-004"
+        ],
+        "decision": "DEC-001"
+      }
+    },
+    {
+      "from": "PR_OPEN",
+      "to": "VERIFYING",
+      "at": "2026-08-31T21:32:00Z",
+      "actor": "z-ai-implementation-agent",
+      "role": "implementer",
+      "reason": "Verification submitted at the integrated head c538bcf: the implementer-side evidence is complete (EV-001..EV-004 — the full app suite, the eleven-smoke byte-identity, the original exact-head deployment, and the remediation + integrated-head deployment verification) and CI is queued on the pushed head where the repository-wide governance workflow is expected GREEN for the first time since the P012 post-merge defects appeared (the remediated mainline is now part of the branch). Stopping at PR_OPEN/VERIFYING for Architect re-review per the workflow lock.",
+      "references": {
+        "pr": 105,
+        "commit": "c538bcf308c028ddb4012b10e743e63d3bbe9111",
+        "evidence": [
+          "EV-004"
+        ]
+      }
+    }
+  ],
+  "evidence": [
+    {
+      "id": "EV-001",
+      "type": "automated-test-suite",
+      "description": "Full implementation suite at implementation head 8bb6366: 1162 tests / 1135 pass / 0 fail / 27 pre-existing environmental skips (baseline 1133/1106/0/27), including the 29 new CAD-PARITY-013 tests — docs-p013-navigator (folders/subsets, cycles, view folderId, layout subsetId, removal gates, tree determinism, save/open stable ids, undo/redo, replay), docs-p013-book (masters incl. single-level enforcement, PLOT-IR master + title-block composition with byte-identity for non-P013 layouts, sheet numbering incl. custom subset numbering, revision lifecycle + gates), docs-p013-schedules (deterministic fresh rows + sha256, canonical-mutation tracking proving no parallel source of truth, ps: property columns, index sources, typed failures), docs-p013-publisher (duplicate-expansion rejection, book-order pages + per-page sha256 + revision codes, stable pdf bytes, exchange-report classification vocabulary), docs-p013-workflow (the representative end-to-end + version-count math + double-save byte-identity) and the 2nd docs-host-parity test (Web/Electron handler convergence on the P013 stream). App tsc clean; web tsc/lint/build clean; no-forbidden-imports green; governance validate 393 pass / 3 pre-existing owner-side P012-record failures (identical on pristine origin/main); check-protected PASS (33 paths vs base main); check-verified-revisions PASS.",
+      "produced_at": "2026-08-31T18:20:00Z",
+      "reproducible": true,
+      "reproduction": "From the repo root after npm install: cd app && node --import tsx --test test/*.test.ts; node_modules/.bin/tsc --noEmit -p app/tsconfig.json; cd apps/web && npx tsc --noEmit && npm run lint && npm run build; npm run governance -- validate; npm run governance -- check-protected --base main; npm run governance -- check-verified-revisions.",
+      "references": {
+        "commit": "8bb63668c6d7b5f9b131a5ac0cd4f619662e0d10",
+        "pr": 105
+      }
+    },
+    {
+      "id": "EV-002",
+      "type": "reproducible-script",
+      "description": "The pinned Web-host parity smoke apps/web/test/docs-p013-smoke.mjs against the dev server (OFFISOS_GEOMETRY_ENGINE=reference, port 3100): a 36-command / 75-echo-line semantic stream through the SHARED prompt-engine registry (NAVFOLDER, SUBSET x2 (none + custom numbering), NAVASSIGN (view->folder and layout->subset), TITLEBLOCK, TITLEPLACE, REVISION x2, REVLIST + SCHLIST instant report commands with their ui-action shapes asserted, SCHEDULE x2, LAYOUTMASTER, PUBSET, PUBLISHBOOK) plus the palette-path direct HTTP commands (navigator.createFolder, docs.updateView folderId, titleblock.create, revision.add + revision.update issued, schedule.create, publisher.create) and the fresh queries (navigator.tree incl. the layoutBook sheetNumbers/masterId/revisionCodes/titleBlockId, schedules.run determinism, revisions.list, publisher.list, docs.exchangeReport). Deterministic double-save, save/open round-trip with stable ids, undo/redo of the revision-update, and the non-versioned publisher.run asserted. The pinned fixture app/test/fixtures/cad-parity-013-documentation.json (saveSha256 88f172ddc2408158dda030da21855355754b1d524cd8303505590fb310d8b849, saveSize 29051, treeSha256 89a1bae9…, scheduleRunSha256 fc08bb82…, publisherRunSha256 48dfb738…, exchangeReportSha256 30a57ce6…, echoDigest e945b1f8…, the 36-entry commandStream) byte-matches on re-run INCLUDING after a fresh dev-server restart; the FULL eleven-smoke regression chain (workspace, layers-styles, annotation, blocks, constraints, layouts, model3d, model3d-p010, bim-p011, bim-p012, docs-p013) is byte-identical — the P012 fixture saveSha256 stays 94cca7b9d5c2b5297ca960132e150306a5b9e94247c7698843a5d5728337fe2e (the byte-identity acceptance criterion for CAD-PARITY-002..012).",
+      "produced_at": "2026-08-31T18:20:00Z",
+      "reproducible": true,
+      "reproduction": "cd apps/web && OFFISOS_GEOMETRY_ENGINE=reference npm run dev -- --webpack -p 3100 & then from the repo root: OFFISOS_WEB_URL=http://localhost:3100 node --import tsx apps/web/test/docs-p013-smoke.mjs (byte-match against the pinned fixture; --write-fixture re-pins). The same command with OFFISOS_WEB_URL=<deployment-url> runs the smoke against an exact-head Vercel deployment.",
+      "references": {
+        "commit": "8bb63668c6d7b5f9b131a5ac0cd4f619662e0d10",
+        "pr": 105,
+        "path": "apps/web/test/docs-p013-smoke.mjs"
+      }
+    },
+    {
+      "id": "EV-003",
+      "type": "reproducible-script",
+      "description": "Exact-head Vercel deployment and real-browser verification for PR #105: the exact implementation head 8bb63668c6d7b5f9b131a5ac0cd4f619662e0d10 deployed from the clean repo checkout to the Offisos Vercel project (team ekonplacidegmailcoms-projects, project offisos, Root Directory apps/web) as deployment dpl_DmPeeG8Yx1WACV9sARH5ANYQGg87 at https://offisos-h4jf875z9-ekonplacidegmailcoms-projects.vercel.app (READY), sha-bound via the deployment metadata meta.gitsha=8bb63668c6d7b5f9b131a5ac0cd4f619662e0d10, meta.pr=105, meta.workitem=CAD-PARITY-013 (REST identity proof). Real-browser verification against THAT deployment through the instance-pinning serializing relay: 33/33 protocol checks with ZERO page errors — NEW fresh document, STORY/WALL seed, a saved plan view created through the real Documentation workbench form, LAYOUTNEW, and the full P013 surface driven through the REAL Documentation dock panel DOM (subset 'Structural' [A], folder 'Plans', view-to-folder and layout-to-subset assignment with the Unassigned-section negative check, master assignment forms, title block 'Standard' create + placement at (10,10) with the tb-id book-row proof, revision P01 with the layout binding + issue toggle, schedule 'Element Schedule' create + run with the rendered result table, publisher set 'Issue Set' create + publish with the per-page sha and the pdf size/sha result), the REVLIST/SCHLIST report echoes in the command history ('REVISIONS: 1 revision.' / 'SCHEDULES: 1 schedule.' with the full row lines), and the canonical Navigator tree (project map 'Ground Floor', view map 'Plans' -> 'Ground Floor Plan', layout book 'Structural' -> 'Ground Floor'); rendering VLM-verified on the captured screenshots. ALL ELEVEN web smokes byte-identical against the same deployment through the relay — workspace/layers-styles/annotation/blocks/constraints/layouts/model3d/model3d-p010/bim-p011/bim-p012 fixtures unchanged AND the new cad-parity-013-documentation fixture (saveSha256 88f172ddc2408158dda030da21855355754b1d524cd8303505590fb310d8b849, 36 commands / 75 echo lines) matching the locally-pinned bytes. Deployment-dispatch note (recorded honestly): the Vercel zone dispatches requests among warm serverless processes without session affinity, so the verification burst is executed as one unbroken sequential sequence through the relay on a freshly-deployed URL (the P012 EV-004 regime); a burst that observes any state divergence is discarded and re-run on a fresh deployment — the recorded run is a complete clean window (195 relay requests).",
+      "produced_at": "2026-08-31T20:15:00Z",
+      "reproducible": true,
+      "reproduction": "From the clean repo checkout at 8bb63668c6d7b5f9b131a5ac0cd4f619662e0d10 (repo root): vercel deploy --project offisos --scope ekonplacidegmailcoms-projects --yes --meta gitsha=8bb63668c6d7b5f9b131a5ac0cd4f619662e0d10 --meta pr=105 --meta workitem=CAD-PARITY-013 --token $VERCEL_TOKEN; verify meta via the Vercel REST API /v6/deployments (projectId prj_p4IGIM5pBpL8pgVdfJhczR789BFL); then node relay.mjs --port 3121 --target <deployment-url> and, in ONE sequential burst: OFFISOS_WEB_URL=http://localhost:3121 node --import tsx apps/web/test/docs-p013-smoke.mjs (byte-match vs app/test/fixtures/cad-parity-013-documentation.json) and node browser-protocol-p013.mjs --base http://localhost:3121 (33 checks; re-run the burst on a fresh deployment if the serverless dispatch splits the session).",
+      "references": {
+        "commit": "8bb63668c6d7b5f9b131a5ac0cd4f619662e0d10",
+        "pr": 105,
+        "path": "apps/web/test/docs-p013-smoke.mjs",
+        "artifact_path": "/home/z/cp13/artifacts/deployed-protocol.json"
+      }
+    },
+    {
+      "id": "EV-004",
+      "type": "reproducible-script",
+      "description": "The CHANGES REQUESTED remediation and the integrated-head revalidation. (1) Owner-side governance remediation landed on main (fedfe3dd..866f730): the CAD-PARITY-012 ledger completion (2653a5e — DEC-002, the approval decision that was performed at ARCHITECT_REVIEW->APPROVED 2026-08-31T16:28:45Z and carried into the PR #103 merge but never recorded, completed at its actual decision time 16:28:40Z with the required decision references on transitions #10/#12 and the schema-invalid workflow_run reference removed), ACR-004 (ef866b0 PROPOSED -> 8ec9a0e APPROVED, sanctioning the reconciliation) and REC-CAD-PARITY-012 (c8361de STAGED -> 866f730 DECIDED, waiving exactly the two verbatim-cited unauthorized-role violations #9/#12). Main governance is GREEN: validate 391/391, the deterministic governance test suite 199/199 (the repo-integration expected-failure assertion now matches the authoritative reconciled state), check-verified-revisions PASS, typecheck clean. (2) The P013 branch integrated the remediated mainline (merge c538bcf — the evidence-preserving form of the rebase: the EV-001..EV-003-referenced implementation commits 896d671/8c5f637/8bb6366 stay resolvable verbatim) and revalidated: on the merged tree governance validate 402/402 including this record's own 11 checks, the governance test suite 199/199, check-protected --base origin/main PASS (no architecture-controlled paths touched), check-verified-revisions PASS, the 28 docs-p013 app tests green. (3) The exact merged head c538bcf308c028ddb4012b10e743e63d3bbe9111 deployed to the Offisos Vercel project as dpl_9Q87vMjRmX8SGYDq6rnvCFVvzWDY at https://offisos-l03igohvr-ekonplacidegmailcoms-projects.vercel.app (READY, sha-bound via meta.gitsha=c538bcf308c028ddb4012b10e743e63d3bbe9111, meta.pr=105, meta.workitem=CAD-PARITY-013 — REST identity proof) and verified in ONE unbroken sequential burst through the instance-pinning serializing relay, first attempt clean: the P013 web smoke byte-identical against the pinned fixture (saveSha256 88f172dd, 36 commands / 75 echo lines) and the 33/33 real-browser protocol with ZERO page errors and benign console (205 relay requests). CI runs on the pushed branch head.",
+      "produced_at": "2026-08-31T21:25:00Z",
+      "reproducible": true,
+      "reproduction": "Governance on main (866f730) and on the merged branch head (c538bcf): npm run governance -- validate; npm test; npm run governance -- check-protected --base origin/main; npm run governance -- check-verified-revisions. Deployment: from the repo root at c538bcf308c028ddb4012b10e743e63d3bbe9111: vercel deploy --project offisos --scope ekonplacidegmailcoms-projects --yes --meta gitsha=c538bcf308c028ddb4012b10e743e63d3bbe9111 --meta pr=105 --meta workitem=CAD-PARITY-013 --token $VERCEL_TOKEN; verify meta via the Vercel REST API /v6/deployments (projectId prj_p4IGIM5pBpL8pgVdfJhczR789BFL); then in ONE sequential burst: node relay.mjs --port 3121 --target <deployment-url> and OFFISOS_WEB_URL=http://localhost:3121 node --import tsx apps/web/test/docs-p013-smoke.mjs (byte-match vs app/test/fixtures/cad-parity-013-documentation.json) plus node browser-protocol-p013.mjs --base http://localhost:3121 (33 checks; re-run on a fresh deployment if the serverless dispatch splits the session).",
+      "references": {
+        "commit": "c538bcf308c028ddb4012b10e743e63d3bbe9111",
+        "pr": 105,
+        "path": "apps/web/test/docs-p013-smoke.mjs",
+        "artifact_path": "/home/z/cp13/remediation/deployed-protocol-merged.json"
+      }
+    }
+  ],
+  "decisions": [
+    {
+      "id": "DEC-001",
+      "status": "changes_requested",
+      "decided_at": "2026-08-31T20:55:00Z",
+      "decided_by": "pectoraux",
+      "role": "architect",
+      "rationale": "Architect decision on CAD-PARITY-013 / PR #105 at head 08b8e64: the P013 work item itself is correctly scoped, its dependencies are satisfied, the dedicated cad-parity-013 workflow passes, the broader regression matrix passes, exact-head deployment/browser evidence is recorded, protected paths PASS and the verified-revision audit PASSES — P013 does not appear to be the source of the governance defect. However the repository-wide governance workflow is red on that exact head (the inherited mainline CAD-PARITY-012 ledger inconsistency: malformed transition references, unauthorized roles, and a post-DEC-001 merge/verification sequence without the required subsequent approval). 'The defect predates P013' does not make a red governance gate acceptable for merging P013. The correct remediation is NOT weakening P013's governance test or adding a blanket waiver: repair P012's invalid governance state through ARCH-WF-002's reconciliation mechanism (not by rewriting the historical merge), and repair the stale governance assertion so the repository's expected failure set matches the authoritative reconciled state, so main governance is green; then P013 integrates/revalidates against the repaired mainline and returns for Architect review.",
+      "evidence_refs": [
+        "EV-001",
+        "EV-002",
+        "EV-003"
+      ],
+      "remediation_required": "Governance remediation first, then P013 re-review: (1) repair CAD-PARITY-012's invalid governance state on main through ARCH-WF-002's reconciliation mechanism — complete the ledger's missing approval decision and required decision references, fix the malformed transition reference, and reconcile the two unauthorized-role violations through an ACR-sanctioned REC record (never rewriting the historical merge); (2) repair the stale governance assertion so the repository's expected failure set matches the authoritative reconciled state; (3) main governance green (validate + the governance test suite); (4) integrate the repaired mainline into PR #105, revalidate (CI + exact-head deployment and real-browser evidence at the new head), and resubmit for Architect review — APPROVED only after every required gate is green."
+    }
+  ]
+}

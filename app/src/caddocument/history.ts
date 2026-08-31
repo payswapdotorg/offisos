@@ -143,6 +143,17 @@ export interface RecordRevisionInput {
   /** CAD-PARITY-009: the section-plane mint counter after this revision
    *  (never-reused `sp-NNNNNN` identities). */
   readonly nextSectionPlaneSequence?: number;
+  /** CAD-PARITY-013 (Issue #104): the navigator-node mint counter after this
+   *  revision (never-reused `nav-NNNNNN` identities). */
+  readonly nextNavigatorNodeSequence?: number;
+  /** CAD-PARITY-013: the title-block mint counter after this revision. */
+  readonly nextTitleBlockSequence?: number;
+  /** CAD-PARITY-013: the schedule mint counter after this revision. */
+  readonly nextScheduleSequence?: number;
+  /** CAD-PARITY-013: the revision-record mint counter after this revision. */
+  readonly nextRevisionSequence?: number;
+  /** CAD-PARITY-013: the publisher-set mint counter after this revision. */
+  readonly nextPublisherSetSequence?: number;
 }
 
 /** Append one immutable revision to a history (returns a NEW frozen
@@ -176,6 +187,13 @@ export function appendRevision(input: RecordRevisionInput): ModelHistory {
   const nextViewport = Math.max(history.next_viewport_sequence ?? 1, input.nextViewportSequence ?? 1);
   const nextUcs = Math.max(history.next_ucs_sequence ?? 1, input.nextUcsSequence ?? 1);
   const nextSectionPlane = Math.max(history.next_section_plane_sequence ?? 1, input.nextSectionPlaneSequence ?? 1);
+  // CAD-PARITY-013 (Issue #104): the documentation-production mint counters
+  // (the same merge-takes-the-max + canonical-minimal contract).
+  const nextNavigatorNode = Math.max(history.next_navigator_node_sequence ?? 1, input.nextNavigatorNodeSequence ?? 1);
+  const nextTitleBlock = Math.max(history.next_title_block_sequence ?? 1, input.nextTitleBlockSequence ?? 1);
+  const nextSchedule = Math.max(history.next_schedule_sequence ?? 1, input.nextScheduleSequence ?? 1);
+  const nextRevision = Math.max(history.next_revision_sequence ?? 1, input.nextRevisionSequence ?? 1);
+  const nextPublisherSet = Math.max(history.next_publisher_set_sequence ?? 1, input.nextPublisherSetSequence ?? 1);
   return deepFreeze({
     entity_id: history.entity_id,
     format: history.format,
@@ -193,6 +211,11 @@ export function appendRevision(input: RecordRevisionInput): ModelHistory {
     ...(nextViewport > 1 ? { next_viewport_sequence: nextViewport } : {}),
     ...(nextUcs > 1 ? { next_ucs_sequence: nextUcs } : {}),
     ...(nextSectionPlane > 1 ? { next_section_plane_sequence: nextSectionPlane } : {}),
+    ...(nextNavigatorNode > 1 ? { next_navigator_node_sequence: nextNavigatorNode } : {}),
+    ...(nextTitleBlock > 1 ? { next_title_block_sequence: nextTitleBlock } : {}),
+    ...(nextSchedule > 1 ? { next_schedule_sequence: nextSchedule } : {}),
+    ...(nextRevision > 1 ? { next_revision_sequence: nextRevision } : {}),
+    ...(nextPublisherSet > 1 ? { next_publisher_set_sequence: nextPublisherSet } : {}),
     revisions: deepFreeze([...history.revisions, revision]),
   });
 }
@@ -542,6 +565,90 @@ export function applyEditToElements(map: Map<string, Element>, edit: DocumentEdi
       if (edit.sectionPlaneId === undefined) throw new Error("replay: removeSectionPlane requires sectionPlaneId");
       break;
     }
+    // CAD-PARITY-013 (Issue #104): the documentation-production tables are
+    // element-set no-ops in replay (the addView/addLayout precedent — the
+    // recorded revision content hashes still converge); the required fields
+    // are validated so a malformed journal entry is REJECTED, never guessed.
+    case "addNavigatorNode": {
+      if (edit.node === undefined) throw new Error("replay: addNavigatorNode requires node");
+      break;
+    }
+    case "updateNavigatorNode": {
+      if (edit.nodeId === undefined || edit.patch === undefined) throw new Error("replay: updateNavigatorNode requires nodeId + patch");
+      break;
+    }
+    case "setNavigatorNodeRecord": {
+      if (edit.nodeId === undefined || edit.node === undefined) throw new Error("replay: setNavigatorNodeRecord requires nodeId + node");
+      break;
+    }
+    case "removeNavigatorNode": {
+      if (edit.nodeId === undefined) throw new Error("replay: removeNavigatorNode requires nodeId");
+      break;
+    }
+    case "addTitleBlock": {
+      if (edit.titleBlock === undefined) throw new Error("replay: addTitleBlock requires titleBlock");
+      break;
+    }
+    case "updateTitleBlock": {
+      if (edit.titleBlockId === undefined || edit.patch === undefined) throw new Error("replay: updateTitleBlock requires titleBlockId + patch");
+      break;
+    }
+    case "setTitleBlockRecord": {
+      if (edit.titleBlockId === undefined || edit.titleBlock === undefined) throw new Error("replay: setTitleBlockRecord requires titleBlockId + titleBlock");
+      break;
+    }
+    case "removeTitleBlock": {
+      if (edit.titleBlockId === undefined) throw new Error("replay: removeTitleBlock requires titleBlockId");
+      break;
+    }
+    case "addSchedule": {
+      if (edit.schedule === undefined) throw new Error("replay: addSchedule requires schedule");
+      break;
+    }
+    case "updateSchedule": {
+      if (edit.scheduleId === undefined || edit.patch === undefined) throw new Error("replay: updateSchedule requires scheduleId + patch");
+      break;
+    }
+    case "setScheduleRecord": {
+      if (edit.scheduleId === undefined || edit.schedule === undefined) throw new Error("replay: setScheduleRecord requires scheduleId + schedule");
+      break;
+    }
+    case "removeSchedule": {
+      if (edit.scheduleId === undefined) throw new Error("replay: removeSchedule requires scheduleId");
+      break;
+    }
+    case "addRevision": {
+      if (edit.revision === undefined) throw new Error("replay: addRevision requires revision");
+      break;
+    }
+    case "updateRevision": {
+      if (edit.revisionId === undefined || edit.patch === undefined) throw new Error("replay: updateRevision requires revisionId + patch");
+      break;
+    }
+    case "setRevisionRecord": {
+      if (edit.revisionId === undefined || edit.revision === undefined) throw new Error("replay: setRevisionRecord requires revisionId + revision");
+      break;
+    }
+    case "removeRevision": {
+      if (edit.revisionId === undefined) throw new Error("replay: removeRevision requires revisionId");
+      break;
+    }
+    case "addPublisherSet": {
+      if (edit.set === undefined) throw new Error("replay: addPublisherSet requires set");
+      break;
+    }
+    case "updatePublisherSet": {
+      if (edit.setId === undefined || edit.patch === undefined) throw new Error("replay: updatePublisherSet requires setId + patch");
+      break;
+    }
+    case "setPublisherSetRecord": {
+      if (edit.setId === undefined || edit.set === undefined) throw new Error("replay: setPublisherSetRecord requires setId + set");
+      break;
+    }
+    case "removePublisherSet": {
+      if (edit.setId === undefined) throw new Error("replay: removePublisherSet requires setId");
+      break;
+    }
     default: {
       const _exhaustive = edit satisfies never;
       throw new Error(`replay: unreachable edit type: ${JSON.stringify(_exhaustive)}`);
@@ -646,7 +753,19 @@ function isValidDocumentEdit(v: unknown): boolean {
     v.type !== "addUcs" && v.type !== "updateUcs" && v.type !== "removeUcs" &&
     v.type !== "setUcsRecord" &&
     v.type !== "addSectionPlane" && v.type !== "updateSectionPlane" && v.type !== "removeSectionPlane" &&
-    v.type !== "setSectionPlaneRecord"
+    v.type !== "setSectionPlaneRecord" &&
+    // CAD-PARITY-013 additive edit types (Issue #104: the navigator,
+    // title-block, schedule, revision and publisher-set tables).
+    v.type !== "addNavigatorNode" && v.type !== "updateNavigatorNode" && v.type !== "removeNavigatorNode" &&
+    v.type !== "setNavigatorNodeRecord" &&
+    v.type !== "addTitleBlock" && v.type !== "updateTitleBlock" && v.type !== "removeTitleBlock" &&
+    v.type !== "setTitleBlockRecord" &&
+    v.type !== "addSchedule" && v.type !== "updateSchedule" && v.type !== "removeSchedule" &&
+    v.type !== "setScheduleRecord" &&
+    v.type !== "addRevision" && v.type !== "updateRevision" && v.type !== "removeRevision" &&
+    v.type !== "setRevisionRecord" &&
+    v.type !== "addPublisherSet" && v.type !== "updatePublisherSet" && v.type !== "removePublisherSet" &&
+    v.type !== "setPublisherSetRecord"
   ) {
     return false;
   }
@@ -671,6 +790,49 @@ function isValidDocumentEdit(v: unknown): boolean {
   }
   if (v.type === "updateSectionPlane" || v.type === "removeSectionPlane") {
     return typeof v.sectionPlaneId === "string" && v.sectionPlaneId.length > 0;
+  }
+  // CAD-PARITY-013 (Issue #104): the documentation-production record shapes
+  // (structural — semantic validation runs at the document boundary through
+  // the shared grammar).
+  if (v.type === "addNavigatorNode" || v.type === "setNavigatorNodeRecord") {
+    if (!isPlainObject(v.node)) return false;
+    const n = v.node as Record<string, unknown>;
+    return typeof n.id === "string" && n.id.length > 0 && (n.kind === "folder" || n.kind === "subset") && typeof n.name === "string";
+  }
+  if (v.type === "updateNavigatorNode" || v.type === "removeNavigatorNode") {
+    return typeof v.nodeId === "string" && v.nodeId.length > 0;
+  }
+  if (v.type === "addTitleBlock" || v.type === "setTitleBlockRecord") {
+    if (!isPlainObject(v.titleBlock)) return false;
+    const tb = v.titleBlock as Record<string, unknown>;
+    return typeof tb.id === "string" && tb.id.length > 0 && typeof tb.name === "string";
+  }
+  if (v.type === "updateTitleBlock" || v.type === "removeTitleBlock") {
+    return typeof v.titleBlockId === "string" && v.titleBlockId.length > 0;
+  }
+  if (v.type === "addSchedule" || v.type === "setScheduleRecord") {
+    if (!isPlainObject(v.schedule)) return false;
+    const s = v.schedule as Record<string, unknown>;
+    return typeof s.id === "string" && s.id.length > 0 && typeof s.name === "string" && typeof s.source === "string";
+  }
+  if (v.type === "updateSchedule" || v.type === "removeSchedule") {
+    return typeof v.scheduleId === "string" && v.scheduleId.length > 0;
+  }
+  if (v.type === "addRevision" || v.type === "setRevisionRecord") {
+    if (!isPlainObject(v.revision)) return false;
+    const rev = v.revision as Record<string, unknown>;
+    return typeof rev.id === "string" && rev.id.length > 0 && typeof rev.code === "string" && typeof rev.issued === "boolean";
+  }
+  if (v.type === "updateRevision" || v.type === "removeRevision") {
+    return typeof v.revisionId === "string" && v.revisionId.length > 0;
+  }
+  if (v.type === "addPublisherSet" || v.type === "setPublisherSetRecord") {
+    if (!isPlainObject(v.set)) return false;
+    const set = v.set as Record<string, unknown>;
+    return typeof set.id === "string" && set.id.length > 0 && typeof set.name === "string" && Array.isArray(set.items);
+  }
+  if (v.type === "updatePublisherSet" || v.type === "removePublisherSet") {
+    return typeof v.setId === "string" && v.setId.length > 0;
   }
   if (v.type === "applyEdits") {
     return Array.isArray(v.edits) && v.edits.length > 0 && v.edits.every((sub) => isValidDocumentEdit(sub));
@@ -891,6 +1053,23 @@ export function validateModelHistory(history: unknown): asserts history is Model
       history.next_section_plane_sequence < 1)
   ) {
     throw new Error("modelHistory.next_section_plane_sequence must be a positive integer when present");
+  }
+  // CAD-PARITY-013 (Issue #104): the documentation-production mint counters
+  // (optional + positive-integer, the canonical-minimal contract).
+  for (const counter of [
+    "next_navigator_node_sequence",
+    "next_title_block_sequence",
+    "next_schedule_sequence",
+    "next_revision_sequence",
+    "next_publisher_set_sequence",
+  ] as const) {
+    const value = (history as Record<string, unknown>)[counter];
+    if (
+      value !== undefined &&
+      (typeof value !== "number" || !Number.isInteger(value) || (value as number) < 1)
+    ) {
+      throw new Error(`modelHistory.${counter} must be a positive integer when present`);
+    }
   }
   if (!Array.isArray(history.revisions)) throw new Error("modelHistory.revisions must be an array");
   for (const [i, rev] of history.revisions.entries()) {

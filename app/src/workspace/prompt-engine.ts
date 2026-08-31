@@ -27,6 +27,11 @@
 import type { Vec2 } from "../drafting/precision.js";
 import { commandById, resolveCommand, type WorkspaceCommand } from "./commands.js";
 import { resolveTypedDistance, resolveTypedPoint } from "./typed-input.js";
+// CAD-PARITY-013: the option-value helpers live in the CYCLE-FREE
+// prompt-options module (this engine imports the command registry, so a
+// registry module importing THESE helpers from here would create a TDZ
+// cycle); re-exported below so every existing importer is unchanged.
+import { optionValueKey } from "./prompt-options.js";
 import type {
   CommandContext,
   CommandPlan,
@@ -34,6 +39,8 @@ import type {
   PromptStep,
   PromptValue,
 } from "./types.js";
+
+export { optionValue, optionValueKey } from "./prompt-options.js";
 
 // ---------------------------------------------------------------------------
 // State + events.
@@ -71,19 +78,8 @@ export interface OptionCapture {
   readonly defaultValue?: number;
 }
 
-/** Storage key for a collected option value. */
-export function optionValueKey(stepId: string, keyword: string): string {
-  return `opt:${stepId}:${keyword}`;
-}
-
-/** Read a collected option value (null when the option was never used). */
-export function optionValue(
-  values: Readonly<Record<string, PromptValue>>,
-  stepId: string,
-  keyword: string,
-): PromptValue | null {
-  return values[optionValueKey(stepId, keyword)] ?? null;
-}
+// optionValueKey/optionValue: extracted to prompt-options.ts (cycle-free)
+// and re-exported above.
 
 export const IDLE_PROMPT_STATE: PromptEngineState = {
   commandId: null,

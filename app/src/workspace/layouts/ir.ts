@@ -43,7 +43,9 @@ import type {
   LayerRecord,
   LayoutRecord,
   LtypeRecord,
+  NavigatorNodeRecord,
   TextStyleRecord,
+  TitleBlockRecord,
   ViewportRecord,
 } from "../../contracts/caddocument.js";
 import { geomFromElement } from "../geometry/bridge.js";
@@ -53,6 +55,10 @@ import { annotationFromElement } from "../annotation/types.js";
 import { annotationPrimitives, annotationStyleContext } from "../annotation/render.js";
 import type { RenderPrimitive } from "../annotation/render.js";
 import { displayOverridesOf, resolveDisplay } from "../standards/index.js";
+// CAD-PARITY-013 (additive, Issue #104): the shared sheet-numbering /
+// revision-code derivations (layouts/book.ts — pure, contracts-only; no
+// cycle: book imports contracts types only).
+import { revisionCodesOf, sheetNumberOf } from "./book.js";
 import { orientedSheetSize, parsePlotScale, printableArea, type SheetRect } from "./paper.js";
 import {
   bboxIntersectsRect,
@@ -167,6 +173,20 @@ export interface PlotIRInput {
   readonly textStyles: readonly TextStyleRecord[];
   readonly dimStyles: readonly DimStyleRecord[];
   readonly standards?: DrawingStandards;
+  /** CAD-PARITY-013 (additive, Issue #104): the FULL layout table — the
+   *  master-layout composition (a layout with masterId renders the MASTER's
+   *  frame furniture + title-block placement beneath its own content) and
+   *  the deterministic sheet-numbering derivation both resolve through it.
+   *  Absent → no master composition (pre-P013 byte-identical output). */
+  readonly layouts?: readonly LayoutRecord[];
+  /** CAD-PARITY-013: the title-block table (placement rendering). Absent →
+   *  no title-block rendering. */
+  readonly titleBlocks?: readonly TitleBlockRecord[];
+  /** CAD-PARITY-013: the navigator tree (subset custom sheet numbering). */
+  readonly navigatorNodes?: readonly NavigatorNodeRecord[];
+  /** CAD-PARITY-013: the revision table (the "revisions" title-block
+   *  field — id→code resolution). */
+  readonly revisions?: readonly { readonly id: string; readonly code: string }[];
 }
 
 // --- Frame furniture constants (deterministic, documented) -------------------
@@ -177,9 +197,18 @@ const FRAME_DASH: readonly number[] = [2, 1.5, 2, 1.5];
 const VIEWPORT_BORDER_COLOR = "#1f2937";
 const VIEWPORT_BORDER_LOCKED_COLOR = "#b45309";
 const VIEWPORT_BORDER_LINEWEIGHT = 0.18;
+// CAD-PARITY-013 (Issue #104): the placed title-block furniture strokes +
+// text fill (the same furniture vocabulary as the viewport borders —
+// visually furniture, never model geometry).
+const TITLEBLOCK_COLOR = "#1f2937";
+const TITLEBLOCK_LINEWEIGHT = 0.18;
 
 function frameStroke(color: string): PlotStroke {
   return { color, lineweightMm: FRAME_LINEWEIGHT, dashMm: [], alpha: 1 };
+}
+
+function titleBlockStroke(): PlotStroke {
+  return { color: TITLEBLOCK_COLOR, lineweightMm: TITLEBLOCK_LINEWEIGHT, dashMm: [], alpha: 1 };
 }
 
 /** Effective per-layer plot visibility inside one viewport (the layer table
@@ -350,12 +379,90 @@ function projectAnnotationPrimitives(
   return out;
 }
 
+// --- CAD-PARITY-013 (additive, Issue #104): placed title-block rendering -----
+
+/** Render ONE layout's placed title block into paper-space furniture
+ *  primitives (deterministic construction order; [] when no placement
+ *  exists or the title-block table input is absent — pre-P013 layouts stay
+ *  byte-identical). The geometry: an outer frame rect (4 segments) at
+ *  (x, y)-(x+widthMm, y+heightMm); one horizontal rule per internal row
+ *  boundary (rows stack from the TOP of the block, each rowHeightMm high);
+ *  one text primitive per row ("label: value") at the row's left edge,
+ *  vertically centered (hAlign "left", vAlign "middle"), height
+ *  min(4, rowHeightMm * 0.6). Field values resolve DERIVED per layout:
+ *  layoutName → the layout's name; sheetNumber → the shared deterministic
+ *  derivation (subset custom numbering included); revisions → the layout's
+ *  revision codes comma-joined ("-" when none); text → the row's literal
+ *  value. The MASTER's placement resolves against the MASTER record (the
+ *  caller passes the master layout). */
+function titleBlockFrame(
+  layout: LayoutRecord,
+  input: PlotIRInput,
+): PlotPrimitive[] {
+  const placement = layout.titleBlockPlacement;
+  if (placement === undefined || input.titleBlocks === undefined) return [];
+  const block = input.titleBlocks.find((t) => t.id === placement.titleBlockId);
+  if (block === undefined) return [];
+  const stroke = titleBlockStroke();
+  const x = placement.xMm;
+  const y = placement.yMm;
+  const w = block.widthMm;
+  const h = block.heightMm;
+  const out: PlotPrimitive[] = [];
+  // Outer frame rect (4 segments — the sheet-boundary construction order).
+  out.push(
+    { kind: "segment", a: { x, y }, b: { x: x + w, y }, stroke },
+    { kind: "segment", a: { x: x + w, y }, b: { x: x + w, y: y + h }, stroke },
+    { kind: "segment", a: { x: x + w, y: y + h }, b: { x, y: y + h }, stroke },
+    { kind: "segment", a: { x, y: y + h }, b: { x, y }, stroke },
+  );
+  // One horizontal rule per internal row boundary (rows stack from the top).
+  for (let i = 1; i < block.rows.length; i++) {
+    const ruleY = y + h - i * block.rowHeightMm;
+    out.push({ kind: "segment", a: { x, y: ruleY }, b: { x: x + w, y: ruleY }, stroke });
+  }
+  // One text primitive per row ("label: value"), left-aligned at the row's
+  // left edge, vertically centered in the row band.
+  const revisionCodes = revisionCodesOf(layout, input.revisions ?? []);
+  const textHeight = Math.min(4, block.rowHeightMm * 0.6);
+  for (let i = 0; i < block.rows.length; i++) {
+    const row = block.rows[i]!;
+    const value =
+      row.field === "layoutName" ? layout.name :
+      row.field === "sheetNumber" ? sheetNumberOf(layout, input.navigatorNodes ?? [], input.layouts ?? [layout]) :
+      row.field === "revisions" ? (revisionCodes.length > 0 ? revisionCodes.join(",") : "-") :
+      row.value;
+    const cy = y + h - i * block.rowHeightMm - block.rowHeightMm / 2;
+    out.push({
+      kind: "text",
+      at: { x, y: cy },
+      value: `${row.label}: ${value}`,
+      height: textHeight,
+      rotation: 0,
+      font: "sans",
+      widthFactor: 1,
+      oblique: 0,
+      hAlign: "left",
+      vAlign: "middle",
+      fill: TITLEBLOCK_COLOR,
+    });
+  }
+  return out;
+}
+
 /** Build the Plot IR for one layout against the CURRENT document state.
  *  Deterministic: the same inputs produce the byte-identical IR (canonical
  *  serialization + hashing live at the App API layer — this module stays
  *  crypto-free for the browser bundle). */
 export function buildPlotIR(input: PlotIRInput): PlotIR {
   const { layout } = input;
+  // CAD-PARITY-013: resolve the layout's MASTER (single-level — the document
+  // validators guarantee existence; the pure builder skips composition when
+  // the field is absent OR the table input is missing — additive-only).
+  const master =
+    layout.masterId !== undefined && input.layouts !== undefined
+      ? input.layouts.find((l) => l.id === layout.masterId)
+      : undefined;
   const sheet = orientedSheetSize(layout.pageSetup);
   const printable = printableArea(layout.pageSetup);
   const scale = parsePlotScale(layout.pageSetup.plotScale);
@@ -388,7 +495,33 @@ export function buildPlotIR(input: PlotIRInput): PlotIR {
   }
 
   // Frame furniture: the sheet boundary + the printable-area frame (dashed).
+  // CAD-PARITY-013 master composition: the MASTER's frame furniture + its
+  // title-block placement render BENEATH the layout's own furniture/content
+  // (master first in the primitive order; masters contribute furniture +
+  // title-block placement ONLY — never viewports, never setup: the layout's
+  // own PageSetup/sheet/plot policy always win above).
   const frame: PlotPrimitive[] = [];
+  if (master !== undefined) {
+    const masterSheet = orientedSheetSize(master.pageSetup);
+    const masterPrintable = printableArea(master.pageSetup);
+    const masterSheetStroke = frameStroke(FRAME_COLOR);
+    frame.push(
+      { kind: "segment", a: { x: 0, y: 0 }, b: { x: masterSheet.widthMm, y: 0 }, stroke: masterSheetStroke },
+      { kind: "segment", a: { x: masterSheet.widthMm, y: 0 }, b: { x: masterSheet.widthMm, y: masterSheet.heightMm }, stroke: masterSheetStroke },
+      { kind: "segment", a: { x: masterSheet.widthMm, y: masterSheet.heightMm }, b: { x: 0, y: masterSheet.heightMm }, stroke: masterSheetStroke },
+      { kind: "segment", a: { x: 0, y: masterSheet.heightMm }, b: { x: 0, y: 0 }, stroke: masterSheetStroke },
+    );
+    const masterPrintableStroke: PlotStroke = { color: FRAME_COLOR, lineweightMm: FRAME_LINEWEIGHT, dashMm: FRAME_DASH, alpha: 1 };
+    frame.push(
+      { kind: "segment", a: { x: masterPrintable.x, y: masterPrintable.y }, b: { x: masterPrintable.x + masterPrintable.w, y: masterPrintable.y }, stroke: masterPrintableStroke },
+      { kind: "segment", a: { x: masterPrintable.x + masterPrintable.w, y: masterPrintable.y }, b: { x: masterPrintable.x + masterPrintable.w, y: masterPrintable.y + masterPrintable.h }, stroke: masterPrintableStroke },
+      { kind: "segment", a: { x: masterPrintable.x + masterPrintable.w, y: masterPrintable.y + masterPrintable.h }, b: { x: masterPrintable.x, y: masterPrintable.y + masterPrintable.h }, stroke: masterPrintableStroke },
+      { kind: "segment", a: { x: masterPrintable.x, y: masterPrintable.y + masterPrintable.h }, b: { x: masterPrintable.x, y: masterPrintable.y }, stroke: masterPrintableStroke },
+    );
+    // The master's own title-block placement (if any) renders beneath the
+    // layout's own content too (frame primitives paint before viewports).
+    frame.push(...titleBlockFrame(master, input));
+  }
   const sheetStroke = frameStroke(FRAME_COLOR);
   frame.push(
     { kind: "segment", a: { x: 0, y: 0 }, b: { x: sheet.widthMm, y: 0 }, stroke: sheetStroke },
@@ -427,6 +560,12 @@ export function buildPlotIR(input: PlotIRInput): PlotIR {
       );
     }
   }
+
+  // CAD-PARITY-013: the layout's OWN title-block placement renders LAST in
+  // the frame (fixed deterministic construction order — master furniture →
+  // layout furniture → viewport borders → layout title block; only happens
+  // when a placement exists, so pre-P013 layouts stay byte-identical).
+  frame.push(...titleBlockFrame(layout, input));
 
   // Per-viewport projected content (table order; later viewports render on
   // top — the deterministic z-order).

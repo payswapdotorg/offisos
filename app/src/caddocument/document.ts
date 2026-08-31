@@ -49,6 +49,14 @@ import type {
   ViewportRecord,
   SectionPlaneRecord,
   UcsRecord,
+  // CAD-PARITY-013 (additive, Issue #104): the documentation production
+  // record tables.
+  NavigatorNodeRecord,
+  PublisherItem,
+  PublisherSetRecord,
+  RevisionRecord,
+  ScheduleRecord,
+  TitleBlockRecord,
 } from "../contracts/caddocument.js";
 import type { ModelHistory } from "../contracts/model.js";
 import { childVersion, rootVersion } from "./versioning.js";
@@ -68,6 +76,11 @@ import {
   applyViewportPatch,
   applySectionPlanePatch,
   applyXrefPatch,
+  applyNavigatorNodePatch,
+  applyPublisherSetPatch,
+  applyRevisionPatch,
+  applySchedulePatch,
+  applyTitleBlockPatch,
   captureLayerState,
   defaultBimSettings,
   defaultDraftingSettings,
@@ -82,6 +95,11 @@ import {
   deriveXrefSequence,
   deriveUcsSequence,
   deriveSectionPlaneSequence,
+  deriveNavigatorNodeSequence,
+  derivePublisherSetSequence,
+  deriveRevisionSequence,
+  deriveScheduleSequence,
+  deriveTitleBlockSequence,
   elementLayerReference,
   validateBimSettings,
   validateBlockDefinitionRecord,
@@ -100,6 +118,11 @@ import {
   validateSectionPlaneTableRecord,
   validateViewportRecord,
   validateXrefRecord,
+  validateNavigatorNodeRecord,
+  validatePublisherSetRecord,
+  validateRevisionRecord,
+  validateScheduleRecord,
+  validateTitleBlockRecord,
 } from "./workspace.js";
 import { assertDefinitionGraph, normalizeBlockEntities, referencedBlockIds } from "../workspace/blocks/types.js";
 import {
@@ -132,6 +155,38 @@ function assertDefinitionGraphSafe(
   entitiesById: ReadonlyMap<string, readonly Record<string, unknown>[]>,
 ): void {
   assertDefinitionGraph(id, entities, (other) => entitiesById.get(other));
+}
+
+/** CAD-PARITY-013: whole-table navigator tree consistency (open-time
+ *  integrity): every non-root parentId must reference a node of the SAME
+ *  kind and no node may be its own ancestor (cycle). A violating tree is
+ *  corrupt, not repairable (LOCK-007). */
+function assertNavigatorTreeConsistent(nodes: readonly NavigatorNodeRecord[]): void {
+  const byId = new Map(nodes.map((n) => [n.id, n]));
+  for (const node of nodes) {
+    if (node.parentId !== null) {
+      const parent = byId.get(node.parentId);
+      if (parent === undefined) {
+        throw new Error(`open: navigator node '${node.id}' references unknown parent '${node.parentId}'`);
+      }
+      if (parent.kind !== node.kind) {
+        throw new Error(
+          `open: navigator node '${node.id}' (${node.kind}) references a '${parent.kind}' parent — parents must share the node kind`,
+        );
+      }
+    }
+  }
+  for (const node of nodes) {
+    const seen = new Set<string>([node.id]);
+    let parentId = node.parentId;
+    while (parentId !== null) {
+      if (seen.has(parentId)) {
+        throw new Error(`open: navigator node '${node.id}' is its own ancestor (parent cycle)`);
+      }
+      seen.add(parentId);
+      parentId = byId.get(parentId)?.parentId ?? null;
+    }
+  }
 }
 
 export class CADDocument {
@@ -228,6 +283,34 @@ export class CADDocument {
   private readonly sectionPlanes: Map<string, SectionPlaneRecord> = new Map();
   /** CAD-PARITY-009: monotonic mint counter for `sp-NNNNNN` identities. */
   private nextSectionPlaneSequence: number;
+  /** CAD-PARITY-013 (Issue #104): the navigator tree (id-keyed, insertion-
+   *  ordered; ONE kind-tagged tree serving the View Map folders and the
+   *  Layout Book subsets; edited ONLY through the DocumentEdit command
+   *  model — one edit = one revision = one undo entry). */
+  private readonly navigatorNodes: Map<string, NavigatorNodeRecord> = new Map();
+  /** CAD-PARITY-013: monotonic mint counter for `nav-NNNNNN` identities. */
+  private nextNavigatorNodeSequence: number;
+  /** CAD-PARITY-013: the reusable title-block definitions (id-keyed,
+   *  insertion-ordered; names unique — the user-facing address). */
+  private readonly titleBlocks: Map<string, TitleBlockRecord> = new Map();
+  /** CAD-PARITY-013: monotonic mint counter for `tb-NNNNNN` identities. */
+  private nextTitleBlockSequence: number;
+  /** CAD-PARITY-013: the saved schedule/index definitions (id-keyed,
+   *  insertion-ordered; names unique; rows are ALWAYS derived fresh,
+   *  never stored — no parallel source of truth). */
+  private readonly schedules: Map<string, ScheduleRecord> = new Map();
+  /** CAD-PARITY-013: monotonic mint counter for `sch-NNNNNN` identities. */
+  private nextScheduleSequence: number;
+  /** CAD-PARITY-013: the document revision records (id-keyed, insertion-
+   *  ordered; codes unique — the user-facing address). */
+  private readonly revisions: Map<string, RevisionRecord> = new Map();
+  /** CAD-PARITY-013: monotonic mint counter for `rev-NNNNNN` identities. */
+  private nextRevisionSequence: number;
+  /** CAD-PARITY-013: the saved publisher sets (id-keyed, insertion-ordered;
+   *  names unique; publisher.run is non-versioned output automation). */
+  private readonly publisherSets: Map<string, PublisherSetRecord> = new Map();
+  /** CAD-PARITY-013: monotonic mint counter for `pub-NNNNNN` identities. */
+  private nextPublisherSetSequence: number;
   /** Ephemeral editor selection (§5.4 editor state). Orthogonal to the
    *  versioned document content: it is NOT in the version-id derivation and
    *  NOT in the parity content hash (§5.5). Since COMPAT-CAD-001 it IS
@@ -273,6 +356,16 @@ export class CADDocument {
     nextUcsSequence: number,
     sectionPlanes: Iterable<SectionPlaneRecord>,
     nextSectionPlaneSequence: number,
+    navigatorNodes: Iterable<NavigatorNodeRecord>,
+    nextNavigatorNodeSequence: number,
+    titleBlocks: Iterable<TitleBlockRecord>,
+    nextTitleBlockSequence: number,
+    schedules: Iterable<ScheduleRecord>,
+    nextScheduleSequence: number,
+    revisions: Iterable<RevisionRecord>,
+    nextRevisionSequence: number,
+    publisherSets: Iterable<PublisherSetRecord>,
+    nextPublisherSetSequence: number,
   ) {
     this.version = version;
     for (const e of elements) this.elements.set(e.id, e);
@@ -316,6 +409,17 @@ export class CADDocument {
     this.nextUcsSequence = nextUcsSequence;
     for (const sp of sectionPlanes) this.sectionPlanes.set(sp.id, sp);
     this.nextSectionPlaneSequence = nextSectionPlaneSequence;
+    // CAD-PARITY-013: the documentation production tables.
+    for (const n of navigatorNodes) this.navigatorNodes.set(n.id, n);
+    this.nextNavigatorNodeSequence = nextNavigatorNodeSequence;
+    for (const tb of titleBlocks) this.titleBlocks.set(tb.id, tb);
+    this.nextTitleBlockSequence = nextTitleBlockSequence;
+    for (const s of schedules) this.schedules.set(s.id, s);
+    this.nextScheduleSequence = nextScheduleSequence;
+    for (const rev of revisions) this.revisions.set(rev.id, rev);
+    this.nextRevisionSequence = nextRevisionSequence;
+    for (const ps of publisherSets) this.publisherSets.set(ps.id, ps);
+    this.nextPublisherSetSequence = nextPublisherSetSequence;
   }
 
   /** Open a snapshot: load state, set version, clear undo/redo, adopt the
@@ -526,6 +630,154 @@ export class CADDocument {
       delete (repaired as { activeUcs?: string }).activeUcs;
       adoptedSettings = validateDraftingSettings(repaired);
     }
+    // CAD-PARITY-013 (Issue #104): adopt the documentation production tables
+    // when present (validated structurally through the shared grammar,
+    // LOCK-007); a legacy snapshot opens with empty tables (the
+    // additive-feature default, not a repair). Self-contained integrity is
+    // checked here (duplicate ids/names/codes, parent existence + same kind,
+    // no cycles); the CROSS-TABLE reference pass runs below once every
+    // adopted table is available.
+    const navigatorNodeRecords: NavigatorNodeRecord[] = [];
+    const navigatorIds = new Set<string>();
+    for (const n of [...(snapshot.navigatorNodes ?? [])]) {
+      const validated = validateNavigatorNodeRecord(n);
+      if (navigatorIds.has(validated.id)) {
+        throw new Error(`open: duplicate navigator node id '${validated.id}'`);
+      }
+      navigatorIds.add(validated.id);
+      navigatorNodeRecords.push(validated);
+    }
+    assertNavigatorTreeConsistent(navigatorNodeRecords);
+    const titleBlockRecords: TitleBlockRecord[] = [];
+    const titleBlockIds = new Set<string>();
+    const titleBlockNames = new Set<string>();
+    for (const tb of [...(snapshot.titleBlocks ?? [])]) {
+      const validated = validateTitleBlockRecord(tb);
+      if (titleBlockIds.has(validated.id)) {
+        throw new Error(`open: duplicate title block id '${validated.id}'`);
+      }
+      if (titleBlockNames.has(validated.name)) {
+        throw new Error(`open: duplicate title block name '${validated.name}'`);
+      }
+      titleBlockIds.add(validated.id);
+      titleBlockNames.add(validated.name);
+      titleBlockRecords.push(validated);
+    }
+    const scheduleRecords: ScheduleRecord[] = [];
+    const scheduleIds = new Set<string>();
+    const scheduleNames = new Set<string>();
+    for (const s of [...(snapshot.schedules ?? [])]) {
+      const validated = validateScheduleRecord(s);
+      if (scheduleIds.has(validated.id)) {
+        throw new Error(`open: duplicate schedule id '${validated.id}'`);
+      }
+      if (scheduleNames.has(validated.name)) {
+        throw new Error(`open: duplicate schedule name '${validated.name}'`);
+      }
+      scheduleIds.add(validated.id);
+      scheduleNames.add(validated.name);
+      scheduleRecords.push(validated);
+    }
+    const revisionRecords: RevisionRecord[] = [];
+    const revisionIds = new Set<string>();
+    const revisionCodes = new Set<string>();
+    for (const rev of [...(snapshot.revisions ?? [])]) {
+      const validated = validateRevisionRecord(rev);
+      if (revisionIds.has(validated.id)) {
+        throw new Error(`open: duplicate revision id '${validated.id}'`);
+      }
+      if (revisionCodes.has(validated.code)) {
+        throw new Error(`open: duplicate revision code '${validated.code}'`);
+      }
+      revisionIds.add(validated.id);
+      revisionCodes.add(validated.code);
+      revisionRecords.push(validated);
+    }
+    const publisherSetRecords: PublisherSetRecord[] = [];
+    const publisherSetIds = new Set<string>();
+    const publisherSetNames = new Set<string>();
+    for (const ps of [...(snapshot.publisherSets ?? [])]) {
+      const validated = validatePublisherSetRecord(ps);
+      if (publisherSetIds.has(validated.id)) {
+        throw new Error(`open: duplicate publisher set id '${validated.id}'`);
+      }
+      if (publisherSetNames.has(validated.name)) {
+        throw new Error(`open: duplicate publisher set name '${validated.name}'`);
+      }
+      publisherSetIds.add(validated.id);
+      publisherSetNames.add(validated.name);
+      publisherSetRecords.push(validated);
+    }
+    // The P013 cross-table reference integrity pass (every table is adopted
+    // now — a dangling reference is corrupt, not repairable, LOCK-007).
+    for (const view of docsViews) {
+      if (view.folderId !== undefined) {
+        const folder = navigatorNodeRecords.find((n) => n.id === view.folderId);
+        if (folder === undefined || folder.kind !== "folder") {
+          throw new Error(
+            `open: view '${view.id}' folderId '${view.folderId}' does not reference a navigator folder node`,
+          );
+        }
+      }
+    }
+    for (const layout of layouts) {
+      if (layout.subsetId !== undefined) {
+        const subset = navigatorNodeRecords.find((n) => n.id === layout.subsetId);
+        if (subset === undefined || subset.kind !== "subset") {
+          throw new Error(
+            `open: layout '${layout.id}' subsetId '${layout.subsetId}' does not reference a navigator subset node`,
+          );
+        }
+      }
+      if (layout.masterId !== undefined) {
+        const master = layouts.find((l) => l.id === layout.masterId);
+        if (master === undefined) {
+          throw new Error(`open: layout '${layout.id}' masterId '${layout.masterId}' does not reference an adopted layout`);
+        }
+        if (master.id === layout.id) {
+          throw new Error(`open: layout '${layout.id}' references itself as master`);
+        }
+        if (master.masterId !== undefined) {
+          throw new Error(
+            `open: layout '${layout.id}' master '${master.id}' itself has a master — single-level masters only`,
+          );
+        }
+      }
+      if (layout.titleBlockPlacement !== undefined && !titleBlockIds.has(layout.titleBlockPlacement.titleBlockId)) {
+        throw new Error(
+          `open: layout '${layout.id}' titleBlockPlacement references unknown title block '${layout.titleBlockPlacement.titleBlockId}'`,
+        );
+      }
+      if (layout.revisionIds !== undefined) {
+        for (const revId of layout.revisionIds) {
+          if (!revisionIds.has(revId)) {
+            throw new Error(`open: layout '${layout.id}' references unknown revision '${revId}'`);
+          }
+        }
+      }
+    }
+    for (const rev of revisionRecords) {
+      for (const layoutId of rev.layoutIds) {
+        if (!layoutIds.has(layoutId)) {
+          throw new Error(`open: revision '${rev.id}' references unknown layout '${layoutId}'`);
+        }
+      }
+    }
+    for (const ps of publisherSetRecords) {
+      for (const item of ps.items) {
+        if (item.kind === "layout" && !layoutIds.has(item.id)) {
+          throw new Error(`open: publisher set '${ps.id}' item references unknown layout '${item.id}'`);
+        }
+        if (item.kind === "subset") {
+          const node = navigatorNodeRecords.find((n) => n.id === item.id);
+          if (node === undefined || node.kind !== "subset") {
+            throw new Error(
+              `open: publisher set '${ps.id}' item references navigator node '${item.id}' that is not a subset`,
+            );
+          }
+        }
+      }
+    }
     return new CADDocument(
       snapshot.version,
       snapshot.elements,
@@ -564,6 +816,16 @@ export class CADDocument {
       Math.max(deriveUcsSequence(ucsRecords), history.next_ucs_sequence ?? 1),
       sectionPlaneRecords,
       Math.max(deriveSectionPlaneSequence(sectionPlaneRecords), history.next_section_plane_sequence ?? 1),
+      navigatorNodeRecords,
+      Math.max(deriveNavigatorNodeSequence(navigatorNodeRecords), history.next_navigator_node_sequence ?? 1),
+      titleBlockRecords,
+      Math.max(deriveTitleBlockSequence(titleBlockRecords), history.next_title_block_sequence ?? 1),
+      scheduleRecords,
+      Math.max(deriveScheduleSequence(scheduleRecords), history.next_schedule_sequence ?? 1),
+      revisionRecords,
+      Math.max(deriveRevisionSequence(revisionRecords), history.next_revision_sequence ?? 1),
+      publisherSetRecords,
+      Math.max(derivePublisherSetSequence(publisherSetRecords), history.next_publisher_set_sequence ?? 1),
     );
   }
 
@@ -613,6 +875,17 @@ export class CADDocument {
       1,
       // CAD-PARITY-009: empty UCS + section-plane tables (the World UCS is
       // implicit — never a table record).
+      [],
+      1,
+      [],
+      1,
+      // CAD-PARITY-013: empty documentation production tables.
+      [],
+      1,
+      [],
+      1,
+      [],
+      1,
       [],
       1,
       [],
@@ -726,6 +999,12 @@ export class CADDocument {
       nextViewportSequence: this.nextViewportSequence,
       nextUcsSequence: this.nextUcsSequence,
       nextSectionPlaneSequence: this.nextSectionPlaneSequence,
+      // CAD-PARITY-013: the documentation production mint counters.
+      nextNavigatorNodeSequence: this.nextNavigatorNodeSequence,
+      nextTitleBlockSequence: this.nextTitleBlockSequence,
+      nextScheduleSequence: this.nextScheduleSequence,
+      nextRevisionSequence: this.nextRevisionSequence,
+      nextPublisherSetSequence: this.nextPublisherSetSequence,
     });
     return inverse;
   }
@@ -779,6 +1058,12 @@ export class CADDocument {
       nextViewportSequence: this.nextViewportSequence,
       nextUcsSequence: this.nextUcsSequence,
       nextSectionPlaneSequence: this.nextSectionPlaneSequence,
+      // CAD-PARITY-013: the documentation production mint counters.
+      nextNavigatorNodeSequence: this.nextNavigatorNodeSequence,
+      nextTitleBlockSequence: this.nextTitleBlockSequence,
+      nextScheduleSequence: this.nextScheduleSequence,
+      nextRevisionSequence: this.nextRevisionSequence,
+      nextPublisherSetSequence: this.nextPublisherSetSequence,
     });
     return entry.forward;
   }
@@ -816,6 +1101,12 @@ export class CADDocument {
       nextViewportSequence: this.nextViewportSequence,
       nextUcsSequence: this.nextUcsSequence,
       nextSectionPlaneSequence: this.nextSectionPlaneSequence,
+      // CAD-PARITY-013: the documentation production mint counters.
+      nextNavigatorNodeSequence: this.nextNavigatorNodeSequence,
+      nextTitleBlockSequence: this.nextTitleBlockSequence,
+      nextScheduleSequence: this.nextScheduleSequence,
+      nextRevisionSequence: this.nextRevisionSequence,
+      nextPublisherSetSequence: this.nextPublisherSetSequence,
     });
     return entry.forward;
   }
@@ -877,6 +1168,14 @@ export class CADDocument {
       // stored).
       ...(this.ucsTable.size > 0 ? { ucs: [...this.ucsTable.values()] } : {}),
       ...(this.sectionPlanes.size > 0 ? { sectionPlanes: [...this.sectionPlanes.values()] } : {}),
+      // CAD-PARITY-013: the documentation production tables — omitted while
+      // empty so legacy snapshots (and the pinned CAD-PARITY-002..012 parity
+      // fixtures) stay byte-identical (the additive-optional contract).
+      ...(this.navigatorNodes.size > 0 ? { navigatorNodes: [...this.navigatorNodes.values()] } : {}),
+      ...(this.titleBlocks.size > 0 ? { titleBlocks: [...this.titleBlocks.values()] } : {}),
+      ...(this.schedules.size > 0 ? { schedules: [...this.schedules.values()] } : {}),
+      ...(this.revisions.size > 0 ? { revisions: [...this.revisions.values()] } : {}),
+      ...(this.publisherSets.size > 0 ? { publisherSets: [...this.publisherSets.values()] } : {}),
     };
   }
 
@@ -1105,6 +1404,45 @@ export class CADDocument {
       let minted = this.mintSectionPlaneId();
       while (this.sectionPlanes.has(minted)) minted = this.mintSectionPlaneId();
       return { ...edit, sectionPlane: { ...edit.sectionPlane, id: minted } } as DocumentEdit;
+    }
+    // CAD-PARITY-013 (Issue #104): the documentation production tables mint
+    // their identities when missing (the addLayout pattern — the mint skips
+    // past taken ids; explicit ids are validated + duplicate-checked at
+    // apply time).
+    if (edit.type === "addNavigatorNode") {
+      const raw = edit.node as { id?: unknown };
+      if (typeof raw.id === "string" && raw.id.length > 0) return edit;
+      let minted = this.mintNavigatorNodeId();
+      while (this.navigatorNodes.has(minted)) minted = this.mintNavigatorNodeId();
+      return { ...edit, node: { ...edit.node, id: minted } } as DocumentEdit;
+    }
+    if (edit.type === "addTitleBlock") {
+      const raw = edit.titleBlock as { id?: unknown };
+      if (typeof raw.id === "string" && raw.id.length > 0) return edit;
+      let minted = this.mintTitleBlockId();
+      while (this.titleBlocks.has(minted)) minted = this.mintTitleBlockId();
+      return { ...edit, titleBlock: { ...edit.titleBlock, id: minted } } as DocumentEdit;
+    }
+    if (edit.type === "addSchedule") {
+      const raw = edit.schedule as { id?: unknown };
+      if (typeof raw.id === "string" && raw.id.length > 0) return edit;
+      let minted = this.mintScheduleId();
+      while (this.schedules.has(minted)) minted = this.mintScheduleId();
+      return { ...edit, schedule: { ...edit.schedule, id: minted } } as DocumentEdit;
+    }
+    if (edit.type === "addRevision") {
+      const raw = edit.revision as { id?: unknown };
+      if (typeof raw.id === "string" && raw.id.length > 0) return edit;
+      let minted = this.mintRevisionId();
+      while (this.revisions.has(minted)) minted = this.mintRevisionId();
+      return { ...edit, revision: { ...edit.revision, id: minted } } as DocumentEdit;
+    }
+    if (edit.type === "addPublisherSet") {
+      const raw = edit.set as { id?: unknown };
+      if (typeof raw.id === "string" && raw.id.length > 0) return edit;
+      let minted = this.mintPublisherSetId();
+      while (this.publisherSets.has(minted)) minted = this.mintPublisherSetId();
+      return { ...edit, set: { ...edit.set, id: minted } } as DocumentEdit;
     }
     if (edit.type !== "addElement") return edit;
     const element = edit.element;
@@ -1601,6 +1939,7 @@ export class CADDocument {
           );
         }
         this.assertLayoutNameFree(layout.name, null);
+        this.validateLayoutP013References(layout, null);
         this.layouts.set(layout.id, layout);
         break;
       }
@@ -1612,6 +1951,7 @@ export class CADDocument {
         if (current === undefined) throw new Error(`updateLayout: no layout '${edit.layoutId}'`);
         const merged = applyLayoutPatch(current, edit.patch);
         this.assertLayoutNameFree(merged.name, edit.layoutId);
+        this.validateLayoutP013References(merged, edit.layoutId);
         this.layouts.set(edit.layoutId, merged);
         // Keep the editor reference honest: a rename never breaks the
         // activeLayout reference (it references the immutable id).
@@ -1625,6 +1965,7 @@ export class CADDocument {
         if (layout.id !== edit.layoutId) throw new Error("setLayoutRecord: layout.id must equal layoutId");
         if (!this.layouts.has(layout.id)) throw new Error(`setLayoutRecord: no layout '${layout.id}'`);
         this.assertLayoutNameFree(layout.name, layout.id);
+        this.validateLayoutP013References(layout, layout.id);
         this.layouts.set(layout.id, layout);
         break;
       }
@@ -1769,6 +2110,225 @@ export class CADDocument {
         this.sectionPlanes.delete(edit.sectionPlaneId);
         break;
       }
+      // --- CAD-PARITY-013 (additive, Issue #104): the documentation -----
+      // --- production record tables -------------------------------------
+      case "addNavigatorNode": {
+        if (edit.node === undefined) throw new Error("addNavigatorNode requires node");
+        const node = validateNavigatorNodeRecord(edit.node);
+        if (this.navigatorNodes.has(node.id)) {
+          throw new Error(
+            `addNavigatorNode: node id '${node.id}' already exists — canonical navigator identity must not be reused while the node exists`,
+          );
+        }
+        this.validateNavigatorNodeReferences(node);
+        this.navigatorNodes.set(node.id, node);
+        break;
+      }
+      case "updateNavigatorNode": {
+        if (edit.nodeId === undefined || edit.patch === undefined) {
+          throw new Error("updateNavigatorNode requires nodeId + patch");
+        }
+        const current = this.navigatorNodes.get(edit.nodeId);
+        if (current === undefined) throw new Error(`updateNavigatorNode: no navigator node '${edit.nodeId}'`);
+        const merged = applyNavigatorNodePatch(current, edit.patch);
+        this.validateNavigatorNodeReferences(merged);
+        this.assertNoNavigatorCycle(merged.id, merged.parentId);
+        this.navigatorNodes.set(edit.nodeId, merged);
+        break;
+      }
+      case "setNavigatorNodeRecord": {
+        if (edit.nodeId === undefined || edit.node === undefined) {
+          throw new Error("setNavigatorNodeRecord requires nodeId + node");
+        }
+        const node = validateNavigatorNodeRecord(edit.node);
+        if (node.id !== edit.nodeId) throw new Error("setNavigatorNodeRecord: node.id must equal nodeId");
+        if (!this.navigatorNodes.has(node.id)) throw new Error(`setNavigatorNodeRecord: no navigator node '${node.id}'`);
+        this.validateNavigatorNodeReferences(node);
+        this.assertNoNavigatorCycle(node.id, node.parentId);
+        this.navigatorNodes.set(node.id, node);
+        break;
+      }
+      case "removeNavigatorNode": {
+        if (edit.nodeId === undefined) throw new Error("removeNavigatorNode requires nodeId");
+        if (!this.navigatorNodes.has(edit.nodeId)) throw new Error(`removeNavigatorNode: no navigator node '${edit.nodeId}'`);
+        this.assertNavigatorNodeUnreferenced(edit.nodeId);
+        this.navigatorNodes.delete(edit.nodeId);
+        break;
+      }
+      case "addTitleBlock": {
+        if (edit.titleBlock === undefined) throw new Error("addTitleBlock requires titleBlock");
+        const block = validateTitleBlockRecord(edit.titleBlock);
+        if (this.titleBlocks.has(block.id)) {
+          throw new Error(
+            `addTitleBlock: title block id '${block.id}' already exists — canonical title-block identity must not be reused while the record exists`,
+          );
+        }
+        this.assertTitleBlockNameFree(block.name, null);
+        this.titleBlocks.set(block.id, block);
+        break;
+      }
+      case "updateTitleBlock": {
+        if (edit.titleBlockId === undefined || edit.patch === undefined) {
+          throw new Error("updateTitleBlock requires titleBlockId + patch");
+        }
+        const current = this.titleBlocks.get(edit.titleBlockId);
+        if (current === undefined) throw new Error(`updateTitleBlock: no title block '${edit.titleBlockId}'`);
+        const merged = applyTitleBlockPatch(current, edit.patch);
+        this.assertTitleBlockNameFree(merged.name, edit.titleBlockId);
+        this.titleBlocks.set(edit.titleBlockId, merged);
+        break;
+      }
+      case "setTitleBlockRecord": {
+        if (edit.titleBlockId === undefined || edit.titleBlock === undefined) {
+          throw new Error("setTitleBlockRecord requires titleBlockId + titleBlock");
+        }
+        const block = validateTitleBlockRecord(edit.titleBlock);
+        if (block.id !== edit.titleBlockId) throw new Error("setTitleBlockRecord: titleBlock.id must equal titleBlockId");
+        if (!this.titleBlocks.has(block.id)) throw new Error(`setTitleBlockRecord: no title block '${block.id}'`);
+        this.assertTitleBlockNameFree(block.name, block.id);
+        this.titleBlocks.set(block.id, block);
+        break;
+      }
+      case "removeTitleBlock": {
+        if (edit.titleBlockId === undefined) throw new Error("removeTitleBlock requires titleBlockId");
+        if (!this.titleBlocks.has(edit.titleBlockId)) throw new Error(`removeTitleBlock: no title block '${edit.titleBlockId}'`);
+        this.assertTitleBlockUnreferenced(edit.titleBlockId);
+        this.titleBlocks.delete(edit.titleBlockId);
+        break;
+      }
+      case "addSchedule": {
+        if (edit.schedule === undefined) throw new Error("addSchedule requires schedule");
+        const schedule = validateScheduleRecord(edit.schedule);
+        if (this.schedules.has(schedule.id)) {
+          throw new Error(
+            `addSchedule: schedule id '${schedule.id}' already exists — canonical schedule identity must not be reused while the record exists`,
+          );
+        }
+        this.assertScheduleNameFree(schedule.name, null);
+        this.schedules.set(schedule.id, schedule);
+        break;
+      }
+      case "updateSchedule": {
+        if (edit.scheduleId === undefined || edit.patch === undefined) {
+          throw new Error("updateSchedule requires scheduleId + patch");
+        }
+        const current = this.schedules.get(edit.scheduleId);
+        if (current === undefined) throw new Error(`updateSchedule: no schedule '${edit.scheduleId}'`);
+        const merged = applySchedulePatch(current, edit.patch);
+        this.assertScheduleNameFree(merged.name, edit.scheduleId);
+        this.schedules.set(edit.scheduleId, merged);
+        break;
+      }
+      case "setScheduleRecord": {
+        if (edit.scheduleId === undefined || edit.schedule === undefined) {
+          throw new Error("setScheduleRecord requires scheduleId + schedule");
+        }
+        const schedule = validateScheduleRecord(edit.schedule);
+        if (schedule.id !== edit.scheduleId) throw new Error("setScheduleRecord: schedule.id must equal scheduleId");
+        if (!this.schedules.has(schedule.id)) throw new Error(`setScheduleRecord: no schedule '${schedule.id}'`);
+        this.assertScheduleNameFree(schedule.name, schedule.id);
+        this.schedules.set(schedule.id, schedule);
+        break;
+      }
+      case "removeSchedule": {
+        if (edit.scheduleId === undefined) throw new Error("removeSchedule requires scheduleId");
+        if (!this.schedules.has(edit.scheduleId)) throw new Error(`removeSchedule: no schedule '${edit.scheduleId}'`);
+        this.schedules.delete(edit.scheduleId);
+        break;
+      }
+      case "addRevision": {
+        if (edit.revision === undefined) throw new Error("addRevision requires revision");
+        const revision = validateRevisionRecord(edit.revision);
+        if (this.revisions.has(revision.id)) {
+          throw new Error(
+            `addRevision: revision id '${revision.id}' already exists — canonical revision identity must not be reused while the record exists`,
+          );
+        }
+        this.assertRevisionCodeFree(revision.code, null);
+        this.assertRevisionLayoutsExist(revision.layoutIds);
+        this.revisions.set(revision.id, revision);
+        break;
+      }
+      case "updateRevision": {
+        if (edit.revisionId === undefined || edit.patch === undefined) {
+          throw new Error("updateRevision requires revisionId + patch");
+        }
+        const current = this.revisions.get(edit.revisionId);
+        if (current === undefined) throw new Error(`updateRevision: no revision '${edit.revisionId}'`);
+        const merged = applyRevisionPatch(current, edit.patch);
+        this.assertRevisionCodeFree(merged.code, edit.revisionId);
+        this.assertRevisionLayoutsExist(merged.layoutIds);
+        this.revisions.set(edit.revisionId, merged);
+        break;
+      }
+      case "setRevisionRecord": {
+        if (edit.revisionId === undefined || edit.revision === undefined) {
+          throw new Error("setRevisionRecord requires revisionId + revision");
+        }
+        const revision = validateRevisionRecord(edit.revision);
+        if (revision.id !== edit.revisionId) throw new Error("setRevisionRecord: revision.id must equal revisionId");
+        if (!this.revisions.has(revision.id)) throw new Error(`setRevisionRecord: no revision '${revision.id}'`);
+        this.assertRevisionCodeFree(revision.code, revision.id);
+        this.assertRevisionLayoutsExist(revision.layoutIds);
+        this.revisions.set(revision.id, revision);
+        break;
+      }
+      case "removeRevision": {
+        if (edit.revisionId === undefined) throw new Error("removeRevision requires revisionId");
+        if (!this.revisions.has(edit.revisionId)) throw new Error(`removeRevision: no revision '${edit.revisionId}'`);
+        // NO document-level gates: layouts reference revisions the other
+        // way — the command layer strips the reference from every
+        // referencing layout in the SAME atomic batch (the explicit-cascade
+        // precedent); undo restores both together.
+        this.revisions.delete(edit.revisionId);
+        break;
+      }
+      case "addPublisherSet": {
+        if (edit.set === undefined) throw new Error("addPublisherSet requires set");
+        const set = validatePublisherSetRecord(edit.set);
+        if (this.publisherSets.has(set.id)) {
+          throw new Error(
+            `addPublisherSet: set id '${set.id}' already exists — canonical publisher-set identity must not be reused while the record exists`,
+          );
+        }
+        this.assertPublisherSetNameFree(set.name, null);
+        this.assertPublisherItemsResolve(set.items);
+        this.assertPublisherExpansionUnique(set.items);
+        this.publisherSets.set(set.id, set);
+        break;
+      }
+      case "updatePublisherSet": {
+        if (edit.setId === undefined || edit.patch === undefined) {
+          throw new Error("updatePublisherSet requires setId + patch");
+        }
+        const current = this.publisherSets.get(edit.setId);
+        if (current === undefined) throw new Error(`updatePublisherSet: no publisher set '${edit.setId}'`);
+        const merged = applyPublisherSetPatch(current, edit.patch);
+        this.assertPublisherSetNameFree(merged.name, edit.setId);
+        this.assertPublisherItemsResolve(merged.items);
+        this.assertPublisherExpansionUnique(merged.items);
+        this.publisherSets.set(edit.setId, merged);
+        break;
+      }
+      case "setPublisherSetRecord": {
+        if (edit.setId === undefined || edit.set === undefined) {
+          throw new Error("setPublisherSetRecord requires setId + set");
+        }
+        const set = validatePublisherSetRecord(edit.set);
+        if (set.id !== edit.setId) throw new Error("setPublisherSetRecord: set.id must equal setId");
+        if (!this.publisherSets.has(set.id)) throw new Error(`setPublisherSetRecord: no publisher set '${set.id}'`);
+        this.assertPublisherSetNameFree(set.name, set.id);
+        this.assertPublisherItemsResolve(set.items);
+        this.assertPublisherExpansionUnique(set.items);
+        this.publisherSets.set(set.id, set);
+        break;
+      }
+      case "removePublisherSet": {
+        if (edit.setId === undefined) throw new Error("removePublisherSet requires setId");
+        if (!this.publisherSets.has(edit.setId)) throw new Error(`removePublisherSet: no publisher set '${edit.setId}'`);
+        this.publisherSets.delete(edit.setId);
+        break;
+      }
       case "setViewRecord": {
         if (edit.viewId === undefined || edit.view === undefined) {
           throw new Error("setViewRecord requires viewId + view");
@@ -1821,6 +2381,74 @@ export class CADDocument {
       }
       if (source.kind === "detail") {
         throw new Error(`view '${view.id}': detail-of-detail is not supported — source must be a plan/elevation/section view`);
+      }
+    }
+    // CAD-PARITY-013: the navigator View Map folder reference must resolve
+    // to an existing FOLDER node (the removeNavigatorNode gate keeps this
+    // unreachable through the command surface — raw edits validate it here).
+    if (view.folderId !== undefined) {
+      const folder = this.navigatorNodes.get(view.folderId);
+      if (folder === undefined || folder.kind !== "folder") {
+        throw new Error(
+          `view '${view.id}': folderId '${view.folderId}' does not reference a navigator folder node`,
+        );
+      }
+    }
+  }
+
+  /** CAD-PARITY-013: cross-table reference validation for a layout record
+   *  (called from applyEdit where document state is available): subsetId →
+   *  an existing subset node; masterId → an existing OTHER layout that itself
+   *  has no master (single-level); titleBlockPlacement → an existing title
+   *  block; revisionIds → existing revisions. `selfId` excludes the layout
+   *  itself from the master self-reference check (null = pure add). */
+  private validateLayoutP013References(layout: LayoutRecord, selfId: string | null): void {
+    if (layout.subsetId !== undefined) {
+      const subset = this.navigatorNodes.get(layout.subsetId);
+      if (subset === undefined || subset.kind !== "subset") {
+        throw new Error(
+          `layout '${layout.id}': subsetId '${layout.subsetId}' does not reference a navigator subset node`,
+        );
+      }
+    }
+    if (layout.masterId !== undefined) {
+      const master = this.layouts.get(layout.masterId);
+      if (master === undefined) {
+        throw new Error(
+          `layout '${layout.id}': masterId '${layout.masterId}' does not reference an existing layout`,
+        );
+      }
+      if (master.id === (selfId ?? layout.id)) {
+        throw new Error(`layout '${layout.id}': a layout cannot be its own master`);
+      }
+      if (master.masterId !== undefined) {
+        throw new Error(
+          `layout '${layout.id}': master '${master.id}' itself has a master — masters are single-level (a master cannot be mastered)`,
+        );
+      }
+      // Single-level masters the OTHER way: a layout that is ALREADY the
+      // master of another layout cannot itself gain a master (otherwise
+      // patching only the TOP of a would-be chain A→B→C would slip a
+      // two-level composition through — the open-time whole-table check
+      // rejects exactly this state, so applyEdit must too).
+      for (const other of this.layouts.values()) {
+        if (other.id !== layout.id && other.masterId === layout.id) {
+          throw new Error(
+            `layout '${layout.id}' is the master of layout '${other.id}' — masters are single-level (a master cannot be mastered)`,
+          );
+        }
+      }
+    }
+    if (layout.titleBlockPlacement !== undefined && !this.titleBlocks.has(layout.titleBlockPlacement.titleBlockId)) {
+      throw new Error(
+        `layout '${layout.id}': titleBlockPlacement references unknown title block '${layout.titleBlockPlacement.titleBlockId}'`,
+      );
+    }
+    if (layout.revisionIds !== undefined) {
+      for (const revId of layout.revisionIds) {
+        if (!this.revisions.has(revId)) {
+          throw new Error(`layout '${layout.id}': references unknown revision '${revId}'`);
+        }
       }
     }
   }
@@ -2322,6 +2950,200 @@ export class CADDocument {
         if (existing === undefined) throw new Error(`removeSectionPlane: no section plane '${edit.sectionPlaneId}'`);
         return { type: "addSectionPlane", sectionPlane: existing };
       }
+      // --- CAD-PARITY-013 (additive, Issue #104): the documentation -----
+      // --- production record inverses (the updateLayout pattern: a patch
+      // that ADDED/REMOVED a key inverts through the full-record restore so
+      // absence is exactly representable on undo/replay). ----------------
+      case "addNavigatorNode": {
+        if (edit.node === undefined) throw new Error("addNavigatorNode requires node");
+        const node = validateNavigatorNodeRecord(edit.node);
+        return { type: "removeNavigatorNode", nodeId: node.id };
+      }
+      case "updateNavigatorNode": {
+        if (edit.nodeId === undefined || edit.patch === undefined) {
+          throw new Error("updateNavigatorNode requires nodeId + patch");
+        }
+        const current = this.navigatorNodes.get(edit.nodeId);
+        if (current === undefined) throw new Error(`updateNavigatorNode: no navigator node '${edit.nodeId}'`);
+        const patchKeys = Object.keys(edit.patch);
+        const changesKeySet = patchKeys.some(
+          (k) => !Object.prototype.hasOwnProperty.call(current as unknown as Record<string, unknown>, k),
+        );
+        if (changesKeySet) {
+          return { type: "setNavigatorNodeRecord", nodeId: edit.nodeId, node: current };
+        }
+        const prevValues: Record<string, unknown> = {};
+        for (const k of patchKeys) {
+          prevValues[k] = (current as unknown as Record<string, unknown>)[k];
+        }
+        return { type: "updateNavigatorNode", nodeId: edit.nodeId, patch: prevValues };
+      }
+      case "setNavigatorNodeRecord": {
+        if (edit.nodeId === undefined || edit.node === undefined) {
+          throw new Error("setNavigatorNodeRecord requires nodeId + node");
+        }
+        const current = this.navigatorNodes.get(edit.nodeId);
+        if (current === undefined) throw new Error(`setNavigatorNodeRecord: no navigator node '${edit.nodeId}'`);
+        return { type: "setNavigatorNodeRecord", nodeId: edit.nodeId, node: current };
+      }
+      case "removeNavigatorNode": {
+        if (edit.nodeId === undefined) throw new Error("removeNavigatorNode requires nodeId");
+        const existing = this.navigatorNodes.get(edit.nodeId);
+        if (existing === undefined) throw new Error(`removeNavigatorNode: no navigator node '${edit.nodeId}'`);
+        return { type: "addNavigatorNode", node: existing };
+      }
+      case "addTitleBlock": {
+        if (edit.titleBlock === undefined) throw new Error("addTitleBlock requires titleBlock");
+        const block = validateTitleBlockRecord(edit.titleBlock);
+        return { type: "removeTitleBlock", titleBlockId: block.id };
+      }
+      case "updateTitleBlock": {
+        if (edit.titleBlockId === undefined || edit.patch === undefined) {
+          throw new Error("updateTitleBlock requires titleBlockId + patch");
+        }
+        const current = this.titleBlocks.get(edit.titleBlockId);
+        if (current === undefined) throw new Error(`updateTitleBlock: no title block '${edit.titleBlockId}'`);
+        const patchKeys = Object.keys(edit.patch);
+        const changesKeySet = patchKeys.some(
+          (k) => !Object.prototype.hasOwnProperty.call(current as unknown as Record<string, unknown>, k),
+        );
+        if (changesKeySet) {
+          return { type: "setTitleBlockRecord", titleBlockId: edit.titleBlockId, titleBlock: current };
+        }
+        const prevValues: Record<string, unknown> = {};
+        for (const k of patchKeys) {
+          prevValues[k] = (current as unknown as Record<string, unknown>)[k];
+        }
+        return { type: "updateTitleBlock", titleBlockId: edit.titleBlockId, patch: prevValues };
+      }
+      case "setTitleBlockRecord": {
+        if (edit.titleBlockId === undefined || edit.titleBlock === undefined) {
+          throw new Error("setTitleBlockRecord requires titleBlockId + titleBlock");
+        }
+        const current = this.titleBlocks.get(edit.titleBlockId);
+        if (current === undefined) throw new Error(`setTitleBlockRecord: no title block '${edit.titleBlockId}'`);
+        return { type: "setTitleBlockRecord", titleBlockId: edit.titleBlockId, titleBlock: current };
+      }
+      case "removeTitleBlock": {
+        if (edit.titleBlockId === undefined) throw new Error("removeTitleBlock requires titleBlockId");
+        const existing = this.titleBlocks.get(edit.titleBlockId);
+        if (existing === undefined) throw new Error(`removeTitleBlock: no title block '${edit.titleBlockId}'`);
+        return { type: "addTitleBlock", titleBlock: existing };
+      }
+      case "addSchedule": {
+        if (edit.schedule === undefined) throw new Error("addSchedule requires schedule");
+        const schedule = validateScheduleRecord(edit.schedule);
+        return { type: "removeSchedule", scheduleId: schedule.id };
+      }
+      case "updateSchedule": {
+        if (edit.scheduleId === undefined || edit.patch === undefined) {
+          throw new Error("updateSchedule requires scheduleId + patch");
+        }
+        const current = this.schedules.get(edit.scheduleId);
+        if (current === undefined) throw new Error(`updateSchedule: no schedule '${edit.scheduleId}'`);
+        const patchKeys = Object.keys(edit.patch);
+        const changesKeySet = patchKeys.some(
+          (k) => !Object.prototype.hasOwnProperty.call(current as unknown as Record<string, unknown>, k),
+        );
+        if (changesKeySet) {
+          return { type: "setScheduleRecord", scheduleId: edit.scheduleId, schedule: current };
+        }
+        const prevValues: Record<string, unknown> = {};
+        for (const k of patchKeys) {
+          prevValues[k] = (current as unknown as Record<string, unknown>)[k];
+        }
+        return { type: "updateSchedule", scheduleId: edit.scheduleId, patch: prevValues };
+      }
+      case "setScheduleRecord": {
+        if (edit.scheduleId === undefined || edit.schedule === undefined) {
+          throw new Error("setScheduleRecord requires scheduleId + schedule");
+        }
+        const current = this.schedules.get(edit.scheduleId);
+        if (current === undefined) throw new Error(`setScheduleRecord: no schedule '${edit.scheduleId}'`);
+        return { type: "setScheduleRecord", scheduleId: edit.scheduleId, schedule: current };
+      }
+      case "removeSchedule": {
+        if (edit.scheduleId === undefined) throw new Error("removeSchedule requires scheduleId");
+        const existing = this.schedules.get(edit.scheduleId);
+        if (existing === undefined) throw new Error(`removeSchedule: no schedule '${edit.scheduleId}'`);
+        return { type: "addSchedule", schedule: existing };
+      }
+      case "addRevision": {
+        if (edit.revision === undefined) throw new Error("addRevision requires revision");
+        const revision = validateRevisionRecord(edit.revision);
+        return { type: "removeRevision", revisionId: revision.id };
+      }
+      case "updateRevision": {
+        if (edit.revisionId === undefined || edit.patch === undefined) {
+          throw new Error("updateRevision requires revisionId + patch");
+        }
+        const current = this.revisions.get(edit.revisionId);
+        if (current === undefined) throw new Error(`updateRevision: no revision '${edit.revisionId}'`);
+        const patchKeys = Object.keys(edit.patch);
+        const changesKeySet = patchKeys.some(
+          (k) => !Object.prototype.hasOwnProperty.call(current as unknown as Record<string, unknown>, k),
+        );
+        if (changesKeySet) {
+          return { type: "setRevisionRecord", revisionId: edit.revisionId, revision: current };
+        }
+        const prevValues: Record<string, unknown> = {};
+        for (const k of patchKeys) {
+          prevValues[k] = (current as unknown as Record<string, unknown>)[k];
+        }
+        return { type: "updateRevision", revisionId: edit.revisionId, patch: prevValues };
+      }
+      case "setRevisionRecord": {
+        if (edit.revisionId === undefined || edit.revision === undefined) {
+          throw new Error("setRevisionRecord requires revisionId + revision");
+        }
+        const current = this.revisions.get(edit.revisionId);
+        if (current === undefined) throw new Error(`setRevisionRecord: no revision '${edit.revisionId}'`);
+        return { type: "setRevisionRecord", revisionId: edit.revisionId, revision: current };
+      }
+      case "removeRevision": {
+        if (edit.revisionId === undefined) throw new Error("removeRevision requires revisionId");
+        const existing = this.revisions.get(edit.revisionId);
+        if (existing === undefined) throw new Error(`removeRevision: no revision '${edit.revisionId}'`);
+        return { type: "addRevision", revision: existing };
+      }
+      case "addPublisherSet": {
+        if (edit.set === undefined) throw new Error("addPublisherSet requires set");
+        const set = validatePublisherSetRecord(edit.set);
+        return { type: "removePublisherSet", setId: set.id };
+      }
+      case "updatePublisherSet": {
+        if (edit.setId === undefined || edit.patch === undefined) {
+          throw new Error("updatePublisherSet requires setId + patch");
+        }
+        const current = this.publisherSets.get(edit.setId);
+        if (current === undefined) throw new Error(`updatePublisherSet: no publisher set '${edit.setId}'`);
+        const patchKeys = Object.keys(edit.patch);
+        const changesKeySet = patchKeys.some(
+          (k) => !Object.prototype.hasOwnProperty.call(current as unknown as Record<string, unknown>, k),
+        );
+        if (changesKeySet) {
+          return { type: "setPublisherSetRecord", setId: edit.setId, set: current };
+        }
+        const prevValues: Record<string, unknown> = {};
+        for (const k of patchKeys) {
+          prevValues[k] = (current as unknown as Record<string, unknown>)[k];
+        }
+        return { type: "updatePublisherSet", setId: edit.setId, patch: prevValues };
+      }
+      case "setPublisherSetRecord": {
+        if (edit.setId === undefined || edit.set === undefined) {
+          throw new Error("setPublisherSetRecord requires setId + set");
+        }
+        const current = this.publisherSets.get(edit.setId);
+        if (current === undefined) throw new Error(`setPublisherSetRecord: no publisher set '${edit.setId}'`);
+        return { type: "setPublisherSetRecord", setId: edit.setId, set: current };
+      }
+      case "removePublisherSet": {
+        if (edit.setId === undefined) throw new Error("removePublisherSet requires setId");
+        const existing = this.publisherSets.get(edit.setId);
+        if (existing === undefined) throw new Error(`removePublisherSet: no publisher set '${edit.setId}'`);
+        return { type: "addPublisherSet", set: existing };
+      }
       default: {
         const _exhaustive = edit satisfies never;
         throw new Error(`unreachable edit type: ${JSON.stringify(_exhaustive)}`);
@@ -2531,6 +3353,347 @@ export class CADDocument {
     return minted;
   }
 
+  // --- CAD-PARITY-013: the documentation production mint counters --------
+
+  /** CAD-PARITY-013: mint a canonical navigator node identity
+   *  (`nav-NNNNNN`, monotonic, never reused) — document authority. */
+  mintNavigatorNodeId(): string {
+    const minted = `nav-${String(this.nextNavigatorNodeSequence).padStart(6, "0")}`;
+    this.nextNavigatorNodeSequence += 1;
+    return minted;
+  }
+
+  /** CAD-PARITY-013: mint a canonical title-block identity
+   *  (`tb-NNNNNN`, monotonic, never reused) — document authority. */
+  mintTitleBlockId(): string {
+    const minted = `tb-${String(this.nextTitleBlockSequence).padStart(6, "0")}`;
+    this.nextTitleBlockSequence += 1;
+    return minted;
+  }
+
+  /** CAD-PARITY-013: mint a canonical schedule identity
+   *  (`sch-NNNNNN`, monotonic, never reused) — document authority. */
+  mintScheduleId(): string {
+    const minted = `sch-${String(this.nextScheduleSequence).padStart(6, "0")}`;
+    this.nextScheduleSequence += 1;
+    return minted;
+  }
+
+  /** CAD-PARITY-013: mint a canonical revision identity
+   *  (`rev-NNNNNN`, monotonic, never reused) — document authority. */
+  mintRevisionId(): string {
+    const minted = `rev-${String(this.nextRevisionSequence).padStart(6, "0")}`;
+    this.nextRevisionSequence += 1;
+    return minted;
+  }
+
+  /** CAD-PARITY-013: mint a canonical publisher-set identity
+   *  (`pub-NNNNNN`, monotonic, never reused) — document authority. */
+  mintPublisherSetId(): string {
+    const minted = `pub-${String(this.nextPublisherSetSequence).padStart(6, "0")}`;
+    this.nextPublisherSetSequence += 1;
+    return minted;
+  }
+
+  // --- CAD-PARITY-013: the documentation production tables -------------------
+
+  /** CAD-PARITY-013: the navigator tree (insertion order). */
+  get navigatorNodeTable(): readonly NavigatorNodeRecord[] {
+    return [...this.navigatorNodes.values()];
+  }
+
+  /** Look up a navigator node by canonical id. */
+  navigatorNodeById(id: string): NavigatorNodeRecord | undefined {
+    return this.navigatorNodes.get(id);
+  }
+
+  /** Current mint counter for navigator node identities (persisted via the
+   *  history). */
+  get navigatorNodeSequence(): number {
+    return this.nextNavigatorNodeSequence;
+  }
+
+  /** The title-block table (insertion order). */
+  get titleBlockTable(): readonly TitleBlockRecord[] {
+    return [...this.titleBlocks.values()];
+  }
+
+  /** Look up a title block by canonical id. */
+  titleBlockById(id: string): TitleBlockRecord | undefined {
+    return this.titleBlocks.get(id);
+  }
+
+  /** Look up a title block by its unique user-facing name. */
+  titleBlockByName(name: string): TitleBlockRecord | undefined {
+    for (const tb of this.titleBlocks.values()) {
+      if (tb.name === name) return tb;
+    }
+    return undefined;
+  }
+
+  /** Current mint counter for title-block identities. */
+  get titleBlockSequence(): number {
+    return this.nextTitleBlockSequence;
+  }
+
+  /** The schedule table (insertion order). */
+  get scheduleTable(): readonly ScheduleRecord[] {
+    return [...this.schedules.values()];
+  }
+
+  /** Look up a schedule by canonical id. */
+  scheduleById(id: string): ScheduleRecord | undefined {
+    return this.schedules.get(id);
+  }
+
+  /** Look up a schedule by its unique name. */
+  scheduleByName(name: string): ScheduleRecord | undefined {
+    for (const s of this.schedules.values()) {
+      if (s.name === name) return s;
+    }
+    return undefined;
+  }
+
+  /** Current mint counter for schedule identities. */
+  get scheduleSequence(): number {
+    return this.nextScheduleSequence;
+  }
+
+  /** The revision records (insertion order). */
+  get revisionTable(): readonly RevisionRecord[] {
+    return [...this.revisions.values()];
+  }
+
+  /** Look up a revision by canonical id. */
+  revisionById(id: string): RevisionRecord | undefined {
+    return this.revisions.get(id);
+  }
+
+  /** Look up a revision by its unique code. */
+  revisionByCode(code: string): RevisionRecord | undefined {
+    for (const rev of this.revisions.values()) {
+      if (rev.code === code) return rev;
+    }
+    return undefined;
+  }
+
+  /** Current mint counter for revision identities. */
+  get revisionSequence(): number {
+    return this.nextRevisionSequence;
+  }
+
+  /** The publisher sets (insertion order). */
+  get publisherSetTable(): readonly PublisherSetRecord[] {
+    return [...this.publisherSets.values()];
+  }
+
+  /** Look up a publisher set by canonical id. */
+  publisherSetById(id: string): PublisherSetRecord | undefined {
+    return this.publisherSets.get(id);
+  }
+
+  /** Look up a publisher set by its unique name. */
+  publisherSetByName(name: string): PublisherSetRecord | undefined {
+    for (const ps of this.publisherSets.values()) {
+      if (ps.name === name) return ps;
+    }
+    return undefined;
+  }
+
+  /** Current mint counter for publisher-set identities. */
+  get publisherSetSequence(): number {
+    return this.nextPublisherSetSequence;
+  }
+
+  /** CAD-PARITY-013: state-dependent navigator parent validation (parent
+   *  must exist and share the node's kind — folders under folders, subsets
+   *  under subsets). */
+  private validateNavigatorNodeReferences(node: NavigatorNodeRecord): void {
+    if (node.parentId !== null) {
+      const parent = this.navigatorNodes.get(node.parentId);
+      if (parent === undefined) {
+        throw new Error(
+          `navigator node '${node.id}': parentId '${node.parentId}' does not reference an existing node`,
+        );
+      }
+      if (parent.kind !== node.kind) {
+        throw new Error(
+          `navigator node '${node.id}' (${node.kind}) cannot nest under a '${parent.kind}' node — parents must share the node kind`,
+        );
+      }
+    }
+  }
+
+  /** CAD-PARITY-013: cycle gate — a node may not become its own ancestor
+   *  (walk the parent chain from the NEW parent upward). */
+  private assertNoNavigatorCycle(nodeId: string, parentId: string | null): void {
+    const seen = new Set<string>([nodeId]);
+    let current = parentId;
+    while (current !== null) {
+      if (seen.has(current)) {
+        throw new Error(
+          `navigator node '${nodeId}' would become its own ancestor (cycle through '${current}') — navigator_invalid`,
+        );
+      }
+      seen.add(current);
+      current = this.navigatorNodes.get(current)?.parentId ?? null;
+    }
+  }
+
+  /** CAD-PARITY-013: reference gates for removeNavigatorNode — child nodes,
+   *  view folderId references, layout subsetId references and publisher-set
+   *  subset items block removal (no silent cascade). */
+  private assertNavigatorNodeUnreferenced(id: string): void {
+    let children = 0;
+    for (const n of this.navigatorNodes.values()) {
+      if (n.parentId === id) children += 1;
+    }
+    if (children > 0) {
+      throw new Error(
+        `removeNavigatorNode: '${id}' still has ${children} child node${children === 1 ? "" : "s"} — remove them first (no silent cascade)`,
+      );
+    }
+    let viewRefs = 0;
+    for (const view of this.docsViews.values()) {
+      if (view.folderId === id) viewRefs += 1;
+    }
+    if (viewRefs > 0) {
+      throw new Error(
+        `removeNavigatorNode: '${id}' is the folder of ${viewRefs} view${viewRefs === 1 ? "" : "s"} — unassign them first (no silent cascade)`,
+      );
+    }
+    let layoutRefs = 0;
+    for (const layout of this.layouts.values()) {
+      if (layout.subsetId === id) layoutRefs += 1;
+    }
+    if (layoutRefs > 0) {
+      throw new Error(
+        `removeNavigatorNode: '${id}' is the subset of ${layoutRefs} layout${layoutRefs === 1 ? "" : "s"} — unassign them first (no silent cascade)`,
+      );
+    }
+    for (const ps of this.publisherSets.values()) {
+      const item = ps.items.find((i) => i.kind === "subset" && i.id === id);
+      if (item !== undefined) {
+        throw new Error(
+          `removeNavigatorNode: '${id}' is referenced by publisher set '${ps.name}' — remove the item through publisher.update first (no silent cascade)`,
+        );
+      }
+    }
+  }
+
+  /** A title-block name must stay unique (null excludeId = pure add check). */
+  private assertTitleBlockNameFree(name: string, excludeId: string | null): void {
+    for (const tb of this.titleBlocks.values()) {
+      if (tb.id !== excludeId && tb.name === name) {
+        throw new Error(`title block name '${name}' already exists — title block names are unique`);
+      }
+    }
+  }
+
+  /** Reference gate for removeTitleBlock: layout titleBlockPlacement
+   *  references block removal (no silent cascade). */
+  private assertTitleBlockUnreferenced(id: string): void {
+    const referencing = [...this.layouts.values()].filter((l) => l.titleBlockPlacement?.titleBlockId === id);
+    if (referencing.length > 0) {
+      throw new Error(
+        `removeTitleBlock: '${id}' is placed on ${referencing.length} layout${referencing.length === 1 ? "" : "s"} (${referencing.map((l) => l.name).join(", ")}) — unplace it first (no silent cascade)`,
+      );
+    }
+  }
+
+  /** A schedule name must stay unique (null excludeId = pure add check). */
+  private assertScheduleNameFree(name: string, excludeId: string | null): void {
+    for (const s of this.schedules.values()) {
+      if (s.id !== excludeId && s.name === name) {
+        throw new Error(`schedule name '${name}' already exists — schedule names are unique`);
+      }
+    }
+  }
+
+  /** A revision code must stay unique (null excludeId = pure add check). */
+  private assertRevisionCodeFree(code: string, excludeId: string | null): void {
+    for (const rev of this.revisions.values()) {
+      if (rev.id !== excludeId && rev.code === code) {
+        throw new Error(`revision code '${code}' already exists — revision codes are unique`);
+      }
+    }
+  }
+
+  /** Every revision layoutId must reference an existing layout. */
+  private assertRevisionLayoutsExist(layoutIds: readonly string[]): void {
+    for (const layoutId of layoutIds) {
+      if (!this.layouts.has(layoutId)) {
+        throw new Error(`revision references unknown layout '${layoutId}'`);
+      }
+    }
+  }
+
+  /** A publisher-set name must stay unique (null excludeId = pure add). */
+  private assertPublisherSetNameFree(name: string, excludeId: string | null): void {
+    for (const ps of this.publisherSets.values()) {
+      if (ps.id !== excludeId && ps.name === name) {
+        throw new Error(`publisher set name '${name}' already exists — publisher set names are unique`);
+      }
+    }
+  }
+
+  /** Every publisher item target must exist with the right kind (layout →
+   *  lo-*; subset → a kind "subset" navigator node). */
+  private assertPublisherItemsResolve(items: readonly PublisherItem[]): void {
+    for (const item of items) {
+      if (item.kind === "layout" && !this.layouts.has(item.id)) {
+        throw new Error(`publisher set item references unknown layout '${item.id}'`);
+      }
+      if (item.kind === "subset") {
+        const node = this.navigatorNodes.get(item.id);
+        if (node === undefined || node.kind !== "subset") {
+          throw new Error(
+            `publisher set item references navigator node '${item.id}' that is not a subset (kind "subset" required)`,
+          );
+        }
+      }
+    }
+  }
+
+  /** The EXPANDED publisher layout list (subsets expanded in book order)
+   *  must contain no duplicate layout — one layout cannot publish twice. */
+  private assertPublisherExpansionUnique(items: readonly PublisherItem[]): void {
+    const expanded: string[] = [];
+    for (const item of items) {
+      if (item.kind === "layout") {
+        expanded.push(item.id);
+      } else {
+        expanded.push(...this.subsetLayoutIds(item.id));
+      }
+    }
+    const seen = new Set<string>();
+    for (const layoutId of expanded) {
+      if (seen.has(layoutId)) {
+        throw new Error(
+          `publisher set expansion contains layout '${layoutId}' twice — a layout cannot be published twice (check overlapping subset/layout items)`,
+        );
+      }
+      seen.add(layoutId);
+    }
+  }
+
+  /** The layouts of ONE subset's SUBTREE in book order (nodes ordered by
+   *  (order, id) recursively; layouts in document order within a node). */
+  private subsetLayoutIds(subsetNodeId: string): readonly string[] {
+    const out: string[] = [];
+    const walk = (nodeId: string): void => {
+      const children = [...this.navigatorNodes.values()]
+        .filter((n) => n.parentId === nodeId && n.kind === "subset")
+        .sort((a, b) => (a.order !== b.order ? a.order - b.order : (a.id < b.id ? -1 : 1)));
+      for (const layout of this.layouts.values()) {
+        if (layout.subsetId === nodeId) out.push(layout.id);
+      }
+      for (const child of children) walk(child.id);
+    };
+    walk(subsetNodeId);
+    return out;
+  }
+
   /** Validate a block-definition record for an ADD or UPDATE against the
    *  post-write table view: structural validation + the definition-graph
    *  gates (cycles/nesting), duplicate id (add) and duplicate name checks,
@@ -2715,6 +3878,31 @@ export class CADDocument {
       throw new Error(
         `removeLayout: '${id}' is referenced by ${refs} viewport${refs === 1 ? "" : "s"} — LAYOUTDELETE removes the layout and its viewports as one atomic command`,
       );
+    }
+    // CAD-PARITY-013: the documentation production references block layout
+    // removal (references FROM other records gate; the layout's own subset
+    // assignment does NOT — the navigator node removal is gated instead).
+    for (const l of this.layouts.values()) {
+      if (l.id !== id && l.masterId === id) {
+        throw new Error(
+          `removeLayout: '${id}' is the master of layout '${l.name}' — reassign that layout's master first (no silent cascade)`,
+        );
+      }
+    }
+    for (const rev of this.revisions.values()) {
+      if (rev.layoutIds.includes(id)) {
+        throw new Error(
+          `removeLayout: '${id}' is referenced by revision '${rev.code}' — remove the reference through revision.update first (no silent cascade)`,
+        );
+      }
+    }
+    for (const ps of this.publisherSets.values()) {
+      const item = ps.items.find((i) => i.kind === "layout" && i.id === id);
+      if (item !== undefined) {
+        throw new Error(
+          `removeLayout: '${id}' is referenced by publisher set '${ps.name}' — remove the item through publisher.update first (no silent cascade)`,
+        );
+      }
     }
   }
 

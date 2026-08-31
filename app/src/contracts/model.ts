@@ -132,6 +132,18 @@ export interface ModelHistory {
   /** CAD-PARITY-009 (additive): the sp-NNNNNN minting cursor (mirrors
    *  next_layout_sequence; emitted only after the first sp- id is minted). */
   readonly next_section_plane_sequence?: number;
+  /** CAD-PARITY-013 (additive, Issue #104): the nav-NNNNNN minting cursor
+   *  (mirrors next_layout_sequence; emitted only after the first nav- id is
+   *  minted — the canonical-minimal contract). */
+  readonly next_navigator_node_sequence?: number;
+  /** CAD-PARITY-013: the tb-NNNNNN minting cursor (canonical-minimal). */
+  readonly next_title_block_sequence?: number;
+  /** CAD-PARITY-013: the sch-NNNNNN minting cursor (canonical-minimal). */
+  readonly next_schedule_sequence?: number;
+  /** CAD-PARITY-013: the rev-NNNNNN minting cursor (canonical-minimal). */
+  readonly next_revision_sequence?: number;
+  /** CAD-PARITY-013: the pub-NNNNNN minting cursor (canonical-minimal). */
+  readonly next_publisher_set_sequence?: number;
   /** Append-only revision log (revisions[i].revision_number === i + 1). */
   readonly revisions: readonly ModelRevision[];
 }

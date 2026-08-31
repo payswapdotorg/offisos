@@ -73,7 +73,27 @@ export interface AnnotationReport {
   readonly reason: string | null;
   readonly measured: number | null;
   readonly label: string | null;
+  /** CAD-PARITY-013 (additive, Issue #104): the TYPED associative-documentation
+   *  outcome. "ok" = every reference resolved; "dangling" = a target element
+   *  reference is gone; "source_loss" = the annotation's view (or a detail's
+   *  source view) is missing/unprojectable — defensive vocabulary: the
+   *  removal gates make it unreachable through the command surface, but the
+   *  report classifies honestly anyway. Always present ("ok" for healthy
+   *  annotations); older consumers ignore it. */
+  readonly outcome?: DocsAnnotationOutcome;
+  /** CAD-PARITY-013 (additive): the typed failure code, present iff outcome
+   *  is not "ok". */
+  readonly code?: DocsAnnotationFailureCode;
 }
+
+/** The typed associative-documentation outcome vocabulary (CAD-PARITY-013). */
+export type DocsAnnotationOutcome = "ok" | "dangling" | "source_loss";
+
+/** The typed associative-documentation failure codes (CAD-PARITY-013). */
+export type DocsAnnotationFailureCode =
+  | "docs_target_missing"
+  | "docs_view_missing"
+  | "docs_source_view_missing";
 
 /** The full regeneration report (deterministic for a document state). */
 export interface RegenerationReport {
@@ -173,13 +193,24 @@ export function regenerateDocumentation(
       annotationReports.push({
         id: el.id, type: annotation.type, viewId: annotation.viewId,
         updated: false, dangling: false, reason: null, measured: null, label: null,
+        outcome: "ok",
       });
       continue;
     }
     const viewResult = projections.get(annotation.viewId);
     if (viewResult === undefined || viewResult.projection === null) {
+      // CAD-PARITY-013: the typed source-loss classification — the view
+      // itself is gone (docs_view_missing), or a DETAIL's source view is
+      // gone (docs_source_view_missing), or the view exists but does not
+      // project (docs_view_missing — e.g. its story was deleted).
+      const view = views.find((v) => v.id === annotation.viewId);
+      const code: DocsAnnotationFailureCode =
+        view !== undefined && view.kind === "detail" &&
+        (view.sourceViewId === undefined || !views.some((v) => v.id === view.sourceViewId))
+          ? "docs_source_view_missing"
+          : "docs_view_missing";
       recordDangling(el, updates, annotationReports,
-        `view '${annotation.viewId}' does not project (see the view report)`);
+        `view '${annotation.viewId}' does not project (see the view report)`, "source_loss", code);
       continue;
     }
     const primitivesBySource = new Map<string, { uMin: number; uMax: number; vMin: number; vMax: number }>();
@@ -233,6 +264,8 @@ function recordDangling(
   updates: { elementId: string; readonly props: Readonly<Record<string, unknown>> }[],
   reports: AnnotationReport[],
   reason: string,
+  outcome: DocsAnnotationOutcome = "dangling",
+  code: DocsAnnotationFailureCode = "docs_target_missing",
 ): void {
   const annotation = element.props as Record<string, unknown>;
   const props: Record<string, unknown> = { ...annotation };
@@ -244,6 +277,7 @@ function recordDangling(
   reports.push({
     id: element.id, type: String(annotation.type ?? "unknown"), viewId: String(annotation.viewId ?? ""),
     updated: true, dangling: true, reason, measured: null, label: null,
+    outcome, code,
   });
 }
 
@@ -259,7 +293,8 @@ function refreshDim(
   if (a === undefined || b === undefined) {
     const missing = a === undefined ? dim.refIds[0] : dim.refIds[1];
     recordDangling(element, updates, reports,
-      `reference element '${missing}' has no projection in view '${dim.viewId}' (deleted or out of scope)`);
+      `reference element '${missing}' has no projection in view '${dim.viewId}' (deleted or out of scope)`,
+      "dangling", "docs_target_missing");
     return;
   }
   const a1 = dim.axis === "x" ? a.uMin : a.vMin;
@@ -274,13 +309,13 @@ function refreshDim(
   delete props.dangling;
   delete props.reason;
   if (propsEqual(element.props, props)) {
-    reports.push({ id: element.id, type: dim.type, viewId: dim.viewId, updated: false, dangling: false, reason: null, measured, label: null });
+    reports.push({ id: element.id, type: dim.type, viewId: dim.viewId, updated: false, dangling: false, reason: null, measured, label: null, outcome: "ok" });
     return;
   }
   updates.push({ elementId: element.id, props });
   reports.push({
     id: element.id, type: dim.type, viewId: dim.viewId, updated: true, dangling: false,
-    reason: null, measured, label: null,
+    reason: null, measured, label: null, outcome: "ok",
   });
 }
 
@@ -294,7 +329,8 @@ function refreshTag(
   const target = entitiesById.get(tag.targetId);
   if (target === undefined) {
     recordDangling(element, updates, reports,
-      `target element '${tag.targetId}' does not exist (deleted)`);
+      `target element '${tag.targetId}' does not exist (deleted)`,
+      "dangling", "docs_target_missing");
     return;
   }
   const label = deriveTagLabel(target, entitiesById);
@@ -303,13 +339,13 @@ function refreshTag(
   delete props.dangling;
   delete props.reason;
   if (propsEqual(element.props, props)) {
-    reports.push({ id: element.id, type: tag.type, viewId: tag.viewId, updated: false, dangling: false, reason: null, measured: null, label });
+    reports.push({ id: element.id, type: tag.type, viewId: tag.viewId, updated: false, dangling: false, reason: null, measured: null, label, outcome: "ok" });
     return;
   }
   updates.push({ elementId: element.id, props });
   reports.push({
     id: element.id, type: tag.type, viewId: tag.viewId, updated: true, dangling: false,
-    reason: null, measured: null, label,
+    reason: null, measured: null, label, outcome: "ok",
   });
 }
 

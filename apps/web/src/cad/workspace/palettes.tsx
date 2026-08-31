@@ -62,6 +62,10 @@ import {
   // CAD-PARITY-012 (Issue #102): the Coordination palette icons.
   Cloud,
   ClipboardList,
+  // CAD-PARITY-013 (Issue #104): the Documentation palette icon (the
+  // navigator View Map + Layout Book, title blocks, revisions, schedules
+  // and the publisher — the Docs dock tab).
+  BookOpen,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -118,6 +122,22 @@ import {
   type LayerFilterMode,
 } from "@offisos/cad-app-shell/workspace/standards";
 import { setSelection } from "@/cad/client/http-transport";
+// CAD-PARITY-013 (Issue #104): the P013 transport mirror types (type-only —
+// erased at compile time, the lazy dynamic-import pattern is unchanged).
+import type {
+  NavigatorBookBranch,
+  NavigatorLayoutRow,
+  NavigatorNodeRecord,
+  NavigatorTree,
+  NavigatorViewBranch,
+  NavigatorViewRow,
+  PublisherRunResult,
+  RevisionRecord,
+  ScheduleRunResult,
+  ScheduleSource,
+  SchedulesListRow,
+  TitleBlockRow,
+} from "@/cad/client/http-transport";
 // CAD-PARITY-012 (Issue #102): the shared materials/coordination cores — the
 // SAME vocabulary the App API and the canvas run (the constrained category
 // list, the materialId readers, the block-instance material resolution and
@@ -139,7 +159,19 @@ import {
   materialViewsOf,
 } from "@/cad/workspace/material-display";
 
-export type DockTab = "properties" | "layers" | "styles" | "blocks" | "constraints" | "layouts" | "coordination" | "navigator";
+export type DockTab =
+  | "properties"
+  | "layers"
+  | "styles"
+  | "blocks"
+  | "constraints"
+  | "layouts"
+  | "coordination"
+  // CAD-PARITY-013 (Issue #104): the Documentation manager (the navigator
+  // View Map + Layout Book, title blocks, revisions, schedules, publisher —
+  // the REVLIST/SCHLIST commands' palette target).
+  | "documentation"
+  | "navigator";
 
 export interface PalettesProps {
   readonly snapshot: CADDocumentSnapshot | null;
@@ -2258,6 +2290,46 @@ function BlocksPanel(props: PalettesProps): React.JSX.Element {
 // Navigator / project browser.
 // ---------------------------------------------------------------------------
 
+/** Flatten the View Map branches to their folder nodes (select options). */
+function flattenFolderNodes(branches: readonly NavigatorViewBranch[]): readonly NavigatorNodeRecord[] {
+  const out: NavigatorNodeRecord[] = [];
+  const walk = (bs: readonly NavigatorViewBranch[]): void => {
+    for (const b of bs) {
+      out.push(b.node);
+      walk(b.children);
+    }
+  };
+  walk(branches);
+  return out;
+}
+
+/** Flatten the Layout Book branches to their subset nodes (select options). */
+function flattenSubsetNodes(branches: readonly NavigatorBookBranch[]): readonly NavigatorNodeRecord[] {
+  const out: NavigatorNodeRecord[] = [];
+  const walk = (bs: readonly NavigatorBookBranch[]): void => {
+    for (const b of bs) {
+      out.push(b.node);
+      walk(b.children);
+    }
+  };
+  walk(branches);
+  return out;
+}
+
+/** Flatten the View Map to every view row (root + nested, document order). */
+function flattenViewRows(tree: NavigatorTree | null): readonly NavigatorViewRow[] {
+  if (tree === null) return [];
+  const out: NavigatorViewRow[] = [...tree.viewMap.views];
+  const walk = (bs: readonly NavigatorViewBranch[]): void => {
+    for (const b of bs) {
+      out.push(...b.views);
+      walk(b.children);
+    }
+  };
+  walk(tree.viewMap.children);
+  return out;
+}
+
 function NavigatorPanel(props: PalettesProps): React.JSX.Element {
   const elements = props.snapshot?.elements ?? [];
   const stories = elements.filter((el) => el.kind === "bim" && (el.props as Record<string, unknown>).type === "bim.story");
@@ -2299,42 +2371,251 @@ function NavigatorPanel(props: PalettesProps): React.JSX.Element {
     </div>
   );
 
+  // CAD-PARITY-013 (Issue #104): the LOADING/ERROR fallback — the legacy
+  // client-derived story/BIM/drafting lists keep the panel from ever
+  // blanking while the canonical navigator.tree query loads (or failed).
+  const renderLegacyLists = (): React.JSX.Element => (
+    <>
+      <div className="px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Stories ({stories.length})</div>
+      <ul aria-label="stories">
+        {stories.map((story) => {
+          const p = story.props as Record<string, unknown>;
+          const active = props.activeStoryId === story.id;
+          return (
+            <li key={story.id}>
+              <button
+                type="button"
+                className={
+                  "flex w-full items-center justify-between gap-2 rounded px-2 py-0.5 text-left text-xs " +
+                  (active ? "bg-muted font-semibold" : "hover:bg-muted/50")
+                }
+                onClick={() => props.onActiveStory(story.id)}
+                aria-pressed={active}
+                data-testid={`navigator-story-${story.id}`}
+                title="Set as the active story for BIM authoring"
+              >
+                <span>{typeof p.name === "string" ? p.name : story.id}</span>
+                <span className="font-mono text-[10px] text-muted-foreground">
+                  {typeof p.level === "number" ? `z ${p.level}` : ""}
+                </span>
+              </button>
+            </li>
+          );
+        })}
+        {stories.length === 0 && (
+          <li className="px-2 py-1 text-xs text-muted-foreground">No stories — run STORY (ST) to create one.</li>
+        )}
+      </ul>
+      <Separator className="my-1" />
+      {renderElementList("BIM elements", bim)}
+      <Separator className="my-1" />
+      {renderElementList("Drafting entities", drafting)}
+    </>
+  );
+
+  // --- CAD-PARITY-013 (Issue #104): the canonical navigator tree ----------
+  // Query-backed (fresh on every document version change — the commit path
+  // bumps the version); falls back to the client-derived lists above while
+  // loading / on query error. Row clicks route through the SAME channels
+  // (stories → onActiveStory, views/layouts → onSelection).
+  const [tree, setTree] = React.useState<NavigatorTree | null>(null);
+  const [queryError, setQueryError] = React.useState<string | null>(null);
+  const version = props.snapshot?.version?.version_number ?? 0;
+
+  React.useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const transport = await import("@/cad/client/http-transport");
+      const res = await transport.navigatorTree();
+      if (cancelled) return;
+      const value = transport.unwrapNavigatorTree(res);
+      if (value === null) {
+        setQueryError(`[navigator.tree] ${res.ok ? "unexpected response shape" : `${res.code} — ${res.message}`}`);
+        return;
+      }
+      setQueryError(null);
+      setTree(value);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [version]);
+
+  const layouts = props.snapshot?.layouts ?? [];
+
+  const renderNavViewRow = (view: NavigatorViewRow, depth: number): React.JSX.Element => (
+    <li key={view.viewId}>
+      <button
+        type="button"
+        className="flex w-full items-center gap-1.5 rounded px-2 py-0.5 text-left text-[11px] hover:bg-muted/50"
+        style={{ paddingLeft: depth * 10 + 8 }}
+        data-testid={`navigator-view-${view.viewId}`}
+        onClick={() => props.onSelection([view.viewId])}
+        title={`Select the saved view (kind ${view.kind}${view.scale !== undefined ? `, scale 1:${view.scale}` : ""})`}
+      >
+        <span className="truncate">{view.title}</span>
+        <Badge variant="outline" className="h-4 shrink-0 px-1 text-[9px]">{view.kind}</Badge>
+        {view.scale !== undefined && <span className="shrink-0 text-[9px] text-muted-foreground">1:{view.scale}</span>}
+        {view.contentHash !== undefined && (
+          <span className="ml-auto shrink-0 font-mono text-[9px] text-muted-foreground" title={view.contentHash}>
+            {view.contentHash.slice(0, 8)}
+          </span>
+        )}
+      </button>
+    </li>
+  );
+
+  const renderNavViewBranch = (branch: NavigatorViewBranch, depth: number): React.JSX.Element => (
+    <li key={branch.node.id}>
+      <div
+        className="flex w-full items-center gap-1.5 rounded px-2 py-0.5 text-[11px] font-medium hover:bg-muted/50"
+        style={{ paddingLeft: depth * 10 + 8 }}
+        data-testid={`navigator-folder-${branch.node.id}`}
+      >
+        <span className="truncate">{branch.node.name}</span>
+        <span className="ml-auto shrink-0 text-[9px] text-muted-foreground">{branch.views.length} view{branch.views.length === 1 ? "" : "s"}</span>
+      </div>
+      <ul aria-label={`folder ${branch.node.name}`}>
+        {branch.views.map((v) => renderNavViewRow(v, depth + 1))}
+        {branch.children.map((c) => renderNavViewBranch(c, depth + 1))}
+      </ul>
+    </li>
+  );
+
+  const renderNavLayoutRow = (row: NavigatorLayoutRow, depth: number): React.JSX.Element => (
+    <li key={row.layoutId}>
+      <button
+        type="button"
+        className="flex w-full items-center gap-1.5 rounded px-2 py-0.5 text-left text-[11px] hover:bg-muted/50"
+        style={{ paddingLeft: depth * 10 + 8 }}
+        data-testid={`navigator-layout-${row.layoutId}`}
+        onClick={() => props.onSelection([row.layoutId])}
+        title={`Select the layout (sheet ${row.sheetNumber}${row.masterId !== undefined ? `, master ${row.masterId}` : ""})`}
+      >
+        <span className="truncate">{row.name}</span>
+        <span className="shrink-0 font-mono text-[9px] text-muted-foreground">{row.sheetNumber}</span>
+        {row.masterId !== undefined && (
+          <span className="shrink-0 text-[9px] text-muted-foreground">→ master</span>
+        )}
+        {row.revisionCodes.length > 0 && (
+          <span className="ml-auto shrink-0 text-[9px] text-muted-foreground">{row.revisionCodes.join(",")}</span>
+        )}
+      </button>
+    </li>
+  );
+
+  const renderNavBookBranch = (branch: NavigatorBookBranch, depth: number): React.JSX.Element => (
+    <li key={branch.node.id}>
+      <div
+        className="flex w-full items-center gap-1.5 rounded px-2 py-0.5 text-[11px] font-medium hover:bg-muted/50"
+        style={{ paddingLeft: depth * 10 + 8 }}
+        data-testid={`navigator-subset-${branch.node.id}`}
+      >
+        <span className="truncate">{branch.node.name}</span>
+        {branch.node.prefix !== undefined && <Badge variant="outline" className="h-4 shrink-0 px-1 text-[9px]">[{branch.node.prefix}]</Badge>}
+        <span className="ml-auto shrink-0 text-[9px] text-muted-foreground">{branch.layouts.length} sheet{branch.layouts.length === 1 ? "" : "s"}</span>
+      </div>
+      <ul aria-label={`subset ${branch.node.name}`}>
+        {branch.layouts.map((l) => renderNavLayoutRow(l, depth + 1))}
+        {branch.children.map((c) => renderNavBookBranch(c, depth + 1))}
+      </ul>
+    </li>
+  );
+
   return (
     <ScrollArea className="h-full">
-      <div className="p-1">
-        <div className="px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Stories ({stories.length})</div>
-        <ul aria-label="stories">
-          {stories.map((story) => {
-            const p = story.props as Record<string, unknown>;
-            const active = props.activeStoryId === story.id;
-            return (
-              <li key={story.id}>
-                <button
-                  type="button"
-                  className={
-                    "flex w-full items-center justify-between gap-2 rounded px-2 py-0.5 text-left text-xs " +
-                    (active ? "bg-muted font-semibold" : "hover:bg-muted/50")
-                  }
-                  onClick={() => props.onActiveStory(story.id)}
-                  aria-pressed={active}
-                  title="Set as the active story for BIM authoring"
+      <div className="p-1" data-testid="navigator-panel">
+        {queryError !== null && (
+          <div className="m-1 rounded border border-amber-300 bg-amber-50 px-2 py-1 text-[10px] text-amber-800" role="alert">
+            {queryError} — showing the client-derived model tree.
+          </div>
+        )}
+        {tree === null || queryError !== null ? (
+          renderLegacyLists()
+        ) : (
+          <>
+            {/* The project map (stories + element counts). */}
+            <div className="px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+              Project map ({tree.projectMap.stories.length} stor{tree.projectMap.stories.length === 1 ? "y" : "ies"})
+            </div>
+            <ul aria-label="project map stories">
+              {tree.projectMap.stories.map((story) => (
+                <li key={story.id}>
+                  <button
+                    type="button"
+                    className={
+                      "flex w-full items-center justify-between gap-2 rounded px-2 py-0.5 text-left text-xs " +
+                      (props.activeStoryId === story.id ? "bg-muted font-semibold" : "hover:bg-muted/50")
+                    }
+                    onClick={() => props.onActiveStory(story.id)}
+                    aria-pressed={props.activeStoryId === story.id}
+                    data-testid={`navigator-story-${story.id}`}
+                    title="Set as the active story for BIM authoring"
+                  >
+                    <span>{story.name}</span>
+                    <span className="font-mono text-[10px] text-muted-foreground">
+                      z {story.level} · {story.elementCount} element{story.elementCount === 1 ? "" : "s"}
+                    </span>
+                  </button>
+                </li>
+              ))}
+              {tree.projectMap.stories.length === 0 && (
+                <li className="px-2 py-1 text-xs text-muted-foreground">No stories — run STORY (ST) to create one.</li>
+              )}
+            </ul>
+            <Separator className="my-1" />
+            {/* The View Map (saved views filed under navigator folders). */}
+            <div className="px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">View Map</div>
+            <div data-testid="navigator-viewmap">
+              <ul aria-label="view map">
+                {tree.viewMap.views.map((v) => renderNavViewRow(v, 0))}
+                {tree.viewMap.children.map((c) => renderNavViewBranch(c, 0))}
+              </ul>
+              {tree.viewMap.views.length === 0 && tree.viewMap.children.length === 0 && (
+                <div className="px-2 py-1 text-xs text-muted-foreground">
+                  No saved views — the Documentation workbench (DOCSVIEWS) creates them.
+                </div>
+              )}
+            </div>
+            <Separator className="my-1" />
+            {/* The Layout Book (layouts filed under navigator subsets). */}
+            <div className="px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Layout Book</div>
+            <div data-testid="navigator-layoutbook">
+              <ul aria-label="layout book">
+                {tree.layoutBook.layouts.map((l) => renderNavLayoutRow(l, 0))}
+                {tree.layoutBook.children.map((c) => renderNavBookBranch(c, 0))}
+              </ul>
+              {tree.layoutBook.layouts.length === 0 && tree.layoutBook.children.length === 0 && (
+                <div className="px-2 py-1 text-xs text-muted-foreground">
+                  No layouts — run LAYOUTNEW to create one.
+                </div>
+              )}
+            </div>
+            <Separator className="my-1" />
+            {/* The publisher-set registry. */}
+            <div className="px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+              Publisher sets ({tree.publisherSets.length})
+            </div>
+            <ul aria-label="publisher sets">
+              {tree.publisherSets.map((set) => (
+                <li
+                  key={set.id}
+                  className="flex items-center justify-between gap-2 rounded px-2 py-0.5 text-[11px] hover:bg-muted/50"
+                  data-testid={`navigator-pubset-${set.id}`}
                 >
-                  <span>{typeof p.name === "string" ? p.name : story.id}</span>
-                  <span className="font-mono text-[10px] text-muted-foreground">
-                    {typeof p.level === "number" ? `z ${p.level}` : ""}
-                  </span>
-                </button>
-              </li>
-            );
-          })}
-          {stories.length === 0 && (
-            <li className="px-2 py-1 text-xs text-muted-foreground">No stories — run STORY (ST) to create one.</li>
-          )}
-        </ul>
-        <Separator className="my-1" />
-        {renderElementList("BIM elements", bim)}
-        <Separator className="my-1" />
-        {renderElementList("Drafting entities", drafting)}
+                  <span className="truncate">{set.name}</span>
+                  <span className="shrink-0 text-[9px] text-muted-foreground">{set.itemCount} item{set.itemCount === 1 ? "" : "s"}</span>
+                </li>
+              ))}
+              {tree.publisherSets.length === 0 && (
+                <li className="px-2 py-1 text-xs text-muted-foreground">No publisher sets — PUBSET creates one.</li>
+              )}
+            </ul>
+            <div className="px-2 pt-1 text-[10px] text-muted-foreground">
+              {layouts.length} layout{layouts.length === 1 ? "" : "s"} · the Documentation dock tab manages the book, schedules and publisher.
+            </div>
+          </>
+        )}
       </div>
     </ScrollArea>
   );
@@ -3710,6 +3991,1189 @@ function CoordinationPanel(props: PalettesProps): React.JSX.Element {
   );
 }
 
+// ---------------------------------------------------------------------------
+// CAD-PARITY-013 (Issue #104): the Documentation manager — the navigator
+// (View Map folders + Layout Book subsets), title blocks, revisions,
+// schedules and the publisher. Every table loads through the App API
+// queries (fresh on every document version change — the commit path bumps
+// the version; null = loading, the empty state still renders the forms so
+// the palette never blanks on a P013-field-less legacy document). Every
+// write is ONE atomic App API command (one revision, one undo entry; typed
+// failures surface through the shell's error channel — e.g.
+// navigator_in_use on a referenced folder).
+// ---------------------------------------------------------------------------
+
+/** Humanize a closed-vocabulary column key ("id" → "Id",
+ *  "renovationStatus" → "Renovation Status"). */
+function humanizeScheduleKey(key: string): string {
+  const spaced = key.replace(/([a-z0-9])([A-Z])/g, "$1 $2");
+  return spaced.charAt(0).toUpperCase() + spaced.slice(1);
+}
+
+function scheduleColumnsOf(keys: readonly string[]): readonly { key: string; label: string }[] {
+  return keys.map((key) => ({ key, label: humanizeScheduleKey(key) }));
+}
+
+/** The DEFAULT per-source schedule column sets — the SAME closed
+ *  vocabularies the P1 SCHEDULE command uses (app/src/workspace/
+ *  commands-documentation.ts DEFAULT_SCHEDULE_COLUMNS, mirrored client-side
+ *  so the panel form offers the identical default columns without importing
+ *  the document-layer runtime into the browser bundle; the server validator
+ *  remains the single source of truth). Dynamic `ps:<set>.<key>` columns are
+ *  author-chosen (the SCHEDULE command) and deliberately not offered here. */
+const SCHEDULE_DEFAULT_COLUMNS: Readonly<Record<ScheduleSource, readonly { key: string; label: string }[]>> = {
+  elements: scheduleColumnsOf([
+    "id", "type", "name", "story", "layer", "material", "classification", "renovationStatus", "option",
+  ]),
+  components: scheduleColumnsOf([
+    "id", "type", "name", "story", "layer", "material", "classification", "renovationStatus", "option",
+  ]),
+  materials: scheduleColumnsOf(["id", "name", "category", "color", "lineweight", "density"]),
+  views: scheduleColumnsOf(["id", "kind", "title", "scale", "folder", "contentHash", "primitives"]),
+  layouts: scheduleColumnsOf(["id", "name", "subset", "master", "sheetNumber", "titleBlock", "revisions"]),
+  sheets: scheduleColumnsOf(["id", "title", "sheetNumber", "projectName", "views"]),
+};
+
+/** The six schedule sources (the SCHEDULE command's closed vocabulary). */
+const SCHEDULE_SOURCES: readonly ScheduleSource[] = [
+  "elements", "components", "materials", "views", "layouts", "sheets",
+];
+
+function DocumentationPanel(props: PalettesProps): React.JSX.Element {
+  const commit = props.onCommitEdit;
+  // The live navigator projection + the schedule/revision tables (loaded
+  // through the App API queries; null = loading).
+  const [tree, setTree] = React.useState<NavigatorTree | null>(null);
+  const [schedules, setSchedules] = React.useState<readonly SchedulesListRow[] | null>(null);
+  const [revisions, setRevisions] = React.useState<readonly RevisionRecord[] | null>(null);
+  const [queryError, setQueryError] = React.useState<string | null>(null);
+  // The on-demand run results (schedules.run / publisher.run — queries, no
+  // revisions; re-run from the per-row buttons).
+  const [scheduleRun, setScheduleRun] = React.useState<ScheduleRunResult | null>(null);
+  const [publisherRunResult, setPublisherRunResult] = React.useState<PublisherRunResult | null>(null);
+
+  // Layout Book forms.
+  const [subsetName, setSubsetName] = React.useState("");
+  const [subsetPrefix, setSubsetPrefix] = React.useState("A");
+  const [assignLayoutId, setAssignLayoutId] = React.useState("");
+  const [assignSubsetId, setAssignSubsetId] = React.useState("__root__");
+  const [masterLayoutId, setMasterLayoutId] = React.useState("");
+  const [masterMasterId, setMasterMasterId] = React.useState("__none__");
+  // View Map forms.
+  const [folderName, setFolderName] = React.useState("");
+  const [folderParentId, setFolderParentId] = React.useState("");
+  const [viewAssignViewId, setViewAssignViewId] = React.useState("");
+  const [viewAssignFolderId, setViewAssignFolderId] = React.useState("*");
+  // Title block forms.
+  const [titleBlockName, setTitleBlockName] = React.useState("");
+  const [titleBlockProject, setTitleBlockProject] = React.useState("");
+  const [titleBlockAuthor, setTitleBlockAuthor] = React.useState("");
+  const [placeLayoutId, setPlaceLayoutId] = React.useState("");
+  const [placeTitleBlockId, setPlaceTitleBlockId] = React.useState("");
+  const [placeX, setPlaceX] = React.useState<number>(10);
+  const [placeY, setPlaceY] = React.useState<number>(10);
+  // Revision / schedule / publisher forms.
+  const [revisionCode, setRevisionCode] = React.useState("");
+  const [revisionDescription, setRevisionDescription] = React.useState("");
+  const [scheduleName, setScheduleName] = React.useState("");
+  const [scheduleSource, setScheduleSource] = React.useState<ScheduleSource>("elements");
+  const [publisherName, setPublisherName] = React.useState("");
+  const [publisherItems, setPublisherItems] = React.useState("");
+
+  // The document version the loaded tables were read at.
+  const version = props.snapshot?.version?.version_number ?? 0;
+
+  // Load the tables through the App API queries (fresh on mount and on every
+  // document version change — the commit path bumps the version). Partial
+  // success still renders (each section falls back to its empty/loading
+  // state); the FIRST failed query is surfaced as the typed error banner.
+  React.useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const transport = await import("@/cad/client/http-transport");
+      const [treeRes, schRes, revRes] = await Promise.all([
+        transport.navigatorTree(),
+        transport.schedulesList(),
+        transport.revisionsList(),
+      ]);
+      if (cancelled) return;
+      const treeValue = transport.unwrapNavigatorTree(treeRes);
+      const scheduleRows = transport.unwrapSchedulesList(schRes);
+      const revisionRows = transport.unwrapRevisionsList(revRes);
+      if (treeValue === null) {
+        setQueryError(`[navigator.tree] ${describeQueryFailure(treeRes)}`);
+      } else if (scheduleRows === null) {
+        setQueryError(`[schedules.list] ${describeQueryFailure(schRes)}`);
+      } else if (revisionRows === null) {
+        setQueryError(`[revisions.list] ${describeQueryFailure(revRes)}`);
+      } else {
+        setQueryError(null);
+      }
+      if (treeValue !== null) setTree(treeValue);
+      if (scheduleRows !== null) setSchedules(scheduleRows);
+      if (revisionRows !== null) setRevisions(revisionRows);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [version]);
+
+  // The document tables the forms populate from (absent-when-empty optional
+  // snapshot fields — a legacy document renders the empty selects safely).
+  const layouts = props.snapshot?.layouts ?? [];
+  const titleBlocks = props.snapshot?.titleBlocks ?? [];
+  const folders = React.useMemo(
+    () => flattenFolderNodes(tree?.viewMap.children ?? []),
+    [tree],
+  );
+  const subsets = React.useMemo(
+    () => flattenSubsetNodes(tree?.layoutBook.children ?? []),
+    [tree],
+  );
+  const views = React.useMemo(() => flattenViewRows(tree), [tree]);
+
+  /** Run one schedule (query — no revision) and render its result table. */
+  const runSchedule = React.useCallback(async (row: SchedulesListRow): Promise<void> => {
+    const transport = await import("@/cad/client/http-transport");
+    const res = await transport.schedulesRun(row.id);
+    const result = transport.unwrapScheduleRun(res);
+    if (result === null) {
+      setQueryError(`[schedules.run] ${describeQueryFailure(res)}`);
+      return;
+    }
+    setQueryError(null);
+    setScheduleRun(result);
+  }, []);
+
+  /** Publish one set (query — NON-VERSIONED output automation). */
+  const runPublisher = React.useCallback(async (setId: string): Promise<void> => {
+    const transport = await import("@/cad/client/http-transport");
+    const res = await transport.publisherRun(setId);
+    const result = transport.unwrapPublisherRun(res);
+    if (result === null) {
+      setQueryError(`[publisher.run] ${describeQueryFailure(res)}`);
+      return;
+    }
+    setQueryError(null);
+    setPublisherRunResult(result);
+  }, []);
+
+  // --- Layout Book mutations -----------------------------------------------
+
+  const createSubset = (): void => {
+    const name = subsetName.trim();
+    if (name.length === 0) return;
+    const payload: { name: string; prefix?: string } = { name };
+    const prefix = subsetPrefix.trim();
+    if (prefix.length > 0) payload.prefix = prefix;
+    void commit("navigator.createSubset", async () => {
+      const { navigatorCreateSubset } = await import("@/cad/client/http-transport");
+      return navigatorCreateSubset(payload);
+    });
+    setSubsetName("");
+  };
+
+  const assignLayoutToSubset = (): void => {
+    if (assignLayoutId.length === 0) return;
+    const subsetId = assignSubsetId === "__root__" ? null : assignSubsetId;
+    void commit("layout.update", async () => {
+      const { layoutUpdate } = await import("@/cad/client/http-transport");
+      return layoutUpdate({ id: assignLayoutId, patch: { subsetId } });
+    });
+    setAssignLayoutId("");
+    setAssignSubsetId("__root__");
+  };
+
+  const assignMaster = (): void => {
+    if (masterLayoutId.length === 0) return;
+    const masterId = masterMasterId === "__none__" ? null : masterMasterId;
+    void commit("layout.update", async () => {
+      const { layoutUpdate } = await import("@/cad/client/http-transport");
+      return layoutUpdate({ id: masterLayoutId, patch: { masterId } });
+    });
+    setMasterLayoutId("");
+    setMasterMasterId("__none__");
+  };
+
+  // --- View Map mutations ---------------------------------------------------
+
+  const createFolder = (): void => {
+    const name = folderName.trim();
+    if (name.length === 0) return;
+    const payload: { name: string; parentId?: string } = { name };
+    if (folderParentId.length > 0) payload.parentId = folderParentId;
+    void commit("navigator.createFolder", async () => {
+      const { navigatorCreateFolder } = await import("@/cad/client/http-transport");
+      return navigatorCreateFolder(payload);
+    });
+    setFolderName("");
+  };
+
+  const assignViewToFolder = (): void => {
+    if (viewAssignViewId.length === 0) return;
+    const folderId = viewAssignFolderId === "*" || viewAssignFolderId.length === 0 ? null : viewAssignFolderId;
+    void commit("docs.updateView", async () => {
+      const { docsUpdateViewFolder } = await import("@/cad/client/http-transport");
+      return docsUpdateViewFolder(viewAssignViewId, folderId);
+    });
+    setViewAssignViewId("");
+    setViewAssignFolderId("*");
+  };
+
+  // --- Title block mutations --------------------------------------------------
+
+  const createTitleBlock = (): void => {
+    const name = titleBlockName.trim();
+    const project = titleBlockProject.trim();
+    if (name.length === 0 || project.length === 0) return;
+    // The TITLEBLOCK command's deterministic rows (Project text + the
+    // derived Layout/Sheet/Revisions fields + the Author text row when
+    // given) and geometry (180 mm wide, 12 mm rows) — mirrored from
+    // app/src/workspace/commands-documentation.ts (the P1 constants).
+    const rows: TitleBlockRow[] = [
+      { label: "Project", field: "text", value: project },
+      { label: "Layout", field: "layoutName" },
+      { label: "Sheet", field: "sheetNumber" },
+      { label: "Revisions", field: "revisions" },
+    ];
+    const author = titleBlockAuthor.trim();
+    if (author.length > 0) rows.push({ label: "Author", field: "text", value: author });
+    const rowHeightMm = 12;
+    const widthMm = 180;
+    void commit("titleblock.create", async () => {
+      const { titleblockCreate } = await import("@/cad/client/http-transport");
+      return titleblockCreate({
+        name,
+        widthMm,
+        heightMm: rows.length * rowHeightMm,
+        rowHeightMm,
+        rows,
+      });
+    });
+    setTitleBlockName("");
+    setTitleBlockAuthor("");
+  };
+
+  const placeTitleBlock = (): void => {
+    if (placeLayoutId.length === 0 || placeTitleBlockId.length === 0) return;
+    const xMm = Number.isFinite(placeX) ? placeX : 10;
+    const yMm = Number.isFinite(placeY) ? placeY : 10;
+    void commit("layout.update", async () => {
+      const { layoutUpdate } = await import("@/cad/client/http-transport");
+      return layoutUpdate({
+        id: placeLayoutId,
+        patch: { titleBlockPlacement: { titleBlockId: placeTitleBlockId, xMm, yMm } },
+      });
+    });
+  };
+
+  // --- Revision / schedule / publisher mutations ------------------------------
+
+  const createRevision = (): void => {
+    const code = revisionCode.trim();
+    if (code.length === 0) return;
+    void commit("revision.add", async () => {
+      const { revisionAdd } = await import("@/cad/client/http-transport");
+      return revisionAdd({ code, description: revisionDescription.trim(), issued: false });
+    });
+    setRevisionCode("");
+    setRevisionDescription("");
+  };
+
+  const toggleRevisionIssued = (revision: RevisionRecord): void => {
+    void commit("revision.update", async () => {
+      const { revisionUpdate } = await import("@/cad/client/http-transport");
+      return revisionUpdate(revision.id, { issued: !revision.issued });
+    });
+  };
+
+  const createSchedule = (): void => {
+    const name = scheduleName.trim();
+    if (name.length === 0) return;
+    const columns = SCHEDULE_DEFAULT_COLUMNS[scheduleSource].map((c) => ({ key: c.key, label: c.label }));
+    void commit("schedule.create", async () => {
+      const { scheduleCreate } = await import("@/cad/client/http-transport");
+      return scheduleCreate({ name, source: scheduleSource, columns });
+    });
+    setScheduleName("");
+  };
+
+  const createPublisherSet = (): void => {
+    const name = publisherName.trim();
+    if (name.length === 0) return;
+    // The PUBSET command's strict comma/pipe-separated item grammar
+    // (subset:Name / layout:Name), resolved through the tree + snapshot
+    // tables client-side; junk/unknown targets fail typed (never guessed).
+    const parts = publisherItems.split(/[,|]/).map((s) => s.trim()).filter((s) => s.length > 0);
+    const items: { kind: "layout" | "subset"; id: string; format: "pdf" }[] = [];
+    for (const part of parts) {
+      const m = /^(subset|layout):(.+)$/.exec(part);
+      if (m === null) {
+        void commit("publisher.create", async () =>
+          Promise.resolve(
+            apiErr(
+              "publisher_invalid",
+              `publisher item '${part}' must be subset:Name or layout:Name (strict parse — junk is rejected, never guessed).`,
+              false,
+            ),
+          ),
+        );
+        return;
+      }
+      const kind = m[1] as "subset" | "layout";
+      const targetName = m[2]!.trim();
+      const id =
+        kind === "subset"
+          ? subsets.find((n) => n.name === targetName)?.id
+          : layouts.find((l) => l.name === targetName)?.id;
+      if (id === undefined) {
+        void commit("publisher.create", async () =>
+          Promise.resolve(
+            apiErr(
+              "publisher_invalid",
+              `${kind} '${targetName}' does not exist — SUBSET/LAYOUTNEW create one.`,
+              false,
+            ),
+          ),
+        );
+        return;
+      }
+      items.push({ kind, id, format: "pdf" });
+    }
+    if (items.length === 0) {
+      void commit("publisher.create", async () =>
+        Promise.resolve(
+          apiErr(
+            "publisher_invalid",
+            "publisher.create requires at least one item (subset:Name or layout:Name entries).",
+            false,
+          ),
+        ),
+      );
+      return;
+    }
+    void commit("publisher.create", async () => {
+      const { publisherCreate } = await import("@/cad/client/http-transport");
+      return publisherCreate({ name, items });
+    });
+    setPublisherName("");
+    setPublisherItems("");
+  };
+
+  // --- The tree renderers -----------------------------------------------------
+
+  const renderLayoutRow = (row: NavigatorLayoutRow, depth: number): React.JSX.Element => (
+    <li key={row.layoutId}>
+      <div
+        className="flex items-center gap-1.5 rounded px-2 py-0.5 text-[11px] hover:bg-muted/50"
+        style={{ paddingLeft: depth * 10 + 8 }}
+        data-testid={`doc-layout-${row.layoutId}`}
+      >
+        <span className="truncate">{row.name}</span>
+        <span className="shrink-0 font-mono text-[9px] text-muted-foreground">{row.sheetNumber}</span>
+        {row.masterId !== undefined && (
+          <span
+            className="shrink-0 text-[9px] text-muted-foreground"
+            data-testid={`doc-layout-master-${row.layoutId}`}
+            title={`master layout ${row.masterId}`}
+          >
+            → master {layouts.find((l) => l.id === row.masterId)?.name ?? row.masterId}
+          </span>
+        )}
+        <span
+          className="shrink-0 text-[9px] text-muted-foreground"
+          data-testid={`doc-layout-revisions-${row.layoutId}`}
+          title="the layout's revision codes (layout.revisionIds joined in record order)"
+        >
+          {row.revisionCodes.length > 0 ? row.revisionCodes.join(", ") : "—"}
+        </span>
+        {row.titleBlockId !== undefined && (
+          <span
+            className="ml-auto shrink-0 font-mono text-[9px] text-muted-foreground"
+            title={`placed title block ${row.titleBlockId}`}
+          >
+            {row.titleBlockId}
+          </span>
+        )}
+      </div>
+    </li>
+  );
+
+  const renderBookBranch = (branch: NavigatorBookBranch, depth: number): React.JSX.Element => (
+    <li key={branch.node.id}>
+      <div
+        className="flex items-center gap-1.5 rounded px-2 py-0.5 text-[11px] font-medium hover:bg-muted/50"
+        style={{ paddingLeft: depth * 10 + 8 }}
+        data-testid={`doc-subset-${branch.node.id}`}
+        title={`subset node ${branch.node.id} (order ${branch.node.order})`}
+      >
+        <span className="truncate">{branch.node.name}</span>
+        {branch.node.prefix !== undefined && (
+          <Badge variant="outline" className="h-4 shrink-0 px-1 text-[9px]">[{branch.node.prefix}]</Badge>
+        )}
+        <span className="shrink-0 text-[9px] text-muted-foreground">
+          {branch.node.numbering === "custom" ? `custom from ${branch.node.customNumber ?? "01"}` : "numbering none"}
+        </span>
+        <span className="ml-auto shrink-0 text-[9px] text-muted-foreground">
+          {branch.layouts.length} sheet{branch.layouts.length === 1 ? "" : "s"}
+        </span>
+      </div>
+      <ul aria-label={`subset ${branch.node.name}`}>
+        {branch.layouts.map((l) => renderLayoutRow(l, depth + 1))}
+        {branch.children.map((c) => renderBookBranch(c, depth + 1))}
+      </ul>
+    </li>
+  );
+
+  const renderViewRow = (view: NavigatorViewRow, depth: number): React.JSX.Element => (
+    <li key={view.viewId}>
+      <div
+        className="flex items-center gap-1.5 rounded px-2 py-0.5 text-[11px] hover:bg-muted/50"
+        style={{ paddingLeft: depth * 10 + 8 }}
+        data-testid={`doc-view-${view.viewId}`}
+        title={`saved view ${view.viewId}`}
+      >
+        <span className="truncate">{view.title}</span>
+        <Badge variant="outline" className="h-4 shrink-0 px-1 text-[9px]">{view.kind}</Badge>
+        {view.scale !== undefined && <span className="shrink-0 text-[9px] text-muted-foreground">1:{view.scale}</span>}
+        {view.contentHash !== undefined && (
+          <span className="ml-auto shrink-0 font-mono text-[9px] text-muted-foreground" title={view.contentHash}>
+            {view.contentHash.slice(0, 8)}
+          </span>
+        )}
+      </div>
+    </li>
+  );
+
+  const renderViewBranch = (branch: NavigatorViewBranch, depth: number): React.JSX.Element => (
+    <li key={branch.node.id}>
+      <div
+        className="flex items-center gap-1.5 rounded px-2 py-0.5 text-[11px] font-medium hover:bg-muted/50"
+        style={{ paddingLeft: depth * 10 + 8 }}
+        data-testid={`doc-folder-${branch.node.id}`}
+        title={`folder node ${branch.node.id} (order ${branch.node.order})`}
+      >
+        <span className="truncate">{branch.node.name}</span>
+        <span className="ml-auto shrink-0 text-[9px] text-muted-foreground">
+          {branch.views.length} view{branch.views.length === 1 ? "" : "s"}
+        </span>
+      </div>
+      <ul aria-label={`folder ${branch.node.name}`}>
+        {branch.views.map((v) => renderViewRow(v, depth + 1))}
+        {branch.children.map((c) => renderViewBranch(c, depth + 1))}
+      </ul>
+    </li>
+  );
+
+  return (
+    <div className="flex h-full flex-col" data-testid="documentation-panel">
+      <ScrollArea className="min-h-0 flex-1">
+        <div className="p-1">
+          {queryError !== null && (
+            <div className="m-1 rounded border border-red-300 bg-red-50 px-2 py-1 text-[10px] text-red-800" role="alert">
+              {queryError}
+            </div>
+          )}
+
+          {/* --- Layout Book -------------------------------------------- */}
+          <div className="px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+            Layout Book ({layouts.length} layout{layouts.length === 1 ? "" : "s"})
+          </div>
+          <div data-testid="doc-book-section">
+            {/* The subset create form (SUBSET semantics — prefix drives the
+                deterministic sheet numbering). */}
+            <div className="flex flex-wrap items-center gap-1 px-2 py-1" data-testid="doc-subset-form">
+              <input
+                className={TEXT_INPUT + " !w-24"}
+                aria-label="new subset name"
+                placeholder="subset name"
+                value={subsetName}
+                data-testid="doc-subset-name"
+                onChange={(e) => setSubsetName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") createSubset();
+                }}
+              />
+              <input
+                className={TEXT_INPUT + " !w-12"}
+                aria-label="new subset sheet number prefix"
+                placeholder="A"
+                value={subsetPrefix}
+                data-testid="doc-subset-prefix"
+                title="Sheet number prefix (e.g. A → sheet numbers A-01, A-02… for custom numbering)"
+                onChange={(e) => setSubsetPrefix(e.target.value)}
+              />
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-6 gap-1 px-1.5 text-[10px]"
+                data-testid="doc-subset-create"
+                title="SUBSET — create the Layout Book subset (one atomic revision)"
+                disabled={subsetName.trim().length === 0}
+                onClick={createSubset}
+              >
+                <Plus className="h-3 w-3" aria-hidden /> Subset
+              </Button>
+            </div>
+            {/* Assign a layout to a subset (NAVASSIGN layout semantics —
+                (root) unassigns). */}
+            <div className="flex flex-wrap items-center gap-1 px-2 pb-1" data-testid="doc-assign-form">
+              <select
+                className="min-w-0 flex-1 rounded border bg-background px-1 py-0.5 text-[11px]"
+                aria-label="layout to assign"
+                value={assignLayoutId}
+                data-testid="doc-assign-layout"
+                title="The layout to file into the Layout Book"
+                onChange={(e) => setAssignLayoutId(e.target.value)}
+              >
+                <option value="">(layout)</option>
+                {layouts.map((l) => (
+                  <option key={l.id} value={l.id}>{l.name}</option>
+                ))}
+              </select>
+              <select
+                className="min-w-0 flex-1 rounded border bg-background px-1 py-0.5 text-[11px]"
+                aria-label="target subset"
+                value={assignSubsetId}
+                data-testid="doc-assign-subset"
+                title="The target subset ((root) files the layout at the book root)"
+                onChange={(e) => setAssignSubsetId(e.target.value)}
+              >
+                <option value="__root__">(root)</option>
+                {subsets.map((n) => (
+                  <option key={n.id} value={n.id}>{n.name}</option>
+                ))}
+              </select>
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-6 px-1.5 text-[10px]"
+                data-testid="doc-assign-button"
+                title="NAVASSIGN — file the layout into the subset (layout.update subsetId, one atomic revision)"
+                disabled={assignLayoutId.length === 0}
+                onClick={assignLayoutToSubset}
+              >
+                Assign
+              </Button>
+            </div>
+            {/* The master assignment (LAYOUTMASTER semantics — the master's
+                furniture + title block render beneath the layout's content). */}
+            <div className="flex flex-wrap items-center gap-1 px-2 pb-1" data-testid="doc-master-form">
+              <select
+                className="min-w-0 flex-1 rounded border bg-background px-1 py-0.5 text-[11px]"
+                aria-label="layout for master assignment"
+                value={masterLayoutId}
+                data-testid="doc-master-layout"
+                title="The layout whose master is set"
+                onChange={(e) => setMasterLayoutId(e.target.value)}
+              >
+                <option value="">(layout)</option>
+                {layouts.map((l) => (
+                  <option key={l.id} value={l.id}>{l.name}</option>
+                ))}
+              </select>
+              <select
+                className="min-w-0 flex-1 rounded border bg-background px-1 py-0.5 text-[11px]"
+                aria-label="master layout"
+                value={masterMasterId}
+                data-testid="doc-master-master"
+                title="The master layout ((none) clears the assignment; single-level — a master cannot have a master)"
+                onChange={(e) => setMasterMasterId(e.target.value)}
+              >
+                <option value="__none__">(none)</option>
+                {layouts.map((l) => (
+                  <option key={l.id} value={l.id}>{l.name}</option>
+                ))}
+              </select>
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-6 px-1.5 text-[10px]"
+                data-testid="doc-master-button"
+                title="LAYOUTMASTER — set the master layout (layout.update masterId, one atomic revision)"
+                disabled={masterLayoutId.length === 0}
+                onClick={assignMaster}
+              >
+                Master
+              </Button>
+            </div>
+            {/* The book tree (root-level layouts under "Unassigned"). */}
+            <ul aria-label="layout book">
+              {(tree?.layoutBook.layouts ?? []).length > 0 && (
+                <li>
+                  <div className="px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Unassigned</div>
+                  <ul aria-label="unassigned layouts">
+                    {(tree?.layoutBook.layouts ?? []).map((l) => renderLayoutRow(l, 0))}
+                  </ul>
+                </li>
+              )}
+              {(tree?.layoutBook.children ?? []).map((c) => renderBookBranch(c, 0))}
+            </ul>
+            {tree !== null && tree.layoutBook.layouts.length === 0 && tree.layoutBook.children.length === 0 && (
+              <div className="px-2 py-1 text-xs text-muted-foreground">
+                No layouts/subsets — LAYOUTNEW creates a layout, the form above a subset.
+              </div>
+            )}
+            {tree === null && (
+              <div className="px-2 py-1 text-xs text-muted-foreground">Loading the layout book…</div>
+            )}
+          </div>
+
+          <Separator className="my-1" />
+
+          {/* --- View Map ------------------------------------------------ */}
+          <div className="px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+            View Map ({views.length} view{views.length === 1 ? "" : "s"})
+          </div>
+          <div data-testid="doc-viewmap-section">
+            {/* The folder create form (NAVFOLDER semantics). */}
+            <div className="flex flex-wrap items-center gap-1 px-2 py-1" data-testid="doc-folder-form">
+              <input
+                className={TEXT_INPUT + " !w-24"}
+                aria-label="new folder name"
+                placeholder="folder name"
+                value={folderName}
+                data-testid="doc-folder-name"
+                onChange={(e) => setFolderName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") createFolder();
+                }}
+              />
+              <select
+                className="min-w-0 flex-1 rounded border bg-background px-1 py-0.5 text-[11px]"
+                aria-label="parent folder"
+                value={folderParentId}
+                data-testid="doc-folder-parent"
+                title="The parent folder ((root) files the folder at the View Map root)"
+                onChange={(e) => setFolderParentId(e.target.value)}
+              >
+                <option value="">(root)</option>
+                {folders.map((n) => (
+                  <option key={n.id} value={n.id}>{n.name}</option>
+                ))}
+              </select>
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-6 gap-1 px-1.5 text-[10px]"
+                data-testid="doc-folder-create"
+                title="NAVFOLDER — create the View Map folder (one atomic revision)"
+                disabled={folderName.trim().length === 0}
+                onClick={createFolder}
+              >
+                <Plus className="h-3 w-3" aria-hidden /> Folder
+              </Button>
+            </div>
+            {/* The view → folder assignment (NAVASSIGN view semantics — *
+                unassigns to the map root). */}
+            <div className="flex flex-wrap items-center gap-1 px-2 pb-1" data-testid="doc-view-assign-form">
+              <select
+                className="min-w-0 flex-1 rounded border bg-background px-1 py-0.5 text-[11px]"
+                aria-label="view to assign"
+                value={viewAssignViewId}
+                data-testid="doc-view-assign-view"
+                title="The saved view to file into a folder"
+                onChange={(e) => setViewAssignViewId(e.target.value)}
+              >
+                <option value="">(view)</option>
+                {views.map((v) => (
+                  <option key={v.viewId} value={v.viewId}>{v.title}</option>
+                ))}
+              </select>
+              <select
+                className="min-w-0 flex-1 rounded border bg-background px-1 py-0.5 text-[11px]"
+                aria-label="target folder"
+                value={viewAssignFolderId}
+                data-testid="doc-view-assign-folder"
+                title="The target folder (* = the View Map root)"
+                onChange={(e) => setViewAssignFolderId(e.target.value)}
+              >
+                <option value="*">* (root)</option>
+                {folders.map((n) => (
+                  <option key={n.id} value={n.id}>{n.name}</option>
+                ))}
+              </select>
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-6 px-1.5 text-[10px]"
+                data-testid="doc-view-assign-button"
+                title="NAVASSIGN — file the view into the folder (docs.updateView folderId, one atomic revision)"
+                disabled={viewAssignViewId.length === 0}
+                onClick={assignViewToFolder}
+              >
+                Assign
+              </Button>
+            </div>
+            {/* The View Map tree. */}
+            <ul aria-label="view map">
+              {(tree?.viewMap.views ?? []).map((v) => renderViewRow(v, 0))}
+              {(tree?.viewMap.children ?? []).map((c) => renderViewBranch(c, 0))}
+            </ul>
+            {tree !== null && tree.viewMap.views.length === 0 && tree.viewMap.children.length === 0 && (
+              <div className="px-2 py-1 text-xs text-muted-foreground">
+                No saved views — the Documentation workbench creates them (plan/elevation/section/detail).
+              </div>
+            )}
+            {tree === null && (
+              <div className="px-2 py-1 text-xs text-muted-foreground">Loading the view map…</div>
+            )}
+          </div>
+
+          <Separator className="my-1" />
+
+          {/* --- Title blocks --------------------------------------------- */}
+          <div className="px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+            Title blocks ({titleBlocks.length})
+          </div>
+          <div data-testid="doc-titleblocks-section">
+            {/* The create form (the TITLEBLOCK command's deterministic rows:
+                Project text + derived Layout/Sheet/Revisions + the Author
+                text row when given; 180×rows×12 mm). */}
+            <div className="flex flex-wrap items-center gap-1 px-2 py-1" data-testid="doc-titleblock-form">
+              <input
+                className={TEXT_INPUT + " !w-20"}
+                aria-label="new title block name"
+                placeholder="name"
+                value={titleBlockName}
+                data-testid="doc-titleblock-name"
+                onChange={(e) => setTitleBlockName(e.target.value)}
+              />
+              <input
+                className={TEXT_INPUT + " !w-24"}
+                aria-label="title block project text"
+                placeholder="project"
+                value={titleBlockProject}
+                data-testid="doc-titleblock-project"
+                title="The literal Project text row value"
+                onChange={(e) => setTitleBlockProject(e.target.value)}
+              />
+              <input
+                className={TEXT_INPUT + " !w-20"}
+                aria-label="title block author (optional)"
+                placeholder="author"
+                value={titleBlockAuthor}
+                data-testid="doc-titleblock-author"
+                title="The literal Author text row value (empty = omit the row)"
+                onChange={(e) => setTitleBlockAuthor(e.target.value)}
+              />
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-6 gap-1 px-1.5 text-[10px]"
+                data-testid="doc-titleblock-create"
+                title="TITLEBLOCK — create the reusable title block (Project/Layout/Sheet/Revisions rows + author when given)"
+                disabled={titleBlockName.trim().length === 0 || titleBlockProject.trim().length === 0}
+                onClick={createTitleBlock}
+              >
+                <Plus className="h-3 w-3" aria-hidden /> Title block
+              </Button>
+            </div>
+            {/* The placement form (TITLEPLACE semantics — sheet-space mm). */}
+            <div className="flex flex-wrap items-center gap-1 px-2 pb-1" data-testid="doc-titleplace-form">
+              <select
+                className="min-w-0 flex-1 rounded border bg-background px-1 py-0.5 text-[11px]"
+                aria-label="layout for title block placement"
+                value={placeLayoutId}
+                data-testid="doc-titleplace-layout"
+                title="The layout the title block is placed on"
+                onChange={(e) => setPlaceLayoutId(e.target.value)}
+              >
+                <option value="">(layout)</option>
+                {layouts.map((l) => (
+                  <option key={l.id} value={l.id}>{l.name}</option>
+                ))}
+              </select>
+              <select
+                className="min-w-0 flex-1 rounded border bg-background px-1 py-0.5 text-[11px]"
+                aria-label="title block to place"
+                value={placeTitleBlockId}
+                data-testid="doc-titleplace-titleblock"
+                title="The title block definition to place"
+                onChange={(e) => setPlaceTitleBlockId(e.target.value)}
+              >
+                <option value="">(title block)</option>
+                {titleBlocks.map((t) => (
+                  <option key={t.id} value={t.id}>{t.name}</option>
+                ))}
+              </select>
+              <input
+                type="number"
+                step="1"
+                className={NUM_INPUT + " !w-12"}
+                aria-label="title block x position mm"
+                value={placeX}
+                data-testid="doc-titleplace-x"
+                title="X position on the sheet (mm)"
+                onChange={(e) => setPlaceX(Number(e.target.value))}
+              />
+              <input
+                type="number"
+                step="1"
+                className={NUM_INPUT + " !w-12"}
+                aria-label="title block y position mm"
+                value={placeY}
+                data-testid="doc-titleplace-y"
+                title="Y position on the sheet (mm)"
+                onChange={(e) => setPlaceY(Number(e.target.value))}
+              />
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-6 px-1.5 text-[10px]"
+                data-testid="doc-titleplace-button"
+                title="TITLEPLACE — place the title block (layout.update titleBlockPlacement, one atomic revision)"
+                disabled={placeLayoutId.length === 0 || placeTitleBlockId.length === 0}
+                onClick={placeTitleBlock}
+              >
+                Place
+              </Button>
+            </div>
+            <ul aria-label="title blocks">
+              {titleBlocks.map((t) => (
+                <li
+                  key={t.id}
+                  className="flex items-center gap-1.5 rounded px-2 py-0.5 text-[11px] hover:bg-muted/50"
+                  data-testid={`doc-titleblock-${t.id}`}
+                  title={`${t.rows.length} rows: ${t.rows.map((r) => `${r.label}: ${r.field === "text" ? r.value ?? "" : r.field}`).join(" · ")}`}
+                >
+                  <span className="truncate">{t.name}</span>
+                  <span className="shrink-0 font-mono text-[9px] text-muted-foreground">
+                    {t.widthMm}×{t.heightMm} mm
+                  </span>
+                  <span className="ml-auto shrink-0 text-[9px] text-muted-foreground">
+                    {t.rows.length} row{t.rows.length === 1 ? "" : "s"}
+                  </span>
+                </li>
+              ))}
+              {titleBlocks.length === 0 && (
+                <li className="px-2 py-1 text-xs text-muted-foreground">
+                  No title blocks — the form above (or the TITLEBLOCK command) creates one.
+                </li>
+              )}
+            </ul>
+          </div>
+
+          <Separator className="my-1" />
+
+          {/* --- Revisions ------------------------------------------------- */}
+          <div className="px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+            Revisions ({revisions?.length ?? 0})
+          </div>
+          <div data-testid="doc-revisions-section">
+            {/* The create form (REVISION semantics — issued starts false). */}
+            <div className="flex flex-wrap items-center gap-1 px-2 py-1" data-testid="doc-revision-form">
+              <input
+                className={TEXT_INPUT + " !w-16"}
+                aria-label="new revision code"
+                placeholder="P01"
+                value={revisionCode}
+                data-testid="doc-revision-code"
+                title="The unique revision code (max 12 chars)"
+                onChange={(e) => setRevisionCode(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") createRevision();
+                }}
+              />
+              <input
+                className={TEXT_INPUT + " !w-28"}
+                aria-label="new revision description"
+                placeholder="description"
+                value={revisionDescription}
+                data-testid="doc-revision-description"
+                title="The revision description (may be empty)"
+                onChange={(e) => setRevisionDescription(e.target.value)}
+              />
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-6 gap-1 px-1.5 text-[10px]"
+                data-testid="doc-revision-create"
+                title="REVISION — add the document revision record (one atomic revision)"
+                disabled={revisionCode.trim().length === 0}
+                onClick={createRevision}
+              >
+                <Plus className="h-3 w-3" aria-hidden /> Revision
+              </Button>
+            </div>
+            <ul aria-label="revisions">
+              {(revisions ?? []).map((r) => (
+                <li
+                  key={r.id}
+                  className="flex items-center gap-1.5 rounded px-2 py-0.5 text-[11px] hover:bg-muted/50"
+                  data-testid={`doc-revision-${r.id}`}
+                  title={`revision ${r.id} — created ${r.createdAt}${r.layoutIds.length > 0 ? `; layouts ${r.layoutIds.join(", ")}` : ""}`}
+                >
+                  <span className="shrink-0 font-mono">{r.code}</span>
+                  <span className="truncate text-muted-foreground">{r.description.length > 0 ? r.description : "—"}</span>
+                  <Badge variant="outline" className="h-4 shrink-0 px-1 text-[9px]">
+                    {r.issued ? "issued" : "draft"}
+                  </Badge>
+                  <span className="shrink-0 text-[9px] text-muted-foreground">
+                    {r.layoutIds.length} layout{r.layoutIds.length === 1 ? "" : "s"}
+                  </span>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="ml-auto h-6 shrink-0 px-1.5 text-[10px] text-muted-foreground hover:text-foreground"
+                    aria-label={`toggle revision ${r.code} issued`}
+                    data-testid={`doc-revision-issue-${r.id}`}
+                    title={`revision.update — mark '${r.code}' ${r.issued ? "draft (issued false)" : "issued (issued true)"}`}
+                    onClick={() => toggleRevisionIssued(r)}
+                  >
+                    {r.issued ? "Un-issue" : "Issue"}
+                  </Button>
+                </li>
+              ))}
+              {revisions !== null && revisions.length === 0 && (
+                <li className="px-2 py-1 text-xs text-muted-foreground">
+                  No revisions — the form above (or the REVISION command) creates one.
+                </li>
+              )}
+              {revisions === null && (
+                <li className="px-2 py-1 text-xs text-muted-foreground">Loading revisions…</li>
+              )}
+            </ul>
+          </div>
+
+          <Separator className="my-1" />
+
+          {/* --- Schedules -------------------------------------------------- */}
+          <div className="px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+            Schedules ({schedules?.length ?? 0})
+          </div>
+          <div data-testid="doc-schedules-section">
+            {/* The create form (SCHEDULE semantics — the default full
+                per-source column set). */}
+            <div className="flex flex-wrap items-center gap-1 px-2 py-1" data-testid="doc-schedule-form">
+              <input
+                className={TEXT_INPUT + " !w-24"}
+                aria-label="new schedule name"
+                placeholder="name"
+                value={scheduleName}
+                data-testid="doc-schedule-name"
+                onChange={(e) => setScheduleName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") createSchedule();
+                }}
+              />
+              <select
+                className="rounded border bg-background px-1 py-0.5 text-xs"
+                aria-label="new schedule source"
+                value={scheduleSource}
+                data-testid="doc-schedule-source"
+                title="The canonical document state the schedule indexes (the six closed sources)"
+                onChange={(e) => setScheduleSource(e.target.value as ScheduleSource)}
+              >
+                {SCHEDULE_SOURCES.map((source) => (
+                  <option key={source} value={source}>{source}</option>
+                ))}
+              </select>
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-6 gap-1 px-1.5 text-[10px]"
+                data-testid="doc-schedule-create"
+                title={`SCHEDULE — create the schedule with the default ${scheduleSource} column set (one atomic revision)`}
+                disabled={scheduleName.trim().length === 0}
+                onClick={createSchedule}
+              >
+                <Plus className="h-3 w-3" aria-hidden /> Schedule
+              </Button>
+            </div>
+            <ul aria-label="schedules">
+              {(schedules ?? []).map((s) => (
+                <li
+                  key={s.id}
+                  className="flex items-center gap-1.5 rounded px-2 py-0.5 text-[11px] hover:bg-muted/50"
+                  data-testid={`doc-schedule-${s.id}`}
+                >
+                  <span className="truncate">{s.name}</span>
+                  <Badge variant="outline" className="h-4 shrink-0 px-1 text-[9px]">{s.source}</Badge>
+                  <span className="shrink-0 text-[9px] text-muted-foreground">{s.columnCount} column{s.columnCount === 1 ? "" : "s"}</span>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="ml-auto h-6 shrink-0 px-1.5 text-[10px] text-muted-foreground hover:text-foreground"
+                    aria-label={`run schedule ${s.name}`}
+                    data-testid={`doc-schedule-run-${s.id}`}
+                    title="schedules.run — compute the rows fresh over the current state (a query — never stored)"
+                    onClick={() => void runSchedule(s)}
+                  >
+                    Run
+                  </Button>
+                </li>
+              ))}
+              {schedules !== null && schedules.length === 0 && (
+                <li className="px-2 py-1 text-xs text-muted-foreground">
+                  No schedules — the form above (or the SCHEDULE command) creates one.
+                </li>
+              )}
+              {schedules === null && (
+                <li className="px-2 py-1 text-xs text-muted-foreground">Loading schedules…</li>
+              )}
+            </ul>
+            {/* The fresh schedule run result (the deterministic rows + the
+                canonical sha256 — the same derivation the SCHLIST report
+                family reads). */}
+            {scheduleRun !== null && (
+              <div className="mt-1 px-2">
+                <div
+                  className="py-0.5 font-mono text-[10px] text-muted-foreground"
+                  data-testid="doc-schedule-result"
+                  title={`schedules.run ${scheduleRun.sha256}`}
+                >
+                  {scheduleRun.schedule.name}: {scheduleRun.rowCount} row{scheduleRun.rowCount === 1 ? "" : "s"} · sha256 {scheduleRun.sha256.slice(0, 12)}…
+                </div>
+                <table className="w-full text-[10px]" data-testid="doc-schedule-table">
+                  <thead>
+                    <tr className="border-b text-left text-muted-foreground">
+                      {scheduleRun.schedule.columns.map((column) => (
+                        <th key={column.key} className="py-0.5 pr-1 font-medium">{column.label}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {scheduleRun.rows.map((row, i) => (
+                      <tr
+                        key={i}
+                        className="border-b border-border/40"
+                        data-testid={`doc-schedule-row-${i}`}
+                      >
+                        {row.map((cell, j) => (
+                          <td key={j} className="py-0.5 pr-1 font-mono">{cell}</td>
+                        ))}
+                      </tr>
+                    ))}
+                    {scheduleRun.rows.length === 0 && (
+                      <tr>
+                        <td className="py-0.5 text-muted-foreground" colSpan={Math.max(1, scheduleRun.schedule.columns.length)}>
+                          No rows for the current state.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
+          <Separator className="my-1" />
+
+          {/* --- Publisher ---------------------------------------------------- */}
+          <div className="px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+            Publisher ({tree?.publisherSets.length ?? 0} set{(tree?.publisherSets.length ?? 0) === 1 ? "" : "s"})
+          </div>
+          <div data-testid="doc-publisher-section">
+            {/* The create form (PUBSET semantics — the strict comma/pipe
+                subset:Name / layout:Name item grammar, all items pdf). */}
+            <div className="flex flex-wrap items-center gap-1 px-2 py-1" data-testid="doc-publisher-form">
+              <input
+                className={TEXT_INPUT + " !w-24"}
+                aria-label="new publisher set name"
+                placeholder="name"
+                value={publisherName}
+                data-testid="doc-publisher-name"
+                onChange={(e) => setPublisherName(e.target.value)}
+              />
+              <input
+                className={TEXT_INPUT + " !w-40"}
+                aria-label="publisher items"
+                placeholder="subset:Name, layout:Name"
+                value={publisherItems}
+                data-testid="doc-publisher-items"
+                title="Items, comma/pipe-separated (subset:Name / layout:Name entries — strict parse, junk is rejected)"
+                onChange={(e) => setPublisherItems(e.target.value)}
+              />
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-6 gap-1 px-1.5 text-[10px]"
+                data-testid="doc-publisher-create"
+                title="PUBSET — create the publisher set (all items publish as PDF; one atomic revision)"
+                disabled={publisherName.trim().length === 0}
+                onClick={createPublisherSet}
+              >
+                <Plus className="h-3 w-3" aria-hidden /> Set
+              </Button>
+            </div>
+            <ul aria-label="publisher sets">
+              {(tree?.publisherSets ?? []).map((set) => (
+                <li
+                  key={set.id}
+                  className="flex items-center gap-1.5 rounded px-2 py-0.5 text-[11px] hover:bg-muted/50"
+                  data-testid={`doc-publisher-${set.id}`}
+                >
+                  <span className="truncate">{set.name}</span>
+                  <span className="shrink-0 text-[9px] text-muted-foreground">
+                    {set.itemCount} item{set.itemCount === 1 ? "" : "s"}
+                  </span>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="ml-auto h-6 shrink-0 px-1.5 text-[10px] text-muted-foreground hover:text-foreground"
+                    aria-label={`publish set ${set.name}`}
+                    data-testid={`doc-publisher-run-${set.id}`}
+                    title="PUBLISHBOOK — publish the set (NON-VERSIONED output automation: per-page sha256 + the multi-page PDF)"
+                    onClick={() => void runPublisher(set.id)}
+                  >
+                    <BookOpen className="h-3 w-3" aria-hidden /> Publish
+                  </Button>
+                </li>
+              ))}
+              {tree !== null && tree.publisherSets.length === 0 && (
+                <li className="px-2 py-1 text-xs text-muted-foreground">
+                  No publisher sets — the form above (or the PUBSET command) creates one.
+                </li>
+              )}
+              {tree === null && (
+                <li className="px-2 py-1 text-xs text-muted-foreground">Loading publisher sets…</li>
+              )}
+            </ul>
+            {/* The deterministic publish result (per-page sha256 + the
+                multi-page PDF size/hash when pdf pages exist). */}
+            {publisherRunResult !== null && (
+              <div className="mt-1 px-2" data-testid="doc-publisher-result">
+                <div className="py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                  Published: {publisherRunResult.set.name} ({publisherRunResult.pages.length} page{publisherRunResult.pages.length === 1 ? "" : "s"})
+                </div>
+                <ul>
+                  {publisherRunResult.pages.map((page, i) => (
+                    <li
+                      key={page.layoutId}
+                      className="flex items-center gap-1.5 rounded px-1 py-0.5 text-[10px] hover:bg-muted/50"
+                      data-testid={`doc-publisher-page-${i}`}
+                      title={`page ${page.layoutId} — sha256 ${page.sha256}`}
+                    >
+                      <span className="truncate">{page.layoutName}</span>
+                      <Badge variant="outline" className="h-4 shrink-0 px-1 text-[9px]">{page.format.toUpperCase()}</Badge>
+                      {page.revisions.length > 0 && (
+                        <span className="shrink-0 text-[9px] text-muted-foreground">{page.revisions.join(",")}</span>
+                      )}
+                      <span className="ml-auto shrink-0 font-mono text-[9px] text-muted-foreground">
+                        sha256 {page.sha256.slice(0, 12)}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+                {publisherRunResult.pdfSize !== undefined && publisherRunResult.pdfSha256 !== undefined && (
+                  <div className="px-1 py-0.5 font-mono text-[10px] text-muted-foreground">
+                    pdf {publisherRunResult.pdfSize} B · sha256 {publisherRunResult.pdfSha256.slice(0, 12)}…
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          <div className="p-2 text-[10px] text-muted-foreground">
+            NAVFOLDER/SUBSET/NAVASSIGN/TITLEBLOCK/TITLEPLACE/REVISION/SCHEDULE/PUBSET/PUBLISHBOOK drive the same commands; REVLIST/SCHLIST echo the reports to the history.
+          </div>
+        </div>
+      </ScrollArea>
+    </div>
+  );
+}
+
 export function RightDock(props: PalettesProps): React.JSX.Element | null {
   if (!props.visible) return null;
   const tabs: readonly { id: DockTab; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
@@ -3731,6 +5195,10 @@ export function RightDock(props: PalettesProps): React.JSX.Element | null {
     // components, grids, clash + BOM + revcloud — the MATLIST/BOM/CLASH
     // commands' palette.show target).
     { id: "coordination", label: "Coord", icon: Network },
+    // CAD-PARITY-013 (Issue #104): the Documentation manager (the navigator
+    // View Map + Layout Book, title blocks, revisions, schedules and the
+    // publisher — the REVLIST/SCHLIST commands' palette.show target).
+    { id: "documentation", label: "Docs", icon: BookOpen },
     { id: "navigator", label: "Nav", icon: Navigation },
   ];
   return (
@@ -3763,6 +5231,8 @@ export function RightDock(props: PalettesProps): React.JSX.Element | null {
         {props.activeTab === "constraints" && <ConstraintsPanel {...props} />}
         {props.activeTab === "layouts" && <LayoutsPanel {...props} />}
         {props.activeTab === "coordination" && <CoordinationPanel {...props} />}
+        {/* CAD-PARITY-013 (Issue #104): the Documentation manager. */}
+        {props.activeTab === "documentation" && <DocumentationPanel {...props} />}
         {props.activeTab === "navigator" && <NavigatorPanel {...props} />}
       </div>
       <div className="border-t p-2 text-[10px] text-muted-foreground">

@@ -83,10 +83,27 @@ import {
   Globe,
   Move3d,
   Rotate3d,
+  // CAD-PARITY-013 (Issue #104): the Documentation tab icons — the
+  // navigator (NAVFOLDER/SUBSET/NAVASSIGN), the Layout Book master layouts,
+  // title blocks (TITLEBLOCK/TITLEPLACE), document revisions (REVISION/
+  // REVLIST), schedules (SCHEDULE/SCHLIST) and the publisher
+  // (PUBSET/PUBLISHBOOK). All verified present in the installed
+  // lucide-react 0.525 (Layers2 does not exist — FolderTree is the subset
+  // alternative the brief offers).
+  BookOpen,
+  FileStack,
+  FolderPlus,
+  FolderTree,
+  History,
+  IdCard,
+  MoveRight,
+  Stamp,
+  Table,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { WORKSPACE_COMMANDS, commandById, type WorkspaceCommand } from "@offisos/cad-app-shell/workspace/commands";
+import type { DockTab } from "@/cad/workspace/palettes";
 
 export type WorkspaceView = "model" | "model3d" | "layout" | "bim3d" | "docs" | "ifc" | "components";
 export type WorkspacePreset = "drafting" | "bim" | "documentation" | "compact";
@@ -125,6 +142,10 @@ export interface MenuBarProps {
   readonly onPreset: (preset: WorkspacePreset) => void;
   readonly preset: WorkspacePreset;
   readonly onSearch: () => void;
+  /** CAD-PARITY-013 (Issue #104): open a right-dock palette directly (the
+   *  Documentation panel… menu item — the palette.show ui-action channel
+   *  surfaced for menu entries that have no emitting command). */
+  readonly onShowPalette: (palette: DockTab) => void;
 }
 
 function MenuItem(
@@ -290,6 +311,31 @@ export function MenuBar(props: MenuBarProps): React.JSX.Element {
         <div className="my-1 border-t" />
         <MenuItem label="Components & materials…" onClick={() => props.onSwitchView("components")} />
       </Menu>
+      {/* CAD-PARITY-013 (Issue #104): the documentation-production
+          vocabulary — the navigator (View Map folders + Layout Book
+          subsets), master layouts, title blocks, document revisions,
+          schedules and the publisher. Every item resolves to the canonical
+          registry command (the same command line, ribbon and palette
+          paths). */}
+      <Menu label="Documentation">
+        <MenuItem label="View Folder (NAVFOLDER)" onClick={() => props.onCommand("navfolder")} />
+        <MenuItem label="Layout Subset (SUBSET)" onClick={() => props.onCommand("subset")} />
+        <MenuItem label="Assign to Navigator (NAVASSIGN)" onClick={() => props.onCommand("navassign")} />
+        <div className="my-1 border-t" />
+        <MenuItem label="Master Layout (LAYOUTMASTER)" onClick={() => props.onCommand("layoutmaster")} />
+        <MenuItem label="Title Block (TITLEBLOCK)" onClick={() => props.onCommand("titleblock")} />
+        <MenuItem label="Place Title Block (TITLEPLACE)" onClick={() => props.onCommand("titleplace")} />
+        <div className="my-1 border-t" />
+        <MenuItem label="Revision (REVISION)" onClick={() => props.onCommand("revision")} />
+        <MenuItem label="Revision List (REVLIST)" onClick={() => props.onCommand("revlist")} />
+        <MenuItem label="Schedule (SCHEDULE)" onClick={() => props.onCommand("schedule")} />
+        <MenuItem label="Schedule List (SCHLIST)" onClick={() => props.onCommand("schlist")} />
+        <div className="my-1 border-t" />
+        <MenuItem label="Publisher Set (PUBSET)" onClick={() => props.onCommand("pubset")} />
+        <MenuItem label="Publish Book (PUBLISHBOOK)" onClick={() => props.onCommand("publishbook")} />
+        <div className="my-1 border-t" />
+        <MenuItem label="Documentation panel…" onClick={() => props.onShowPalette("documentation")} />
+      </Menu>
       <Menu label="Document">
         <MenuItem label="Documentation workbench…" onClick={() => props.onSwitchView("docs")} />
         <MenuItem label="Regenerate documentation" onClick={() => props.onSwitchView("docs")} />
@@ -350,6 +396,11 @@ const RIBBON_TABS: readonly { id: string; label: string }[] = [
   // BOM/CLASH — the grids, clash, bill-of-materials and revision-markup
   // surface, auto-mapped from the registry).
   { id: "Coordination", label: "Coordination" },
+  // CAD-PARITY-013 (Issue #104): the Documentation tab (the navigator View
+  // Map + Layout Book subset tree, master layouts, title blocks, revisions,
+  // schedules and the publisher — the 12 documentation commands,
+  // auto-mapped from the registry like every other tab).
+  { id: "Documentation", label: "Documentation" },
   { id: "BIM", label: "BIM" },
   { id: "Document", label: "Document" },
   { id: "View", label: "View" },
@@ -467,6 +518,22 @@ const TAB_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
   revcloud: Cloud,
   bom: ClipboardList,
   clash: AlertTriangle,
+  // CAD-PARITY-013 (Issue #104): the Documentation vocabulary —
+  // NAVFOLDER/SUBSET/NAVASSIGN/LAYOUTMASTER, TITLEBLOCK/TITLEPLACE,
+  // REVISION/REVLIST, SCHEDULE/SCHLIST, PUBSET/PUBLISHBOOK (the new
+  // auto-mapped Documentation ribbon tab + the Docs tool palette group).
+  navfolder: FolderPlus,
+  subset: FolderTree,
+  navassign: MoveRight,
+  layoutmaster: FileStack,
+  titleblock: IdCard,
+  titleplace: Stamp,
+  revision: History,
+  revlist: List,
+  schedule: Table,
+  schlist: List,
+  pubset: Package,
+  publishbook: BookOpen,
 };
 
 export interface RibbonProps {
@@ -704,6 +771,13 @@ export function ToolPalette(props: ToolPaletteProps): React.JSX.Element | null {
     {
       label: "Coord",
       ids: ["material", "matset", "cgrid", "revcloud", "clash", "bom", "matlist"],
+    },
+    // CAD-PARITY-013 (Issue #104): the documentation-production vocabulary
+    // — ids resolve through the registry (icons through TAB_ICONS; the same
+    // commands the ribbon + menu run).
+    {
+      label: "Docs",
+      ids: ["navfolder", "subset", "navassign", "titleblock", "titleplace", "revision", "schedule", "pubset", "publishbook"],
     },
     {
       label: "Modify",

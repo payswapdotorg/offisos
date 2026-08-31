@@ -1631,6 +1631,288 @@ export const COMMAND_PAYLOAD_SCHEMAS: Readonly<Record<CommandName, object>> = {
     },
     required: ["cornerA", "cornerB"],
   },
+
+  // --- CAD-PARITY-013 (additive, Issue #104): the documentation production
+  // commands (coarse wire shapes; the handlers validate strictly through the
+  // shared document grammar — LOCK-007 typed failures). ---
+  "navigator.createFolder": {
+    type: "object",
+    properties: {
+      name: { type: "string", minLength: 1, maxLength: 80 },
+      parentId: { type: ["string", "null"], minLength: 1 },
+    },
+    required: ["name"],
+  },
+  "navigator.createSubset": {
+    type: "object",
+    properties: {
+      name: { type: "string", minLength: 1, maxLength: 80 },
+      parentId: { type: ["string", "null"], minLength: 1 },
+      prefix: { type: "string", minLength: 1, maxLength: 12 },
+      numbering: { type: "string", enum: ["none", "custom"] },
+      customNumber: { type: "string", minLength: 1, maxLength: 8 },
+    },
+    required: ["name"],
+  },
+  "navigator.removeNode": {
+    type: "object",
+    properties: { id: { type: "string", minLength: 1 } },
+    required: ["id"],
+  },
+  "titleblock.create": {
+    type: "object",
+    properties: {
+      name: { type: "string", minLength: 1, maxLength: 60 },
+      widthMm: { type: "number", minimum: 20, maximum: 500 },
+      heightMm: { type: "number", minimum: 20, maximum: 300 },
+      rowHeightMm: { type: "number", minimum: 4, maximum: 60 },
+      rows: {
+        type: "array",
+        minItems: 1,
+        maxItems: 12,
+        items: {
+          type: "object",
+          properties: {
+            label: { type: "string", minLength: 1, maxLength: 40 },
+            field: { type: "string", enum: ["layoutName", "sheetNumber", "revisions", "text"] },
+            value: { type: "string", minLength: 1, maxLength: 80 },
+          },
+          required: ["label", "field"],
+        },
+      },
+    },
+    required: ["name", "widthMm", "heightMm", "rowHeightMm", "rows"],
+  },
+  "titleblock.update": {
+    type: "object",
+    properties: {
+      id: { type: "string", minLength: 1 },
+      patch: {
+        type: "object",
+        minProperties: 1,
+        properties: {
+          name: { type: "string", minLength: 1, maxLength: 60 },
+          widthMm: { type: "number", minimum: 20, maximum: 500 },
+          heightMm: { type: "number", minimum: 20, maximum: 300 },
+          rowHeightMm: { type: "number", minimum: 4, maximum: 60 },
+          rows: {
+            type: "array",
+            minItems: 1,
+            maxItems: 12,
+            items: {
+              type: "object",
+              properties: {
+                label: { type: "string", minLength: 1, maxLength: 40 },
+                field: { type: "string", enum: ["layoutName", "sheetNumber", "revisions", "text"] },
+                value: { type: "string", minLength: 1, maxLength: 80 },
+              },
+              required: ["label", "field"],
+            },
+          },
+        },
+      },
+    },
+    required: ["id", "patch"],
+  },
+  "titleblock.remove": {
+    type: "object",
+    properties: { id: { type: "string", minLength: 1 } },
+    required: ["id"],
+  },
+  "schedule.create": {
+    type: "object",
+    properties: {
+      name: { type: "string", minLength: 1, maxLength: 60 },
+      source: {
+        type: "string",
+        enum: ["elements", "components", "materials", "views", "layouts", "sheets"],
+      },
+      filter: {
+        type: "object",
+        properties: {
+          type: { type: "string", minLength: 1 },
+          storyId: { type: "string", minLength: 1 },
+        },
+      },
+      columns: {
+        type: "array",
+        minItems: 1,
+        maxItems: 12,
+        items: {
+          type: "object",
+          properties: {
+            key: { type: "string", minLength: 1 },
+            label: { type: "string", minLength: 1, maxLength: 40 },
+          },
+          required: ["key", "label"],
+        },
+      },
+    },
+    required: ["name", "source", "columns"],
+  },
+  "schedule.update": {
+    type: "object",
+    properties: {
+      id: { type: "string", minLength: 1 },
+      patch: {
+        type: "object",
+        minProperties: 1,
+        properties: {
+          name: { type: "string", minLength: 1, maxLength: 60 },
+          source: {
+            type: "string",
+            enum: ["elements", "components", "materials", "views", "layouts", "sheets"],
+          },
+          filter: {
+            type: ["object", "null"],
+            properties: {
+              type: { type: "string", minLength: 1 },
+              storyId: { type: "string", minLength: 1 },
+            },
+          },
+          columns: {
+            type: "array",
+            minItems: 1,
+            maxItems: 12,
+            items: {
+              type: "object",
+              properties: {
+                key: { type: "string", minLength: 1 },
+                label: { type: "string", minLength: 1, maxLength: 40 },
+              },
+              required: ["key", "label"],
+            },
+          },
+        },
+      },
+    },
+    required: ["id", "patch"],
+  },
+  "schedule.remove": {
+    type: "object",
+    properties: { id: { type: "string", minLength: 1 } },
+    required: ["id"],
+  },
+  "revision.add": {
+    type: "object",
+    properties: {
+      code: { type: "string", minLength: 1, maxLength: 12 },
+      description: { type: "string", maxLength: 200 },
+      issued: { type: "boolean" },
+      layoutIds: { type: "array", items: { type: "string", minLength: 1 } },
+    },
+    required: ["code"],
+  },
+  "revision.update": {
+    type: "object",
+    properties: {
+      id: { type: "string", minLength: 1 },
+      patch: {
+        type: "object",
+        minProperties: 1,
+        properties: {
+          code: { type: "string", minLength: 1, maxLength: 12 },
+          description: { type: "string", maxLength: 200 },
+          issued: { type: "boolean" },
+          layoutIds: { type: "array", items: { type: "string", minLength: 1 } },
+        },
+      },
+    },
+    required: ["id", "patch"],
+  },
+  "revision.remove": {
+    type: "object",
+    properties: { id: { type: "string", minLength: 1 } },
+    required: ["id"],
+  },
+  "publisher.create": {
+    type: "object",
+    properties: {
+      name: { type: "string", minLength: 1, maxLength: 60 },
+      items: {
+        type: "array",
+        minItems: 1,
+        maxItems: 64,
+        items: {
+          type: "object",
+          properties: {
+            kind: { type: "string", enum: ["layout", "subset"] },
+            id: { type: "string", minLength: 1 },
+            format: { type: "string", enum: ["pdf", "svg", "plot-ir"] },
+          },
+          required: ["kind", "id", "format"],
+        },
+      },
+    },
+    required: ["name", "items"],
+  },
+  "publisher.update": {
+    type: "object",
+    properties: {
+      id: { type: "string", minLength: 1 },
+      patch: {
+        type: "object",
+        minProperties: 1,
+        properties: {
+          name: { type: "string", minLength: 1, maxLength: 60 },
+          items: {
+            type: "array",
+            minItems: 1,
+            maxItems: 64,
+            items: {
+              type: "object",
+              properties: {
+                kind: { type: "string", enum: ["layout", "subset"] },
+                id: { type: "string", minLength: 1 },
+                format: { type: "string", enum: ["pdf", "svg", "plot-ir"] },
+              },
+              required: ["kind", "id", "format"],
+            },
+          },
+        },
+      },
+    },
+    required: ["id", "patch"],
+  },
+  "publisher.remove": {
+    type: "object",
+    properties: { id: { type: "string", minLength: 1 } },
+    required: ["id"],
+  },
+  "publisher.run": {
+    type: "object",
+    properties: { id: { type: "string", minLength: 1 } },
+    required: ["id"],
+  },
+  "layout.update": {
+    type: "object",
+    properties: {
+      id: { type: "string", minLength: 1 },
+      name: { type: "string", minLength: 1 },
+      patch: {
+        type: "object",
+        minProperties: 1,
+        properties: {
+          subsetId: { type: ["string", "null"], minLength: 1 },
+          masterId: { type: ["string", "null"], minLength: 1 },
+          titleBlockPlacement: {
+            type: ["object", "null"],
+            properties: {
+              titleBlockId: { type: "string", minLength: 1 },
+              xMm: { type: "number" },
+              yMm: { type: "number" },
+            },
+            required: ["titleBlockId", "xMm", "yMm"],
+          },
+          revisionIds: {
+            type: ["array", "null"],
+            items: { type: "string", minLength: 1 },
+          },
+        },
+      },
+    },
+    required: ["patch"],
+  },
 };
 
 export const QUERY_PAYLOAD_SCHEMAS: Readonly<Record<QueryName, object>> = {
@@ -1881,6 +2163,18 @@ export const QUERY_PAYLOAD_SCHEMAS: Readonly<Record<QueryName, object>> = {
   "materials.bom": { type: "object", properties: {} },
   "grids.list": { type: "object", properties: {} },
   "coordination.clash": { type: "object", properties: {} },
+  // --- CAD-PARITY-013 (additive, Issue #104): the documentation production
+  // read surfaces (non-mutating, computed fresh). ---
+  "navigator.tree": { type: "object", properties: {} },
+  "schedules.list": { type: "object", properties: {} },
+  "schedules.run": {
+    type: "object",
+    properties: { id: { type: "string", minLength: 1 } },
+    required: ["id"],
+  },
+  "revisions.list": { type: "object", properties: {} },
+  "publisher.list": { type: "object", properties: {} },
+  "docs.exchangeReport": { type: "object", properties: {} },
 };
 
 export const WIRE_ENVELOPE_SCHEMA = {

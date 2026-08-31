@@ -37,8 +37,24 @@ import type {
   IfcImportRecordView,
   TextStyleRecord,
   ViewportRecord,
+  // CAD-PARITY-013 (additive, Issue #104): the documentation production
+  // record tables.
+  NavigatorNodeRecord,
+  PublisherItem,
+  PublisherSetRecord,
+  RevisionRecord,
+  ScheduleColumn,
+  ScheduleRecord,
+  ScheduleSource,
+  TitleBlockRecord,
+  TitleBlockRow,
 } from "../contracts/caddocument.js";
 import { DOCS_SHEET_FRAME as SHEET_FRAME } from "../contracts/caddocument.js";
+// CAD-PARITY-013: the canonical BIM property-set key grammar (the dynamic
+// `ps:<set>.<key>` schedule columns validate against it — the bim/meta
+// surface is engine-free, LOCK-018; no cycle: bim/meta imports only
+// bim/elements + contracts types).
+import { BIM_PROPERTY_KEY_PATTERN } from "../bim/meta.js";
 // CAD-PARITY-004: the shared standards constants (built-in linetype catalog,
 // standard lineweight set) live in the engine-free workspace standards module
 // so BOTH the document validators and the host renderers resolve the SAME
@@ -52,7 +68,7 @@ import {
 // precedent: the shared grammar IS the validator — type-only contracts import
 // plus this one runtime import; no cycle: layouts/paper imports contracts
 // types only).
-import { validatePageSetup } from "../workspace/layouts/paper.js";
+import { orientedSheetSize, validatePageSetup } from "../workspace/layouts/paper.js";
 // CAD-PARITY-009: the shared 3D navigation/UCS/workplane/section grammar —
 // the SAME precedent: the shared engine-free model3d modules ARE the
 // validators (no cycle: model3d imports contracts types only).
@@ -445,6 +461,12 @@ export function validateDocsViewRecord(view: unknown): DocsViewRecord {
   if (typeof v.title !== "string" || v.title.length === 0) {
     throw new Error(`view '${v.id}': title must be a non-empty string`);
   }
+  // CAD-PARITY-013: the navigator View Map folder reference (shape only —
+  // the cross-record existence/kind check lives at the document boundary
+  // where the navigator table is available).
+  if (v.folderId !== undefined && (typeof v.folderId !== "string" || v.folderId.length === 0)) {
+    throw new Error(`view '${v.id}': folderId must be a non-empty string when present`);
+  }
   if (v.scale !== undefined && (!isFiniteNumber(v.scale) || (v.scale as number) <= 0)) {
     throw new Error(`view '${v.id}': scale must be a positive finite number (1:N denominator)`);
   }
@@ -510,8 +532,10 @@ function rejectViewFields(
   }
 }
 
-/** Keys a view patch may carry (updateView whitelists). */
-const VIEW_PATCH_KEYS = ["title", "scale", "storyId", "direction", "sectionAxis", "sectionOffset", "sourceViewId", "region", "detailScale"] as const;
+/** Keys a view patch may carry (updateView whitelists). CAD-PARITY-013
+ *  adds `folderId` (null unassigns — the folder is removed, the view files
+ *  at the map root). */
+const VIEW_PATCH_KEYS = ["title", "scale", "storyId", "direction", "sectionAxis", "sectionOffset", "sourceViewId", "region", "detailScale", "folderId"] as const;
 
 /** Validate + merge an updateView patch against the current record (kind is
  *  immutable — patching it is rejected). Returns the MERGED record. */
@@ -527,10 +551,12 @@ export function applyViewPatch(current: DocsViewRecord, patch: Readonly<Record<s
   const merged = { ...current, ...patch } as DocsViewRecord;
   // A patch that clears a required field (e.g. sets title to "") is rejected
   // by validateDocsViewRecord; a patch setting an optional field to undefined
-  // removes it — representable, validated below.
+  // removes it — representable, validated below. CAD-PARITY-013: folderId null
+  // ALSO unassigns (the wire representation of absence).
   const cleaned: Record<string, unknown> = { ...merged };
   for (const key of Object.keys(cleaned)) {
     if (cleaned[key] === undefined) delete cleaned[key];
+    if (key === "folderId" && cleaned[key] === null) delete cleaned[key];
   }
   return validateDocsViewRecord(cleaned);
 }
@@ -1299,7 +1325,16 @@ export function deriveConstraintSequence(constraints: readonly ConstraintRecord[
 /** CAD-PARITY-008: validate + normalize a layout record (the structural
  *  grammar — the embedded page setup validates through the SHARED paper
  *  module so document state, commands and hosts agree on every value,
- *  LOCK-007). */
+ *  LOCK-007). CAD-PARITY-013 adds the additive optional fields (subsetId,
+ *  masterId, titleBlockPlacement, revisionIds): each is SHAPE-validated here
+ *  (an absent field means its default — no subset, no master, no placement,
+ *  no revisions — so pre-P013 records pass byte-identically); the
+ *  CROSS-RECORD reference checks (subset exists and is a subset, master
+ *  exists/is not self/has no master of its own, title-block target exists,
+ *  revision ids exist) live at the document boundary where the tables are
+ *  available (the validateViewReferences split). The title-block placement
+ *  must fit INSIDE the layout's ORIENTED sheet (the placement is
+ *  layout-space geometry, validated against the layout's own record). */
 export function validateLayoutRecord(record: unknown): LayoutRecord {
   if (typeof record !== "object" || record === null) {
     throw new Error("layout record must be an object");
@@ -1320,12 +1355,73 @@ export function validateLayoutRecord(record: unknown): LayoutRecord {
   } catch (e) {
     throw new Error(`layout '${r.name}': ${(e as Error).message}`);
   }
-  return { id: r.id, name: r.name, pageSetup, createdAt: r.createdAt };
+  // CAD-PARITY-013: the additive optional fields (shape grammar).
+  if (r.subsetId !== undefined && (typeof r.subsetId !== "string" || r.subsetId.length === 0)) {
+    throw new Error(`layout '${r.id}': subsetId must be a non-empty string when present`);
+  }
+  if (r.masterId !== undefined && (typeof r.masterId !== "string" || r.masterId.length === 0)) {
+    throw new Error(`layout '${r.id}': masterId must be a non-empty string when present`);
+  }
+  let titleBlockPlacement: LayoutRecord["titleBlockPlacement"] | undefined;
+  if (r.titleBlockPlacement !== undefined && r.titleBlockPlacement !== null) {
+    if (typeof r.titleBlockPlacement !== "object") {
+      throw new Error(`layout '${r.id}': titleBlockPlacement must be an object when present`);
+    }
+    const p = r.titleBlockPlacement as Record<string, unknown>;
+    if (typeof p.titleBlockId !== "string" || p.titleBlockId.length === 0) {
+      throw new Error(`layout '${r.id}': titleBlockPlacement.titleBlockId must be a non-empty string`);
+    }
+    if (!isFiniteNumber(p.xMm) || !isFiniteNumber(p.yMm)) {
+      throw new Error(`layout '${r.id}': titleBlockPlacement.xMm/yMm must be finite numbers`);
+    }
+    titleBlockPlacement = { titleBlockId: p.titleBlockId, xMm: p.xMm, yMm: p.yMm };
+  }
+  let revisionIds: readonly string[] | undefined;
+  if (r.revisionIds !== undefined && r.revisionIds !== null) {
+    if (!Array.isArray(r.revisionIds) || !r.revisionIds.every((x) => typeof x === "string" && x.length > 0)) {
+      throw new Error(`layout '${r.id}': revisionIds must be an array of non-empty strings when present`);
+    }
+    const seen = new Set<string>();
+    for (const id of r.revisionIds as readonly string[]) {
+      if (seen.has(id)) {
+        throw new Error(`layout '${r.id}': duplicate revisionId '${id}' (unique, document order)`);
+      }
+      seen.add(id);
+    }
+    // Canonical-minimal: an EMPTY revisionIds array is normalized to absent
+    // (byte-identical to the pre-P013 record).
+    if ((r.revisionIds as readonly string[]).length > 0) {
+      revisionIds = [...(r.revisionIds as readonly string[])];
+    }
+  }
+  if (titleBlockPlacement !== undefined) {
+    const sheet = orientedSheetSize(pageSetup);
+    if (
+      titleBlockPlacement.xMm < 0 || titleBlockPlacement.xMm > sheet.widthMm ||
+      titleBlockPlacement.yMm < 0 || titleBlockPlacement.yMm > sheet.heightMm
+    ) {
+      throw new Error(
+        `layout '${r.id}': the title-block placement (${titleBlockPlacement.xMm}, ${titleBlockPlacement.yMm}) does not fit inside the oriented sheet ${sheet.widthMm}×${sheet.heightMm} mm`,
+      );
+    }
+  }
+  return {
+    id: r.id,
+    name: r.name,
+    pageSetup,
+    createdAt: r.createdAt,
+    ...(r.subsetId !== undefined && r.subsetId !== null ? { subsetId: r.subsetId } : {}),
+    ...(r.masterId !== undefined && r.masterId !== null ? { masterId: r.masterId } : {}),
+    ...(titleBlockPlacement !== undefined ? { titleBlockPlacement } : {}),
+    ...(revisionIds !== undefined ? { revisionIds } : {}),
+  };
 }
 
 /** Keys a layout patch may carry (id/createdAt are the record identity —
- *  immutable; pageSetup replaces the whole embedded object). */
-const LAYOUT_PATCH_KEYS = ["name", "pageSetup"] as const;
+ *  immutable; pageSetup/titleBlockPlacement replace the whole embedded
+ *  object; subsetId/masterId/titleBlockPlacement/revisionIds accept null to
+ *  unassign — CAD-PARITY-013). */
+const LAYOUT_PATCH_KEYS = ["name", "pageSetup", "subsetId", "masterId", "titleBlockPlacement", "revisionIds"] as const;
 
 /** Validate + merge an updateLayout patch (the merged record re-validates
  *  as a whole through the shared grammar). */
@@ -1340,6 +1436,17 @@ export function applyLayoutPatch(current: LayoutRecord, patch: Readonly<Record<s
   }
   const cleaned: Record<string, unknown> = { ...current };
   for (const [key, value] of Object.entries(patch)) {
+    // null unassigns the optional CAD-PARITY-013 fields (the wire
+    // representation of absence); an empty revisionIds array normalizes to
+    // absent (canonical-minimal records).
+    if (value === null && (key === "subsetId" || key === "masterId" || key === "titleBlockPlacement" || key === "revisionIds")) {
+      delete cleaned[key];
+      continue;
+    }
+    if (key === "revisionIds" && Array.isArray(value) && value.length === 0) {
+      delete cleaned[key];
+      continue;
+    }
     if (value === undefined) continue;
     cleaned[key] = value;
   }
@@ -1599,4 +1706,539 @@ export function validateCamera3DSettings(value: unknown): Camera3DState | null {
     throw new Error("draftingSettings.view3d: camera frame is degenerate");
   }
   return normalized;
+}
+
+// --- CAD-PARITY-013 (additive, Issue #104): the documentation production
+// record tables — navigator nodes, title blocks, schedules, revisions and
+// publisher sets. Every validator is STRICT (LOCK-007: malformed input is
+// REJECTED, never guessed/repaired); cross-record reference checks (parent
+// existence + same-kind + cycles, title-block targets, layout/revision
+// references, publisher item targets + duplicate expansion) live at the
+// document/applyEdit boundary where the tables are available (the
+// validateViewReferences split). -----------------------------------------------------------------
+
+const NAVIGATOR_NODE_KINDS: readonly ("folder" | "subset")[] = ["folder", "subset"];
+const NAVIGATOR_NUMBERINGS: readonly ("none" | "custom")[] = ["none", "custom"];
+
+/** CAD-PARITY-013: validate + normalize a navigator tree record (the
+ *  structural grammar: kind-tagged, trimmed non-empty name max 80, integer
+ *  order >= 1, parentId null-or-string; the subset-only prefix/numbering/
+ *  customNumber grammar — prefix max 12, numbering none|custom, customNumber
+ *  required iff custom and max 8; ALL subset fields are rejected on kind
+ *  "folder"). Name UNIQUENESS is not required (the id is the address);
+ *  parent existence/same-kind and cycle checks live at the document
+ *  boundary. */
+export function validateNavigatorNodeRecord(record: unknown): NavigatorNodeRecord {
+  if (typeof record !== "object" || record === null || Array.isArray(record)) {
+    throw new Error("navigator node record must be an object");
+  }
+  const r = record as Record<string, unknown>;
+  if (typeof r.id !== "string" || r.id.length === 0) {
+    throw new Error("navigator node record: id must be a non-empty string");
+  }
+  if (!(NAVIGATOR_NODE_KINDS as readonly unknown[]).includes(r.kind)) {
+    throw new Error(`navigator node '${r.id}': kind must be "folder" | "subset"`);
+  }
+  const kind = r.kind as "folder" | "subset";
+  if (typeof r.name !== "string" || r.name.trim().length === 0 || r.name.trim().length > 80) {
+    throw new Error(`navigator node '${r.id}': name must be a non-empty trimmed string (max 80 chars)`);
+  }
+  if (r.parentId !== null && (typeof r.parentId !== "string" || r.parentId.length === 0)) {
+    throw new Error(`navigator node '${r.id}': parentId must be null (root) or a non-empty string`);
+  }
+  if (typeof r.order !== "number" || !Number.isInteger(r.order) || r.order < 1) {
+    throw new Error(`navigator node '${r.id}': order must be an integer >= 1 (sibling order)`);
+  }
+  if (kind === "folder") {
+    for (const forbidden of ["prefix", "numbering", "customNumber"] as const) {
+      if (r[forbidden] !== undefined && r[forbidden] !== null) {
+        throw new Error(`navigator node '${r.id}': folder nodes must not carry '${forbidden}' (subset-only field)`);
+      }
+    }
+    return { id: r.id, kind, name: r.name.trim(), parentId: r.parentId as string | null, order: r.order };
+  }
+  let prefix: string | undefined;
+  if (r.prefix !== undefined && r.prefix !== null) {
+    if (typeof r.prefix !== "string" || r.prefix.length === 0 || r.prefix.length > 12) {
+      throw new Error(`navigator node '${r.id}': prefix must be a non-empty string (max 12 chars)`);
+    }
+    prefix = r.prefix;
+  }
+  let numbering: "none" | "custom" | undefined;
+  if (r.numbering !== undefined && r.numbering !== null) {
+    if (!(NAVIGATOR_NUMBERINGS as readonly unknown[]).includes(r.numbering)) {
+      throw new Error(`navigator node '${r.id}': numbering must be "none" | "custom"`);
+    }
+    numbering = r.numbering as "none" | "custom";
+  }
+  let customNumber: string | undefined;
+  if (r.customNumber !== undefined && r.customNumber !== null) {
+    if (typeof r.customNumber !== "string" || r.customNumber.length === 0 || r.customNumber.length > 8) {
+      throw new Error(`navigator node '${r.id}': customNumber must be a non-empty string (max 8 chars, e.g. "01")`);
+    }
+    customNumber = r.customNumber;
+  }
+  if (numbering === "custom" && customNumber === undefined) {
+    throw new Error(`navigator node '${r.id}': numbering "custom" requires customNumber (the zero-padded counter start)`);
+  }
+  if (numbering !== undefined && numbering !== "custom" && customNumber !== undefined) {
+    throw new Error(`navigator node '${r.id}': customNumber is only valid with numbering "custom"`);
+  }
+  return {
+    id: r.id,
+    kind,
+    name: r.name.trim(),
+    parentId: r.parentId as string | null,
+    order: r.order,
+    ...(prefix !== undefined ? { prefix } : {}),
+    ...(numbering !== undefined ? { numbering } : {}),
+    ...(customNumber !== undefined ? { customNumber } : {}),
+  };
+}
+
+/** Keys a navigator node patch may carry (id/kind are the record identity —
+ *  immutable: re-parenting is a parentId patch, never a kind change). */
+export const NAVIGATOR_PATCH_KEYS = ["name", "parentId", "order", "prefix", "numbering", "customNumber"] as const;
+
+/** Validate + merge an updateNavigatorNode patch (kind immutable; the merged
+ *  record re-validates as a whole; null prefix/numbering/customNumber values
+ *  unassign those subset fields — the wire representation of absence). */
+export function applyNavigatorNodePatch(current: NavigatorNodeRecord, patch: Readonly<Record<string, unknown>>): NavigatorNodeRecord {
+  for (const key of Object.keys(patch)) {
+    if (key === "id" || key === "kind") {
+      throw new Error("updateNavigatorNode: id/kind are the navigator identity — immutable (remove + re-create)");
+    }
+    if (!(NAVIGATOR_PATCH_KEYS as readonly string[]).includes(key)) {
+      throw new Error(`updateNavigatorNode: unknown field '${key}' (allowed: ${NAVIGATOR_PATCH_KEYS.join(", ")})`);
+    }
+  }
+  const cleaned: Record<string, unknown> = { ...current };
+  for (const [key, value] of Object.entries(patch)) {
+    if (value === null && (key === "prefix" || key === "numbering" || key === "customNumber")) {
+      delete cleaned[key];
+      continue;
+    }
+    if (value === undefined) continue;
+    cleaned[key] = value;
+  }
+  return validateNavigatorNodeRecord(cleaned);
+}
+
+/** CAD-PARITY-013: derive the navigator mint-sequence counter from existing
+ *  minted ids (`nav-NNNNNN`) — the deriveLayoutSequence contract. */
+export function deriveNavigatorNodeSequence(nodes: readonly NavigatorNodeRecord[]): number {
+  let max = 0;
+  for (const n of nodes) {
+    const m = /^nav-(\d{6,})$/.exec(n.id);
+    if (m !== null && m[1] !== undefined) max = Math.max(max, Number.parseInt(m[1], 10));
+  }
+  return max + 1;
+}
+
+const TITLE_BLOCK_FIELDS: readonly ("layoutName" | "sheetNumber" | "revisions" | "text")[] = [
+  "layoutName",
+  "sheetNumber",
+  "revisions",
+  "text",
+];
+
+/** CAD-PARITY-013: validate + normalize a title-block record (the structural
+ *  grammar: name trimmed non-empty max 60, widthMm 20..500, heightMm
+ *  20..300 and >= rows*rowHeightMm, rowHeightMm 4..60, 1..12 rows; each row
+ *  label trimmed non-empty max 40, field from the closed vocabulary, value
+ *  required iff field "text" (max 80) and rejected otherwise). Name
+ *  UNIQUENESS among title blocks is enforced at the document boundary. */
+export function validateTitleBlockRecord(record: unknown): TitleBlockRecord {
+  if (typeof record !== "object" || record === null || Array.isArray(record)) {
+    throw new Error("title block record must be an object");
+  }
+  const r = record as Record<string, unknown>;
+  if (typeof r.id !== "string" || r.id.length === 0) {
+    throw new Error("title block record: id must be a non-empty string");
+  }
+  if (typeof r.name !== "string" || r.name.trim().length === 0 || r.name.trim().length > 60) {
+    throw new Error(`title block '${r.id}': name must be a non-empty trimmed string (max 60 chars)`);
+  }
+  for (const [key, min, max] of [["widthMm", 20, 500], ["heightMm", 20, 300], ["rowHeightMm", 4, 60]] as const) {
+    const v = r[key];
+    if (typeof v !== "number" || !Number.isFinite(v) || v < min || v > max) {
+      throw new Error(`title block '${r.id}': ${key} must be a finite number in ${min}..${max} mm`);
+    }
+  }
+  if (!Array.isArray(r.rows) || r.rows.length < 1 || r.rows.length > 12) {
+    throw new Error(`title block '${r.id}': rows must be an array of 1..12 rows`);
+  }
+  const rows: TitleBlockRow[] = [];
+  for (let i = 0; i < r.rows.length; i++) {
+    const raw = r.rows[i];
+    if (typeof raw !== "object" || raw === null) {
+      throw new Error(`title block '${r.id}': rows[${i}] must be an object`);
+    }
+    const row = raw as Record<string, unknown>;
+    if (typeof row.label !== "string" || row.label.trim().length === 0 || row.label.trim().length > 40) {
+      throw new Error(`title block '${r.id}': rows[${i}].label must be a non-empty trimmed string (max 40 chars)`);
+    }
+    if (!(TITLE_BLOCK_FIELDS as readonly unknown[]).includes(row.field)) {
+      throw new Error(`title block '${r.id}': rows[${i}].field must be one of ${TITLE_BLOCK_FIELDS.join(" | ")}`);
+    }
+    if (row.field === "text") {
+      if (typeof row.value !== "string" || row.value.length === 0 || row.value.length > 80) {
+        throw new Error(`title block '${r.id}': rows[${i}] with field "text" requires a value (non-empty string, max 80 chars)`);
+      }
+    } else if (row.value !== undefined && row.value !== null) {
+      throw new Error(`title block '${r.id}': rows[${i}] with field '${String(row.field)}' must not carry a value (derived field)`);
+    }
+    rows.push({
+      label: row.label.trim(),
+      field: row.field as TitleBlockRow["field"],
+      ...(row.field === "text" ? { value: row.value as string } : {}),
+    });
+  }
+  const heightMm = r.heightMm as number;
+  const rowHeightMm = r.rowHeightMm as number;
+  if (heightMm < rows.length * rowHeightMm) {
+    throw new Error(
+      `title block '${r.id}': heightMm ${heightMm} must cover ${rows.length} row(s) × ${rowHeightMm} mm (= ${rows.length * rowHeightMm} mm)`,
+    );
+  }
+  return { id: r.id, name: (r.name as string).trim(), widthMm: r.widthMm as number, heightMm, rowHeightMm, rows };
+}
+
+/** Keys a title-block patch may carry (id is the record identity). */
+export const TITLEBLOCK_PATCH_KEYS = ["name", "widthMm", "heightMm", "rowHeightMm", "rows"] as const;
+
+/** Validate + merge an updateTitleBlock patch (the merged record re-validates
+ *  as a whole). */
+export function applyTitleBlockPatch(current: TitleBlockRecord, patch: Readonly<Record<string, unknown>>): TitleBlockRecord {
+  for (const key of Object.keys(patch)) {
+    if (key === "id") {
+      throw new Error("updateTitleBlock: id is the title-block identity — immutable");
+    }
+    if (!(TITLEBLOCK_PATCH_KEYS as readonly string[]).includes(key)) {
+      throw new Error(`updateTitleBlock: unknown field '${key}' (allowed: ${TITLEBLOCK_PATCH_KEYS.join(", ")})`);
+    }
+  }
+  const cleaned: Record<string, unknown> = { ...current };
+  for (const [key, value] of Object.entries(patch)) {
+    if (value === undefined) continue;
+    cleaned[key] = value;
+  }
+  return validateTitleBlockRecord(cleaned);
+}
+
+/** CAD-PARITY-013: derive the title-block mint-sequence counter from
+ *  existing minted ids (`tb-NNNNNN`). */
+export function deriveTitleBlockSequence(blocks: readonly TitleBlockRecord[]): number {
+  let max = 0;
+  for (const b of blocks) {
+    const m = /^tb-(\d{6,})$/.exec(b.id);
+    if (m !== null && m[1] !== undefined) max = Math.max(max, Number.parseInt(m[1], 10));
+  }
+  return max + 1;
+}
+
+/** The closed schedule column-key vocabulary per source (CAD-PARITY-013;
+ *  `ps:<set>.<key>` dynamic property columns are additionally valid for the
+ *  elements/components sources — see isDynamicPropertyColumn). */
+export const SCHEDULE_COLUMN_KEYS: Readonly<Record<ScheduleSource, readonly string[]>> = Object.freeze({
+  elements: [
+    "id", "type", "name", "story", "layer", "material", "classification", "renovationStatus", "option",
+  ],
+  components: [
+    "id", "type", "name", "story", "layer", "material", "classification", "renovationStatus", "option",
+  ],
+  materials: ["id", "name", "category", "color", "lineweight", "density"],
+  views: ["id", "kind", "title", "scale", "folder", "contentHash", "primitives"],
+  layouts: ["id", "name", "subset", "master", "sheetNumber", "titleBlock", "revisions"],
+  sheets: ["id", "title", "sheetNumber", "projectName", "views"],
+});
+
+/** The schedule sources that accept a filter (type/storyId). */
+export const SCHEDULE_FILTERED_SOURCES: readonly ScheduleSource[] = ["elements", "components"];
+
+/** Is a column key a dynamic property-set value reference
+ *  (`ps:<set>.<key>`)? The set name must be non-empty (max 64 chars — the
+ *  BIM_PROPERTY_SET_NAME_MAX bound) and the property key must match the
+ *  canonical BIM property key pattern (letters/digits/underscores). */
+export function isDynamicPropertyColumn(key: string): boolean {
+  if (!key.startsWith("ps:")) return false;
+  const rest = key.slice(3);
+  const dot = rest.indexOf(".");
+  if (dot <= 0) return false;
+  const setName = rest.slice(0, dot);
+  const propKey = rest.slice(dot + 1);
+  return (
+    setName.length > 0 && setName.length <= 64 &&
+    propKey.length > 0 && BIM_PROPERTY_KEY_PATTERN.test(propKey)
+  );
+}
+
+/** CAD-PARITY-013: validate + normalize a schedule record (the structural
+ *  grammar: name trimmed non-empty max 60, a closed source vocabulary, a
+ *  filter ONLY on the elements/components sources ({type?, storyId?} —
+ *  non-empty strings), 1..12 columns each with a trimmed non-empty label
+ *  max 40 and a key from the CLOSED per-source vocabulary or the dynamic
+ *  `ps:<set>.<key>` form on the elements/components sources). Name
+ *  UNIQUENESS among schedules is enforced at the document boundary. */
+export function validateScheduleRecord(record: unknown): ScheduleRecord {
+  if (typeof record !== "object" || record === null || Array.isArray(record)) {
+    throw new Error("schedule record must be an object");
+  }
+  const r = record as Record<string, unknown>;
+  if (typeof r.id !== "string" || r.id.length === 0) {
+    throw new Error("schedule record: id must be a non-empty string");
+  }
+  if (typeof r.name !== "string" || r.name.trim().length === 0 || r.name.trim().length > 60) {
+    throw new Error(`schedule '${r.id}': name must be a non-empty trimmed string (max 60 chars)`);
+  }
+  const source = r.source as ScheduleSource;
+  if (!(Object.keys(SCHEDULE_COLUMN_KEYS) as readonly string[]).includes(r.source as string)) {
+    throw new Error(`schedule '${r.id}': source must be one of ${Object.keys(SCHEDULE_COLUMN_KEYS).join(" | ")}`);
+  }
+  let filter: ScheduleRecord["filter"];
+  if (r.filter !== undefined && r.filter !== null) {
+    if (!(SCHEDULE_FILTERED_SOURCES as readonly string[]).includes(source)) {
+      throw new Error(`schedule '${r.id}': a filter is only valid on the elements/components sources (got '${source}')`);
+    }
+    if (typeof r.filter !== "object") {
+      throw new Error(`schedule '${r.id}': filter must be an object { type?, storyId? }`);
+    }
+    const f = r.filter as Record<string, unknown>;
+    if (f.type !== undefined && f.type !== null && (typeof f.type !== "string" || f.type.length === 0)) {
+      throw new Error(`schedule '${r.id}': filter.type must be a non-empty string when present (a BIM element type)`);
+    }
+    if (f.storyId !== undefined && f.storyId !== null && (typeof f.storyId !== "string" || f.storyId.length === 0)) {
+      throw new Error(`schedule '${r.id}': filter.storyId must be a non-empty string when present`);
+    }
+    filter = {
+      ...(typeof f.type === "string" && f.type.length > 0 ? { type: f.type } : {}),
+      ...(typeof f.storyId === "string" && f.storyId.length > 0 ? { storyId: f.storyId } : {}),
+    };
+  }
+  if (!Array.isArray(r.columns) || r.columns.length < 1 || r.columns.length > 12) {
+    throw new Error(`schedule '${r.id}': columns must be an array of 1..12 columns`);
+  }
+  const vocabulary = SCHEDULE_COLUMN_KEYS[source];
+  const dynamic = (SCHEDULE_FILTERED_SOURCES as readonly string[]).includes(source);
+  const columns: ScheduleColumn[] = [];
+  for (let i = 0; i < r.columns.length; i++) {
+    const raw = r.columns[i];
+    if (typeof raw !== "object" || raw === null) {
+      throw new Error(`schedule '${r.id}': columns[${i}] must be an object`);
+    }
+    const col = raw as Record<string, unknown>;
+    if (typeof col.key !== "string" || col.key.length === 0) {
+      throw new Error(`schedule '${r.id}': columns[${i}].key must be a non-empty string`);
+    }
+    if (!vocabulary.includes(col.key) && !(dynamic && isDynamicPropertyColumn(col.key))) {
+      throw new Error(
+        `schedule '${r.id}': columns[${i}].key '${col.key}' is not in the '${source}' column vocabulary [${vocabulary.join(", ")}${dynamic ? ", ps:<set>.<key>" : ""}]`,
+      );
+    }
+    if (typeof col.label !== "string" || col.label.trim().length === 0 || col.label.trim().length > 40) {
+      throw new Error(`schedule '${r.id}': columns[${i}].label must be a non-empty trimmed string (max 40 chars)`);
+    }
+    columns.push({ key: col.key, label: col.label.trim() });
+  }
+  return {
+    id: r.id,
+    name: (r.name as string).trim(),
+    source,
+    ...(filter !== undefined ? { filter } : {}),
+    columns,
+  };
+}
+
+/** Keys a schedule patch may carry (id is the record identity). */
+export const SCHEDULE_PATCH_KEYS = ["name", "source", "filter", "columns"] as const;
+
+/** Validate + merge an updateSchedule patch (the merged record re-validates
+ *  as a whole; filter null removes the filter). */
+export function applySchedulePatch(current: ScheduleRecord, patch: Readonly<Record<string, unknown>>): ScheduleRecord {
+  for (const key of Object.keys(patch)) {
+    if (key === "id") {
+      throw new Error("updateSchedule: id is the schedule identity — immutable");
+    }
+    if (!(SCHEDULE_PATCH_KEYS as readonly string[]).includes(key)) {
+      throw new Error(`updateSchedule: unknown field '${key}' (allowed: ${SCHEDULE_PATCH_KEYS.join(", ")})`);
+    }
+  }
+  const cleaned: Record<string, unknown> = { ...current };
+  for (const [key, value] of Object.entries(patch)) {
+    if (value === null && key === "filter") {
+      delete cleaned[key];
+      continue;
+    }
+    if (value === undefined) continue;
+    cleaned[key] = value;
+  }
+  return validateScheduleRecord(cleaned);
+}
+
+/** CAD-PARITY-013: derive the schedule mint-sequence counter from existing
+ *  minted ids (`sch-NNNNNN`). */
+export function deriveScheduleSequence(schedules: readonly ScheduleRecord[]): number {
+  let max = 0;
+  for (const s of schedules) {
+    const m = /^sch-(\d{6,})$/.exec(s.id);
+    if (m !== null && m[1] !== undefined) max = Math.max(max, Number.parseInt(m[1], 10));
+  }
+  return max + 1;
+}
+
+/** CAD-PARITY-013: validate + normalize a revision record (the structural
+ *  grammar: code trimmed non-empty max 12, description max 200 (may be
+ *  empty), issued boolean, createdAt a non-empty string (the FIXED
+ *  deterministic timestamp — NEVER wall clock), layoutIds an array of
+ *  non-empty unique strings kept in document order). Code UNIQUENESS and
+ *  layoutId EXISTENCE are enforced at the document boundary. */
+export function validateRevisionRecord(record: unknown): RevisionRecord {
+  if (typeof record !== "object" || record === null || Array.isArray(record)) {
+    throw new Error("revision record must be an object");
+  }
+  const r = record as Record<string, unknown>;
+  if (typeof r.id !== "string" || r.id.length === 0) {
+    throw new Error("revision record: id must be a non-empty string");
+  }
+  if (typeof r.code !== "string" || r.code.trim().length === 0 || r.code.trim().length > 12) {
+    throw new Error(`revision '${r.id}': code must be a non-empty trimmed string (max 12 chars, e.g. "P01")`);
+  }
+  const description = r.description === undefined || r.description === null ? "" : r.description;
+  if (typeof description !== "string" || description.length > 200) {
+    throw new Error(`revision '${r.id}': description must be a string (max 200 chars, may be empty)`);
+  }
+  if (typeof r.issued !== "boolean") {
+    throw new Error(`revision '${r.id}': issued must be a boolean`);
+  }
+  if (typeof r.createdAt !== "string" || r.createdAt.length === 0) {
+    throw new Error(`revision '${r.id}': createdAt must be a non-empty string (fixed deterministic timestamp)`);
+  }
+  if (!Array.isArray(r.layoutIds) || !r.layoutIds.every((x) => typeof x === "string" && x.length > 0)) {
+    throw new Error(`revision '${r.id}': layoutIds must be an array of non-empty layout ids`);
+  }
+  const seen = new Set<string>();
+  for (const id of r.layoutIds as readonly string[]) {
+    if (seen.has(id)) {
+      throw new Error(`revision '${r.id}': duplicate layoutId '${id}' (unique, document order)`);
+    }
+    seen.add(id);
+  }
+  return {
+    id: r.id,
+    code: (r.code as string).trim(),
+    description,
+    issued: r.issued,
+    createdAt: r.createdAt,
+    layoutIds: [...(r.layoutIds as readonly string[])],
+  };
+}
+
+/** Keys a revision patch may carry (id/createdAt are the record identity —
+ *  immutable). */
+export const REVISION_PATCH_KEYS = ["code", "description", "issued", "layoutIds"] as const;
+
+/** Validate + merge an updateRevision patch (the merged record re-validates
+ *  as a whole). */
+export function applyRevisionPatch(current: RevisionRecord, patch: Readonly<Record<string, unknown>>): RevisionRecord {
+  for (const key of Object.keys(patch)) {
+    if (key === "id" || key === "createdAt") {
+      throw new Error("updateRevision: id/createdAt are the revision identity — immutable");
+    }
+    if (!(REVISION_PATCH_KEYS as readonly string[]).includes(key)) {
+      throw new Error(`updateRevision: unknown field '${key}' (allowed: ${REVISION_PATCH_KEYS.join(", ")})`);
+    }
+  }
+  const cleaned: Record<string, unknown> = { ...current };
+  for (const [key, value] of Object.entries(patch)) {
+    if (value === undefined) continue;
+    cleaned[key] = value;
+  }
+  return validateRevisionRecord(cleaned);
+}
+
+/** CAD-PARITY-013: derive the revision mint-sequence counter from existing
+ *  minted ids (`rev-NNNNNN`). */
+export function deriveRevisionSequence(revisions: readonly RevisionRecord[]): number {
+  let max = 0;
+  for (const rev of revisions) {
+    const m = /^rev-(\d{6,})$/.exec(rev.id);
+    if (m !== null && m[1] !== undefined) max = Math.max(max, Number.parseInt(m[1], 10));
+  }
+  return max + 1;
+}
+
+const PUBLISHER_ITEM_KINDS: readonly ("layout" | "subset")[] = ["layout", "subset"];
+const PUBLISHER_ITEM_FORMATS: readonly ("pdf" | "svg" | "plot-ir")[] = ["pdf", "svg", "plot-ir"];
+
+/** CAD-PARITY-013: validate + normalize a publisher-set record (the
+ *  structural grammar: name trimmed non-empty max 60, 1..64 items each
+ *  {kind: layout|subset, id non-empty, format: pdf|svg|plot-ir}). Item
+ *  TARGET existence, the subset-kind rule and the no-duplicate-expanded-
+ *  layout rule are enforced at the document boundary. */
+export function validatePublisherSetRecord(record: unknown): PublisherSetRecord {
+  if (typeof record !== "object" || record === null || Array.isArray(record)) {
+    throw new Error("publisher set record must be an object");
+  }
+  const r = record as Record<string, unknown>;
+  if (typeof r.id !== "string" || r.id.length === 0) {
+    throw new Error("publisher set record: id must be a non-empty string");
+  }
+  if (typeof r.name !== "string" || r.name.trim().length === 0 || r.name.trim().length > 60) {
+    throw new Error(`publisher set '${r.id}': name must be a non-empty trimmed string (max 60 chars)`);
+  }
+  if (!Array.isArray(r.items) || r.items.length < 1 || r.items.length > 64) {
+    throw new Error(`publisher set '${r.id}': items must be an array of 1..64 items`);
+  }
+  const items: PublisherItem[] = [];
+  for (let i = 0; i < r.items.length; i++) {
+    const raw = r.items[i];
+    if (typeof raw !== "object" || raw === null) {
+      throw new Error(`publisher set '${r.id}': items[${i}] must be an object`);
+    }
+    const item = raw as Record<string, unknown>;
+    if (!(PUBLISHER_ITEM_KINDS as readonly unknown[]).includes(item.kind)) {
+      throw new Error(`publisher set '${r.id}': items[${i}].kind must be "layout" | "subset"`);
+    }
+    if (typeof item.id !== "string" || item.id.length === 0) {
+      throw new Error(`publisher set '${r.id}': items[${i}].id must be a non-empty string`);
+    }
+    if (!(PUBLISHER_ITEM_FORMATS as readonly unknown[]).includes(item.format)) {
+      throw new Error(`publisher set '${r.id}': items[${i}].format must be one of ${PUBLISHER_ITEM_FORMATS.join(" | ")}`);
+    }
+    items.push({ kind: item.kind as "layout" | "subset", id: item.id as string, format: item.format as "pdf" | "svg" | "plot-ir" });
+  }
+  return { id: r.id, name: (r.name as string).trim(), items };
+}
+
+/** Keys a publisher-set patch may carry (id is the record identity). */
+export const PUBLISHER_PATCH_KEYS = ["name", "items"] as const;
+
+/** Validate + merge an updatePublisherSet patch (the merged record
+ *  re-validates as a whole). */
+export function applyPublisherSetPatch(current: PublisherSetRecord, patch: Readonly<Record<string, unknown>>): PublisherSetRecord {
+  for (const key of Object.keys(patch)) {
+    if (key === "id") {
+      throw new Error("updatePublisherSet: id is the publisher-set identity — immutable");
+    }
+    if (!(PUBLISHER_PATCH_KEYS as readonly string[]).includes(key)) {
+      throw new Error(`updatePublisherSet: unknown field '${key}' (allowed: ${PUBLISHER_PATCH_KEYS.join(", ")})`);
+    }
+  }
+  const cleaned: Record<string, unknown> = { ...current };
+  for (const [key, value] of Object.entries(patch)) {
+    if (value === undefined) continue;
+    cleaned[key] = value;
+  }
+  return validatePublisherSetRecord(cleaned);
+}
+
+/** CAD-PARITY-013: derive the publisher-set mint-sequence counter from
+ *  existing minted ids (`pub-NNNNNN`). */
+export function derivePublisherSetSequence(sets: readonly PublisherSetRecord[]): number {
+  let max = 0;
+  for (const s of sets) {
+    const m = /^pub-(\d{6,})$/.exec(s.id);
+    if (m !== null && m[1] !== undefined) max = Math.max(max, Number.parseInt(m[1], 10));
+  }
+  return max + 1;
 }

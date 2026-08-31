@@ -293,6 +293,35 @@ import {
 } from "../docs/index.js";
 import type { DocsSheetRecord, DocsViewRecord } from "../contracts/caddocument.js";
 import { validateDocsSheetRecord, validateDocsViewRecord } from "../caddocument/workspace.js";
+// CAD-PARITY-013: the shared record grammars, imported for PRE-MINT draft
+// validation (a failing create command never burns a canonical id — the
+// host-parity determinism contract; the record re-validates at execute with
+// the minted id through the SAME grammar).
+import {
+  validateNavigatorNodeRecord,
+  validatePublisherSetRecord,
+  validateRevisionRecord,
+  validateScheduleRecord,
+  validateTitleBlockRecord,
+} from "../caddocument/workspace.js";
+// CAD-PARITY-013 (additive, Issue #104): the documentation production core —
+// the fresh schedule row derivation (docs/schedules.ts) + the Layout Book
+// ordering / sheet-numbering / revision-code derivations shared by the
+// navigator tree, the publisher expansion and the title-block rendering
+// (layouts/book.ts — pure, engine-free, the SAME modules both hosts
+// consume, LOCK-004).
+import { runSchedule } from "../docs/index.js";
+import type { ScheduleRunContext } from "../docs/index.js";
+import { revisionCodesOf, sheetNumberOf, subsetLayouts } from "../workspace/layouts/index.js";
+import type {
+  NavigatorNodeRecord,
+  PublisherItem,
+  PublisherSetRecord,
+  RevisionRecord,
+  ScheduleRecord,
+  TitleBlockRecord,
+} from "../contracts/caddocument.js";
+import type { IfcFieldClassification } from "../ifc/report.js";
 
 export interface AppApiHandlerOptions {
   readonly adapterBundle: EngineAdapterBundle;
@@ -552,6 +581,46 @@ export class AppApiHandler {
         return this.cmdGridUpdate(command.payload);
       case "revcloud.create":
         return this.cmdRevcloudCreate(command.payload);
+      // --- CAD-PARITY-013 (additive, Issue #104): the documentation
+      // production commands — the navigator (View Map folders + Layout Book
+      // subsets), title blocks, schedules, revisions, publisher sets and
+      // the generic layout.update patch. One payload = ONE DocumentEdit =
+      // one version = one undo entry; publisher.run is NON-VERSIONED output
+      // automation (the plot.publish precedent). ---
+      case "navigator.createFolder":
+        return this.cmdNavigatorCreateFolder(command.payload);
+      case "navigator.createSubset":
+        return this.cmdNavigatorCreateSubset(command.payload);
+      case "navigator.removeNode":
+        return this.cmdNavigatorRemoveNode(command.payload);
+      case "titleblock.create":
+        return this.cmdTitleBlockCreate(command.payload);
+      case "titleblock.update":
+        return this.cmdTitleBlockUpdate(command.payload);
+      case "titleblock.remove":
+        return this.cmdTitleBlockRemove(command.payload);
+      case "schedule.create":
+        return this.cmdScheduleCreate(command.payload);
+      case "schedule.update":
+        return this.cmdScheduleUpdate(command.payload);
+      case "schedule.remove":
+        return this.cmdScheduleRemove(command.payload);
+      case "revision.add":
+        return this.cmdRevisionAdd(command.payload);
+      case "revision.update":
+        return this.cmdRevisionUpdate(command.payload);
+      case "revision.remove":
+        return this.cmdRevisionRemove(command.payload);
+      case "publisher.create":
+        return this.cmdPublisherCreate(command.payload);
+      case "publisher.update":
+        return this.cmdPublisherUpdate(command.payload);
+      case "publisher.remove":
+        return this.cmdPublisherRemove(command.payload);
+      case "publisher.run":
+        return this.cmdPublisherRun(command.payload);
+      case "layout.update":
+        return this.cmdLayoutUpdate(command.payload);
       // --- COMPAT-CAD-002 (additive): 3D/BIM authoring commands ---
       case "bim.createElements":
         return this.cmdBimCreate(command.payload);
@@ -971,6 +1040,22 @@ export class AppApiHandler {
         return this.qGridsList();
       case "coordination.clash":
         return this.qCoordinationClash();
+      // --- CAD-PARITY-013 (additive, Issue #104): the documentation
+      // production read surfaces (non-mutating, computed fresh every call,
+      // never persisted stale — navigator.tree, schedules.list/run,
+      // revisions.list, publisher.list, docs.exchangeReport). ---
+      case "navigator.tree":
+        return this.qNavigatorTree();
+      case "schedules.list":
+        return this.qSchedulesList();
+      case "schedules.run":
+        return this.qSchedulesRun(query.payload);
+      case "revisions.list":
+        return this.qRevisionsList();
+      case "publisher.list":
+        return this.qPublisherList();
+      case "docs.exchangeReport":
+        return this.qDocsExchangeReport();
       default: {
         const _exhaustive: never = query.name;
         return err("unknown_query", `unknown query: ${JSON.stringify(_exhaustive)}`);
@@ -2532,9 +2617,16 @@ export class AppApiHandler {
   }
 
   /** The Plot IR input assembled from the CURRENT document state (the SAME
-   *  pure inputs both hosts pass — parity by construction). */
+   *  pure inputs both hosts pass — parity by construction). CAD-PARITY-013
+   *  (Issue #104): the layout table + the title-block/navigator/revision
+   *  tables flow in as additive inputs (master composition, placed
+   *  title-block rendering, subset sheet numbering); layouts WITHOUT P013
+   *  fields never read them, so their IR stays byte-identical. */
   private plotIRInputOf(layout: LayoutRecord): PlotIRInput {
     const settings = this.doc.draftingSettings;
+    const titleBlocks = this.doc.titleBlockTable;
+    const navigatorNodes = this.doc.navigatorNodeTable;
+    const revisions = this.doc.revisionTable;
     return {
       layout,
       viewports: this.doc.viewportsOfLayout(layout.id),
@@ -2544,6 +2636,13 @@ export class AppApiHandler {
       textStyles: this.doc.textStyleTable,
       dimStyles: this.doc.dimStyleTable,
       ...(settings.standards !== undefined ? { standards: settings.standards } : {}),
+      // CAD-PARITY-013: the full layout table (master resolution + the
+      // "L"-numbering derivation) + the title-block/navigator/revision
+      // tables (placement rendering; omitted-when-empty).
+      layouts: this.doc.layoutTable,
+      ...(titleBlocks.length > 0 ? { titleBlocks } : {}),
+      ...(navigatorNodes.length > 0 ? { navigatorNodes } : {}),
+      ...(revisions.length > 0 ? { revisions } : {}),
     };
   }
 
@@ -6364,6 +6463,684 @@ export class AppApiHandler {
     }
   }
 
+  // --- CAD-PARITY-013 (additive, Issue #104): the documentation production
+  // commands — navigator nodes (View Map folders + Layout Book subsets),
+  // title blocks, schedules, revisions, publisher sets + the generic
+  // layout.update patch. Typed-error convention (the CAD-PARITY-012 style):
+  // bad_payload = malformed input; navigator_invalid / titleblock_invalid /
+  // schedule_invalid / revision_invalid / publisher_invalid / layout_invalid
+  // = semantic validation failures (the shared validators in
+  // caddocument/workspace.ts re-validate at the document boundary — LOCK-007
+  // reject-never-repair); navigator_exists-ish duplicates are *_exists;
+  // missing targets are *_not_found; gated removals are navigator_in_use /
+  // titleblock_in_use. One payload = ONE DocumentEdit = one version = one
+  // undo entry throughout (publisher.run is NON-VERSIONED — the
+  // plot.export/plot.publish precedent). Ids `xx-NNNNNN` are minted by the
+  // document (monotonic, never reused) and the FIXED deterministic
+  // timestamps (LAYOUTS_NOW pattern) keep every record byte-deterministic.
+
+  /** Fixed deterministic creation timestamp (provenance; NEVER wall clock). */
+  private static readonly DOCS_P013_NOW = "2026-01-01T00:00:00.000Z";
+
+  /** Resolve a navigator parent reference (null/undefined/"" = root; the
+   *  target must exist and share the child's kind — folders under folders,
+   *  subsets under subsets). */
+  private navigatorParentRef(value: unknown, kind: "folder" | "subset"): { ok: true; parentId: string | null } | ErrResult {
+    if (value === undefined || value === null || value === "") return { ok: true, parentId: null };
+    if (typeof value !== "string" || value.length === 0) {
+      return err("bad_payload", `the navigator parent must be a node id or null (root), got ${JSON.stringify(value)}`, true);
+    }
+    const node = this.doc.navigatorNodeById(value);
+    if (node === undefined) {
+      return err("navigator_invalid", `parentId '${value}' does not reference an existing navigator node`, false);
+    }
+    if (node.kind !== kind) {
+      return err(
+        "navigator_invalid",
+        `parentId '${value}' is a '${node.kind}' node — parents must share the node kind (${kind} under ${kind})`,
+        false,
+      );
+    }
+    return { ok: true, parentId: value };
+  }
+
+  /** The next sibling order for a new navigator node (max sibling order + 1,
+   *  1 for the first child — deterministic append-at-end). */
+  private nextNavigatorOrder(kind: "folder" | "subset", parentId: string | null): number {
+    let max = 0;
+    for (const n of this.doc.navigatorNodeTable) {
+      if (n.kind === kind && n.parentId === parentId) max = Math.max(max, n.order);
+    }
+    return max + 1;
+  }
+
+  /** Run the shared record-grammar validation over a DRAFT record (placeholder
+   *  id) BEFORE any canonical id is minted, mapping a grammar failure to the
+   *  command's typed code. Returns null when the draft validates — the caller
+   *  mints the id and re-executes through the SAME grammar (a failing command
+   *  never burns a `xx-NNNNNN` identity; host-parity determinism). */
+  private draftRecordError(code: string, validate: () => void): CommandQueryResponse | null {
+    try {
+      validate();
+      return null;
+    } catch (e) {
+      return err(code, (e as Error).message, false);
+    }
+  }
+
+  /** navigator.createFolder — add ONE View Map folder (`nav-NNNNNN`, document
+   *  minted; the record validates through the shared grammar; pre-validation
+   *  runs BEFORE minting so a failing command never burns an id). */
+  private cmdNavigatorCreateFolder(payload: unknown): CommandQueryResponse {
+    const p = payload as Record<string, unknown> | null;
+    if (p === null || typeof p !== "object" || typeof p.name !== "string" || (p.name as string).trim().length === 0 || (p.name as string).trim().length > 80) {
+      return err("bad_payload", "navigator.createFolder requires a name (non-empty string, max 80 chars)", true);
+    }
+    // Strict payload grammar (LOCK-007 — reject, never silently repair):
+    // subset-only fields on a FOLDER are the record-grammar violation
+    // (navigator_invalid); any OTHER unknown key is malformed input.
+    for (const key of Object.keys(p)) {
+      if (key === "prefix" || key === "numbering" || key === "customNumber") {
+        return err(
+          "navigator_invalid",
+          `navigator.createFolder: '${key}' is a subset-only field — folder nodes must not carry it`,
+          false,
+        );
+      }
+      if (key !== "name" && key !== "parentId") {
+        return err("bad_payload", `navigator.createFolder: unknown field '${key}' (allowed: name, parentId)`, true);
+      }
+    }
+    const parent = this.navigatorParentRef(p.parentId, "folder");
+    if (parent.ok === false) return parent;
+    // PRE-MINT draft validation through the shared grammar (the placeholder
+    // id is replaced by the minted one only after the record validates).
+    const draft: NavigatorNodeRecord = {
+      id: "nav-draft",
+      kind: "folder",
+      name: (p.name as string).trim(),
+      parentId: parent.parentId,
+      order: this.nextNavigatorOrder("folder", parent.parentId),
+    };
+    const invalid = this.draftRecordError("navigator_invalid", () => validateNavigatorNodeRecord(draft));
+    if (invalid !== null) return invalid;
+    const node: NavigatorNodeRecord = { ...draft, id: this.doc.mintNavigatorNodeId() };
+    try {
+      this.doc.execute({ type: "addNavigatorNode", node });
+      return ok({ node, snapshot: this.doc.snapshot() });
+    } catch (e) {
+      return err("navigator_invalid", (e as Error).message, false);
+    }
+  }
+
+  /** navigator.createSubset — add ONE Layout Book subset node (subset-only
+   *  prefix/numbering/customNumber grammar; numbering "custom" requires
+   *  customNumber). */
+  private cmdNavigatorCreateSubset(payload: unknown): CommandQueryResponse {
+    const p = payload as { name?: unknown; parentId?: unknown; prefix?: unknown; numbering?: unknown; customNumber?: unknown } | null;
+    if (p === null || typeof p !== "object" || typeof p.name !== "string" || p.name.trim().length === 0 || p.name.trim().length > 80) {
+      return err("bad_payload", "navigator.createSubset requires a name (non-empty string, max 80 chars)", true);
+    }
+    if (p.numbering !== undefined && p.numbering !== null && p.numbering !== "none" && p.numbering !== "custom") {
+      return err("bad_payload", "navigator.createSubset numbering must be \"none\" | \"custom\" when present", true);
+    }
+    for (const key of Object.keys(p)) {
+      if (key !== "name" && key !== "parentId" && key !== "prefix" && key !== "numbering" && key !== "customNumber") {
+        return err("bad_payload", `navigator.createSubset: unknown field '${key}' (allowed: name, parentId, prefix, numbering, customNumber)`, true);
+      }
+    }
+    const parent = this.navigatorParentRef(p.parentId, "subset");
+    if (parent.ok === false) return parent;
+    const numbering = p.numbering === "custom" ? "custom" : undefined;
+    // PRE-MINT draft validation (the shared subset grammar — a failing
+    // command never burns a nav- id).
+    const draft: NavigatorNodeRecord = {
+      id: "nav-draft",
+      kind: "subset",
+      name: p.name.trim(),
+      parentId: parent.parentId,
+      order: this.nextNavigatorOrder("subset", parent.parentId),
+      ...(typeof p.prefix === "string" && p.prefix.length > 0 ? { prefix: p.prefix } : {}),
+      ...(numbering !== undefined ? { numbering } : {}),
+      ...(numbering === "custom" && typeof p.customNumber === "string" && p.customNumber.length > 0 ? { customNumber: p.customNumber } : {}),
+    };
+    const invalid = this.draftRecordError("navigator_invalid", () => validateNavigatorNodeRecord(draft));
+    if (invalid !== null) return invalid;
+    const node: NavigatorNodeRecord = { ...draft, id: this.doc.mintNavigatorNodeId() };
+    try {
+      this.doc.execute({ type: "addNavigatorNode", node });
+      return ok({ node, snapshot: this.doc.snapshot() });
+    } catch (e) {
+      return err("navigator_invalid", (e as Error).message, false);
+    }
+  }
+
+  /** navigator.removeNode — gated removal (children, view folderId refs,
+   *  layout subsetId refs, publisher subset items — no silent cascade). */
+  private cmdNavigatorRemoveNode(payload: unknown): CommandQueryResponse {
+    const p = payload as { id?: unknown } | null;
+    if (p === null || typeof p !== "object" || typeof p.id !== "string" || p.id.length === 0) {
+      return err("bad_payload", "navigator.removeNode requires a node id", true);
+    }
+    if (this.doc.navigatorNodeById(p.id) === undefined) {
+      return err("navigator_invalid", `no navigator node '${p.id}'`, false);
+    }
+    try {
+      this.doc.execute({ type: "removeNavigatorNode", nodeId: p.id });
+      return ok({ removed: p.id, snapshot: this.doc.snapshot() });
+    } catch (e) {
+      // The reference gates (children/views/layouts/publisher items).
+      const message = (e as Error).message;
+      if (message.startsWith("removeNavigatorNode:")) {
+        return err("navigator_in_use", message, false);
+      }
+      return err("navigator_invalid", message, false);
+    }
+  }
+
+  /** titleblock.create — add ONE reusable title-block definition (rows
+   *  1..12, the row field grammar; the name is the unique user address). */
+  private cmdTitleBlockCreate(payload: unknown): CommandQueryResponse {
+    const p = payload as { name?: unknown; widthMm?: unknown; heightMm?: unknown; rowHeightMm?: unknown; rows?: unknown } | null;
+    if (p === null || typeof p !== "object" || typeof p.name !== "string" || p.name.trim().length === 0) {
+      return err("bad_payload", "titleblock.create requires a name", true);
+    }
+    const name = p.name.trim();
+    if (this.doc.titleBlockByName(name) !== undefined) {
+      return err("titleblock_exists", `title block name '${name}' already exists — title block names are unique`, false);
+    }
+    // PRE-MINT draft validation (the shared geometry/rows grammar — a
+    // failing command never burns a tb- id).
+    const draft = {
+      id: "tb-draft",
+      name,
+      widthMm: p.widthMm,
+      heightMm: p.heightMm,
+      rowHeightMm: p.rowHeightMm,
+      rows: p.rows,
+    } as unknown as TitleBlockRecord;
+    const invalid = this.draftRecordError("titleblock_invalid", () => validateTitleBlockRecord(draft));
+    if (invalid !== null) return invalid;
+    const block: TitleBlockRecord = {
+      id: this.doc.mintTitleBlockId(),
+      name,
+      widthMm: p.widthMm as number,
+      heightMm: p.heightMm as number,
+      rowHeightMm: p.rowHeightMm as number,
+      rows: p.rows as TitleBlockRecord["rows"],
+    };
+    try {
+      this.doc.execute({ type: "addTitleBlock", titleBlock: block });
+      return ok({ titleBlock: block, snapshot: this.doc.snapshot() });
+    } catch (e) {
+      return err("titleblock_invalid", (e as Error).message, false);
+    }
+  }
+
+  /** titleblock.update — whitelisted patch (name kept unique; the merged
+   *  record re-validates as a whole). */
+  private cmdTitleBlockUpdate(payload: unknown): CommandQueryResponse {
+    const p = payload as { id?: unknown; patch?: unknown } | null;
+    if (p === null || typeof p !== "object" || typeof p.id !== "string" || p.id.length === 0 || typeof p.patch !== "object" || p.patch === null) {
+      return err("bad_payload", "titleblock.update requires id + patch", true);
+    }
+    const current = this.doc.titleBlockById(p.id);
+    if (current === undefined) {
+      return err("titleblock_not_found", `no title block '${p.id}'`, false);
+    }
+    const patch = p.patch as Record<string, unknown>;
+    if (Object.keys(patch).length === 0) {
+      return err("bad_payload", "titleblock.update requires a non-empty patch", true);
+    }
+    if (typeof patch.name === "string" && patch.name.trim().length > 0) {
+      const clash = this.doc.titleBlockByName(patch.name.trim());
+      if (clash !== undefined && clash.id !== p.id) {
+        return err("titleblock_exists", `title block name '${patch.name.trim()}' already exists — title block names are unique`, false);
+      }
+    }
+    try {
+      this.doc.execute({ type: "updateTitleBlock", titleBlockId: p.id, patch });
+      return ok({ titleBlock: this.doc.titleBlockById(p.id), snapshot: this.doc.snapshot() });
+    } catch (e) {
+      return err("titleblock_invalid", (e as Error).message, false);
+    }
+  }
+
+  /** titleblock.remove — gated (layout placements reference it). */
+  private cmdTitleBlockRemove(payload: unknown): CommandQueryResponse {
+    const p = payload as { id?: unknown } | null;
+    if (p === null || typeof p !== "object" || typeof p.id !== "string" || p.id.length === 0) {
+      return err("bad_payload", "titleblock.remove requires an id", true);
+    }
+    if (this.doc.titleBlockById(p.id) === undefined) {
+      return err("titleblock_not_found", `no title block '${p.id}'`, false);
+    }
+    try {
+      this.doc.execute({ type: "removeTitleBlock", titleBlockId: p.id });
+      return ok({ removed: p.id, snapshot: this.doc.snapshot() });
+    } catch (e) {
+      const message = (e as Error).message;
+      if (message.startsWith("removeTitleBlock:")) {
+        return err("titleblock_in_use", message, false);
+      }
+      return err("titleblock_invalid", message, false);
+    }
+  }
+
+  /** schedule.create — add ONE schedule/index definition (the closed
+   *  per-source column vocabulary + the dynamic ps:<set>.<key> columns).
+   *  Rows are ALWAYS derived fresh (schedules.run) — never stored. */
+  private cmdScheduleCreate(payload: unknown): CommandQueryResponse {
+    const p = payload as { name?: unknown; source?: unknown; filter?: unknown; columns?: unknown } | null;
+    if (p === null || typeof p !== "object" || typeof p.name !== "string" || p.name.trim().length === 0) {
+      return err("bad_payload", "schedule.create requires a name", true);
+    }
+    const name = p.name.trim();
+    if (this.doc.scheduleByName(name) !== undefined) {
+      return err("schedule_exists", `schedule name '${name}' already exists — schedule names are unique`, false);
+    }
+    const filter =
+      p.filter === undefined || p.filter === null ? undefined : (p.filter as NonNullable<ScheduleRecord["filter"]>);
+    // PRE-MINT draft validation (the shared source/column vocabulary — a
+    // failing command never burns a sch- id).
+    const draft = {
+      id: "sch-draft",
+      name,
+      source: p.source,
+      ...(filter !== undefined ? { filter } : {}),
+      columns: p.columns,
+    } as unknown as ScheduleRecord;
+    const invalid = this.draftRecordError("schedule_invalid", () => validateScheduleRecord(draft));
+    if (invalid !== null) return invalid;
+    const schedule: ScheduleRecord = {
+      id: this.doc.mintScheduleId(),
+      name,
+      source: p.source as ScheduleRecord["source"],
+      ...(filter !== undefined ? { filter } : {}),
+      columns: p.columns as ScheduleRecord["columns"],
+    };
+    try {
+      this.doc.execute({ type: "addSchedule", schedule });
+      return ok({ schedule, snapshot: this.doc.snapshot() });
+    } catch (e) {
+      return err("schedule_invalid", (e as Error).message, false);
+    }
+  }
+
+  /** schedule.update — whitelisted patch (name/source/filter/columns). */
+  private cmdScheduleUpdate(payload: unknown): CommandQueryResponse {
+    const p = payload as { id?: unknown; patch?: unknown } | null;
+    if (p === null || typeof p !== "object" || typeof p.id !== "string" || p.id.length === 0 || typeof p.patch !== "object" || p.patch === null) {
+      return err("bad_payload", "schedule.update requires id + patch", true);
+    }
+    if (this.doc.scheduleById(p.id) === undefined) {
+      return err("schedule_not_found", `no schedule '${p.id}'`, false);
+    }
+    const patch = p.patch as Record<string, unknown>;
+    if (Object.keys(patch).length === 0) {
+      return err("bad_payload", "schedule.update requires a non-empty patch", true);
+    }
+    if (typeof patch.name === "string" && patch.name.trim().length > 0) {
+      const clash = this.doc.scheduleByName(patch.name.trim());
+      if (clash !== undefined && clash.id !== p.id) {
+        return err("schedule_exists", `schedule name '${patch.name.trim()}' already exists — schedule names are unique`, false);
+      }
+    }
+    try {
+      this.doc.execute({ type: "updateSchedule", scheduleId: p.id, patch });
+      return ok({ schedule: this.doc.scheduleById(p.id), snapshot: this.doc.snapshot() });
+    } catch (e) {
+      return err("schedule_invalid", (e as Error).message, false);
+    }
+  }
+
+  /** schedule.remove — no gates (nothing references a schedule; rows are
+   *  always derived). */
+  private cmdScheduleRemove(payload: unknown): CommandQueryResponse {
+    const p = payload as { id?: unknown } | null;
+    if (p === null || typeof p !== "object" || typeof p.id !== "string" || p.id.length === 0) {
+      return err("bad_payload", "schedule.remove requires an id", true);
+    }
+    if (this.doc.scheduleById(p.id) === undefined) {
+      return err("schedule_not_found", `no schedule '${p.id}'`, false);
+    }
+    try {
+      this.doc.execute({ type: "removeSchedule", scheduleId: p.id });
+      return ok({ removed: p.id, snapshot: this.doc.snapshot() });
+    } catch (e) {
+      return err("schedule_invalid", (e as Error).message, false);
+    }
+  }
+
+  /** revision.add — add ONE document revision record (unique code; the
+   *  fixed deterministic timestamp; layoutIds must all exist). */
+  private cmdRevisionAdd(payload: unknown): CommandQueryResponse {
+    const p = payload as { code?: unknown; description?: unknown; issued?: unknown; layoutIds?: unknown } | null;
+    if (p === null || typeof p !== "object" || typeof p.code !== "string" || p.code.trim().length === 0 || p.code.trim().length > 12) {
+      return err("bad_payload", "revision.add requires a code (non-empty string, max 12 chars, e.g. \"P01\")", true);
+    }
+    const code = p.code.trim();
+    if (this.doc.revisionByCode(code) !== undefined) {
+      return err("revision_exists", `revision code '${code}' already exists — revision codes are unique`, false);
+    }
+    if (p.issued !== undefined && typeof p.issued !== "boolean") {
+      return err("bad_payload", "revision.add issued must be a boolean when present", true);
+    }
+    // PRE-MINT draft validation (the shared record grammar + layoutIds
+    // existence — a failing command never burns a rev- id).
+    const draft = {
+      id: "rev-draft",
+      code,
+      description: p.description,
+      issued: p.issued ?? false,
+      createdAt: AppApiHandler.DOCS_P013_NOW,
+      layoutIds: p.layoutIds === undefined || p.layoutIds === null ? [] : p.layoutIds,
+    } as unknown as RevisionRecord;
+    const invalid = this.draftRecordError("revision_invalid", () => {
+      const record = validateRevisionRecord(draft);
+      for (const layoutId of record.layoutIds) {
+        if (this.doc.layoutById(layoutId) === undefined) {
+          throw new Error(`revision references unknown layout '${layoutId}'`);
+        }
+      }
+    });
+    if (invalid !== null) return invalid;
+    const revision: RevisionRecord = {
+      id: this.doc.mintRevisionId(),
+      code,
+      description: typeof p.description === "string" ? p.description : "",
+      issued: p.issued === true,
+      createdAt: AppApiHandler.DOCS_P013_NOW,
+      layoutIds: Array.isArray(p.layoutIds) ? (p.layoutIds as string[]) : [],
+    };
+    try {
+      this.doc.execute({ type: "addRevision", revision });
+      return ok({ revision, snapshot: this.doc.snapshot() });
+    } catch (e) {
+      return err("revision_invalid", (e as Error).message, false);
+    }
+  }
+
+  /** revision.update — whitelisted patch (code kept unique; layoutIds must
+   *  all exist; id/createdAt immutable). */
+  private cmdRevisionUpdate(payload: unknown): CommandQueryResponse {
+    const p = payload as { id?: unknown; patch?: unknown } | null;
+    if (p === null || typeof p !== "object" || typeof p.id !== "string" || p.id.length === 0 || typeof p.patch !== "object" || p.patch === null) {
+      return err("bad_payload", "revision.update requires id + patch", true);
+    }
+    if (this.doc.revisionById(p.id) === undefined) {
+      return err("revision_not_found", `no revision '${p.id}'`, false);
+    }
+    const patch = p.patch as Record<string, unknown>;
+    if (Object.keys(patch).length === 0) {
+      return err("bad_payload", "revision.update requires a non-empty patch", true);
+    }
+    if (typeof patch.code === "string" && patch.code.trim().length > 0) {
+      const clash = this.doc.revisionByCode(patch.code.trim());
+      if (clash !== undefined && clash.id !== p.id) {
+        return err("revision_exists", `revision code '${patch.code.trim()}' already exists — revision codes are unique`, false);
+      }
+    }
+    try {
+      this.doc.execute({ type: "updateRevision", revisionId: p.id, patch });
+      return ok({ revision: this.doc.revisionById(p.id), snapshot: this.doc.snapshot() });
+    } catch (e) {
+      return err("revision_invalid", (e as Error).message, false);
+    }
+  }
+
+  /** revision.remove — NO document-level gates (layouts reference revisions
+   *  the other way): the command strips the reference from every referencing
+   *  layout in the SAME atomic batch (the explicit-cascade precedent; one
+   *  revision, one undo entry restores both together). */
+  private cmdRevisionRemove(payload: unknown): CommandQueryResponse {
+    const p = payload as { id?: unknown } | null;
+    if (p === null || typeof p !== "object" || typeof p.id !== "string" || p.id.length === 0) {
+      return err("bad_payload", "revision.remove requires an id", true);
+    }
+    const revision = this.doc.revisionById(p.id);
+    if (revision === undefined) {
+      return err("revision_not_found", `no revision '${p.id}'`, false);
+    }
+    try {
+      const edits: DocumentEdit[] = [];
+      const detachedLayouts: string[] = [];
+      for (const layout of this.doc.layoutTable) {
+        if ((layout.revisionIds ?? []).includes(p.id)) {
+          edits.push({
+            type: "updateLayout",
+            layoutId: layout.id,
+            patch: { revisionIds: (layout.revisionIds ?? []).filter((id) => id !== p.id) },
+          });
+          detachedLayouts.push(layout.id);
+        }
+      }
+      edits.push({ type: "removeRevision", revisionId: p.id });
+      this.doc.execute(edits.length === 1 ? edits[0]! : { type: "applyEdits", edits });
+      return ok({ removed: p.id, detachedLayouts, snapshot: this.doc.snapshot() });
+    } catch (e) {
+      return err("revision_invalid", (e as Error).message, false);
+    }
+  }
+
+  /** Expand publisher items to the ordered layout list (subsets → their
+   *  layouts in book order through the shared book.ts derivation — the SAME
+   *  rule the document gate enforces; the expanded list must contain no
+   *  duplicate layout). */
+  private expandPublisherItems(items: readonly PublisherItem[]): { ok: true; entries: { layout: LayoutRecord; format: "pdf" | "svg" | "plot-ir" }[] } | ErrResult {
+    const nodes = this.doc.navigatorNodeTable;
+    const layouts = this.doc.layoutTable;
+    const entries: { layout: LayoutRecord; format: "pdf" | "svg" | "plot-ir" }[] = [];
+    for (const item of items) {
+      if (item.kind === "layout") {
+        const layout = this.doc.layoutById(item.id);
+        if (layout === undefined) {
+          return err("publisher_invalid", `publisher set item references unknown layout '${item.id}'`, false);
+        }
+        entries.push({ layout, format: item.format });
+      } else {
+        const node = this.doc.navigatorNodeById(item.id);
+        if (node === undefined || node.kind !== "subset") {
+          return err("publisher_invalid", `publisher set item references navigator node '${item.id}' that is not a subset`, false);
+        }
+        for (const layout of subsetLayouts(item.id, nodes, layouts)) {
+          entries.push({ layout, format: item.format });
+        }
+      }
+    }
+    const seen = new Set<string>();
+    for (const entry of entries) {
+      if (seen.has(entry.layout.id)) {
+        return err(
+          "publisher_invalid",
+          `publisher set expansion contains layout '${entry.layout.id}' twice — a layout cannot be published twice (check overlapping subset/layout items)`,
+          false,
+        );
+      }
+      seen.add(entry.layout.id);
+    }
+    return { ok: true, entries };
+  }
+
+  /** publisher.create — add ONE saved publisher set (name unique; every item
+   *  target must exist with the right kind; the expanded layout list must
+   *  contain no duplicate). */
+  private cmdPublisherCreate(payload: unknown): CommandQueryResponse {
+    const p = payload as { name?: unknown; items?: unknown } | null;
+    if (p === null || typeof p !== "object" || typeof p.name !== "string" || p.name.trim().length === 0) {
+      return err("bad_payload", "publisher.create requires a name", true);
+    }
+    const name = p.name.trim();
+    if (this.doc.publisherSetByName(name) !== undefined) {
+      return err("publisher_exists", `publisher set name '${name}' already exists — publisher set names are unique`, false);
+    }
+    // PRE-MINT draft validation (the shared item grammar + the expansion —
+    // a failing command never burns a pub- id).
+    const draft = { id: "pub-draft", name, items: p.items } as unknown as PublisherSetRecord;
+    const invalid = this.draftRecordError("publisher_invalid", () => validatePublisherSetRecord(draft));
+    if (invalid !== null) return invalid;
+    const items = p.items as readonly PublisherItem[];
+    const expansion = this.expandPublisherItems(items);
+    if (expansion.ok === false) return expansion;
+    const set: PublisherSetRecord = {
+      id: this.doc.mintPublisherSetId(),
+      name,
+      items: p.items as PublisherItem[],
+    };
+    try {
+      this.doc.execute({ type: "addPublisherSet", set });
+      return ok({ publisherSet: set, snapshot: this.doc.snapshot() });
+    } catch (e) {
+      return err("publisher_invalid", (e as Error).message, false);
+    }
+  }
+
+  /** publisher.update — whitelisted patch (name/items). */
+  private cmdPublisherUpdate(payload: unknown): CommandQueryResponse {
+    const p = payload as { id?: unknown; patch?: unknown } | null;
+    if (p === null || typeof p !== "object" || typeof p.id !== "string" || p.id.length === 0 || typeof p.patch !== "object" || p.patch === null) {
+      return err("bad_payload", "publisher.update requires id + patch", true);
+    }
+    if (this.doc.publisherSetById(p.id) === undefined) {
+      return err("publisher_not_found", `no publisher set '${p.id}'`, false);
+    }
+    const patch = p.patch as Record<string, unknown>;
+    if (Object.keys(patch).length === 0) {
+      return err("bad_payload", "publisher.update requires a non-empty patch", true);
+    }
+    if (typeof patch.name === "string" && patch.name.trim().length > 0) {
+      const clash = this.doc.publisherSetByName(patch.name.trim());
+      if (clash !== undefined && clash.id !== p.id) {
+        return err("publisher_exists", `publisher set name '${patch.name.trim()}' already exists — publisher set names are unique`, false);
+      }
+    }
+    try {
+      this.doc.execute({ type: "updatePublisherSet", setId: p.id, patch });
+      return ok({ publisherSet: this.doc.publisherSetById(p.id), snapshot: this.doc.snapshot() });
+    } catch (e) {
+      return err("publisher_invalid", (e as Error).message, false);
+    }
+  }
+
+  /** publisher.remove — no gates (publisher.run is non-versioned output
+   *  automation; nothing stored references a set). */
+  private cmdPublisherRemove(payload: unknown): CommandQueryResponse {
+    const p = payload as { id?: unknown } | null;
+    if (p === null || typeof p !== "object" || typeof p.id !== "string" || p.id.length === 0) {
+      return err("bad_payload", "publisher.remove requires an id", true);
+    }
+    if (this.doc.publisherSetById(p.id) === undefined) {
+      return err("publisher_not_found", `no publisher set '${p.id}'`, false);
+    }
+    try {
+      this.doc.execute({ type: "removePublisherSet", setId: p.id });
+      return ok({ removed: p.id, snapshot: this.doc.snapshot() });
+    } catch (e) {
+      return err("publisher_invalid", (e as Error).message, false);
+    }
+  }
+
+  /** publisher.run — NON-VERSIONED output automation (the plot.publish
+   *  precedent: no DocumentEdit, no revision, no undo entry, no snapshot):
+   *  expand the items (subsets → their layouts in book order), build the
+   *  Plot IRs through the shared machinery and report the deterministic
+   *  per-page artifacts (sha256 over the page's serialized output — the svg
+   *  string, or the canonical IR JSON for plot-ir/pdf pages) + the
+   *  multi-page PDF of the pdf-format pages (pdfSha256/pdfSize, omitted when
+   *  the set has no pdf pages). */
+  private cmdPublisherRun(payload: unknown): CommandQueryResponse {
+    const p = payload as { id?: unknown } | null;
+    if (p === null || typeof p !== "object" || typeof p.id !== "string" || p.id.length === 0) {
+      return err("bad_payload", "publisher.run requires a publisher set id", true);
+    }
+    const set = this.doc.publisherSetById(p.id);
+    if (set === undefined) {
+      return err("publisher_not_found", `no publisher set '${p.id}'`, false);
+    }
+    const expansion = this.expandPublisherItems(set.items);
+    if (expansion.ok === false) return expansion;
+    // The plot-style gate (the plot.export/publish precedent — CTB/STB plot
+    // style application is a typed limitation of the plot surface).
+    for (const entry of expansion.entries) {
+      if (entry.layout.pageSetup.plotStyleKind !== "none") {
+        return err(
+          "plot_unsupported",
+          `layout '${entry.layout.name}' references the ${entry.layout.pageSetup.plotStyleKind.toUpperCase()} plot style table '${entry.layout.pageSetup.plotStyleTable}' — proprietary CTB/STB plot style application is a typed limitation of this slice`,
+          false,
+        );
+      }
+    }
+    try {
+      const irs = expansion.entries.map((entry) => buildPlotIR(this.plotIRInputOf(entry.layout)));
+      const pages = expansion.entries.map((entry, i) => {
+        const ir = irs[i]!;
+        const serialized = entry.format === "svg" ? plotIRToSVG(ir) : canonicalStringify(ir);
+        return {
+          layoutId: entry.layout.id,
+          layoutName: entry.layout.name,
+          format: entry.format,
+          revisions: revisionCodesOf(entry.layout, this.doc.revisionTable),
+          sha256: createHash("sha256").update(serialized).digest("hex"),
+        };
+      });
+      const pdfIrs = irs.filter((_, i) => expansion.entries[i]!.format === "pdf");
+      const pdf = pdfIrs.length > 0 ? plotIRsToPDF(pdfIrs) : null;
+      return ok({
+        set: { id: set.id, name: set.name },
+        pages,
+        ...(pdf !== null
+          ? { pdfSha256: createHash("sha256").update(pdf).digest("hex"), pdfSize: pdf.length }
+          : {}),
+      });
+    } catch (e) {
+      return err("publisher_invalid", `publisher.run failed: ${(e as Error).message}`, false);
+    }
+  }
+
+  /** layout.update — the NEW generic patch command (the CAD-PARITY-013
+   *  additive layout fields; layout.rename/layout.setPageSetup stay
+   *  untouched). Whitelist: subsetId / masterId / titleBlockPlacement /
+   *  revisionIds — null unassigns, an empty revisionIds array normalizes to
+   *  absent (canonical-minimal records). */
+  private cmdLayoutUpdate(payload: unknown): CommandQueryResponse {
+    const p = payload as { id?: unknown; name?: unknown; patch?: unknown } | null;
+    if (p === null || typeof p !== "object" || typeof p.patch !== "object" || p.patch === null) {
+      return err("bad_payload", "layout.update requires a patch object (subsetId / masterId / titleBlockPlacement / revisionIds)", true);
+    }
+    const patch = p.patch as Record<string, unknown>;
+    const allowed: readonly string[] = ["subsetId", "masterId", "titleBlockPlacement", "revisionIds"];
+    for (const key of Object.keys(patch)) {
+      if (!allowed.includes(key)) {
+        return err(
+          "layout_invalid",
+          `layout.update patch key '${key}' is not allowed (allowed: ${allowed.join(", ")}; layout.rename/layout.setPageSetup own name/pageSetup)`,
+          false,
+        );
+      }
+    }
+    if (Object.keys(patch).length === 0) {
+      return err("bad_payload", "layout.update requires a non-empty patch", true);
+    }
+    let layout: LayoutRecord | undefined;
+    if (typeof p.id === "string" && p.id.length > 0) {
+      layout = this.doc.layoutById(p.id);
+    } else if (typeof p.name === "string" && p.name.length > 0) {
+      layout = this.doc.layoutByName(p.name);
+    } else {
+      const activeId = this.doc.draftingSettings.activeLayout;
+      layout = (activeId !== undefined ? this.doc.layoutById(activeId) : undefined) ?? this.doc.layoutTable[0];
+    }
+    if (layout === undefined) {
+      return err("layout_not_found", `layout '${String(p.id ?? p.name ?? "(active)")}' does not exist`, false);
+    }
+    try {
+      this.doc.execute({ type: "updateLayout", layoutId: layout.id, patch });
+      return ok({ layoutId: layout.id, layout: this.doc.layoutById(layout.id), snapshot: this.doc.snapshot() });
+    } catch (e) {
+      return err("layout_invalid", (e as Error).message, false);
+    }
+  }
+
   // --- COMPAT-IFC-001 (additive): IFC/openBIM interoperability -------------
   // Typed-error convention: ifc_unavailable = no interop adapter bound to
   // this host's engine bundle (hosts opt in); ifc_invalid = payload/file/
@@ -6742,6 +7519,208 @@ export class AppApiHandler {
     } catch (e) {
       return err("docs_invalid", (e as Error).message, false);
     }
+  }
+
+  // --- CAD-PARITY-013 (additive, Issue #104): the documentation production
+  // read surfaces (non-mutating, computed fresh every call — queries never
+  // mutate and never persist derived state; ordering: children by (order,
+  // id), rows/views/layouts/sheets/stories in DOCUMENT order).
+
+  /** navigator.tree (query) — the full navigator projection: the project map
+   *  (stories + element counts), the View Map folder tree with the views
+   *  filed under their folders (fresh content hashes), the Layout Book
+   *  subset tree with the layouts filed under their subsets (derived sheet
+   *  numbers), and the publisher-set registry. Root-level views/layouts sit
+   *  in the map root's `views`/`layouts` arrays. */
+  private qNavigatorTree(): CommandQueryResponse {
+    const nodes = this.doc.navigatorNodeTable;
+    const layouts = this.doc.layoutTable;
+    const views = this.doc.viewTable;
+    const elements = this.doc.allElements();
+    // projectMap: stories in document order. elementCount = the non-story
+    // BIM elements whose story association resolves to the story —
+    // storyId === story.id OR one-level hosted-by-such (hostId → the host
+    // element's storyId; the docs projection's association rule, see
+    // docs/project.ts: openings scope through their host wall's story).
+    const entities = elements
+      .map((el) => elementToBimEntityOrNull(el))
+      .filter((x): x is NonNullable<typeof x> => x !== null);
+    const entityById = new Map(entities.map((entity) => [entity.id, entity] as const));
+    const storyOf = (entity: object): string | null => {
+      const record = entity as Record<string, unknown>;
+      if (typeof record.storyId === "string") return record.storyId;
+      if (typeof record.hostId === "string") {
+        const host = entityById.get(record.hostId);
+        const hostStory = host !== undefined ? (host as unknown as Record<string, unknown>).storyId : undefined;
+        return typeof hostStory === "string" ? hostStory : null;
+      }
+      return null;
+    };
+    const stories: { id: string; name: string; level: number; height: number; elementCount: number }[] = [];
+    for (const entity of entities) {
+      if (entity.type !== "bim.story") continue;
+      let elementCount = 0;
+      for (const other of entities) {
+        if (other.type === "bim.story") continue;
+        if (storyOf(other) === entity.id) elementCount += 1;
+      }
+      stories.push({ id: entity.id, name: entity.name, level: entity.level, height: entity.height, elementCount });
+    }
+    // The fresh view projections (the docs.listViews derivation — never
+    // stored hashes).
+    const projections = projectAllViews(views, elements);
+    const viewRowOf = (view: DocsViewRecord): Record<string, unknown> => {
+      const result = projections.get(view.id);
+      return {
+        viewId: view.id,
+        kind: view.kind,
+        title: view.title,
+        ...(view.scale !== undefined ? { scale: view.scale } : {}),
+        ...(result !== undefined && result.projection !== null ? { contentHash: viewContentHash(result.projection) } : {}),
+      };
+    };
+    const viewChildrenOf = (parentId: string | null): unknown[] =>
+      nodes
+        .filter((n) => n.kind === "folder" && n.parentId === parentId)
+        .sort((a, b) => (a.order !== b.order ? a.order - b.order : a.id < b.id ? -1 : 1))
+        .map((node) => ({
+          node,
+          views: views.filter((v) => v.folderId === node.id).map(viewRowOf),
+          children: viewChildrenOf(node.id),
+        }));
+    const viewMap = {
+      views: views.filter((v) => v.folderId === undefined).map(viewRowOf),
+      children: viewChildrenOf(null),
+    };
+    // The Layout Book (subset tree + derived sheet numbers).
+    const revisions = this.doc.revisionTable;
+    const layoutRowOf = (layout: LayoutRecord): Record<string, unknown> => ({
+      layoutId: layout.id,
+      name: layout.name,
+      sheetNumber: sheetNumberOf(layout, nodes, layouts),
+      ...(layout.masterId !== undefined ? { masterId: layout.masterId } : {}),
+      ...(layout.titleBlockPlacement !== undefined ? { titleBlockId: layout.titleBlockPlacement.titleBlockId } : {}),
+      revisionCodes: revisionCodesOf(layout, revisions),
+    });
+    const bookChildrenOf = (parentId: string | null): unknown[] =>
+      nodes
+        .filter((n) => n.kind === "subset" && n.parentId === parentId)
+        .sort((a, b) => (a.order !== b.order ? a.order - b.order : a.id < b.id ? -1 : 1))
+        .map((node) => ({
+          node,
+          layouts: layouts.filter((l) => l.subsetId === node.id).map(layoutRowOf),
+          children: bookChildrenOf(node.id),
+        }));
+    const layoutBook = {
+      layouts: layouts.filter((l) => l.subsetId === undefined).map(layoutRowOf),
+      children: bookChildrenOf(null),
+    };
+    return ok({
+      projectMap: { stories },
+      viewMap,
+      layoutBook,
+      publisherSets: this.doc.publisherSetTable.map((s) => ({ id: s.id, name: s.name, itemCount: s.items.length })),
+    });
+  }
+
+  /** schedules.list (query) — the schedule table inventory. */
+  private qSchedulesList(): CommandQueryResponse {
+    return ok({
+      schedules: this.doc.scheduleTable.map((s) => ({
+        id: s.id,
+        name: s.name,
+        source: s.source,
+        columnCount: s.columns.length,
+      })),
+    });
+  }
+
+  /** schedules.run (query) — the FRESH deterministic row derivation over the
+   *  CURRENT canonical state (no rows are ever stored; the same snapshot
+   *  yields the same rows + sha256 on every host). */
+  private qSchedulesRun(payload: unknown): CommandQueryResponse {
+    const p = payload as { id?: unknown } | null;
+    if (p === null || typeof p !== "object" || typeof p.id !== "string" || p.id.length === 0) {
+      return err("bad_payload", "schedules.run requires a schedule id", true);
+    }
+    const schedule = this.doc.scheduleById(p.id);
+    if (schedule === undefined) {
+      return err("schedule_not_found", `no schedule '${p.id}'`, false);
+    }
+    const ctx: ScheduleRunContext = {
+      elements: this.doc.allElements(),
+      views: this.doc.viewTable,
+      sheets: this.doc.sheetTable,
+      layouts: this.doc.layoutTable,
+      viewports: this.doc.viewportTable,
+      navigatorNodes: this.doc.navigatorNodeTable,
+      revisions: this.doc.revisionTable,
+      titleBlocks: this.doc.titleBlockTable,
+      layers: this.doc.layerTable,
+    };
+    const result = runSchedule(schedule, ctx);
+    return ok({ schedule, rows: result.rows, rowCount: result.rowCount, sha256: result.sha256 });
+  }
+
+  /** revisions.list (query) — the revision table (document order). */
+  private qRevisionsList(): CommandQueryResponse {
+    return ok({
+      revisions: this.doc.revisionTable.map((r) => ({
+        id: r.id,
+        code: r.code,
+        description: r.description,
+        issued: r.issued,
+        createdAt: r.createdAt,
+        layoutIds: [...r.layoutIds],
+      })),
+    });
+  }
+
+  /** publisher.list (query) — the publisher-set table (document order). */
+  private qPublisherList(): CommandQueryResponse {
+    return ok({
+      publisherSets: this.doc.publisherSetTable.map((s) => ({ id: s.id, name: s.name, items: [...s.items] })),
+    });
+  }
+
+  /** docs.exchangeReport (query) — the typed IFC/documentation exchange
+   *  classification report (the ifc/report.ts classification vocabulary;
+   *  counts = the CURRENT document tables). This is the explicit
+   *  "typed unsupported outcomes" evidence for the documentation surface:
+   *  only the model elements exchange exactly; the documentation production
+   *  constructs are project-internal (unsupported) or presentation-derived
+   *  (lossy) — never silently approximated. */
+  private qDocsExchangeReport(): CommandQueryResponse {
+    interface DocsExchangeEntry {
+      readonly concept: string;
+      readonly classification: IfcFieldClassification;
+      readonly note: string;
+    }
+    const classifications: readonly DocsExchangeEntry[] = [
+      { concept: "model-elements", classification: "exact", note: "Model geometry and material semantics exchange through ifc.export (COMPAT-IFC-001)." },
+      { concept: "navigator-structure", classification: "unsupported", note: "IFC has no navigator/project-map concept; the tree is project-internal." },
+      { concept: "saved-views", classification: "unsupported", note: "Saved plan/elevation/section/detail views have no IFC carrier; use Sheet IR for documentation exchange." },
+      { concept: "sheets", classification: "unsupported", note: "Documentation sheets serialize through the offisos-sheet-IR contract, not IFC." },
+      { concept: "layouts", classification: "unsupported", note: "Layout/master-layout/paper-space semantics are not representable in IFC." },
+      { concept: "title-blocks", classification: "unsupported", note: "Title-block placements are layout-space constructs with no IFC entity." },
+      { concept: "schedules", classification: "lossy", note: "Schedule/index presentation is derived; IFC exchanges the underlying property/model data, not the presentation." },
+      { concept: "revisions", classification: "unsupported", note: "Document revision metadata has no IFC carrier in the supported contract (BCF topics are the coordination channel, out of scope here)." },
+      { concept: "publisher-sets", classification: "unsupported", note: "Publisher sets are an output-automation concept with no IFC representation." },
+    ];
+    return ok({
+      contract: "offisos-docs-exchange/1",
+      classifications,
+      counts: {
+        views: this.doc.viewTable.length,
+        sheets: this.doc.sheetTable.length,
+        layouts: this.doc.layoutTable.length,
+        titleBlocks: this.doc.titleBlockTable.length,
+        schedules: this.doc.scheduleTable.length,
+        revisions: this.doc.revisionTable.length,
+        publisherSets: this.doc.publisherSetTable.length,
+        navigatorNodes: this.doc.navigatorNodeTable.length,
+      },
+    });
   }
 
 }
