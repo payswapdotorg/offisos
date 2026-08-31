@@ -29,112 +29,49 @@
     "definition": "Professional CAD/BIM workflow parity with AutoCAD-class drafting and Archicad-class BIM/documentation while remaining subordinate to frozen ConstructionOS Architecture v1.1.",
     "roadmap_authority": "spec/cad-bim/roadmap.md",
     "roadmap_sequence": [
-      {
-        "id": "CAD-PARITY-002",
-        "title": "Professional workspace, command system and navigation"
-      },
-      {
-        "id": "CAD-PARITY-003",
-        "title": "AutoCAD-class 2D geometry + modify operations"
-      },
-      {
-        "id": "CAD-PARITY-004",
-        "title": "Layers, properties, styles and palettes"
-      },
-      {
-        "id": "CAD-PARITY-005",
-        "title": "Annotation, dimensions, leaders, hatches and tables"
-      },
-      {
-        "id": "CAD-PARITY-006",
-        "title": "Blocks, attributes, dynamic blocks, xrefs and underlays"
-      },
-      {
-        "id": "CAD-PARITY-007",
-        "title": "Parametric constraints and associative editing"
-      },
-      {
-        "id": "CAD-PARITY-008",
-        "title": "Layouts, model/paper space, plotting and publishing"
-      },
-      {
-        "id": "CAD-PARITY-009",
-        "title": "3D navigation, UCS/workplanes and modeling"
-      },
-      {
-        "id": "CAD-PARITY-010",
-        "title": "Solids/surfaces/meshes, booleans, sections and large-model performance"
-      },
-      {
-        "id": "CAD-PARITY-011",
-        "title": "Archicad-class BIM authoring expansion"
-      },
-      {
-        "id": "CAD-PARITY-012",
-        "title": "Components/materials/coordination expansion"
-      },
-      {
-        "id": "CAD-PARITY-013",
-        "title": "Documentation/Navigator/Layout Book parity"
-      },
-      {
-        "id": "CAD-PARITY-014",
-        "title": "IFC/BCF/IDS and file interoperability"
-      },
-      {
-        "id": "CAD-PARITY-015",
-        "title": "Schedules, indexes, properties and quantity workflows"
-      },
-      {
-        "id": "CAD-PARITY-016",
-        "title": "Collaboration/recovery/scale"
-      },
-      {
-        "id": "CAD-PARITY-017",
-        "title": "Automation/extension/API surface"
-      },
-      {
-        "id": "CAD-PARITY-018",
-        "title": "Specialized Architecture/MEP/Mechanical/Raster toolsets"
-      },
-      {
-        "id": "CAD-PARITY-019",
-        "title": "AutoCAD workflow parity certification"
-      },
-      {
-        "id": "CAD-PARITY-020",
-        "title": "Archicad workflow parity certification"
-      }
+      {"id":"CAD-PARITY-002","title":"Professional workspace, command system and navigation"},
+      {"id":"CAD-PARITY-003","title":"AutoCAD-class 2D geometry + modify operations"},
+      {"id":"CAD-PARITY-004","title":"Layers, properties, styles and palettes"},
+      {"id":"CAD-PARITY-005","title":"Annotation, dimensions, leaders, hatches and tables"},
+      {"id":"CAD-PARITY-006","title":"Blocks, attributes, dynamic blocks, xrefs and underlays"},
+      {"id":"CAD-PARITY-007","title":"Parametric constraints and associative editing"},
+      {"id":"CAD-PARITY-008","title":"Layouts, model/paper space, plotting and publishing"},
+      {"id":"CAD-PARITY-009","title":"3D navigation, UCS/workplanes and modeling"},
+      {"id":"CAD-PARITY-010","title":"Solids/surfaces/meshes, booleans, sections and large-model performance"},
+      {"id":"CAD-PARITY-011","title":"Archicad-class BIM authoring expansion"},
+      {"id":"CAD-PARITY-012","title":"Components/materials/coordination expansion"},
+      {"id":"CAD-PARITY-013","title":"Documentation/Navigator/Layout Book parity"},
+      {"id":"CAD-PARITY-014","title":"IFC/BCF/IDS and file interoperability"},
+      {"id":"CAD-PARITY-015","title":"Schedules, indexes, properties and quantity workflows"},
+      {"id":"CAD-PARITY-016","title":"Collaboration/recovery/scale"},
+      {"id":"CAD-PARITY-017","title":"Automation/extension/API surface"},
+      {"id":"CAD-PARITY-018","title":"Specialized Architecture/MEP/Mechanical/Raster toolsets"},
+      {"id":"CAD-PARITY-019","title":"AutoCAD workflow parity certification"},
+      {"id":"CAD-PARITY-020","title":"Archicad workflow parity certification"}
     ]
   },
   "current": {
-    "verified_through": "CAD-PARITY-012",
-    "verified_supporting_governance": [
-      "ARCH-WF-002"
-    ],
-    "active_work_item": "CAD-PARITY-013",
-    "active_issue": 104,
-    "active_pr": 105,
-    "active_branch": "work/cad-parity-013-documentation-navigator-layout-book",
-    "active_state": "VERIFYING",
-    "implementation_head": "347b2b946eb5d3791f28543b64db3c7be605caad",
-    "base_main_revision": "866f7307197335ff01b9ac99823ceb65f5c051eb",
-    "blocking_gate": "Architect re-review of the remediated CAD-PARITY-013 resubmission (DEC-001 remediation complete).",
-    "blocking_reason": "The DEC-001 remediation landed owner-side on main (fedfe3dd..866f730: the CAD-PARITY-012 ledger completion, ACR-004 and REC-CAD-PARITY-012 — main governance green at validate 391/391 and the governance test suite 199/199). PR #105 integrates the remediated mainline (merge c538bcf) and is resubmitted at head 347b2b9 with the full CI matrix green including the repository-wide governance workflow, the integrated head and the exact final record head both deployed and real-browser verified (EV-004). APPROVED, MERGED and VERIFIED remain Architect-owned states.",
+    "verified_through": "CAD-PARITY-013",
+    "verified_supporting_governance": ["ARCH-WF-002"],
+    "active_work_item": "CAD-PARITY-014",
+    "active_issue": 107,
+    "active_pr": null,
+    "active_branch": "work/cad-parity-014-file-interoperability",
+    "active_state": "ASSIGNED",
+    "implementation_head": null,
+    "base_main_revision": "d5825e9a7a71f85e2869516ef0467224ada5fe42",
+    "blocking_gate": "P014 implementation submission.",
+    "blocking_reason": "CAD-PARITY-013 is VERIFIED and CAD-PARITY-014 is registered and assigned. The implementer may now proceed to IMPLEMENTING, then PR_OPEN/VERIFYING for Architect review. No approval or verification is authorized before the complete P014 evidence package is available.",
     "next_after_p013": "CAD-PARITY-014"
   },
   "current_work_item_sources": {
-    "work_item": "governance/work-items/CAD-PARITY-013.json",
-    "issue": "https://github.com/pectoraux/offisos/issues/104",
+    "work_item": "governance/work-items/CAD-PARITY-014.json",
+    "issue": "https://github.com/pectoraux/offisos/issues/107",
     "pull_request": null
   },
   "verification_protocol": {
     "implementer_stop_state": "PR_OPEN/VERIFYING",
-    "architect_owned_states": [
-      "ARCHITECT_REVIEW",
-      "APPROVED",
-      "VERIFIED"
-    ],
+    "architect_owned_states": ["ARCHITECT_REVIEW","APPROVED","VERIFIED"],
     "required_review_order": [
       "Inspect exact PR head and complete diff.",
       "Check protected paths and architecture boundaries.",
