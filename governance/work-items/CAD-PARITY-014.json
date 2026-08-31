@@ -48,7 +48,7 @@
     "Exact-head deployment plus real-browser/Electron evidence where applicable.",
     "Revision-bound governance evidence covering implementation, merge and post-merge verification."
   ],
-  "state": "ASSIGNED",
+  "state": "IMPLEMENTING",
   "transitions": [
     {
       "from": "DRAFT",
@@ -71,6 +71,18 @@
       "references": {
         "issue": 107,
         "assignee": "z-ai-implementation-agent"
+      }
+    },
+    {
+      "from": "ASSIGNED",
+      "to": "IMPLEMENTING",
+      "at": "2026-08-31T23:25:00Z",
+      "actor": "z-ai-implementation-agent",
+      "role": "implementer",
+      "reason": "Implementation begins for CAD-PARITY-014: the registration record at branch head e2470ac references Issue #107 and program state on main (68b2534, merged into this branch at 93f05eb) confirms CAD-PARITY-013 VERIFIED with P014 assigned and the governance baseline green (validate 414/414 on the merged tree). Scope is the bounded interoperability layer per the Issue #107 acceptance contract — IFC/IDS/BCF exchange, the DXF/DWG boundary, deterministic PDF/SVG export from the documentation/plot IR, legally compatible archival formats, and source lineage/round-trip verification; the implementation extends the COMPAT-IFC-001 exchange baseline, the COMPAT-CAD-003 Sheet IR contract and the CAD-PARITY-008/013 documentation production system additively, and stops at PR_OPEN/VERIFYING for Architect review.",
+      "references": {
+        "issue": 107,
+        "commit": "e2470ac0f0fc6bb6d5324c50de00bad357aff10f"
       }
     }
   ],
