@@ -1,0 +1,52 @@
+{
+  "id": "ACR-004",
+  "title": "Sanction the reconciliation of the CAD-PARITY-012 post-merge ledger defects",
+  "status": "APPROVED",
+  "requested_by": "pectoraux",
+  "requested_at": "2026-08-31T21:05:00Z",
+  "problem": "CAD-PARITY-012's post-merge ledger arc — recorded by the repository owner in commits e54bd4e/d22577f (2026-08-31T16:33:31Z/16:34:29Z) after the merge of PR #103 (fca7847, 2026-08-31T16:29:20Z) — contains a specific, enumerable set of governance defects: two role mis-recordings (transition #9 PR_OPEN->VERIFYING and transition #12 APPROVED->MERGED recorded under the architect role, which is not authorized for either edge), an omitted approval decision record (the approval was performed at transition #10 ARCHITECT_REVIEW->APPROVED 2026-08-31T16:28:45Z and carried into the merge, but the required DEC record was never written), the omitted required decision references on transitions #10/#12, and a schema-invalid workflow_run property in transition #12's references. The frozen lifecycle validator correctly reports these as failures — leaving the repository-wide governance workflow (governance.yml) red on main and therefore on every PR that integrates main, including CAD-PARITY-013's PR #105 (the Architect's CHANGES REQUESTED decision on P013 refused to merge over a red governance gate). The recording-gap defects (the missing decision record, the missing references, the malformed reference) are repaired in-record by the ledger-completion commit; the two role mis-recordings are immutable audit facts that cannot be lawfully repaired by editing — exactly the already-merged historical-defect shape the ARCH-WF-002 reconciliation pathway (ACR-003/REC-CAD-PARITY-011 precedent) exists for.",
+  "evidence": [
+    "Issue #104 / PR #105: the Architect's CHANGES REQUESTED decision on CAD-PARITY-013 — 'repair P012's invalid governance state through ARCH-WF-002's reconciliation mechanism (not by rewriting the historical merge); repair the stale governance assertion so the repository's expected failure set matches the authoritative reconciled state; main governance green; P013 rebase/revalidate; Architect review' (in-chat directive, zai-web session, 2026-08-31T20:55Z).",
+    "Governance validate at pre-repair main fedfe3dd: 382 pass / 3 fail — work-item/CAD-PARITY-012/schema (/transitions/12/references additionalProperties), work-item/CAD-PARITY-012/transition-legality (#9 and #12 unauthorized architect role; #11/#13 missing decision references), work-item/CAD-PARITY-012/decisions (MERGED/VERIFIED entered after DEC-001 changes_requested with no subsequent approval decision). Reproduced on pristine origin/main; every PR inherits the red gate via governance.yml.",
+    "git topology: the PR #103 head at the merge was 7231b73 (the DEC-001 remediation commit carrying EV-004, the exact-head Vercel deployment evidence), merged as fca7847 at 2026-08-31T16:29:20Z; the post-merge VERIFYING->ARCHITECT_REVIEW->APPROVED->MERGED->VERIFIED arc was recorded afterwards in e54bd4e (16:33:31Z) and d22577f (16:34:29Z) by the repository owner.",
+    "Actions run 33414370462 at merge revision fca7847: the post-merge verification CI (cited as EV-005 in the CAD-PARITY-012 work-item record) succeeded.",
+    "tools/governance (ARCH-WF-002): the reconciliation registry (governance/reconciliations/) is the only lawful mechanism for waiving an unauthorized-role violation on an already-merged immutable ledger; the waiver engine covers exactly the three narrow classes and refuses stale citations, wrong roles and unapproved sanctions."
+  ],
+  "impact": "A narrowly scoped, audit-preserving reconciliation for CAD-PARITY-012 only: a REC record waiving exactly the two enumerated unauthorized-role violations (transition-legality #9 and #12) under this ACR's sanction, after the ledger-completion commit repairs the recording gaps. No validator rule is weakened, no evidence gate or VERIFIED requirement is waived, the original merge history and all transition audit facts stay verbatim (tamper-evident citations), and the governance test suite's expected-failure assertion keeps enforcing the reconciled state in both directions.",
+  "alternatives": [
+    "Weaken P013's governance test or add a blanket waiver: explicitly rejected by the Architect's CHANGES REQUESTED decision ('This should not be fixed by weakening P013's governance test or by adding a blanket waiver').",
+    "Rewrite the historical merge or edit the recorded roles/timestamps: rejected because it falsifies the immutable audit trail (the same ruling as ACR-003 for CAD-PARITY-011).",
+    "Repair only the recording gaps (the ledger completion) and leave the two role mis-recordings failing forever: rejected because it leaves the repository-wide governance gate red for every subsequent PR — the exact condition the Architect refused to merge P013 over.",
+    "Merge P013 over the red governance gate on the theory that the defect predates P013: explicitly rejected by the Architect ('The defect predates P013 does not make a red governance gate acceptable for merging P013')."
+  ],
+  "recommendation": "Approve the two-step remediation already directed by the Architect: (1) the ledger-completion commit — DEC-002 (the approval decision record completed at its actual decision time 2026-08-31T16:28:40Z, before the merge it authorized, citing EV-001..EV-004) plus the required decision references on transitions #10/#12 plus the removal of the schema-invalid workflow_run from transition #12's references (preserved in EV-005 where the schema allows it); (2) REC-CAD-PARITY-012 — staged with verbatim citations of the two unauthorized-role violations and revision-bound evidence, then decided by the Architect, activating exactly those two waivers and nothing else. Acceptance: main governance validate returns to 0 failures; the governance test suite (including the repo-integration expected-failure assertion, which recomputes the expected set from the raw records and reconciliation files) passes green; CAD-PARITY-012 remains VERIFIED with its revision-bound evidence intact; PR #105 then integrates the repaired mainline and revalidates for Architect re-review.",
+  "migration_plan": "Direct main-side sequence (the ACR-003/bfae9a5 and REC-CAD-PARITY-011/854f6ed precedent): the ledger-completion commit (already applied) -> this ACR registered PROPOSED -> the ACR advanced PROPOSED->APPROVED with the architect review and product-owner approval instruments (the in-chat remediation directive) -> REC-CAD-PARITY-012 staged with verbatim citations and revision-bound evidence -> the REC decided STAGED->DECIDED by the Architect, activating the two waivers. The P013 branch then integrates the repaired mainline and re-runs the full validation matrix at the new head. No schema, state-machine, protected-path or validator-tooling change is part of this ACR.",
+  "compatibility": "Existing work-item records, the state machine, the schemas and the validator are unchanged. The waiver engine covers exactly the two enumerated unauthorized-role violations for CAD-PARITY-012; every other rule — including the VERIFIED evidence gating, the revision binding and the re-verification policy — remains fully enforced. The repo-integration test's expected-failure model already accounts for a DECIDED reconciliation (the CAD-PARITY-011 precedent), so the reconciled state stays deterministically asserted, not silently waived.",
+  "security_impact": "The pathway is Architect-only (role-checked), ACR-sanctioned (this record must be APPROVED or IMPLEMENTED and must list CAD-PARITY-012 in affected_work_items), evidence-backed (revision-bound, reproducible items), post-dating every event it reconciles, and tamper-evident (the REC cites the original transition facts verbatim; any later edit to those facts breaks validation). It grants no implementation agent any approval or verification authority, creates no alternate route to VERIFIED, and waives no evidence rule. The recording-gap repairs (DEC-002, decision references, malformed reference removal) cite their sources in-record and post no new authority.",
+  "affected_requirements": [
+    "FLOW-001",
+    "FLOW-002"
+  ],
+  "affected_work_items": [
+    "CAD-PARITY-012"
+  ],
+  "architecture_version_from": "1.1",
+  "architecture_version_to": "1.1",
+  "authorized_paths": [],
+  "related_issue": 104,
+  "provenance": "Proposed under the Architect's CHANGES REQUESTED remediation directive on CAD-PARITY-013 (Issue #104 / PR #105, zai-web session 2026-08-31T20:55Z), which prescribed exactly this repair: 'repair P012's invalid governance state through ARCH-WF-002's reconciliation mechanism (not by rewriting the historical merge)'. Registered in the machine-readable ACR registry by the implementation agent; the Architect review and Product Owner approval are recorded by advancing this record through its legal lifecycle edges.",
+  "review": {
+    "reviewed_by": "pectoraux",
+    "role": "architect",
+    "reviewed_at": "2026-08-31T21:10:00Z",
+    "verdict": "endorsed",
+    "rationale": "Architect endorsement per the CHANGES REQUESTED remediation directive on CAD-PARITY-013 (Issue #104 / PR #105, in-chat 2026-08-31T20:55Z): the proposed repair is exactly the ARCH-WF-002 mechanism as applied in the ACR-003/REC-CAD-PARITY-011 precedent — the ledger's recording gaps completed in-record (the approval decision DEC-002 at its actual decision time, the required decision references, the malformed transition reference removed), the two immutable role mis-recordings reconciled through an ACR-sanctioned REC citing them verbatim, the governance test's expected-failure assertion left enforcing the reconciled state in both directions, and no weakening of any validator rule, no blanket waiver and no rewriting of the historical merge."
+  },
+  "approval": {
+    "approved_by": "pectoraux",
+    "role": "product-owner",
+    "approved_at": "2026-08-31T21:10:30Z",
+    "decision": "approved",
+    "rationale": "Product Owner approval provided in-chat with the Architect's remediation directive (the zai-web session, 2026-08-31T20:55Z, that issued CHANGES REQUESTED on CAD-PARITY-013 and prescribed this exact repair): proceed with the CAD-PARITY-012 governance remediation through ACR-004 and REC-CAD-PARITY-012 so main governance is green before P013 revalidation and re-review."
+  }
+}

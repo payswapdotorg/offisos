@@ -1,10 +1,10 @@
 {
-  "schema_version": "1.0",
+  "schema_version": "1.1",
   "authority": {
-    "architecture": "spec/architecture-lock.md",
+    "architecture": "spec/cad-bim/architecture.md + spec/cad-bim/lock.md",
     "workflow": "governance/workflow-states.json",
     "governance_guide": "governance/README.md",
-    "roadmap": "spec/roadmap-v1.1.md",
+    "roadmap": "spec/cad-bim/roadmap.md",
     "rule": "This file is a navigational summary. Detailed work-item, evidence, decision and transition records remain authoritative in their canonical files."
   },
   "architecture": {
@@ -27,7 +27,7 @@
     "program_issue": 74,
     "program_name": "CAD-PARITY-001",
     "definition": "Professional CAD/BIM workflow parity with AutoCAD-class drafting and Archicad-class BIM/documentation while remaining subordinate to frozen ConstructionOS Architecture v1.1.",
-    "roadmap_authority": "spec/roadmap-v1.1.md",
+    "roadmap_authority": "spec/cad-bim/roadmap.md",
     "roadmap_sequence": [
       {"id":"CAD-PARITY-002","title":"Professional workspace, command system and navigation"},
       {"id":"CAD-PARITY-003","title":"AutoCAD-class 2D geometry + modify operations"},
@@ -51,22 +51,23 @@
     ]
   },
   "current": {
-    "verified_through": "CAD-PARITY-011",
+    "verified_through": "CAD-PARITY-012",
     "verified_supporting_governance": ["ARCH-WF-002"],
-    "active_work_item": "CAD-PARITY-012",
-    "active_issue": 102,
-    "active_pr": 103,
-    "active_state": "PR_OPEN",
-    "implementation_head": "82da455820d5936dac9651dac887bb417e56c984",
-    "base_main_revision": "0f38c51f00f6d00401be58bbce976522ab641808",
-    "blocking_gate": "Exact-head Vercel deployment and real-browser verification against that deployment.",
-    "blocking_reason": "The P012 evidence record's local real-browser proof is supplementary and non-reproducible; Issue #102 requires exact-final-head Vercel/browser evidence before Architect approval.",
-    "next_after_p012": "CAD-PARITY-013"
+    "active_work_item": "CAD-PARITY-013",
+    "active_issue": 104,
+    "active_pr": null,
+    "active_branch": "work/cad-parity-013-documentation-navigator-layout-book",
+    "active_state": "ASSIGNED",
+    "implementation_head": "d22577f7cb2a5ccf80c603728a09e85611d074e3",
+    "base_main_revision": "d22577f7cb2a5ccf80c603728a09e85611d074e3",
+    "blocking_gate": null,
+    "blocking_reason": null,
+    "next_after_p013": "CAD-PARITY-014"
   },
   "current_work_item_sources": {
-    "work_item": "governance/work-items/CAD-PARITY-012.json",
-    "issue": "https://github.com/pectoraux/offisos/issues/102",
-    "pull_request": "https://github.com/pectoraux/offisos/pull/103"
+    "work_item": "governance/work-items/CAD-PARITY-013.json",
+    "issue": "https://github.com/pectoraux/offisos/issues/104",
+    "pull_request": null
   },
   "verification_protocol": {
     "implementer_stop_state": "PR_OPEN/VERIFYING",
@@ -93,7 +94,7 @@
     "fresh_architect_bootstrap": [
       "Read this file first for current navigation.",
       "Read the referenced canonical work-item record.",
-      "Read its GitHub issue and PR.",
+      "Read its GitHub issue and PR when one exists.",
       "Read the current architecture lock and governance workflow.",
       "Re-run or inspect every required gate from the exact current revision.",
       "Do not trust this summary over the canonical records if they disagree."

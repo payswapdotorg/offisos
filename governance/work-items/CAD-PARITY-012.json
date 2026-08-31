@@ -100,7 +100,11 @@
         "issue": 102,
         "pr": 103,
         "commit": "1825c0437818d1d950049baef30bb639682a62f9",
-        "evidence": ["EV-001", "EV-002", "EV-003"]
+        "evidence": [
+          "EV-001",
+          "EV-002",
+          "EV-003"
+        ]
       }
     },
     {
@@ -124,7 +128,11 @@
       "reason": "Architect review of CAD-PARITY-012 / PR #103 against the Issue #102 acceptance bar: repository implementation and CI evidence were strong, but exact-head Vercel deployment and real-browser evidence were initially unfulfilled; DEC-001 issued.",
       "references": {
         "pr": 103,
-        "evidence": ["EV-001", "EV-002", "EV-003"]
+        "evidence": [
+          "EV-001",
+          "EV-002",
+          "EV-003"
+        ]
       }
     },
     {
@@ -151,7 +159,9 @@
         "issue": 102,
         "pr": 103,
         "commit": "82da455820d5936dac9651dac887bb417e56c984",
-        "evidence": ["EV-004"],
+        "evidence": [
+          "EV-004"
+        ],
         "decision": "DEC-001"
       }
     },
@@ -165,7 +175,9 @@
       "references": {
         "pr": 103,
         "commit": "7231b738dc5660cd275fa6f13c90f2c22e3a2217",
-        "evidence": ["EV-004"]
+        "evidence": [
+          "EV-004"
+        ]
       }
     },
     {
@@ -178,7 +190,12 @@
       "references": {
         "pr": 103,
         "commit": "7231b738dc5660cd275fa6f13c90f2c22e3a2217",
-        "evidence": ["EV-001", "EV-002", "EV-003", "EV-004"]
+        "evidence": [
+          "EV-001",
+          "EV-002",
+          "EV-003",
+          "EV-004"
+        ]
       }
     },
     {
@@ -191,7 +208,13 @@
       "references": {
         "pr": 103,
         "commit": "7231b738dc5660cd275fa6f13c90f2c22e3a2217",
-        "evidence": ["EV-001", "EV-002", "EV-003", "EV-004"]
+        "evidence": [
+          "EV-001",
+          "EV-002",
+          "EV-003",
+          "EV-004"
+        ],
+        "decision": "DEC-002"
       }
     },
     {
@@ -218,8 +241,10 @@
         "issue": 102,
         "pr": 103,
         "commit": "fca784763572161349e1efc7e34528009c7cc977",
-        "workflow_run": "33414370462",
-        "evidence": ["EV-005"]
+        "evidence": [
+          "EV-005"
+        ],
+        "decision": "DEC-002"
       }
     }
   ],
@@ -231,7 +256,10 @@
       "produced_at": "2026-08-31T12:46:08Z",
       "reproducible": true,
       "reproduction": "From the repository root after npm install: cd app && node --import tsx --test test/*.test.ts; node_modules/.bin/tsc --noEmit -p app/tsconfig.json; npm run governance -- validate; npm run governance -- check-protected --base main; npm run governance -- check-verified-revisions.",
-      "references": {"commit": "1825c0437818d1d950049baef30bb639682a62f9", "pr": 103}
+      "references": {
+        "commit": "1825c0437818d1d950049baef30bb639682a62f9",
+        "pr": 103
+      }
     },
     {
       "id": "EV-002",
@@ -240,7 +268,11 @@
       "produced_at": "2026-08-31T12:46:08Z",
       "reproducible": true,
       "reproduction": "cd apps/web && OFFISOS_GEOMETRY_ENGINE=reference npm run dev -- --webpack -p 3100; from the repository root run OFFISOS_WEB_URL=http://localhost:3100 node --import tsx apps/web/test/bim-p012-smoke.mjs.",
-      "references": {"commit": "1825c0437818d1d950049baef30bb639682a62f9", "pr": 103, "path": "apps/web/test/bim-p012-smoke.mjs"}
+      "references": {
+        "commit": "1825c0437818d1d950049baef30bb639682a62f9",
+        "pr": 103,
+        "path": "apps/web/test/bim-p012-smoke.mjs"
+      }
     },
     {
       "id": "EV-003",
@@ -248,7 +280,10 @@
       "description": "Supplementary local production-browser golden path: 20/20 checks, zero page errors, VLM/pixel rendering confirmation; explicitly retained as supplementary evidence.",
       "produced_at": "2026-08-31T12:46:08Z",
       "reproducible": false,
-      "references": {"commit": "1825c0437818d1d950049baef30bb639682a62f9", "pr": 103}
+      "references": {
+        "commit": "1825c0437818d1d950049baef30bb639682a62f9",
+        "pr": 103
+      }
     },
     {
       "id": "EV-004",
@@ -257,7 +292,10 @@
       "produced_at": "2026-08-31T15:35:41Z",
       "reproducible": true,
       "reproduction": "Verify Vercel deployment metadata for the bound SHA; run the instance-pinning relay and browser protocol; run apps/web/test/bim-p012-smoke.mjs against the deployment relay.",
-      "references": {"commit": "82da455820d5936dac9651dac887bb417e56c984", "pr": 103}
+      "references": {
+        "commit": "82da455820d5936dac9651dac887bb417e56c984",
+        "pr": 103
+      }
     },
     {
       "id": "EV-005",
@@ -266,7 +304,11 @@
       "produced_at": "2026-08-31T16:34:30Z",
       "reproducible": true,
       "reproduction": "Use mainline merge commit fca784763572161349e1efc7e34528009c7cc977 and the repository post-merge governance, CAD implementation, Web and Electron workflows.",
-      "references": {"commit": "fca784763572161349e1efc7e34528009c7cc977", "pr": 103, "workflow_run": "33414370462"}
+      "references": {
+        "commit": "fca784763572161349e1efc7e34528009c7cc977",
+        "pr": 103,
+        "workflow_run": "33414370462"
+      }
     }
   ],
   "decisions": [
@@ -277,8 +319,26 @@
       "decided_by": "pectoraux",
       "role": "architect",
       "rationale": "Architect review of CAD-PARITY-012 / PR #103: the implementation and CI evidence were strong, but the exact-head Vercel deployment and real-browser evidence requirement was initially unmet. The Vercel project authorization was unavailable at review time, so the evidence-chain gate could not be independently established.",
-      "evidence_refs": ["EV-001", "EV-002", "EV-003"],
+      "evidence_refs": [
+        "EV-001",
+        "EV-002",
+        "EV-003"
+      ],
       "remediation_required": "Deploy the exact PR #103 head 82da455820d5936dac9651dac887bb417e56c984 to the Offisos Vercel project and perform the real-browser verification against that deployment with revision-bound evidence."
+    },
+    {
+      "id": "DEC-002",
+      "status": "approved",
+      "decided_at": "2026-08-31T16:28:40Z",
+      "decided_by": "pectoraux",
+      "role": "architect",
+      "rationale": "Architect approval of CAD-PARITY-012 / PR #103 after the DEC-001 remediation: the exact-head Vercel deployment and real-browser verification at 82da4558 (EV-004) satisfied the evidence-chain gate DEC-001 required, and the implementer gates were green at the final remediation head 7231b73. The approval was performed at 2026-08-31T16:28:45Z (recorded as transition #10, ARCHITECT_REVIEW -> APPROVED, and carried into the merge of PR #103 at fca7847), but this decision record was omitted from the ledger at the time. It is completed here — at the approval's actual decision time, before the merge it authorized, citing the evidence that existed then — as part of the post-merge governance remediation directed by the Architect's CHANGES REQUESTED decision on CAD-PARITY-013 (ACR-004, REC-CAD-PARITY-012). The two role mis-recordings on the surrounding post-merge transitions (#9, #12) are NOT rewritten here; they are reconciled through the ARCH-WF-002 waiver mechanism.",
+      "evidence_refs": [
+        "EV-001",
+        "EV-002",
+        "EV-003",
+        "EV-004"
+      ]
     }
   ]
 }

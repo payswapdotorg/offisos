@@ -1,0 +1,77 @@
+{
+  "id": "REC-CAD-PARITY-012",
+  "work_item": "CAD-PARITY-012",
+  "status": "DECIDED",
+  "problem": "CAD-PARITY-012 was merged on GitHub at 2026-08-31T16:29:20Z (merge commit fca7847, PR #103, performed by pectoraux) with the PR head 7231b73 (the DEC-001 remediation commit carrying EV-004, the exact-head Vercel deployment evidence that DEC-001 required). The post-merge ledger arc — the VERIFYING -> ARCHITECT_REVIEW -> APPROVED -> MERGED -> VERIFIED sequence recorded by the repository owner in commits e54bd4e (16:33:31Z) and d22577f (16:34:29Z) after the merge — contained a specific, enumerable set of recording defects: two role mis-recordings (transitions #9 PR_OPEN->VERIFYING and #12 APPROVED->MERGED recorded under the architect role, which is not authorized for either edge), an omitted approval decision record (DEC-002 — the approval act itself is real: transition #10 ARCHITECT_REVIEW->APPROVED at 16:28:45Z by pectoraux under the architect role, which IS authorized for that edge), the omitted required decision references on transitions #10/#12, and a schema-invalid workflow_run property in transition #12's references. The recording gaps were repaired by the ledger-completion commit (2653a5e: DEC-002 recorded at its actual decision time 16:28:40Z with the required references completed and the malformed reference removed). The two role mis-recordings are immutable audit facts — rewriting them would falsify the audit trail — so they are reconciled through this Architect-owned, ACR-004-sanctioned overlay (the REC-CAD-PARITY-011 precedent), per the Architect's CHANGES REQUESTED remediation directive on CAD-PARITY-013 (Issue #104, in-chat 2026-08-31T20:55Z).",
+  "defects": [
+    {
+      "rule": "transition-legality",
+      "violation": "unauthorized-role",
+      "transition": 9,
+      "original": {
+        "from": "PR_OPEN",
+        "to": "VERIFYING",
+        "at": "2026-08-31T16:28:00Z",
+        "actor": "pectoraux",
+        "role": "architect"
+      },
+      "explanation": "The verification-evidence submission was performed by the repository owner (pectoraux) and recorded under the architect role; the submit_for_verification edge is restricted to implementer/automation. The act itself was legitimate — the exact-head Vercel deployment and real-browser verification (EV-004) were complete at the final remediation head 7231b73, which was the PR #103 head at the merge, and the post-merge CI at the merge revision succeeded — but the role under which the transition was recorded is a mis-recording of the same class as CAD-PARITY-011 transition #8: a recording failure, not an authority failure."
+    },
+    {
+      "rule": "transition-legality",
+      "violation": "unauthorized-role",
+      "transition": 12,
+      "original": {
+        "from": "APPROVED",
+        "to": "MERGED",
+        "at": "2026-08-31T16:29:20Z",
+        "actor": "pectoraux",
+        "role": "architect"
+      },
+      "explanation": "The GitHub merge of PR #103 (merge commit fca7847) was performed by pectoraux, who holds product-owner authority — the repository owner and the Product Owner of record for every prior merge (the merge edge is authorized for product-owner/implementer). The ledger recorded the event under the architect role — the same mis-recording class as CAD-PARITY-011 transition #8, which was reconciled by REC-CAD-PARITY-011."
+    }
+  ],
+  "evidence": [
+    {
+      "id": "EV-001",
+      "type": "reproducible-script",
+      "description": "The physical git topology: the PR #103 head at the merge was 7231b73 (authored 2026-08-31T15:36:05Z, the DEC-001 remediation commit carrying EV-004 — the exact-head Vercel deployment evidence), the second parent of merge commit fca7847 (2026-08-31T16:29:20Z); the post-merge ledger arc was recorded afterwards in commits e54bd4e (16:33:31Z, 'governance: verify CAD-PARITY-012 post-merge') and d22577f (16:34:29Z, 'governance: restore CAD-PARITY-012 ledger and close post-merge') — proving the two mis-recorded transitions were written post-merge by the repository owner, not at the events they describe.",
+      "produced_at": "2026-08-31T21:00:00Z",
+      "reproducible": true,
+      "reproduction": "git log --format='%h %cI %an %s' -1 7231b73 && git rev-parse fca7847^2 && git log --format='%h %cI %an %s' -1 fca7847 && git log --format='%h %cI %s' -1 e54bd4e && git log --format='%h %cI %s' -1 d22577f",
+      "references": {
+        "commit": "fca784763572161349e1efc7e34528009c7cc977"
+      }
+    },
+    {
+      "id": "EV-002",
+      "type": "reproducible-script",
+      "description": "The ledger defect is deterministic and attributable: at pre-repair main fedfe3dd the governance validator reported exactly three failures for CAD-PARITY-012 — schema (/transitions/12/references additionalProperties), transition-legality (#9 and #12 unauthorized architect role; #11/#13 missing decision references) and decisions (MERGED/VERIFIED entered after DEC-001 changes_requested with no subsequent approval decision) — and the repo-integration expected-failure assertion failed on the unexpected schema failure. After the ledger-completion commit (2653a5e), exactly the two enumerated unauthorized-role violations remain, which is precisely the set this reconciliation waives.",
+      "produced_at": "2026-08-31T21:02:00Z",
+      "reproducible": true,
+      "reproduction": "git checkout fedfe3dd && npm run governance -- validate (382 pass / 3 fail) && git checkout main && npm run governance -- validate (the pre-REC post-repair state: 387 pass / 1 fail, the two unauthorized-role violations only)",
+      "references": {
+        "commit": "fedfe3dda78028a14acba2a16416c51503d3e0d3"
+      }
+    },
+    {
+      "id": "EV-003",
+      "type": "ci-run",
+      "description": "Post-merge verification of the exact merge revision fca7847 completed successfully (Actions run 33414370462 — recorded as EV-005 in the CAD-PARITY-012 work-item record), proving the merged implementation was verified at the revision the reconciled transitions surround.",
+      "produced_at": "2026-08-31T21:04:00Z",
+      "reproducible": true,
+      "reproduction": "Inspect Actions run 33414370462 for head fca784763572161349e1efc7e34528009c7cc977.",
+      "references": {
+        "commit": "fca784763572161349e1efc7e34528009c7cc977",
+        "workflow_run": "33414370462",
+        "pr": 103
+      }
+    }
+  ],
+  "acr": "ACR-004",
+  "decided_by": "pectoraux",
+  "role": "architect",
+  "decided_at": "2026-08-31T21:15:00Z",
+  "rationale": "Architect decision (directed in-chat with the CHANGES REQUESTED remediation ruling on CAD-PARITY-013, Issue #104, 2026-08-31T20:55Z, and executed under ACR-004): the two enumerated historical governance defects in CAD-PARITY-012 are substantiated by the immutable event citations and evidence — both are role mis-recordings of the CAD-PARITY-011 class (the repository owner performed a legitimate submission and a product-owner-authorized merge but the ledger recorded both under the architect role). Exactly those two violations are reconciled. The recording-gap defects (the omitted approval decision DEC-002, the missing decision references, the malformed transition reference) were repaired in-record by the ledger completion rather than waived. No implementation or VERIFIED evidence rule is waived, the original merge history is not rewritten, and the repository-wide governance gate returns to green with the governance test suite's expected-failure assertion still enforcing the reconciled state.",
+  "remediation": "Reconciliation waives nothing beyond the two enumerated unauthorized-role violations. CAD-PARITY-012 remains VERIFIED on its own revision-bound evidence (EV-005, merge revision fca7847, Actions run 33414370462) — this reconciliation adds no verification authority. Future post-merge recording must use the corrected lifecycle controls established by ARCH-WF-002: record the approval decision BEFORE the merge it authorizes, under the roles the state machine authorizes for each edge (submit_for_verification by the implementer, merge by the product-owner), with every required reference present and schema-conformant — so no future reconciliation is needed for this defect class."
+}
