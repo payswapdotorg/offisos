@@ -30,6 +30,7 @@ import { COMMANDS_PARAMETRICS } from "./commands-parametrics.js";
 import { COMMANDS_LAYOUTS } from "./commands-layouts.js";
 import { COMMANDS_MODEL3D } from "./commands-model3d.js";
 import { COMMANDS_COORDINATION } from "./commands-coordination.js";
+import { COMMANDS_DOCUMENTATION } from "./commands-documentation.js";
 import type {
   AppApiCommandPlanEntry,
   CommandCategory,
@@ -1301,6 +1302,11 @@ export const WORKSPACE_COMMANDS: readonly WorkspaceCommand[] = [
   // (the material records, grid datums, clash/report surfaces and revision
   // clouds) ---
   ...COMMANDS_COORDINATION,
+  // --- CAD-PARITY-013 (Issue #104): the documentation production
+  // vocabulary — the navigator (View Map folders + Layout Book subsets),
+  // layout-book assignment, master layouts, title blocks, revisions,
+  // schedules/indexes and publisher sets (ribbonTab "Documentation") ---
+  ...COMMANDS_DOCUMENTATION,
 ];
 
 function normalize(a: number): number {

@@ -330,6 +330,20 @@ export interface CommandContext {
    *  name resolution surface. Empty on contexts that predate the field (every
    *  builder treats it as "no known materials" — legacy hosts stay green). */
   readonly materials: readonly MaterialContextEntry[];
+  /** CAD-PARITY-013 (Issue #104): the documentation view table (the
+   *  vw-NNNNNN records) for the NAVASSIGN builder — view titles resolve to
+   *  ids. Empty on contexts that predate the field ("no known views"). */
+  readonly docsViews?: readonly { id: string; kind: string; title: string }[];
+  /** CAD-PARITY-013: the navigator node table (View Map folders + Layout Book
+   *  subsets) for the NAVFOLDER/SUBSET/NAVASSIGN/PUBSET builders —
+   *  folder/subset names resolve to ids. Empty on legacy contexts. */
+  readonly navigatorNodes?: readonly { id: string; kind: "folder" | "subset"; name: string }[];
+  /** CAD-PARITY-013: the title-block table for the TITLEPLACE builder —
+   *  title-block names resolve to ids. Empty on legacy contexts. */
+  readonly titleBlocks?: readonly { id: string; name: string }[];
+  /** CAD-PARITY-013: the publisher-set table for the PUBLISHBOOK builder —
+   *  set names resolve to ids. Empty on legacy contexts. */
+  readonly publisherSets?: readonly { id: string; name: string }[];
 }
 
 export function defaultCommandContext(overrides?: Partial<CommandContext>): CommandContext {
@@ -358,6 +372,12 @@ export function defaultCommandContext(overrides?: Partial<CommandContext>): Comm
     model3dSolidCount: 0,
     // CAD-PARITY-012 (Issue #102): additive default (empty — legacy contexts).
     materials: [],
+    // CAD-PARITY-013 (Issue #104): additive defaults (empty — legacy
+    // contexts; every builder treats them as "no known records").
+    docsViews: [],
+    navigatorNodes: [],
+    titleBlocks: [],
+    publisherSets: [],
     ...overrides,
   };
 }

@@ -368,6 +368,30 @@ export interface LayoutRecord {
   readonly pageSetup: PageSetup;
   /** Fixed deterministic creation timestamp (provenance). */
   readonly createdAt: string;
+  /** CAD-PARITY-013 (additive + optional): the Layout Book subset this
+   *  layout is filed under (a `nav-*` node with kind "subset"; absent =
+   *  filed at the book root). The reference is cross-validated at the
+   *  document boundary; the subset assignment does NOT gate layout
+   *  removal (the navigator node removal is gated instead). */
+  readonly subsetId?: string;
+  /** CAD-PARITY-013: the MASTER layout whose furniture + title-block
+   *  placement render beneath this layout's content (single-level: the
+   *  target must exist, must not be the layout itself and must not itself
+   *  carry a masterId). Absent = no master composition. */
+  readonly masterId?: string;
+  /** CAD-PARITY-013: the placed title block (a `tb-*` record) rendered
+   *  into this layout's Plot IR at the sheet-space position (mm, y-up
+   *  from the sheet's lower-left). The placement must fit inside the
+   *  layout's oriented sheet. */
+  readonly titleBlockPlacement?: {
+    readonly titleBlockId: string;
+    readonly xMm: number;
+    readonly yMm: number;
+  };
+  /** CAD-PARITY-013: the document revisions (rev-* records) carried by
+   *  this layout (each must exist, unique, kept in document order; the
+   *  title block's "revisions" row joins these to codes). */
+  readonly revisionIds?: readonly string[];
 }
 
 /** One per-viewport layer visibility override (CAD-PARITY-008 bounded to
@@ -483,6 +507,143 @@ export interface Camera3DState {
   /** Perspective vertical field of view in degrees. (0, 180). */
   readonly fovDeg: number;
 }
+
+// --- CAD-PARITY-013 (additive, Issue #104): documentation production -------
+
+/** A navigator tree node (CAD-PARITY-013). ONE kind-tagged tree serves both
+ *  documentation maps: `folder` nodes form the View Map (saved views are
+ *  filed under them through DocsViewRecord.folderId) and `subset` nodes
+ *  form the Layout Book (layouts are filed under them through
+ *  LayoutRecord.subsetId). Canonical identity `nav-NNNNNN` is minted by the
+ *  document (monotonic, never reused — the lo-/vp- pattern). Parent links
+ *  must reference a node of the SAME kind (folders under folders, subsets
+ *  under subsets) and may never form a cycle. Names are NOT unique
+ *  (different folders may share a name) — the id is the address. */
+export interface NavigatorNodeRecord {
+  readonly id: string;
+  readonly kind: "folder" | "subset";
+  /** Trimmed non-empty, max 80 chars. */
+  readonly name: string;
+  /** null = root; must reference an existing node with the SAME kind. */
+  readonly parentId: string | null;
+  /** Sibling order (integer >= 1; deterministic book/map ordering). */
+  readonly order: number;
+  /** Subset-only (rejected on kind "folder"): the sheet-number prefix
+   *  (max 12 chars, e.g. "A"). */
+  readonly prefix?: string;
+  /** Subset-only: the subset's sheet-numbering mode. */
+  readonly numbering?: "none" | "custom";
+  /** Subset-only: required iff numbering === "custom" (max 8 chars, e.g.
+   *  "01" — the zero-padded counter start). */
+  readonly customNumber?: string;
+}
+
+/** One title-block row field binding (CAD-PARITY-013). `layoutName`,
+ *  `sheetNumber` and `revisions` resolve DERIVED per layout at render
+ *  time; `text` carries a literal value (required iff field === "text"). */
+export interface TitleBlockRow {
+  /** Trimmed non-empty, max 40 chars. */
+  readonly label: string;
+  readonly field: "layoutName" | "sheetNumber" | "revisions" | "text";
+  /** Required iff field === "text" (max 80 chars); rejected otherwise. */
+  readonly value?: string;
+}
+
+/** A reusable title block definition (CAD-PARITY-013). Canonical identity
+ *  `tb-NNNNNN` is minted by the document (monotonic, never reused); the
+ *  NAME is the user-facing address (unique among title blocks). Rows stack
+ *  from the top of the block, each `rowHeightMm` high; `heightMm` must
+ *  cover `rows.length * rowHeightMm`. Placements live on layouts
+ *  (LayoutRecord.titleBlockPlacement) and render into the Plot IR. */
+export interface TitleBlockRecord {
+  readonly id: string;
+  /** Trimmed non-empty, max 60 chars, UNIQUE among title blocks. */
+  readonly name: string;
+  /** 20..500 mm. */
+  readonly widthMm: number;
+  /** 20..300 mm; must be >= rows.length * rowHeightMm. */
+  readonly heightMm: number;
+  /** 4..60 mm. */
+  readonly rowHeightMm: number;
+  /** 1..12 rows. */
+  readonly rows: readonly TitleBlockRow[];
+}
+
+/** The schedule source vocabulary (CAD-PARITY-013): the canonical document
+ *  state one schedule indexes. `elements`/`components` accept a type/story
+ *  filter; every other source indexes its whole table. */
+export type ScheduleSource = "elements" | "components" | "materials" | "views" | "layouts" | "sheets";
+
+/** One schedule column (CAD-PARITY-013): a closed per-source key vocabulary
+ *  (plus the dynamic `ps:<set>.<key>` property columns for the
+ *  elements/components sources) with a user label. */
+export interface ScheduleColumn {
+  /** Closed vocabulary per source (see caddocument/workspace.ts); the
+   *  elements/components sources additionally accept `ps:<set>.<key>`. */
+  readonly key: string;
+  /** Trimmed non-empty, max 40 chars. */
+  readonly label: string;
+}
+
+/** A saved schedule/index definition (CAD-PARITY-013). Canonical identity
+ *  `sch-NNNNNN` is minted by the document (monotonic, never reused); the
+ *  NAME is unique among schedules. Rows are COMPUTED FRESH on demand
+ *  (schedules.run — the deterministic derivation over the CURRENT canonical
+ *  state) and NEVER stored: there is no parallel source of truth. */
+export interface ScheduleRecord {
+  readonly id: string;
+  /** Trimmed non-empty, max 60 chars, UNIQUE among schedules. */
+  readonly name: string;
+  readonly source: ScheduleSource;
+  /** Elements/components only: the type filter (a BIM element type such as
+   *  "bim.wall") and/or the story filter (a story id). */
+  readonly filter?: { readonly type?: string; readonly storyId?: string };
+  /** 1..12 columns. */
+  readonly columns: readonly ScheduleColumn[];
+}
+
+/** A document revision record (CAD-PARITY-013). Canonical identity
+ *  `rev-NNNNNN` is minted by the document (monotonic, never reused); the
+ *  CODE (e.g. "P01") is the user-facing address, unique among revisions.
+ *  Revisions reference the layouts they were issued on (layoutIds, each an
+ *  existing lo-*, unique, document order); layouts reference revisions back
+ *  (LayoutRecord.revisionIds) — removal cascades are explicit and atomic
+ *  at the command layer, never silent. */
+export interface RevisionRecord {
+  readonly id: string;
+  /** Trimmed non-empty, max 12 chars, UNIQUE among revisions (e.g. "P01"). */
+  readonly code: string;
+  /** May be empty, max 200 chars. */
+  readonly description: string;
+  readonly issued: boolean;
+  /** Fixed deterministic creation timestamp (provenance — NEVER wall clock). */
+  readonly createdAt: string;
+  readonly layoutIds: readonly string[];
+}
+
+/** One publisher set entry (CAD-PARITY-013): a layout (lo-*) or a Layout
+ *  Book subset (a nav-* node with kind "subset") exported in one format. */
+export interface PublisherItem {
+  readonly kind: "layout" | "subset";
+  readonly id: string;
+  readonly format: "pdf" | "svg" | "plot-ir";
+}
+
+/** A saved publisher set (CAD-PARITY-013). Canonical identity `pub-NNNNNN`
+ *  is minted by the document (monotonic, never reused); the NAME is unique
+ *  among publisher sets. Items must reference existing targets of the right
+ *  kind; the EXPANDED layout list (subsets expanded in book order) must
+ *  contain no duplicate layout. Running a set (publisher.run) is
+ *  NON-VERSIONED (the plot.publish precedent — output automation, not
+ *  document content). */
+export interface PublisherSetRecord {
+  readonly id: string;
+  /** Trimmed non-empty, max 60 chars, UNIQUE among publisher sets. */
+  readonly name: string;
+  /** 1..64 items. */
+  readonly items: readonly PublisherItem[];
+}
+
 
 /** COMPAT-CAD-001 (additive): non-versioned drafting workspace settings
  *  (grid/snap configuration, units, view state). Persisted with the snapshot
@@ -623,6 +784,12 @@ export interface DocsViewRecord {
   /** Plan: the story shown (required). Elevation/section: optional story
  *   *  scope (absent = the whole building). Detail: unused. */
   readonly storyId?: string;
+  /** CAD-PARITY-013 (additive + optional): the navigator View Map folder
+ *  this view is filed under (a `nav-*` node with kind "folder"; absent =
+ *  filed at the map root). The reference is cross-validated at the
+ *  document boundary (removeNavigatorNode is gated while views reference
+ *  the folder — no silent cascade). */
+  readonly folderId?: string;
   /** Elevation (required): canonical direction. */
   readonly direction?: DocsElevationDirection;
   /** Section (required): cut-plane normal axis. */
@@ -785,6 +952,31 @@ export interface CADDocumentSnapshot {
    *  setSectionPlaneRecord/removeSectionPlane command model — the derived
    *  bounded preview is recomputed on demand, never stored). */
   readonly sectionPlanes?: readonly SectionPlaneRecord[];
+  /** CAD-PARITY-013: the navigator tree (View Map folders + Layout Book
+   *  subsets in ONE kind-tagged table; absent while empty so legacy
+   *  snapshots and the pinned CAD-PARITY-002..012 fixtures stay
+   *  byte-identical; versioned through the addNavigatorNode/
+   *  updateNavigatorNode/setNavigatorNodeRecord/removeNavigatorNode command
+   *  model). */
+  readonly navigatorNodes?: readonly NavigatorNodeRecord[];
+  /** CAD-PARITY-013: the reusable title-block definitions (absent while
+   *  empty; versioned through the addTitleBlock/updateTitleBlock/
+   *  setTitleBlockRecord/removeTitleBlock command model). */
+  readonly titleBlocks?: readonly TitleBlockRecord[];
+  /** CAD-PARITY-013: the saved schedule/index definitions (absent while
+   *  empty; versioned through the addSchedule/updateSchedule/
+   *  setScheduleRecord/removeSchedule command model — rows are ALWAYS
+   *  derived fresh, never stored). */
+  readonly schedules?: readonly ScheduleRecord[];
+  /** CAD-PARITY-013: the document revision records (absent while empty;
+   *  versioned through the addRevision/updateRevision/setRevisionRecord/
+   *  removeRevision command model). */
+  readonly revisions?: readonly RevisionRecord[];
+  /** CAD-PARITY-013: the saved publisher sets (absent while empty;
+   *  versioned through the addPublisherSet/updatePublisherSet/
+   *  setPublisherSetRecord/removePublisherSet command model; publisher.run
+   *  is non-versioned output automation). */
+  readonly publisherSets?: readonly PublisherSetRecord[];
 }
 
 /** One canonical↔GlobalId provenance mapping entry of an IFC import
@@ -1352,4 +1544,206 @@ export type DocumentEdit =
       readonly element?: undefined;
       readonly patch?: undefined;
       readonly sectionPlaneId: string;
+    }
+  // --- CAD-PARITY-013 (additive, Issue #104): the documentation ----------
+  // --- production record tables -------------------------------------------
+  | {
+      /** Add a navigator tree node. A missing/empty id mints a canonical
+       *  `nav-NNNNNN` identity (the addLayout pattern — the mint skips past
+       *  taken ids); a duplicate id is rejected. The parent (when present)
+       *  must be an existing node of the SAME kind; the name is NOT unique
+       *  (the id is the address). */
+      readonly type: "addNavigatorNode";
+      readonly elementId?: undefined;
+      readonly element?: undefined;
+      readonly patch?: undefined;
+      readonly node: NavigatorNodeRecord;
+    }
+  | {
+      /** Patch a navigator node (name/parentId/order/prefix/numbering/
+       *  customNumber — id/kind/createdAt-free identity is immutable; kind
+       *  is immutable). The merged record re-validates as a whole; a
+       *  parentId patch must not create a cycle (the node may not become
+       *  its own ancestor). */
+      readonly type: "updateNavigatorNode";
+      readonly elementId?: undefined;
+      readonly element?: undefined;
+      readonly patch: Readonly<Record<string, unknown>>;
+      readonly nodeId: string;
+    }
+  | {
+      /** Full-record navigator node restore (setLayoutRecord semantics:
+       *  the exact updateNavigatorNode inverse when a patch added/removed a
+       *  key, so absence is representable on undo/replay). */
+      readonly type: "setNavigatorNodeRecord";
+      readonly elementId?: undefined;
+      readonly element?: undefined;
+      readonly patch?: undefined;
+      readonly nodeId: string;
+      readonly node: NavigatorNodeRecord;
+    }
+  | {
+      /** Remove a navigator node. Rejected while (a) child nodes reference
+       *  it, (b) any view's folderId, (c) any layout's subsetId or (d) any
+       *  publisher-set subset item references it (no silent cascade). */
+      readonly type: "removeNavigatorNode";
+      readonly elementId?: undefined;
+      readonly element?: undefined;
+      readonly patch?: undefined;
+      readonly nodeId: string;
+    }
+  | {
+      /** Add a title-block definition. A missing/empty id mints a canonical
+       *  `tb-NNNNNN` identity; duplicate ids and duplicate names are
+       *  rejected; the geometry/rows grammar validates as a whole. */
+      readonly type: "addTitleBlock";
+      readonly elementId?: undefined;
+      readonly element?: undefined;
+      readonly patch?: undefined;
+      readonly titleBlock: TitleBlockRecord;
+    }
+  | {
+      /** Patch a title block (name — kept unique — and/or widthMm/heightMm/
+       *  rowHeightMm/rows; id is immutable). The merged record re-validates
+       *  as a whole. */
+      readonly type: "updateTitleBlock";
+      readonly elementId?: undefined;
+      readonly element?: undefined;
+      readonly patch: Readonly<Record<string, unknown>>;
+      readonly titleBlockId: string;
+    }
+  | {
+      /** Full-record title-block restore (setLayoutRecord semantics). */
+      readonly type: "setTitleBlockRecord";
+      readonly elementId?: undefined;
+      readonly element?: undefined;
+      readonly patch?: undefined;
+      readonly titleBlockId: string;
+      readonly titleBlock: TitleBlockRecord;
+    }
+  | {
+      /** Remove a title-block definition. Rejected while any layout's
+       *  titleBlockPlacement references it (no silent cascade). */
+      readonly type: "removeTitleBlock";
+      readonly elementId?: undefined;
+      readonly element?: undefined;
+      readonly patch?: undefined;
+      readonly titleBlockId: string;
+    }
+  | {
+      /** Add a schedule definition. A missing/empty id mints a canonical
+       *  `sch-NNNNNN` identity; duplicate ids and duplicate names are
+       *  rejected; the source/column-key vocabulary validates as a whole.
+       *  Nothing may reference a schedule (no removal gates). */
+      readonly type: "addSchedule";
+      readonly elementId?: undefined;
+      readonly element?: undefined;
+      readonly patch?: undefined;
+      readonly schedule: ScheduleRecord;
+    }
+  | {
+      /** Patch a schedule (name — kept unique — and/or source/filter/
+       *  columns; id is immutable). The merged record re-validates as a
+       *  whole. */
+      readonly type: "updateSchedule";
+      readonly elementId?: undefined;
+      readonly element?: undefined;
+      readonly patch: Readonly<Record<string, unknown>>;
+      readonly scheduleId: string;
+    }
+  | {
+      /** Full-record schedule restore (setLayoutRecord semantics). */
+      readonly type: "setScheduleRecord";
+      readonly elementId?: undefined;
+      readonly element?: undefined;
+      readonly patch?: undefined;
+      readonly scheduleId: string;
+      readonly schedule: ScheduleRecord;
+    }
+  | {
+      /** Remove a schedule definition (no gates — nothing references a
+       *  schedule; rows are always derived fresh). */
+      readonly type: "removeSchedule";
+      readonly elementId?: undefined;
+      readonly element?: undefined;
+      readonly patch?: undefined;
+      readonly scheduleId: string;
+    }
+  | {
+      /** Add a revision record. A missing/empty id mints a canonical
+       *  `rev-NNNNNN` identity; duplicate ids and duplicate CODES are
+       *  rejected; every layoutId must reference an existing layout. */
+      readonly type: "addRevision";
+      readonly elementId?: undefined;
+      readonly element?: undefined;
+      readonly patch?: undefined;
+      readonly revision: RevisionRecord;
+    }
+  | {
+      /** Patch a revision (code — kept unique — description/issued/
+       * layoutIds; id/createdAt are immutable). The merged record
+       * re-validates as a whole; layoutIds must all exist. */
+      readonly type: "updateRevision";
+      readonly elementId?: undefined;
+      readonly element?: undefined;
+      readonly patch: Readonly<Record<string, unknown>>;
+      readonly revisionId: string;
+    }
+  | {
+      /** Full-record revision restore (setLayoutRecord semantics). */
+      readonly type: "setRevisionRecord";
+      readonly elementId?: undefined;
+      readonly element?: undefined;
+      readonly patch?: undefined;
+      readonly revisionId: string;
+      readonly revision: RevisionRecord;
+    }
+  | {
+      /** Remove a revision record. NO document-level gates (layouts
+       *  reference revisions the other way — the command layer strips the
+       *  reference from every referencing layout in the SAME atomic batch,
+       *  the explicit-cascade precedent; undo restores both together). */
+      readonly type: "removeRevision";
+      readonly elementId?: undefined;
+      readonly element?: undefined;
+      readonly patch?: undefined;
+      readonly revisionId: string;
+    }
+  | {
+      /** Add a publisher set. A missing/empty id mints a canonical
+       *  `pub-NNNNNN` identity; duplicate ids and duplicate names are
+       *  rejected; every item target must exist with the right kind and the
+       *  expanded layout list must contain no duplicate layout. */
+      readonly type: "addPublisherSet";
+      readonly elementId?: undefined;
+      readonly element?: undefined;
+      readonly patch?: undefined;
+      readonly set: PublisherSetRecord;
+    }
+  | {
+      /** Patch a publisher set (name — kept unique — and/or items; id is
+       *  immutable). The merged record re-validates as a whole. */
+      readonly type: "updatePublisherSet";
+      readonly elementId?: undefined;
+      readonly element?: undefined;
+      readonly patch: Readonly<Record<string, unknown>>;
+      readonly setId: string;
+    }
+  | {
+      /** Full-record publisher-set restore (setLayoutRecord semantics). */
+      readonly type: "setPublisherSetRecord";
+      readonly elementId?: undefined;
+      readonly element?: undefined;
+      readonly patch?: undefined;
+      readonly setId: string;
+      readonly set: PublisherSetRecord;
+    }
+  | {
+      /** Remove a publisher-set record (no gates — publisher.run is
+       *  non-versioned output automation, nothing stored references a set). */
+      readonly type: "removePublisherSet";
+      readonly elementId?: undefined;
+      readonly element?: undefined;
+      readonly patch?: undefined;
+      readonly setId: string;
     };

@@ -64,3 +64,14 @@ export {
 
 export { plotIRToSVG } from "./svg.js";
 export { plotIRToPDF, plotIRsToPDF, PDF_PT_PER_MM } from "./pdf.js";
+// CAD-PARITY-013 (additive, Issue #104): the deterministic Layout Book
+// ordering + sheet-numbering + revision-code derivations (pure; shared by
+// the Plot IR title-block rendering, the navigator tree, schedules and the
+// publisher expansion).
+export {
+  bookOrderedSubsets,
+  bookOrderedLayouts,
+  subsetLayouts,
+  sheetNumberOf,
+  revisionCodesOf,
+} from "./book.js";

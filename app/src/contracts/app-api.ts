@@ -244,7 +244,34 @@ export type CommandName =
   | "material.assign"
   | "grid.create"
   | "grid.update"
-  | "revcloud.create";
+  | "revcloud.create"
+  // --- CAD-PARITY-013 (additive, Issue #104): documentation production ---
+  // The navigator (View Map folders + Layout Book subsets), title blocks,
+  // schedules, revisions and publisher sets — five document-owned record
+  // tables edited through the DocumentEdit command model (one payload = ONE
+  // DocumentEdit = one version = one undo entry; typed failure codes
+  // navigator_*/titleblock_*/schedule_*/revision_*/publisher_*). layout.update
+  // is the NEW generic patch command (subsetId/masterId/titleBlockPlacement/
+  // revisionIds — layout.rename/layout.setPageSetup stay untouched);
+  // publisher.run is NON-VERSIONED output automation (the plot.publish
+  // precedent — no DocumentEdit, no revision, no undo entry).
+  | "navigator.createFolder"
+  | "navigator.createSubset"
+  | "navigator.removeNode"
+  | "titleblock.create"
+  | "titleblock.update"
+  | "titleblock.remove"
+  | "schedule.create"
+  | "schedule.update"
+  | "schedule.remove"
+  | "revision.add"
+  | "revision.update"
+  | "revision.remove"
+  | "publisher.create"
+  | "publisher.update"
+  | "publisher.remove"
+  | "publisher.run"
+  | "layout.update";
 
 // --- Query names (non-mutating) ---
 // `document.getSelection` returns the ephemeral editor selection (orthogonal
@@ -366,7 +393,22 @@ export type QueryName =
   | "materials.list"
   | "materials.bom"
   | "grids.list"
-  | "coordination.clash";
+  | "coordination.clash"
+  // --- CAD-PARITY-013 (additive, Issue #104): the documentation production
+  // read surfaces (non-mutating, computed fresh every call, never persisted
+  // stale). navigator.tree = the project map (stories + element counts) +
+  // the View Map folder tree + the Layout Book subset tree + the publisher
+  // set registry; schedules.run = the deterministic fresh row derivation
+  // over the CURRENT canonical state (no parallel source of truth);
+  // revisions.list/publisher.list = the table inventories;
+  // docs.exchangeReport = the typed IFC/documentation exchange
+  // classification report. ---
+  | "navigator.tree"
+  | "schedules.list"
+  | "schedules.run"
+  | "revisions.list"
+  | "publisher.list"
+  | "docs.exchangeReport";
 
 export interface Command {
   readonly type: "command";
