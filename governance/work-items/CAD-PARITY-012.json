@@ -43,7 +43,7 @@
     "Exact-head Vercel deployment and real-browser/Electron evidence.",
     "Revision-bound governance evidence covering the final implementation and post-merge verification."
   ],
-  "state": "ASSIGNED",
+  "state": "IMPLEMENTING",
   "transitions": [
     {
       "from": "DRAFT",
@@ -62,6 +62,15 @@
       "role": "architect",
       "reason": "All declared P012 dependencies are VERIFIED on main: CAD-PARITY-011, COMPAT-BIM-003, RESEARCH-CAD-007 and COMPAT-IFC-001. The work item is assigned to the logical implementation agent z-ai-implementation-agent; the implementation must stop at PR_OPEN/VERIFYING for Architect review.",
       "references": {"issue": 102, "assignee": "z-ai-implementation-agent"}
+    },
+    {
+      "from": "ASSIGNED",
+      "to": "IMPLEMENTING",
+      "at": "2026-08-31T03:10:00Z",
+      "actor": "z-ai-implementation-agent",
+      "role": "implementer",
+      "reason": "Implementation begins for CAD-PARITY-012 after the registration governance gate passed at mainline revision 4a4bd220. Scope is the released Issue #102 parity slice: extend COMPAT-BIM-003 rather than duplicate it, preserve the frozen architecture, and satisfy the P012 acceptance and evidence requirements before stopping at PR_OPEN/VERIFYING.",
+      "references": {"issue": 102, "commit": "4a4bd220888f1c4f4eedfc02fdd90d9c17acec3b"}
     }
   ],
   "evidence": [],
