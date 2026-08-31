@@ -1,0 +1,102 @@
+{
+  "schema_version": "1.0",
+  "authority": {
+    "architecture": "spec/architecture-lock.md",
+    "workflow": "governance/workflow-states.json",
+    "governance_guide": "governance/README.md",
+    "roadmap": "spec/roadmap-v1.1.md",
+    "rule": "This file is a navigational summary. Detailed work-item, evidence, decision and transition records remain authoritative in their canonical files."
+  },
+  "architecture": {
+    "version": "1.1",
+    "status": "FROZEN",
+    "non_negotiables": [
+      "Construction Graph is the canonical system of record.",
+      "CADDocument is the editor/working representation.",
+      "Engine-specific technology remains behind the EngineAdapterBundle/worker boundary.",
+      "Web and Electron share semantic contracts and application logic.",
+      "Renderer/application code must not directly import geometry-engine internals.",
+      "Engine GlobalIds are provenance, never canonical product identity.",
+      "Persisted semantic results must be deterministic.",
+      "Unsupported capabilities must produce typed explicit failures.",
+      "Verified milestones must remain regression-safe.",
+      "Architecture changes require the repository ACR lifecycle."
+    ]
+  },
+  "program": {
+    "program_issue": 74,
+    "program_name": "CAD-PARITY-001",
+    "definition": "Professional CAD/BIM workflow parity with AutoCAD-class drafting and Archicad-class BIM/documentation while remaining subordinate to frozen ConstructionOS Architecture v1.1.",
+    "roadmap_authority": "spec/roadmap-v1.1.md",
+    "roadmap_sequence": [
+      {"id":"CAD-PARITY-002","title":"Professional workspace, command system and navigation"},
+      {"id":"CAD-PARITY-003","title":"AutoCAD-class 2D geometry + modify operations"},
+      {"id":"CAD-PARITY-004","title":"Layers, properties, styles and palettes"},
+      {"id":"CAD-PARITY-005","title":"Annotation, dimensions, leaders, hatches and tables"},
+      {"id":"CAD-PARITY-006","title":"Blocks, attributes, dynamic blocks, xrefs and underlays"},
+      {"id":"CAD-PARITY-007","title":"Parametric constraints and associative editing"},
+      {"id":"CAD-PARITY-008","title":"Layouts, model/paper space, plotting and publishing"},
+      {"id":"CAD-PARITY-009","title":"3D navigation, UCS/workplanes and modeling"},
+      {"id":"CAD-PARITY-010","title":"Solids/surfaces/meshes, booleans, sections and large-model performance"},
+      {"id":"CAD-PARITY-011","title":"Archicad-class BIM authoring expansion"},
+      {"id":"CAD-PARITY-012","title":"Components/materials/coordination expansion"},
+      {"id":"CAD-PARITY-013","title":"Documentation/Navigator/Layout Book parity"},
+      {"id":"CAD-PARITY-014","title":"IFC/BCF/IDS and file interoperability"},
+      {"id":"CAD-PARITY-015","title":"Schedules, indexes, properties and quantity workflows"},
+      {"id":"CAD-PARITY-016","title":"Collaboration/recovery/scale"},
+      {"id":"CAD-PARITY-017","title":"Automation/extension/API surface"},
+      {"id":"CAD-PARITY-018","title":"Specialized Architecture/MEP/Mechanical/Raster toolsets"},
+      {"id":"CAD-PARITY-019","title":"AutoCAD workflow parity certification"},
+      {"id":"CAD-PARITY-020","title":"Archicad workflow parity certification"}
+    ]
+  },
+  "current": {
+    "verified_through": "CAD-PARITY-011",
+    "verified_supporting_governance": ["ARCH-WF-002"],
+    "active_work_item": "CAD-PARITY-012",
+    "active_issue": 102,
+    "active_pr": 103,
+    "active_state": "PR_OPEN",
+    "implementation_head": "82da455820d5936dac9651dac887bb417e56c984",
+    "base_main_revision": "0f38c51f00f6d00401be58bbce976522ab641808",
+    "blocking_gate": "Exact-head Vercel deployment and real-browser verification against that deployment.",
+    "blocking_reason": "The P012 evidence record's local real-browser proof is supplementary and non-reproducible; Issue #102 requires exact-final-head Vercel/browser evidence before Architect approval.",
+    "next_after_p012": "CAD-PARITY-013"
+  },
+  "current_work_item_sources": {
+    "work_item": "governance/work-items/CAD-PARITY-012.json",
+    "issue": "https://github.com/pectoraux/offisos/issues/102",
+    "pull_request": "https://github.com/pectoraux/offisos/pull/103"
+  },
+  "verification_protocol": {
+    "implementer_stop_state": "PR_OPEN/VERIFYING",
+    "architect_owned_states": ["ARCHITECT_REVIEW","APPROVED","VERIFIED"],
+    "required_review_order": [
+      "Inspect exact PR head and complete diff.",
+      "Check protected paths and architecture boundaries.",
+      "Verify work-item transition legality and evidence bindings.",
+      "Verify deterministic tests and regression fixtures.",
+      "Verify Web/Electron semantic parity.",
+      "Verify real-engine evidence and typed unsupported behavior.",
+      "Verify exact-head Vercel deployment and browser evidence.",
+      "Approve only after all required gates are green.",
+      "After merge, perform post-merge verification on the actual merge revision.",
+      "Only then record VERIFIED."
+    ]
+  },
+  "credential_boundary": {
+    "github": "Repository authentication is an environment concern; never persist access tokens in source control or this state file.",
+    "vercel": "Vercel deployment access is an external environment dependency; a fresh Architect must verify credentials/scope before claiming deployment evidence.",
+    "principle": "Conversation messages are not authoritative credentials, approvals, or verification evidence."
+  },
+  "continuity": {
+    "fresh_architect_bootstrap": [
+      "Read this file first for current navigation.",
+      "Read the referenced canonical work-item record.",
+      "Read its GitHub issue and PR.",
+      "Read the current architecture lock and governance workflow.",
+      "Re-run or inspect every required gate from the exact current revision.",
+      "Do not trust this summary over the canonical records if they disagree."
+    ]
+  }
+}
