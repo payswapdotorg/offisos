@@ -49,7 +49,7 @@
     "Exact-head Vercel deployment plus real-browser/Electron evidence.",
     "Revision-bound governance evidence covering implementation, merge and post-merge verification."
   ],
-  "state": "IMPLEMENTING",
+  "state": "VERIFYING",
   "transitions": [
     {
       "from": "DRAFT",
@@ -138,6 +138,37 @@
         "pr": 105,
         "decision": "DEC-001"
       }
+    },
+    {
+      "from": "IMPLEMENTING",
+      "to": "PR_OPEN",
+      "at": "2026-08-31T21:30:00Z",
+      "actor": "z-ai-implementation-agent",
+      "role": "implementer",
+      "reason": "The DEC-001 remediation is complete and PR #105 resubmitted at the integrated head c538bcf (the branch merging the remediated mainline 866f730: the P012 ledger completion 2653a5e, ACR-004 ef866b0->8ec9a0e, REC-CAD-PARITY-012 c8361de->866f730). Main governance is green (validate 391/391; the governance test suite 199/199 — the stale expected-failure assertion repaired to match the authoritative reconciled state; check-verified-revisions PASS). The merged tree revalidates green (validate 402/402 incl. this record's 11 checks; the suite 199/199; check-protected and check-verified-revisions PASS) and the exact merged head is deployed and real-browser verified (EV-004: dpl_9Q87vMjRmX8S sha-bound to c538bcf3; the smoke byte-match 88f172dd + the 33/33 protocol, first attempt clean).",
+      "references": {
+        "pr": 105,
+        "commit": "c538bcf308c028ddb4012b10e743e63d3bbe9111",
+        "evidence": [
+          "EV-004"
+        ],
+        "decision": "DEC-001"
+      }
+    },
+    {
+      "from": "PR_OPEN",
+      "to": "VERIFYING",
+      "at": "2026-08-31T21:32:00Z",
+      "actor": "z-ai-implementation-agent",
+      "role": "implementer",
+      "reason": "Verification submitted at the integrated head c538bcf: the implementer-side evidence is complete (EV-001..EV-004 — the full app suite, the eleven-smoke byte-identity, the original exact-head deployment, and the remediation + integrated-head deployment verification) and CI is queued on the pushed head where the repository-wide governance workflow is expected GREEN for the first time since the P012 post-merge defects appeared (the remediated mainline is now part of the branch). Stopping at PR_OPEN/VERIFYING for Architect re-review per the workflow lock.",
+      "references": {
+        "pr": 105,
+        "commit": "c538bcf308c028ddb4012b10e743e63d3bbe9111",
+        "evidence": [
+          "EV-004"
+        ]
+      }
     }
   ],
   "evidence": [
@@ -178,6 +209,20 @@
         "pr": 105,
         "path": "apps/web/test/docs-p013-smoke.mjs",
         "artifact_path": "/home/z/cp13/artifacts/deployed-protocol.json"
+      }
+    },
+    {
+      "id": "EV-004",
+      "type": "reproducible-script",
+      "description": "The CHANGES REQUESTED remediation and the integrated-head revalidation. (1) Owner-side governance remediation landed on main (fedfe3dd..866f730): the CAD-PARITY-012 ledger completion (2653a5e — DEC-002, the approval decision that was performed at ARCHITECT_REVIEW->APPROVED 2026-08-31T16:28:45Z and carried into the PR #103 merge but never recorded, completed at its actual decision time 16:28:40Z with the required decision references on transitions #10/#12 and the schema-invalid workflow_run reference removed), ACR-004 (ef866b0 PROPOSED -> 8ec9a0e APPROVED, sanctioning the reconciliation) and REC-CAD-PARITY-012 (c8361de STAGED -> 866f730 DECIDED, waiving exactly the two verbatim-cited unauthorized-role violations #9/#12). Main governance is GREEN: validate 391/391, the deterministic governance test suite 199/199 (the repo-integration expected-failure assertion now matches the authoritative reconciled state), check-verified-revisions PASS, typecheck clean. (2) The P013 branch integrated the remediated mainline (merge c538bcf — the evidence-preserving form of the rebase: the EV-001..EV-003-referenced implementation commits 896d671/8c5f637/8bb6366 stay resolvable verbatim) and revalidated: on the merged tree governance validate 402/402 including this record's own 11 checks, the governance test suite 199/199, check-protected --base origin/main PASS (no architecture-controlled paths touched), check-verified-revisions PASS, the 28 docs-p013 app tests green. (3) The exact merged head c538bcf308c028ddb4012b10e743e63d3bbe9111 deployed to the Offisos Vercel project as dpl_9Q87vMjRmX8SGYDq6rnvCFVvzWDY at https://offisos-l03igohvr-ekonplacidegmailcoms-projects.vercel.app (READY, sha-bound via meta.gitsha=c538bcf308c028ddb4012b10e743e63d3bbe9111, meta.pr=105, meta.workitem=CAD-PARITY-013 — REST identity proof) and verified in ONE unbroken sequential burst through the instance-pinning serializing relay, first attempt clean: the P013 web smoke byte-identical against the pinned fixture (saveSha256 88f172dd, 36 commands / 75 echo lines) and the 33/33 real-browser protocol with ZERO page errors and benign console (205 relay requests). CI runs on the pushed branch head.",
+      "produced_at": "2026-08-31T21:25:00Z",
+      "reproducible": true,
+      "reproduction": "Governance on main (866f730) and on the merged branch head (c538bcf): npm run governance -- validate; npm test; npm run governance -- check-protected --base origin/main; npm run governance -- check-verified-revisions. Deployment: from the repo root at c538bcf308c028ddb4012b10e743e63d3bbe9111: vercel deploy --project offisos --scope ekonplacidegmailcoms-projects --yes --meta gitsha=c538bcf308c028ddb4012b10e743e63d3bbe9111 --meta pr=105 --meta workitem=CAD-PARITY-013 --token $VERCEL_TOKEN; verify meta via the Vercel REST API /v6/deployments (projectId prj_p4IGIM5pBpL8pgVdfJhczR789BFL); then in ONE sequential burst: node relay.mjs --port 3121 --target <deployment-url> and OFFISOS_WEB_URL=http://localhost:3121 node --import tsx apps/web/test/docs-p013-smoke.mjs (byte-match vs app/test/fixtures/cad-parity-013-documentation.json) plus node browser-protocol-p013.mjs --base http://localhost:3121 (33 checks; re-run on a fresh deployment if the serverless dispatch splits the session).",
+      "references": {
+        "commit": "c538bcf308c028ddb4012b10e743e63d3bbe9111",
+        "pr": 105,
+        "path": "apps/web/test/docs-p013-smoke.mjs",
+        "artifact_path": "/home/z/cp13/remediation/deployed-protocol-merged.json"
       }
     }
   ],
