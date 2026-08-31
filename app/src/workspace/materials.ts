@@ -38,7 +38,7 @@ import type { BlockTable } from "./blocks/expand.js";
 import { blockRefFromElement } from "./blocks/types.js";
 import { expandBlockInstance } from "./blocks/expand.js";
 import { areaOf, lengthOf } from "./geometry/entities.js";
-import { propsToGeom } from "./geometry/types.js";
+import { geomFromProps } from "./geometry/bridge.js";
 import type { Geom } from "./geometry/types.js";
 
 // Re-export the shared vocabulary (the bim entity grammar is the single
@@ -172,7 +172,7 @@ function measureOfGeom(g: Geom): Measure {
  *  elements measure by type; everything else measures zero. */
 function measureElement(el: Element, ref: ReturnType<typeof blockRefFromElement>, blockTable: BlockTable): Measure {
   if (ref === null) {
-    const g = propsToGeom(el.props as Record<string, unknown>);
+    const g = geomFromProps(el.props as Record<string, unknown>);
     if (g === null) return { length: 0, area: 0 };
     return measureOfGeom(g);
   }
@@ -180,7 +180,7 @@ function measureElement(el: Element, ref: ReturnType<typeof blockRefFromElement>
   let area = 0;
   for (const piece of expandBlockInstance(ref, blockTable)) {
     if (piece.kind !== "geometry") continue;
-    const g = propsToGeom(piece.props);
+    const g = geomFromProps(piece.props);
     if (g === null) continue;
     length += lengthOf(g);
     area += areaOf(g);
@@ -214,7 +214,7 @@ export function billOfMaterials(
     // BIM elements (domain data/parametric state) and annotations decode to
     // no geometry and are not measured content — they are skipped entirely.
     const ref = blockRefFromElement(el);
-    const geom = ref !== null ? null : propsToGeom(el.props as Record<string, unknown>);
+    const geom = ref !== null ? null : geomFromProps(el.props as Record<string, unknown>);
     if (ref === null && geom === null) continue;
     // The effective bucket: revision clouds are markup (always unassigned);
     // block instances resolve instance ?? definition default; an assignment

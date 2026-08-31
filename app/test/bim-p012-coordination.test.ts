@@ -457,6 +457,34 @@ test("clash: line × circle crossing reports the exact pair and points; ray + re
   assert.deepEqual(r2, r1);
 });
 
+test("clash/BOM: BOTH storage conventions are visible (the drafting-marker form the command engine authors measures and checks identically)", async () => {
+  // CAD-PARITY-012: the concrete 2D view must decode the COMPAT-CAD-001
+  // drafting-marker convention ({drafting, type, from/to | center/radius})
+  // the SAME as the flat canonical convention — command-line authored
+  // geometry (LINE/CIRCLE through drafting.createEntities) is measured and
+  // clash-checked, never invisible to the coordination surfaces.
+  const h = await makeHandler();
+  await cmd(h, "document.create", { entityId: "clash-conventions", createdBy: "p012" });
+  val(await cmd(h, "drafting.createEntities", {
+    entities: [
+      { type: "line", layer: "0", from: [0, 200], to: [400, 200] },
+      { type: "circle", layer: "0", center: [200, 200], radius: 100 },
+    ],
+  }));
+  const r = val<ClashResult>(await qq(h, "coordination.clash", {}));
+  assert.equal(r.checked, 2, "both drafting-marker elements are checked");
+  assert.equal(r.excluded, 0);
+  assert.equal(r.pairs.length, 1, "the crossing pair forms");
+  const pair = r.pairs[0]!;
+  assert.deepEqual([pair.a, pair.b], ["el-000001", "el-000002"]);
+  assert.deepEqual(pair.points.map((p) => [p.x, p.y]), [[100, 200], [300, 200]]);
+  const bom = val<{ rows: BomRow[] }>(await qq(h, "materials.bom", {}));
+  assert.equal(bom.rows.length, 1);
+  assert.equal(bom.rows[0]!.count, 2, "both drafting-marker elements are measured");
+  assert.equal(bom.rows[0]!.length, 400 + Math.round((2 * Math.PI * 100) * 1e6) / 1e6);
+  assert.equal(bom.rows[0]!.area, Math.round((Math.PI * 100 * 100) * 1e6) / 1e6);
+});
+
 test("clash: block instances expand (participant id = the INSTANCE); same-instance pieces never clash", async () => {
   // Scenario A: a definition whose two content lines CROSS each other — one
   // instance expands to two checked pieces that must NEVER form a pair

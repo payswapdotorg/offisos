@@ -34,7 +34,7 @@ import type { GridEntity } from "../bim/components.js";
 import { bbox, type BBox } from "./geometry/entities.js";
 import { intersectGeoms } from "./geometry/intersect.js";
 import type { Geom } from "./geometry/types.js";
-import { propsToGeom } from "./geometry/types.js";
+import { geomFromProps } from "./geometry/bridge.js";
 import type { Pt } from "./geometry/math2d.js";
 import type { BlockTable } from "./blocks/expand.js";
 import { expandBlockInstance } from "./blocks/expand.js";
@@ -152,12 +152,12 @@ export function documentContentBounds(
       if (ref === null) continue;
       for (const piece of expandBlockInstance(ref, blockTable)) {
         if (piece.kind !== "geometry") continue;
-        const g = propsToGeom(piece.props);
+        const g = geomFromProps(piece.props);
         if (g !== null) include(g);
       }
       continue;
     }
-    const g = propsToGeom(el.props as Record<string, unknown>);
+    const g = geomFromProps(el.props as Record<string, unknown>);
     if (g !== null) include(g);
   }
   if (parts.length === 0) return null;
@@ -251,7 +251,7 @@ export function detectClashes(view: ClashView): ClashResult {
       if (ref === null) continue;
       for (const piece of expandBlockInstance(ref, view.blockTable)) {
         if (piece.kind !== "geometry") continue;
-        const g = propsToGeom(piece.props);
+        const g = geomFromProps(piece.props);
         if (g === null) continue;
         push(el.id, g);
       }
@@ -259,7 +259,7 @@ export function detectClashes(view: ClashView): ClashResult {
     }
     // BIM elements and non-decoding elements are not 2D view content —
     // skipped (not excluded, not checked).
-    const g = propsToGeom(props);
+    const g = geomFromProps(props);
     if (g === null) continue;
     push(el.id, g);
   }
