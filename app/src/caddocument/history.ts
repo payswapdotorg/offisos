@@ -150,6 +150,10 @@ export interface RecordRevisionInput {
   readonly nextTitleBlockSequence?: number;
   /** CAD-PARITY-013: the schedule mint counter after this revision. */
   readonly nextScheduleSequence?: number;
+  /** CAD-PARITY-015 (Issue #110): the property-definition mint counter after
+   *  this revision (never-reused `prd-NNNNNN` identities; canonical-minimal
+   *  like every counter). */
+  readonly nextPropertyDefSequence?: number;
   /** CAD-PARITY-013: the revision-record mint counter after this revision. */
   readonly nextRevisionSequence?: number;
   /** CAD-PARITY-013: the publisher-set mint counter after this revision. */
@@ -192,6 +196,7 @@ export function appendRevision(input: RecordRevisionInput): ModelHistory {
   const nextNavigatorNode = Math.max(history.next_navigator_node_sequence ?? 1, input.nextNavigatorNodeSequence ?? 1);
   const nextTitleBlock = Math.max(history.next_title_block_sequence ?? 1, input.nextTitleBlockSequence ?? 1);
   const nextSchedule = Math.max(history.next_schedule_sequence ?? 1, input.nextScheduleSequence ?? 1);
+  const nextPropertyDef = Math.max(history.next_property_def_sequence ?? 1, input.nextPropertyDefSequence ?? 1);
   const nextRevision = Math.max(history.next_revision_sequence ?? 1, input.nextRevisionSequence ?? 1);
   const nextPublisherSet = Math.max(history.next_publisher_set_sequence ?? 1, input.nextPublisherSetSequence ?? 1);
   return deepFreeze({
@@ -214,6 +219,7 @@ export function appendRevision(input: RecordRevisionInput): ModelHistory {
     ...(nextNavigatorNode > 1 ? { next_navigator_node_sequence: nextNavigatorNode } : {}),
     ...(nextTitleBlock > 1 ? { next_title_block_sequence: nextTitleBlock } : {}),
     ...(nextSchedule > 1 ? { next_schedule_sequence: nextSchedule } : {}),
+    ...(nextPropertyDef > 1 ? { next_property_def_sequence: nextPropertyDef } : {}),
     ...(nextRevision > 1 ? { next_revision_sequence: nextRevision } : {}),
     ...(nextPublisherSet > 1 ? { next_publisher_set_sequence: nextPublisherSet } : {}),
     revisions: deepFreeze([...history.revisions, revision]),
@@ -649,6 +655,23 @@ export function applyEditToElements(map: Map<string, Element>, edit: DocumentEdi
       if (edit.setId === undefined) throw new Error("replay: removePublisherSet requires setId");
       break;
     }
+    // CAD-PARITY-015 (Issue #110): the property-definition registry edits.
+    case "addPropertyDef": {
+      if (edit.propertyDef === undefined) throw new Error("replay: addPropertyDef requires propertyDef");
+      break;
+    }
+    case "updatePropertyDef": {
+      if (edit.propertyDefId === undefined || edit.patch === undefined) throw new Error("replay: updatePropertyDef requires propertyDefId + patch");
+      break;
+    }
+    case "setPropertyDefRecord": {
+      if (edit.propertyDefId === undefined || edit.propertyDef === undefined) throw new Error("replay: setPropertyDefRecord requires propertyDefId + propertyDef");
+      break;
+    }
+    case "removePropertyDef": {
+      if (edit.propertyDefId === undefined) throw new Error("replay: removePropertyDef requires propertyDefId");
+      break;
+    }
     default: {
       const _exhaustive = edit satisfies never;
       throw new Error(`replay: unreachable edit type: ${JSON.stringify(_exhaustive)}`);
@@ -765,7 +788,11 @@ function isValidDocumentEdit(v: unknown): boolean {
     v.type !== "addRevision" && v.type !== "updateRevision" && v.type !== "removeRevision" &&
     v.type !== "setRevisionRecord" &&
     v.type !== "addPublisherSet" && v.type !== "updatePublisherSet" && v.type !== "removePublisherSet" &&
-    v.type !== "setPublisherSetRecord"
+    v.type !== "setPublisherSetRecord" &&
+    // CAD-PARITY-015 additive edit types (Issue #110: the property-definition
+    // registry).
+    v.type !== "addPropertyDef" && v.type !== "updatePropertyDef" && v.type !== "removePropertyDef" &&
+    v.type !== "setPropertyDefRecord"
   ) {
     return false;
   }
@@ -817,6 +844,20 @@ function isValidDocumentEdit(v: unknown): boolean {
   }
   if (v.type === "updateSchedule" || v.type === "removeSchedule") {
     return typeof v.scheduleId === "string" && v.scheduleId.length > 0;
+  }
+  // CAD-PARITY-015 (Issue #110): the property-definition record shapes
+  // (structural — semantic validation runs at the document boundary).
+  if (v.type === "addPropertyDef" || v.type === "setPropertyDefRecord") {
+    if (!isPlainObject(v.propertyDef)) return false;
+    const d = v.propertyDef as Record<string, unknown>;
+    return (
+      typeof d.id === "string" && d.id.length > 0 && typeof d.name === "string" &&
+      typeof d.set === "string" && typeof d.key === "string" &&
+      (d.type === "text" || d.type === "number" || d.type === "boolean")
+    );
+  }
+  if (v.type === "updatePropertyDef" || v.type === "removePropertyDef") {
+    return typeof v.propertyDefId === "string" && v.propertyDefId.length > 0;
   }
   if (v.type === "addRevision" || v.type === "setRevisionRecord") {
     if (!isPlainObject(v.revision)) return false;
@@ -1060,6 +1101,7 @@ export function validateModelHistory(history: unknown): asserts history is Model
     "next_navigator_node_sequence",
     "next_title_block_sequence",
     "next_schedule_sequence",
+    "next_property_def_sequence",
     "next_revision_sequence",
     "next_publisher_set_sequence",
   ] as const) {
