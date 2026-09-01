@@ -3,8 +3,15 @@
   "title": "Schedules, indexes, properties and quantity workflows",
   "issue": 110,
   "architecture_version": "1.1",
-  "requirements": ["IFC-001"],
-  "dependencies": ["CAD-PARITY-014", "COMPAT-BIM-003", "COMPAT-CAD-003", "COMPAT-IFC-001"],
+  "requirements": [
+    "IFC-001"
+  ],
+  "dependencies": [
+    "CAD-PARITY-014",
+    "COMPAT-BIM-003",
+    "COMPAT-CAD-003",
+    "COMPAT-IFC-001"
+  ],
   "objective": "Extend the verified CAD/BIM product with deterministic schedules, indexes, property-driven reporting and quantity workflows, using the Construction Graph as the authoritative information source and preserving frozen ConstructionOS Architecture v1.1.",
   "acceptance_criteria": [
     "Schedule and index definitions are document-owned, deterministic and persist through save/open/replay.",
@@ -39,7 +46,7 @@
     "Exact-head deployment plus real-browser/Electron evidence where applicable.",
     "Revision-bound governance evidence covering implementation, merge and post-merge verification."
   ],
-  "state": "IMPLEMENTING",
+  "state": "PR_OPEN",
   "transitions": [
     {
       "from": "DRAFT",
@@ -48,7 +55,9 @@
       "actor": "pectoraux",
       "role": "architect",
       "reason": "Release CAD-PARITY-015 as the next bounded schedules, indexes, properties and quantity slice following verified interoperability.",
-      "references": {"issue": 110}
+      "references": {
+        "issue": 110
+      }
     },
     {
       "from": "READY",
@@ -57,7 +66,10 @@
       "actor": "pectoraux",
       "role": "architect",
       "reason": "All declared P015 dependencies are verified on main. Assign implementation to the logical implementation agent and require stopping at PR_OPEN/VERIFYING for Architect review.",
-      "references": {"issue": 110,"assignee": "z-ai-implementation-agent"}
+      "references": {
+        "issue": 110,
+        "assignee": "z-ai-implementation-agent"
+      }
     },
     {
       "from": "ASSIGNED",
@@ -66,9 +78,70 @@
       "actor": "z-ai-implementation-agent",
       "role": "implementer",
       "reason": "Implementation begins for CAD-PARITY-015 from the verified CAD-PARITY-014 mainline baseline. Scope is the bounded deterministic schedules, indexes, property-driven reporting and quantity workflows defined by Issue #110, preserving Construction Graph authority, shared Web/Electron semantics, adapter/worker boundaries and the PR_OPEN/VERIFYING stop gate.",
-      "references": {"issue": 110,"commit": "32a70aa111d85cfe59378ce28ccd5c1a2723adf8"}
+      "references": {
+        "issue": 110,
+        "commit": "32a70aa111d85cfe59378ce28ccd5c1a2723adf8"
+      }
+    },
+    {
+      "from": "IMPLEMENTING",
+      "to": "PR_OPEN",
+      "at": "2026-09-01T15:10:00Z",
+      "actor": "z-ai-implementation-agent",
+      "role": "implementer",
+      "reason": "The CAD-PARITY-015 implementation is complete and submitted as PR #111 (three phased commits on the rebased mainline: P1 the shared core f8a1555\u219228b703b \u2014 the prd-NNNNNN property-definition registry with the canonical-overlay lineage statistics, the schedules engine powers (pd: columns, property-driven conditions, deterministic multi-key sort, bounded calculated fields, grouping with subtotals/grand totals, presentation format), and the revision-bound closed-form quantity takeoff with the material BOM; P2 the web surface 06701cc\u21920c35210 \u2014 the Schedules workbench + the transport mirrors + the report.properties/report.quantities command-line actions; P3 the evidence layer 0028659\u2192566a4e1 \u2014 the schedules-p015 smoke (25 app-api calls), the pinned cad-parity-015-schedules fixture and the cad-parity-015 CI workflow). Evidence: EV-001 the deterministic implementation suite (1215/1215 app tests with the pinned IFC toolchain, 18 new P015 tests; tsc/lint/build green), EV-002 the thirteen-smoke web chain with the twelve prior parity fixtures byte-identical and the NEW pinned fixture matching across fresh server restarts, EV-003 the governance gates (validate 426/426, check-protected PASS, check-verified-revisions PASS). The branch was rebased onto main (68a0c6e) to resolve the parallel work-item registration conflict, keeping the canonical IMPLEMENTING record.",
+      "references": {
+        "issue": 110,
+        "pr": 111,
+        "commit": "566a4e136a0e4117b0ce9bd6c27c8f1dd0863ce3",
+        "evidence": [
+          "EV-001",
+          "EV-002",
+          "EV-003"
+        ]
+      }
     }
   ],
-  "evidence": [],
+  "evidence": [
+    {
+      "id": "EV-001",
+      "type": "automated-test-suite",
+      "description": "The CAD-PARITY-015 deterministic implementation suite at the exact implementation head: the full app suite 1215 tests / 1215 pass / 0 fail / 0 skipped (the pinned ifcopenshell 0.8.5 + numpy 2.1.3 + IfcTester 0.8.5 toolchain present \u2014 the 41 prior environmental skips now run; baseline 1197/1156/0/41 with +18 new P015 tests: schedules-p015 (8), properties-p015 (3), quantities-p015 (6), schedules-p015-host-parity (1 \u2014 the same P015 stream through WebHost/WebSocketTransport AND ElectronHost/IpcTransport converging to identical minted ids, lineage statistics, run rows/groups/totals and takeoff reports)); root + app tsc --noEmit clean; web eslint clean; next build --webpack succeeds.",
+      "produced_at": "2026-09-01T15:02:00Z",
+      "reproducible": true,
+      "reproduction": "npm install && python3 -m pip install ifcopenshell==0.8.5 numpy==2.1.3 IfcTester==0.8.5 && (cd app && node --import tsx --test test/*.test.ts) && npx tsc --noEmit -p app/tsconfig.json && (cd apps/web && npm install && npx tsc --noEmit && npm run lint && npm run build -- --webpack)",
+      "references": {
+        "commit": "566a4e136a0e4117b0ce9bd6c27c8f1dd0863ce3",
+        "pr": 111,
+        "path": "app/test"
+      }
+    },
+    {
+      "id": "EV-002",
+      "type": "reproducible-script",
+      "description": "The web-host smoke chain against the running reference-mode dev server: ALL THIRTEEN smokes pass \u2014 the twelve prior parity fixtures stay byte-identical (P012 bim, P013 docs 88f172dd\u2026, P014 interop 7081458f\u2026, plus the P002..P011 fixtures) and the NEW pinned CAD-PARITY-015 fixture cad-parity-015-schedules.json matches across fresh server restarts (save sha eaf6dd4b\u2026; the schedule run, the properties list, the quantity report and the quantity rules sha256s pinned; 25 commands, 16 echo lines). The smoke drives the real /api/cad wire surface: the property registry with lineage statistics and typed-mismatch surfacing, the PROPDEF/PROPLIST/QTO prompt-engine registry stream, the full-featured schedule create/run (sort/format/calc rows, group subtotals, grand totals, double-run identity), the revision-bound quantity takeoff + the components scope + the material BOM, a canonical mutation moving the RevisionRef binding, the typed declines and the undo/redo + save/open round-trip with stable minted ids.",
+      "produced_at": "2026-09-01T14:12:00Z",
+      "reproducible": true,
+      "reproduction": "(cd apps/web && OFFISOS_GEOMETRY_ENGINE=reference OFFISOS_IFC_WORKER=$PWD/../../app/src/adapters/ifc/worker/ifc-worker.py npm run dev -- --webpack -p 3100 &) && node --import tsx apps/web/test/schedules-p015-smoke.mjs",
+      "references": {
+        "commit": "566a4e136a0e4117b0ce9bd6c27c8f1dd0863ce3",
+        "pr": 111,
+        "path": "apps/web/test/schedules-p015-smoke.mjs"
+      }
+    },
+    {
+      "id": "EV-003",
+      "type": "automated-test-suite",
+      "description": "The governance gates on the rebased implementation tree: the root governance suite 199/199; npm run governance -- validate 426/426 PASS; check-protected --base main PASS (no architecture-controlled path touched \u2014 ACR-Routing: none); check-verified-revisions PASS (no stale VERIFIED bindings).",
+      "produced_at": "2026-09-01T15:05:00Z",
+      "reproducible": true,
+      "reproduction": "npm test && npm run governance -- validate && npm run governance -- check-protected --base main && npm run governance -- check-verified-revisions",
+      "references": {
+        "commit": "566a4e136a0e4117b0ce9bd6c27c8f1dd0863ce3",
+        "pr": 111,
+        "path": "governance"
+      }
+    }
+  ],
   "decisions": []
 }
