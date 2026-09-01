@@ -1,6 +1,11 @@
 name: cad-parity-015
 
 on:
+  # CAD-PARITY-015: manual dispatch (added during submission — the pull_request
+  # event pipeline was not delivering runs at submission time; the dispatch
+  # arm runs the SAME three jobs on the exact head so the CI evidence is
+  # producible without the event pipeline).
+  workflow_dispatch:
   push:
     branches:
       - main
