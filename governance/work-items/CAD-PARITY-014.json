@@ -48,7 +48,7 @@
     "Exact-head deployment plus real-browser/Electron evidence where applicable.",
     "Revision-bound governance evidence covering implementation, merge and post-merge verification."
   ],
-  "state": "PR_OPEN",
+  "state": "VERIFYING",
   "transitions": [
     {
       "from": "DRAFT",
@@ -101,6 +101,24 @@
           "EV-003"
         ]
       }
+    },
+    {
+      "from": "PR_OPEN",
+      "to": "VERIFYING",
+      "at": "2026-09-01T06:10:00Z",
+      "actor": "z-ai-implementation-agent",
+      "role": "implementer",
+      "reason": "Verification submitted for Architect review at PR #108: the revision-bound evidence package is complete (EV-001 the full app suite 1197/1152/0/45 with the 35 new interop tests and zero regressions, EV-002 the twelve-smoke chain with the eleven prior fixtures byte-identical and the new P014 fixture pinned across fresh server instances, EV-003 the exact implementation-head deployment dpl_CsJH5fyW395aYZnJNqmCVLJt7pkj sha-bound to d1273ae with the 18/18 deployed protocol + the real-browser verification + the honest serverless ifc boundary + the P013 regression fixture byte-match against the same deployment, EV-004 the exact FINAL RECORD head deployment binding + re-verification). The implementation and record commits are pushed; the CI matrix on the final head includes the new cad-parity-014 workflow (the twelfth smoke + the interop suites). Stopping at PR_OPEN/VERIFYING for Architect review per the workflow lock — APPROVED/VERIFIED are Architect-owned.",
+      "references": {
+        "pr": 108,
+        "commit": "d1273ae0b0c6f6326553b576554ca83e41e9e2ff",
+        "evidence": [
+          "EV-001",
+          "EV-002",
+          "EV-003",
+          "EV-004"
+        ]
+      }
     }
   ],
   "evidence": [
@@ -141,6 +159,19 @@
         "pr": 108,
         "path": "/home/z/cp14/interop-deployed-protocol.mjs",
         "artifact_path": "/home/z/cp14/deployed-workbench.png"
+      }
+    },
+    {
+      "id": "EV-004",
+      "type": "reproducible-script",
+      "description": "The exact FINAL RECORD head deployment binding (the CP7 discipline): after the PR_OPEN record commit, the final record head (this commit's tree = the implementation head d1273ae plus the governance record arc) is deployed to the Offisos Vercel project with meta gitsha bound to that exact head, pr=108, workitem=CAD-PARITY-014, and re-verified through the instance-pinning relay in the same unbroken discipline: the interop deployed protocol 18/18 (every deployment-applicable deterministic artifact byte-equal to the pinned fixture values), the P013 regression smoke byte-match (88f172dd...) and a real-browser protocol spot-check with zero page errors. The deployment id + URL + the REST identity proof are documented in the PR #108 evidence comment (the record cannot self-reference its own commit sha; the binding is the deployment metadata, verified through the Vercel REST API). The implementation-head deployment itself is EV-003 (dpl_CsJH5fyW395aYZnJNqmCVLJt7pkj, sha-bound to d1273ae0b0c6f6326553b576554ca83e41e9e2ff).",
+      "produced_at": "2026-09-01T06:05:00Z",
+      "reproducible": true,
+      "reproduction": "From the clean repo checkout at the final record head: vercel deploy --project offisos --scope ekonplacidegmailcoms-projects --yes --meta gitsha=<final-head> --meta pr=108 --meta workitem=CAD-PARITY-014 --token $VERCEL_TOKEN; verify meta via the Vercel REST API /v6/deployments (projectId prj_p4IGIM5pBpL8pgVdfJhczR789BFL); node relay.mjs --port 3121 --target <deployment-url>; OFFISOS_WEB_URL=http://localhost:3121 node interop-deployed-protocol.mjs; OFFISOS_WEB_URL=http://localhost:3121 node --import tsx apps/web/test/docs-p013-smoke.mjs",
+      "references": {
+        "commit": "d1273ae0b0c6f6326553b576554ca83e41e9e2ff",
+        "pr": 108,
+        "path": "/home/z/cp14/interop-deployed-protocol.mjs"
       }
     }
   ],
