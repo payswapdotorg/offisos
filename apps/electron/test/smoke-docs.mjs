@@ -9,7 +9,7 @@
 // primitives) → view geometry (hash + exact bbox) → create elevation back
 // view → regenerate (no-op determinism proof + dim 5300/tag label) →
 // parametric dimension (move wall-north → 5800) → undo twice (back to 5300) →
-// second sheet → Sheet IR export (64-hex hash) → pdf typed docs_unsupported
+// second sheet → Sheet IR export (64-hex hash) → the CAD-PARITY-014 real pdf writer (sha + irHash + determinism; DWG stays the typed decline)
 // reject → save/open identical graph events hash.
 //
 // Engine-free by construction (the documentation projection is pure
