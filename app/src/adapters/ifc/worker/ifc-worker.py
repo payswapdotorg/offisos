@@ -562,7 +562,13 @@ def op_build(req: dict[str, Any]) -> dict[str, Any]:
             length=float(w["length"]), height=float(w["height"]), thickness=float(w["thickness"]),
         )
         ifcopenshell.api.run("geometry.assign_representation", f, product=wall, representation=rep)
-        cos_a, sin_a = float(np.cos(float(w["angle"]))), float(np.sin(float(w["angle"])))
+        # CAD-PARITY-014 (Issue #107): round the trig through r9 — numpy's
+        # ufunc inner loops are SIMD-dispatched by CPU features at runtime,
+        # so unrounded cos/sin differ in the last bits across CPU families
+        # (a latent cross-host byte-nondeterminism exposed by the P014
+        # pinned-sha test; the placement values round to 1e-9 — nanometre
+        # scale, far inside the 1e-3 mm round-trip tolerance).
+        cos_a, sin_a = r9(np.cos(float(w["angle"]))), r9(np.sin(float(w["angle"])))
         # The wall body profile spans local Y ∈ [0, t] (one-sided from the
         # placement origin); shift the placement origin by −n·t/2 so the body
         # maps to the canonical centred [-t/2, +t/2] (the import reconstructs
@@ -753,7 +759,9 @@ def op_build(req: dict[str, Any]) -> dict[str, Any]:
                 "attribute.edit_attributes", f, product=comp,
                 attributes={"OverallWidth": sx, "OverallHeight": sz},
             )
-        cos_r, sin_r = float(np.cos(float(c["rotation"]))), float(np.sin(float(c["rotation"])))
+        # CAD-PARITY-014 (Issue #107): the same r9 trig rounding (see the
+        # wall placement note — cross-CPU byte-determinism).
+        cos_r, sin_r = r9(np.cos(float(c["rotation"]))), r9(np.sin(float(c["rotation"])))
         px, py = float(c["position"][0]), float(c["position"][1])
         tx = px - (cos_r * sx / 2.0 - sin_r * sy / 2.0)
         ty = py - (sin_r * sx / 2.0 + cos_r * sy / 2.0)

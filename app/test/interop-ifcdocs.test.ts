@@ -71,7 +71,12 @@ const LEGACY_BUILDING = [
  *  change to the export bytes of the legacy path is a P014 REGRESSION (the
  *  documentation carrier must be strictly additive: absent tables → no
  *  IfcGroup entities → byte-identical output). */
-const LEGACY_EXPORT_SHA256 = "933fcbd8f6b88b7996b8874641c1a62e4c45396506414a587726f30ef84bd677";
+// CAD-PARITY-014 (Issue #107): the pinned sha AFTER the cross-CPU determinism
+// fix in the worker (the r9 trig rounding — numpy's SIMD-dispatched ufunc
+// inner loops differ in the last bits across CPU families, which made the
+// pre-P014 export bytes CPU-dependent; the pinned pre-fix value 933fcbd8…
+// reproduced only on some runners). c85e518a… is the CPU-independent value.
+const LEGACY_EXPORT_SHA256 = "c85e518a3695711f5081375798779db092e4b72ad4a47bdc97c8cb6099e05baf";
 
 /** The documented documentation surface (the P013 vocabularies, one record
  *  per table + the linkage fields): views (plan + detail-of-plan), a
@@ -369,7 +374,7 @@ test("a changed field classifies lossy per record (the documented lossy row)", {
 
 // --- the legacy byte-identity guarantee ----------------------------------------------
 
-test("the LEGACY model (no documentation tables) exports the byte-identical pre-P014 file (pinned sha)", { skip: skipIfc }, async () => {
+test("the LEGACY model (no documentation tables) exports the CPU-independent pinned bytes (the r9 determinism fix)", { skip: skipIfc }, async () => {
   // The exact ifc-roundtrip.test.ts seeded() construction — no views, no
   // tables, no sheets: the documentation key is absent and the bytes match
   // the pinned pre-P014 sha (the no-export-regression proof).
@@ -381,7 +386,7 @@ test("the LEGACY model (no documentation tables) exports the byte-identical pre-
   assert.equal(
     exported.sha256,
     LEGACY_EXPORT_SHA256,
-    "byte-identical to the pinned pre-P014 export (the IfcGroup carrier is strictly additive)",
+    "byte-identical to the pinned CPU-independent export (the IfcGroup carrier is strictly additive + the r9 trig fix)",
   );
   // And the re-export after importing the legacy file is byte-stable too
   // (the documented-model identity discipline holds for the legacy path).

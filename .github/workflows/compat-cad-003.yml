@@ -35,7 +35,7 @@ on:
 #     smokes — the engine-free regression, real-engine geometry, model
 #     revisions, 2D drafting, BIM authoring (all regressions) and the new
 #     12-step documentation BrowserWindow smoke (real UI through the full
-#     chain incl. parametric regeneration + undo + sheet export + typed pdf
+#     chain incl. parametric regeneration + undo + sheet export + the P014 real pdf writer
 #     reject + save/open identity).
 #
 # Engine isolation (LOCK-003/018): documentation projection is pure analytic
@@ -254,11 +254,19 @@ jobs:
           assert e1["ir"]["sheet"]["frame"] == {"width": 841, "height": 594, "titleBlockWidth": 200}
           assert [v["viewId"] for v in e1["ir"]["views"]] == ["vw-000001", "vw-000002"]
 
-          # Typed failures: pdf/dwg writers are contracts only; placement
-          # overlap and unknown views are rejected; removeView is blocked
-          # while referenced (no silent cascade).
+          # CAD-PARITY-014 (Issue #107): pdf is now the REAL deterministic
+          # writer (bytes + sha + the irHash binding to the unchanged Sheet
+          # IR above); dwg keeps the typed proprietary decline (the disclosed
+          # assertion migration); placement overlap and unknown views are
+          # still rejected; removeView is blocked while referenced.
           r = q("docs.exportSheet", {"sheetId": "sh-000001", "format": "pdf"})
-          assert not r["ok"] and r["code"] == "docs_unsupported" and "not implemented" in r["message"], r
+          assert r["ok"], r
+          v = r["value"]
+          assert v["format"] == "pdf" and v["size"] > 500, v
+          assert len(v["sha256"]) == 64 and all(c in "0123456789abcdef" for c in v["sha256"]), v
+          assert v["irHash"] == e1["hash"], v  # bound to the unchanged Sheet IR
+          r2 = q("docs.exportSheet", {"sheetId": "sh-000001", "format": "pdf"})
+          assert r2["ok"] and r2["value"]["sha256"] == v["sha256"], "pdf writer deterministic"
           r = q("docs.exportSheet", {"sheetId": "sh-000001", "format": "dwg"})
           assert not r["ok"] and r["code"] == "docs_unsupported", r
           r = cmd("docs.createSheets", {"sheets": [{"title": "Bad", "titleBlock": {"projectName": "P", "sheetTitle": "T", "sheetNumber": "1"}, "viewPlacements": [
@@ -283,7 +291,7 @@ jobs:
           r = cmd("docs.regenerate", {})
           assert ok(r) and r["value"]["applied"] == 0, r["value"]["applied"]
 
-          print("WEB HOST DOCS SMOKE PASS: model→views(plan/elevation/section/detail)→annotations(5300/4700/labels)→parametric(5800)→undo→sheet(A-101)→sheet-ir(twice-identical)→typed(pdf/dwg/overlap/removeView)→save/open identity")
+          print("WEB HOST DOCS SMOKE PASS: model→views(plan/elevation/section/detail)→annotations(5300/4700/labels)→parametric(5800)→undo→sheet(A-101)→sheet-ir(twice-identical)→pdf(real writer, deterministic)→typed(dwg/overlap/removeView)→save/open identity")
           PYEOF
           kill $DEV_PID || true
 

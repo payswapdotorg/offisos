@@ -1,5 +1,5 @@
 {
- "saveSha256": "a449e1a886bf432483fb40d15a6072ac14148fbccee4b9936da0f1c6dabff288",
+ "saveSha256": "7081458f1c497ea2ff3daaa4e5b4c26ac75209bc9a7619d935f112159cf7c402",
  "saveSize": 21138,
  "elements": 10,
  "viewCount": 2,
@@ -12,18 +12,18 @@
  "revisionCount": 1,
  "publisherSetCount": 1,
  "versionCount": 15,
- "ifcExportSha256": "f50cdc327cc1bd5874082c5b540965e406089ee3ff1184e3cf55929871fef1bf",
- "ifcExportSize": 14432,
+ "ifcExportSha256": "a40de332ff5793da14606aa03128310d406ecc023fc7f921e7c4cccac9216879",
+ "ifcExportSize": 14372,
  "ifcExportDocumentationTotal": 9,
  "ifcImportSummary": {
   "created": 0,
   "unchanged": 4
  },
- "ifcRoundtripReportHash": "618fdfa994b649a20f0f208f8500bfcdea868a9f9d9545b1318a18f2e4501195",
- "ifcRoundtripSourceSha256": "d6013a5ab41c9776ce6a366f0a8eff55801ceb276dc9c41a43beccecd85b8eef",
- "bcfSha256": "b37252630aa801757a6e09e4c695b49048f0c528d4b32fb90502feda760adc23",
- "bcfSize": 1586,
- "bcfSourceRevision": "p014-smoke:f50cdc327cc1bd58",
+ "ifcRoundtripReportHash": "6484a28dcf73b937be0f06d8005e8109103636373666bc8ae8e7e2fdde9f3b2b",
+ "ifcRoundtripSourceSha256": "03b2702473d7698bdec6c7a77f7df0da585bd2a3c81ddb675b8bd53a74b292a9",
+ "bcfSha256": "639d57317b8539bf55181cbecb39595d87e8eed3e834176c9c70b49b25722773",
+ "bcfSize": 1587,
+ "bcfSourceRevision": "p014-smoke:a40de332ff5793da",
  "bcfReferences": [
   "1g1LNYzpYY1HAhPSkZS4Az"
  ],
