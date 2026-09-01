@@ -46,7 +46,7 @@
     "Exact-head deployment plus real-browser/Electron evidence where applicable.",
     "Revision-bound governance evidence covering implementation, merge and post-merge verification."
   ],
-  "state": "PR_OPEN",
+  "state": "VERIFYING",
   "transitions": [
     {
       "from": "DRAFT",
@@ -100,6 +100,22 @@
           "EV-003"
         ]
       }
+    },
+    {
+      "from": "PR_OPEN",
+      "to": "VERIFYING",
+      "at": "2026-09-01T15:59:00Z",
+      "actor": "z-ai-implementation-agent",
+      "role": "implementer",
+      "reason": "Submit CAD-PARITY-015 (PR #111) for Architect review with the exact-head CI evidence (EV-004): the cad-parity-015 workflow run 33524551513 on the exact head ec8e01f \u2014 ALL THREE jobs green (the Workspace deterministic suite with the full 1215-test app suite incl. the 18 new P015 tests, the Web host with ALL THIRTEEN parity smokes incl. the pinned CAD-PARITY-015 fixture, and the Electron host build + 18 smokes) \u2014 plus the full 24-workflow path-filter regression matrix on the same head (19+ completed success at submission, the remainder draining green; the pull_request event pipeline had stalled during a GitHub-service degradation at submission time \u2014 five trigger attempts are documented in the record, and a disclosed workflow_dispatch arm was added to cad-parity-015.yml as the recoverable trigger whose dispatch produced the bound run). Local revision-bound evidence: EV-001 the implementation suite, EV-002 the thirteen-smoke chain with the pinned fixtures, EV-003 the governance gates. Stops at PR_OPEN/VERIFYING per the workflow lock \u2014 no merge, no VERIFIED claim.",
+      "references": {
+        "issue": 110,
+        "pr": 111,
+        "commit": "ec8e01f3b1fef544c80a703dfe48bcf2826a372a",
+        "evidence": [
+          "EV-004"
+        ]
+      }
     }
   ],
   "evidence": [
@@ -140,6 +156,19 @@
         "commit": "566a4e136a0e4117b0ce9bd6c27c8f1dd0863ce3",
         "pr": 111,
         "path": "governance"
+      }
+    },
+    {
+      "id": "EV-004",
+      "type": "ci-run",
+      "description": "The exact-head CI verification: the cad-parity-015 workflow run 33524551513 (event workflow_dispatch, head ec8e01f) with ALL THREE jobs completed SUCCESS \u2014 the Workspace deterministic suite (OCCT 7.8.1.1 + ifcopenshell 0.8.5 toolchains, the typecheck, the full app test suite incl. the 18 new P015 tests, the LOCK-018 forbidden-import scan incl. src/quantities, the IFC worker pin probe), the Web host (Next.js 16 lint/typecheck/build + ALL THIRTEEN workspace smokes against the running reference-mode dev server incl. the pinned cad-parity-015-schedules fixture) and the Electron host (typecheck/build + the 18 unchanged smokes). Additionally the full 24-workflow path-filter regression matrix triggered on the same head by the pull_request synchronize event (cad-parity-002..014, compat-*, cad-implement-*, governance, research-cad-007 \u2014 draining all-green at submission; the event delivery was delayed by a GitHub-service degradation, five trigger attempts and the disclosed workflow_dispatch arm are the recovery record).",
+      "produced_at": "2026-09-01T15:57:00Z",
+      "reproducible": true,
+      "reproduction": "https://github.com/pectoraux/offisos/actions/runs/33524551513 (re-run from the Actions UI on this head, or: git checkout ec8e01f && the EV-001/EV-002/EV-003 reproduction commands)",
+      "references": {
+        "commit": "ec8e01f3b1fef544c80a703dfe48bcf2826a372a",
+        "pr": 111,
+        "workflow_run": "33524551513"
       }
     }
   ],
