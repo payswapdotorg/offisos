@@ -11,9 +11,12 @@
  * docs.note) bound to canonical element identities, deterministic
  * regeneration (`docs.regenerate` — the content-hash determinism proof),
  * sheets with A1 title blocks and view placements (`docs.createSheets`) and
- * the canonical Sheet IR export contract (`docs.exportSheet` — pdf/dwg fail
- * typed docs_unsupported by design). One seed button runs the representative
- * end-to-end workflow.
+ * the canonical Sheet IR export contract (`docs.exportSheet`). CAD-PARITY-014
+ * (Issue #107): the pdf arm is now the REAL deterministic writer (the Sheet
+ * IR → plot-writer bridge, bytes + sha256 + irHash — the interop workbench's
+ * pattern); dwg keeps failing typed docs_unsupported by design (the
+ * proprietary boundary — DXF is the open interchange path). One seed button
+ * runs the representative end-to-end workflow.
  *
  * Every mutation goes through fetch("/api/cad") exactly like the Electron
  * host (Web/Electron parity, §5.5). Client-safety: only the pure BIM entity
@@ -24,6 +27,7 @@
 import * as React from "react";
 import {
   Download,
+  FileDown,
   FileWarning,
   Layers,
   Plus,
@@ -55,12 +59,14 @@ import {
   getState,
   unwrapDocsCreated,
   unwrapDocsExport,
+  unwrapDocsExportSheet,
   unwrapDocsListSheets,
   unwrapDocsListViews,
   unwrapDocsRegenerate,
   unwrapDocsViewGeometry,
 } from "@/cad/client/http-transport";
 import type {
+  DocsExportSheetResult,
   DocsRegenerateResult,
   DocsSheetRecord,
   DocsViewGeometryResult,
@@ -133,6 +139,30 @@ function entityLabel(e: BimEntity): string {
   return typeof name === "string" && name !== "" ? `${e.id} · ${short} “${name}”` : `${e.id} · ${short}`;
 }
 
+/** Decode base64 → Blob (the pdf download — browser-safe, the interop
+ * workbench's helper). CAD-PARITY-014 (Issue #107): the docs workbench's pdf
+ * export button now downloads the REAL writer bytes. */
+function base64ToBlob(b64: string, type: string): Blob {
+  const binary = atob(b64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return new Blob([bytes], { type });
+}
+
+/** Trigger a client-side file download (Blob → anchor click). */
+function downloadBlob(blob: Blob, filename: string): void {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
 // --- component -----------------------------------------------------------------
 
 export function DocsWorkbench(): React.JSX.Element {
@@ -143,6 +173,9 @@ export function DocsWorkbench(): React.JSX.Element {
   const [geometry, setGeometry] = React.useState<DocsViewGeometryResult | null>(null);
   const [regenResult, setRegenResult] = React.useState<DocsRegenerateResult | null>(null);
   const [exportResult, setExportResult] = React.useState<{ sheetId: string; hash: string; bytes: number } | null>(null);
+  // CAD-PARITY-014 (Issue #107): the pdf writer result (bytes + sha256 + the
+  // irHash binding — the real deterministic writer, not the P013 decline).
+  const [pdfExportResult, setPdfExportResult] = React.useState<DocsExportSheetResult | null>(null);
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [status, setStatus] = React.useState<string>("ready");
@@ -392,6 +425,7 @@ export function DocsWorkbench(): React.JSX.Element {
     (id: string) => {
       applySheetSelection(id);
       setExportResult(null);
+      setPdfExportResult(null);
     },
     [applySheetSelection],
   );
@@ -568,7 +602,10 @@ export function DocsWorkbench(): React.JSX.Element {
         const res = await exec("docs.removeSheet", () => docsRemoveSheet(id));
         if (res.ok) {
           setStatus(`removed sheet ${id} (views and annotations are not cascaded)`);
-          if (selectedSheetRef.current === id) setExportResult(null);
+          if (selectedSheetRef.current === id) {
+            setExportResult(null);
+            setPdfExportResult(null);
+          }
         }
       })();
     },
@@ -584,16 +621,31 @@ export function DocsWorkbench(): React.JSX.Element {
         setError(null);
         const res = await docsExportSheet(sheetId, format);
         if (!res.ok) {
-          // pdf/dwg are contract-only in this slice — the typed failure IS the
-          // demonstrated behaviour (explicit, never a partial writer).
+          // dwg stays contract-only — the typed failure IS the demonstrated
+          // behaviour (the proprietary boundary, never a partial writer).
           setError(`[docs.exportSheet ${format}] ${res.code}: ${res.message}`);
           setExportResult(null);
+          setPdfExportResult(null);
+        } else if (format === "pdf") {
+          // CAD-PARITY-014 (Issue #107): pdf is the REAL deterministic writer
+          // now (bytesBase64 + sha256 + the irHash binding to the unchanged
+          // Sheet IR — the interop workbench's sheet-section pattern).
+          const pdf = unwrapDocsExportSheet(res);
+          if (pdf === null || pdf.bytesBase64 === undefined) {
+            setError(`[docs.exportSheet ${format}] unexpected response shape`);
+            setPdfExportResult(null);
+          } else {
+            setPdfExportResult(pdf);
+            setExportResult(null);
+            setStatus(`exported ${pdf.sheetId} → pdf (${pdf.size} bytes, sha256 ${pdf.sha256.slice(0, 16)}…, irHash ${pdf.irHash.slice(0, 12)}…)`);
+          }
         } else {
           const ex = unwrapDocsExport(res);
           if (ex === null) {
             setError(`[docs.exportSheet ${format}] unexpected response shape`);
           } else {
             setExportResult({ sheetId: ex.sheetId, hash: ex.hash, bytes: ex.canonical.length });
+            setPdfExportResult(null);
             setStatus(`exported ${ex.sheetId} → canonical Sheet IR (${ex.canonical.length} bytes, sha256 ${ex.hash.slice(0, 16)}…)`);
             // Download the canonical JSON artifact (Blob download).
             const blob = new Blob([ex.canonical], { type: "application/json" });
@@ -612,6 +664,14 @@ export function DocsWorkbench(): React.JSX.Element {
     },
     [],
   );
+
+  /** Download the last pdf writer result (CAD-PARITY-014: the real bytes,
+   * not a decline — the download stays explicit, the sheet-ir precedent). */
+  const onPdfDownload = React.useCallback(() => {
+    if (pdfExportResult === null || pdfExportResult.bytesBase64 === undefined) return;
+    downloadBlob(base64ToBlob(pdfExportResult.bytesBase64, "application/pdf"), `${pdfExportResult.sheetId}.pdf`);
+    setStatus(`downloaded ${pdfExportResult.sheetId}.pdf (${pdfExportResult.size} bytes)`);
+  }, [pdfExportResult]);
 
   /** One-click representative workflow: building (if the document has no BIM
    *  elements) → 4 canonical views → 2 dims + 2 tags → one sheet with
@@ -814,9 +874,9 @@ export function DocsWorkbench(): React.JSX.Element {
                     data-testid="docs-export-pdf"
                     disabled={busy}
                     onClick={() => onExport("pdf")}
-                    title="docs.exportSheet format 'pdf' — contract only; the writer is not implemented (typed docs_unsupported)"
+                    title="docs.exportSheet format 'pdf' — the REAL deterministic writer (CAD-PARITY-014: Sheet IR → the plot-writer bridge, bytes + sha256 + the irHash binding)"
                   >
-                    <FileWarning aria-hidden="true" />
+                    <FileDown aria-hidden="true" />
                     Export PDF
                   </Button>
                   <Button
@@ -839,9 +899,30 @@ export function DocsWorkbench(): React.JSX.Element {
                     {exportResult.sheetId} · sheet-ir · {exportResult.bytes} bytes · sha256 {exportResult.hash}
                   </div>
                 )}
+                {pdfExportResult !== null && (
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    <div
+                      data-testid="docs-export-pdf-hash"
+                      className="rounded border bg-muted/40 px-2.5 py-1.5 text-xs font-mono break-all"
+                    >
+                      {pdfExportResult.sheetId} · pdf · {pdfExportResult.size} bytes · sha256 {pdfExportResult.sha256.slice(0, 16)}… · irHash {pdfExportResult.irHash.slice(0, 12)}…
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      data-testid="docs-export-pdf-download"
+                      onClick={onPdfDownload}
+                      title="download the deterministic PDF bytes (identical on every host for equal sheet state)"
+                    >
+                      <Download aria-hidden="true" />
+                      Download .pdf
+                    </Button>
+                  </div>
+                )}
                 <p className="mt-1 text-[11px] leading-snug text-muted-foreground">
-                  The Sheet IR is the export CONTRACT (canonical JSON, hashed). PDF/DWG writers are out of
-                  scope for this slice — those requests fail typed docs_unsupported by design.
+                  The Sheet IR is the export CONTRACT (canonical JSON, hashed). PDF is the real deterministic
+                  writer (CAD-PARITY-014: bound to the unchanged IR through irHash); DWG stays the typed
+                  docs_unsupported decline (proprietary — DXF is the open interchange path).
                 </p>
               </div>
             )}

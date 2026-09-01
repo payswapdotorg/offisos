@@ -1526,12 +1526,37 @@ export const COMMAND_PAYLOAD_SCHEMAS: Readonly<Record<CommandName, object>> = {
             comment: { type: "string" },
             commentAuthor: { type: "string" },
             elementIds: { type: "array", items: { type: "string" } },
+            // CAD-PARITY-014 (additive, Issue #107): the camera viewpoint +
+            // the source lineage (coarse wire shape — the handler validates
+            // strictly; LOCK-007).
+            viewpoint: {
+              type: "object",
+              properties: {
+                cameraViewPoint: { type: "array", items: { type: "number" }, minItems: 3, maxItems: 3 },
+                cameraDirection: { type: "array", items: { type: "number" }, minItems: 3, maxItems: 3 },
+                cameraUpVector: { type: "array", items: { type: "number" }, minItems: 3, maxItems: 3 },
+                orthogonal: { type: "boolean" },
+                viewToWorldScale: { type: "number", exclusiveMinimum: 0 },
+              },
+              required: ["cameraViewPoint", "cameraDirection", "cameraUpVector"],
+            },
+            sourceRevision: { type: "string" },
           },
           required: ["title", "description"],
         },
       },
     },
     required: ["topics"],
+  },
+  // CAD-PARITY-014 (additive, Issue #107): the bounded DXF import (the
+  // coarse wire shape — base64 of the ASCII DXF text; the handler guards
+  // the DWG magic + parses + validates strictly).
+  "dxf.import": {
+    type: "object",
+    properties: {
+      dxf: { type: "string", minLength: 1 },
+    },
+    required: ["dxf"],
   },
 
   // --- CAD-PARITY-012 (additive, Issue #102): materials, grids and revision
@@ -2056,7 +2081,7 @@ export const QUERY_PAYLOAD_SCHEMAS: Readonly<Record<QueryName, object>> = {
     type: "object",
     properties: {
       sheetId: { type: "string" },
-      format: { type: "string", enum: ["sheet-ir", "pdf", "dwg"] },
+      format: { type: "string", enum: ["sheet-ir", "pdf", "svg", "dwg"] },
     },
     required: ["sheetId", "format"],
   },
@@ -2175,6 +2200,18 @@ export const QUERY_PAYLOAD_SCHEMAS: Readonly<Record<QueryName, object>> = {
   "revisions.list": { type: "object", properties: {} },
   "publisher.list": { type: "object", properties: {} },
   "docs.exchangeReport": { type: "object", properties: {} },
+  // CAD-PARITY-014 (additive, Issue #107): the file-interoperability read
+  // surfaces (coarse wire shapes; the handlers validate strictly).
+  "dxf.export": { type: "object", properties: {} },
+  "interop.exchangeReport": { type: "object", properties: {} },
+  "interop.archivalList": { type: "object", properties: {} },
+  "interop.roundtripReport": {
+    type: "object",
+    properties: {
+      format: { type: "string", enum: ["ifc", "dxf"] },
+    },
+    required: ["format"],
+  },
 };
 
 export const WIRE_ENVELOPE_SCHEMA = {

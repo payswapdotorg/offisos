@@ -21,11 +21,16 @@ lives on the TypeScript side.
 Ops:
   ping       — engine identity + toolchain versions
   parse      — IFC bytes -> deterministic semantic IR (world placements,
-               profile bbox facts, psets/qtos, relationships, units)
-  build      — build model -> deterministic IFC4 bytes
+               profile bbox facts, psets/qtos, relationships, units; the
+               CAD-PARITY-014 documentation IfcGroup records — D2)
+  build      — build model (+ optional documentation IfcGroup carrier) ->
+               deterministic IFC4 bytes
   ids        — IDS XML validation of an IFC file (IfcTester)
-  bcf_build  — topics -> BCF-XML v3 .bcf container bytes
-  bcf_parse  — .bcf container bytes -> topics (references = IfcGuids)
+  bcf_build  — topics (+ optional camera viewpoints + source-revision
+               lineage — CAD-PARITY-014 D3) -> deterministic BCF-XML v3
+               .bcf container bytes (fixed entry dates + sorted order)
+  bcf_parse  — .bcf container bytes -> topics (references = IfcGuids,
+               the camera viewpoint, the source lineage)
 """
 
 from __future__ import annotations
@@ -35,6 +40,7 @@ import hashlib
 import io
 import json
 import sys
+import zipfile
 from typing import Any
 
 import ifcopenshell
@@ -57,8 +63,27 @@ PARAMS_PSET = "Pset_OffisosParams"
 CUSTOM_PSET = "Pset_OffisosCustom"
 MATERIAL_PSET = "Pset_OffisosMaterial"
 COMPONENT_PSET = "Pset_OffisosComponent"
+# CAD-PARITY-014 (Issue #107): the documentation exchange carrier pset (the
+# IfcGroup record fields — D2).
+DOCS_PSET = "Pset_OffisosDocs"
 GUID_SALT = "offisos-ifc-root:v1"
 OPENING_LATERAL_OVERHANG = 0.002  # m — matches the canonical 1 mm cut overhang per side
+# CAD-PARITY-014: the BCF determinism salts (the comment-guid precedent —
+# sha256-truncated uuid-shaped values keyed by the topic index so two builds
+# of the same topics payload are byte-identical).
+BCF_TOPIC_GUID_SALT = "offisos-bcf-topic"
+BCF_VIEWPOINT_GUID_SALT = "offisos-bcf-viewpoint"
+BCF_COMMENT_GUID_SALT = "offisos-bcf-comment"
+BCF_DOCREF_GUID_SALT = "offisos-bcf-docref"
+# CAD-PARITY-014: the BCF source-lineage carrier (D3). The BCF 3.0 Topic has
+# a conformant document-reference list (TopicDocumentReferences); the source
+# revision rides there: description = this marker, url = the caller-chosen
+# canonical revision identity. Parse reads it back through the same marker.
+BCF_SOURCE_REVISION_MARKER = "offisos-source-model-revision"
+# CAD-PARITY-014: the fixed zip entry date for the BCF container (bcf.save
+# embeds the current wall clock in every entry — the post-processed
+# deterministic rebuild pins 2026-01-01 and sorts the entries).
+BCF_ZIP_DATE = (2026, 1, 1, 0, 0, 0)
 
 # COMPAT-BIM-003: component category → IFC class. Component walls/doors/windows
 # are FREESTANDING parametric boxes (they do not void/fill anything) — the
@@ -367,6 +392,23 @@ def op_parse(req: dict[str, Any]) -> dict[str, Any]:
         )
     materials.sort(key=lambda m: (m["name"], json.dumps(m["psets"], sort_keys=True)))
 
+    # CAD-PARITY-014 (Issue #107): the documentation IfcGroup records (D2) —
+    # walk the groups (sorted by guid), extract the two psets. Absent groups
+    # → the key is omitted entirely (legacy parse results stay identical).
+    documentation: list[dict[str, Any]] = []
+    for group in sorted(f.by_type("IfcGroup"), key=lambda g: g.GlobalId or ""):
+        psets, _ = clean_psets(group)
+        identity = psets.get(IDENTITY_PSET)
+        fields = psets.get(DOCS_PSET)
+        documentation.append(
+            {
+                "globalId": group.GlobalId,
+                "name": group.Name or "",
+                "identity": dict(identity) if isinstance(identity, dict) else None,
+                "fields": dict(fields) if isinstance(fields, dict) else {},
+            }
+        )
+
     material_name_of: dict[str, str] = {}
     for rel in f.by_type("IfcRelAssociatesMaterial"):
         relating = rel.RelatingMaterial
@@ -441,6 +483,8 @@ def op_parse(req: dict[str, Any]) -> dict[str, Any]:
             "materialAssociations": len(f.by_type("IfcRelAssociatesMaterial")),
         },
     }
+    if documentation:
+        result["documentation"] = {"records": documentation}
     out = identity_header()
     out["result"] = result
     return out
@@ -518,7 +562,13 @@ def op_build(req: dict[str, Any]) -> dict[str, Any]:
             length=float(w["length"]), height=float(w["height"]), thickness=float(w["thickness"]),
         )
         ifcopenshell.api.run("geometry.assign_representation", f, product=wall, representation=rep)
-        cos_a, sin_a = float(np.cos(float(w["angle"]))), float(np.sin(float(w["angle"])))
+        # CAD-PARITY-014 (Issue #107): round the trig through r9 — numpy's
+        # ufunc inner loops are SIMD-dispatched by CPU features at runtime,
+        # so unrounded cos/sin differ in the last bits across CPU families
+        # (a latent cross-host byte-nondeterminism exposed by the P014
+        # pinned-sha test; the placement values round to 1e-9 — nanometre
+        # scale, far inside the 1e-3 mm round-trip tolerance).
+        cos_a, sin_a = r9(np.cos(float(w["angle"]))), r9(np.sin(float(w["angle"])))
         # The wall body profile spans local Y ∈ [0, t] (one-sided from the
         # placement origin); shift the placement origin by −n·t/2 so the body
         # maps to the canonical centred [-t/2, +t/2] (the import reconstructs
@@ -709,7 +759,9 @@ def op_build(req: dict[str, Any]) -> dict[str, Any]:
                 "attribute.edit_attributes", f, product=comp,
                 attributes={"OverallWidth": sx, "OverallHeight": sz},
             )
-        cos_r, sin_r = float(np.cos(float(c["rotation"]))), float(np.sin(float(c["rotation"])))
+        # CAD-PARITY-014 (Issue #107): the same r9 trig rounding (see the
+        # wall placement note — cross-CPU byte-determinism).
+        cos_r, sin_r = r9(np.cos(float(c["rotation"]))), r9(np.sin(float(c["rotation"])))
         px, py = float(c["position"][0]), float(c["position"][1])
         tx = px - (cos_r * sx / 2.0 - sin_r * sy / 2.0)
         ty = py - (sin_r * sx / 2.0 + cos_r * sy / 2.0)
@@ -733,6 +785,26 @@ def op_build(req: dict[str, Any]) -> dict[str, Any]:
                 "material.assign_material", f, products=[component_products[c["guid"]]],
                 material=materials_by_guid[c["materialGuid"]],
             )
+
+    # --- CAD-PARITY-014 (Issue #107): the documentation exchange carrier ------
+    # One IfcGroup per documentation table record (D2): IfcGroup is an IfcRoot
+    # (the caller guid is LOCKED like every product guid) AND an IfcObject
+    # (psets attach through the standard path). Pset_OffisosIdentity carries
+    # the identity provenance; Pset_OffisosDocs carries the record fields as
+    # scalar property values (arrays pre-encoded as joined strings by the TS
+    # side — the docmap encoding). Groups are created in the request's fixed
+    # kind-group order (deterministic STEP ids); absent "documentation" (the
+    # legacy model) creates nothing — the bytes stay byte-identical to the
+    # pre-P014 export.
+    documentation = model.get("documentation")
+    if isinstance(documentation, dict):
+        for g in documentation.get("groups", []):
+            group = ifcopenshell.api.run("group.add_group", f, name=str(g["name"]))
+            group.GlobalId = str(g["guid"])
+            locked.add(group.id())
+            _add_pset(f, group, IDENTITY_PSET, dict(g["identity"]))
+            if g.get("fields"):
+                _add_pset(f, group, DOCS_PSET, dict(g["fields"]))
 
     # Deterministic GlobalIds for every remaining IfcRoot (relationships,
     # psets, spatial structure): STEP-id-keyed normalization. Combined with
@@ -809,6 +881,111 @@ def op_ids(req: dict[str, Any]) -> dict[str, Any]:
 # --- bcf ------------------------------------------------------------------------
 
 
+def _det_uuid(salt: str, key: str) -> str:
+    """Deterministic uuid-shaped value (the comment-guid precedent): sha256
+    of the salted key truncated to 36 chars. bcf-client requires uuid-shaped
+    guids; the sha256 hex alphabet is a subset, so this always validates."""
+    return hashlib.sha256(f"{salt}:{key}".encode()).hexdigest()[:36]
+
+
+def _deterministic_zip(data: bytes) -> bytes:
+    """Rebuild a .bcf zip container with FIXED entry dates + sorted entry
+    order (CAD-PARITY-014, D3).
+
+    bcf-client's InMemoryZipFile writes every entry with the CURRENT wall
+    clock (zipfile.ZipFile.writestr defaults date_time to now), so two
+    builds of the same topics payload differ byte-wise. The post-process
+    rebuilds the container in memory: every entry re-created with the fixed
+    2026-01-01 date, entry order sorted by name (BCF readers locate entries
+    by name — the order is a container detail). Bounded + documented: the
+    payload bytes of every entry are copied VERBATIM (no re-serialization).
+    """
+    src = zipfile.ZipFile(io.BytesIO(data), "r")
+    try:
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as out:
+            for name in sorted(src.namelist()):
+                info = zipfile.ZipInfo(name, date_time=BCF_ZIP_DATE)
+                info.compress_type = zipfile.ZIP_DEFLATED
+                out.writestr(info, src.read(name))
+        return buf.getvalue()
+    finally:
+        src.close()
+
+
+def _viewpoint_of(
+    i: int,
+    t: dict[str, Any],
+    refs: list[str],
+) -> Any:
+    """Build the topic's VisualizationInfo (CAD-PARITY-014, D3).
+
+    With a viewpoint payload: the caller's camera (position/direction/up,
+    perspective — or orthogonal with viewToWorldScale) + the selection
+    components (the IfcGuid refs). Without one: the LEGACY origin-target
+    camera (the pre-P014 add_viewpoint_from_point_and_guids semantics —
+    camera at target+(5,5,5) looking back), reproduced with a deterministic
+    guid so legacy payloads now build byte-identical containers too.
+    Camera floats round to 9 decimals (the parse discipline r9).
+    """
+    import bcf.v3.model as bcf_model
+    import bcf.v3.visinfo as bcf_visinfo
+
+    guid = _det_uuid(BCF_VIEWPOINT_GUID_SALT, str(i))
+    components = bcf_visinfo.build_components(*refs)
+    payload = t.get("viewpoint")
+
+    def vec(key: str) -> list[float]:
+        v = payload.get(key) if isinstance(payload, dict) else None
+        if not isinstance(v, list) or len(v) != 3:
+            raise OpError("ifc_invalid", f"viewpoint.{key} must be a 3-number array")
+        out = []
+        for x in v:
+            if not isinstance(x, (int, float)) or isinstance(x, bool):
+                raise OpError("ifc_invalid", f"viewpoint.{key} must contain finite numbers")
+            out.append(r9(float(x)))
+        return out
+
+    if isinstance(payload, dict):
+        position, direction, up = vec("cameraViewPoint"), vec("cameraDirection"), vec("cameraUpVector")
+        orthogonal = payload.get("orthogonal") is True
+        if orthogonal:
+            scale = payload.get("viewToWorldScale")
+            if not isinstance(scale, (int, float)) or isinstance(scale, bool) or not (float(scale) > 0):
+                raise OpError("ifc_invalid", "viewpoint.viewToWorldScale must be a positive number for orthogonal cameras")
+            camera = bcf_model.OrthogonalCamera(
+                camera_view_point=bcf_model.Point(x=position[0], y=position[1], z=position[2]),
+                camera_direction=bcf_model.Direction(x=direction[0], y=direction[1], z=direction[2]),
+                camera_up_vector=bcf_model.Direction(x=up[0], y=up[1], z=up[2]),
+                view_to_world_scale=float(scale),
+                aspect_ratio=1.0,
+            )
+            return bcf_model.VisualizationInfo(guid=guid, components=components, orthogonal_camera=camera)
+        camera = bcf_model.PerspectiveCamera(
+            camera_view_point=bcf_model.Point(x=position[0], y=position[1], z=position[2]),
+            camera_direction=bcf_model.Direction(x=direction[0], y=direction[1], z=direction[2]),
+            camera_up_vector=bcf_model.Direction(x=up[0], y=up[1], z=up[2]),
+            aspect_ratio=1.0,
+            field_of_view=60.0,
+        )
+        return bcf_model.VisualizationInfo(guid=guid, components=components, perspective_camera=camera)
+
+    # Legacy path: the origin-target camera of
+    # add_viewpoint_from_point_and_guids(np.zeros(3), *refs).
+    import numpy as np
+
+    target = np.array([0.0, 0.0, 0.0], dtype="float64")
+    position, direction, up = bcf_visinfo.camera_vectors_from_target_position(target)
+    camera = bcf_model.PerspectiveCamera(
+        camera_view_point=bcf_model.Point(x=r9(position[0]), y=r9(position[1]), z=r9(position[2])),
+        camera_direction=bcf_model.Direction(x=r9(direction[0]), y=r9(direction[1]), z=r9(direction[2])),
+        camera_up_vector=bcf_model.Direction(x=r9(up[0]), y=r9(up[1]), z=r9(up[2])),
+        aspect_ratio=1.0,
+        field_of_view=60.0,
+    )
+    return bcf_model.VisualizationInfo(guid=guid, components=components, perspective_camera=camera)
+
+
 def op_bcf_build(req: dict[str, Any]) -> dict[str, Any]:
     topics = req.get("topics")
     if not isinstance(topics, list) or len(topics) == 0:
@@ -816,10 +993,12 @@ def op_bcf_build(req: dict[str, Any]) -> dict[str, Any]:
     try:
         import os
         import tempfile
+        from pathlib import Path
 
-        import numpy as np
+        import numpy as np  # noqa: F401 — bcf.v3.visinfo imports numpy
         from bcf.v3 import bcfxml as bcf_v3
         import bcf.v3.model as bcf_model
+        import bcf.v3.visinfo as bcf_visinfo  # noqa: F401 — viewpoint construction
         from xsdata.models.datatype import XmlDateTime
     except Exception as e:
         raise OpError("ifc_unavailable", f"bcf-client is not available: {e}")
@@ -835,14 +1014,50 @@ def op_bcf_build(req: dict[str, Any]) -> dict[str, Any]:
                 topic_type=str(t.get("type", "Issue")),
                 topic_status=str(t.get("status", "Open")),
             )
-            camera = np.array([0.0, 0.0, 0.0], dtype="float64")
-            handler.add_viewpoint_from_point_and_guids(camera, *refs)
+            # CAD-PARITY-014 (D3): deterministic topic identity + creation
+            # date — add_topic() draws a uuid4 and stamps NOW, so both are
+            # replaced with salted-sha256/fixed-date values and the topics
+            # map is re-keyed AND the handler's topic_dir repointed (the
+            # dir name is the saved container's topic path — it must match
+            # the topic guid for save AND load to agree).
+            det_topic_guid = _det_uuid(BCF_TOPIC_GUID_SALT, str(i))
+            random_topic_guid = handler.topic.guid
+            handler.topic.guid = det_topic_guid
+            handler.topic.creation_date = XmlDateTime(2026, 1, 1, 0, 0, 0)
+            handler._topic_dir = Path(det_topic_guid)
+            if random_topic_guid in bcf.topics:
+                del bcf.topics[random_topic_guid]
+            bcf.topics[det_topic_guid] = handler
+
+            # The viewpoint (payload camera or the legacy origin camera) —
+            # always with a deterministic guid; the selection components
+            # keep carrying the IfcGuid refs.
+            vi_handler = bcf_visinfo.VisualizationInfoHandler(
+                visualization_info=_viewpoint_of(i, t, refs)
+            )
+            handler.add_visinfo_handler(vi_handler)
+
+            # CAD-PARITY-014 (D3): the source lineage. The BCF 3.0 Topic
+            # has a conformant document-reference list — the source revision
+            # (the caller-chosen canonical model state reference) rides as
+            # one DocumentReference: description = the marker, url = the
+            # revision identity, guid = the deterministic salted value.
+            source_revision = t.get("sourceRevision")
+            if isinstance(source_revision, str) and source_revision:
+                handler.topic.document_references = bcf_model.TopicDocumentReferences(
+                    document_reference=[
+                        bcf_model.DocumentReference(
+                            guid=_det_uuid(BCF_DOCREF_GUID_SALT, str(i)),
+                            url=source_revision,
+                            description=BCF_SOURCE_REVISION_MARKER,
+                        )
+                    ]
+                )
+
             comment_text = t.get("comment")
             if isinstance(comment_text, str) and comment_text:
                 comment = bcf_model.Comment(
-                    guid=hashlib.sha256(
-                        f"offisos-bcf-comment:{i}".encode()
-                    ).hexdigest()[:36],
+                    guid=_det_uuid(BCF_COMMENT_GUID_SALT, str(i)),
                     comment=comment_text,
                     date=XmlDateTime(2026, 1, 1, 0, 0, 0),
                     author=str(t.get("commentAuthor", "offisos")),
@@ -859,6 +1074,9 @@ def op_bcf_build(req: dict[str, Any]) -> dict[str, Any]:
                 os.unlink(path)
             except OSError:
                 pass
+        # The container determinism post-process (see
+        # _deterministic_zip): fixed entry dates + sorted entry order.
+        data = _deterministic_zip(data)
     except OpError:
         raise
     except Exception as e:
@@ -868,6 +1086,33 @@ def op_bcf_build(req: dict[str, Any]) -> dict[str, Any]:
     out["bcf"] = base64.b64encode(data).decode("ascii")
     out["size"] = len(data)
     return out
+
+
+def _camera_of(vis: Any) -> dict[str, Any] | None:
+    """The parsed camera viewpoint of a VisualizationInfo (D3): position/
+    direction/up + the perspective/orthogonal distinction. Values round to 9
+    decimals (the r9 parse discipline — cross-host XML float stability)."""
+    import bcf.v3.model as bcf_model
+
+    camera = getattr(vis, "perspective_camera", None)
+    orthogonal = False
+    if camera is None:
+        camera = getattr(vis, "orthogonal_camera", None)
+        orthogonal = camera is not None
+    if camera is None:
+        return None
+    scale = getattr(camera, "view_to_world_scale", None) if orthogonal else None
+
+    def vec3(p: Any) -> list[float]:
+        return [r9(float(p.x)), r9(float(p.y)), r9(float(p.z))]
+
+    return {
+        "cameraViewPoint": vec3(camera.camera_view_point),
+        "cameraDirection": vec3(camera.camera_direction),
+        "cameraUpVector": vec3(camera.camera_up_vector),
+        "orthogonal": orthogonal,
+        "viewToWorldScale": r9(float(scale)) if scale is not None else None,
+    }
 
 
 def op_bcf_parse(req: dict[str, Any]) -> dict[str, Any]:
@@ -892,13 +1137,27 @@ def op_bcf_parse(req: dict[str, Any]) -> dict[str, Any]:
                 h = bcf.get_topic(key)
                 topic = h.topic
                 references: list[str] = []
-                for viewpoint in h.viewpoints.values():
-                    vis = viewpoint.visualization_info
+                # CAD-PARITY-014 (D3): the camera of the topic's FIRST
+                # viewpoint in sorted filename order (one viewpoint per
+                # topic in this writer — the bounded selection rule).
+                viewpoint: dict[str, Any] | None = None
+                for vp_name in sorted(h.viewpoints.keys()):
+                    vis = h.viewpoints[vp_name].visualization_info
                     if vis is None:
                         continue
+                    if viewpoint is None:
+                        viewpoint = _camera_of(vis)
                     for component in vis.components.selection.component:
                         if component.ifc_guid:
                             references.append(component.ifc_guid)
+                # CAD-PARITY-014 (D3): the source lineage — the marker'd
+                # document reference (first match in document order).
+                source_revision: str | None = None
+                docrefs = getattr(topic, "document_references", None)
+                for ref in docrefs.document_reference if docrefs else []:
+                    if ref.description == BCF_SOURCE_REVISION_MARKER and ref.url:
+                        source_revision = str(ref.url)
+                        break
                 comments = [
                     {
                         "author": c.author or "",
@@ -916,6 +1175,8 @@ def op_bcf_parse(req: dict[str, Any]) -> dict[str, Any]:
                         "status": topic.topic_status or "",
                         "comments": comments,
                         "references": sorted(set(references)),
+                        "viewpoint": viewpoint,
+                        "sourceRevision": source_revision,
                     }
                 )
         finally:

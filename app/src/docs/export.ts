@@ -27,11 +27,15 @@ import type { ViewProjection } from "./project.js";
 export const SHEET_IR_FORMAT = "offisos-sheet-ir" as const;
 export const SHEET_IR_FORMAT_VERSION = "1" as const;
 
-/** Supported export formats for this slice. */
-export type DocsExportFormat = "sheet-ir" | "pdf" | "dwg";
+/** Supported export formats for this slice. CAD-PARITY-014 (Issue #107):
+ *  pdf/svg are now REAL writers — the Sheet IR bridges onto the existing
+ *  deterministic plot writers through interop/sheet-export.ts (the
+ *  plotIRToPDF/plotIRToSVG discipline); dwg stays the typed decline (the
+ *  proprietary DWG boundary — DXF is the open interchange path). */
+export type DocsExportFormat = "sheet-ir" | "pdf" | "svg" | "dwg";
 
 export function isDocsExportFormat(v: unknown): v is DocsExportFormat {
-  return v === "sheet-ir" || v === "pdf" || v === "dwg";
+  return v === "sheet-ir" || v === "pdf" || v === "svg" || v === "dwg";
 }
 
 /** One placed view inside the IR: the placement frame + the view's fresh

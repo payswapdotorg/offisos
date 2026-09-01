@@ -17,6 +17,16 @@
  * persisted deterministic import records (`ifc.listImports`). Typed errors
  * ifc_unavailable / ifc_invalid / ifc_unsupported are displayed honestly.
  *
+ * CAD-PARITY-014 (Issue #107, additive): the Interoperability surface gains
+ * the file-exchange sections — BCF camera viewpoints + source lineage (the
+ * extended ifc.bcfCreate/bcfParse), the bounded DXF R2000 exchange
+ * (dxf.export / dxf.import — ONE atomic versioned import), the Sheet IR →
+ * deterministic pdf/svg writers (docs.exportSheet), and the archival /
+ * exchange / round-trip registry (interop.archivalList /
+ * interop.exchangeReport / interop.roundtripReport). Every surface degrades
+ * honestly: the DXF/sheet/registry surfaces run engine-free; the ifc.*
+ * surfaces fail typed ifc_unavailable when the toolchain is absent.
+ *
  * Every mutation goes through fetch("/api/cad") exactly like the Electron
  * host (Web/Electron parity, §5.5). Client-safety: only the pure BIM entity
  * parser (`bim/elements.js`) and the transport are imported — the
@@ -26,9 +36,12 @@
 
 import * as React from "react";
 import {
+  ArrowLeftRight,
   Boxes,
   Download,
   FileCode2,
+  FileDown,
+  FileText,
   GitCompareArrows,
   MessageSquareWarning,
   ShieldCheck,
@@ -47,6 +60,9 @@ import { elementToBimEntitySafe, type BimEntity } from "@offisos/cad-app-shell/b
 import {
   bimCreate,
   createDoc,
+  dxfExport,
+  dxfImport,
+  docsExportSheet,
   getState,
   ifcBcfCreate,
   ifcBcfParse,
@@ -56,6 +72,13 @@ import {
   ifcImport,
   ifcListImports,
   ifcProbe,
+  interopArchivalList,
+  interopExchangeReport,
+  interopRoundtripReport,
+  unwrapDxfExport,
+  unwrapDxfImport,
+  unwrapDocsExport,
+  unwrapDocsExportSheet,
   unwrapIfcBcfCreate,
   unwrapIfcBcfParse,
   unwrapIfcCompare,
@@ -64,10 +87,22 @@ import {
   unwrapIfcImport,
   unwrapIfcListImports,
   unwrapIfcProbe,
+  unwrapInteropArchivalList,
+  unwrapInteropExchangeReport,
+  unwrapInteropRoundtripReport,
 } from "@/cad/client/http-transport";
 import type {
+  DocsExportResult,
+  DocsExportSheetResult,
+  DxfExportResult,
+  DxfImportResult,
+  InteropArchivalListResult,
+  InteropExchangeReport,
+  InteropRoundtripReportResult,
   IfcBcfCreateResult,
   IfcBcfParseResult,
+  IfcBcfTopicRequest,
+  IfcBcfViewpoint,
   IfcCompareResult,
   IfcElementAction,
   IfcElementReport,
@@ -149,6 +184,14 @@ const ACTION_CLASS: Record<IfcElementAction, string> = {
   unsupported: "rounded border border-neutral-300 bg-neutral-100 px-1.5 py-0.5 font-mono text-neutral-700 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-300",
 };
 
+/** CAD-PARITY-014: the archival legal-classification chip palette
+ *  (open-standard=green, published-spec=sky, proprietary-declined=red). */
+const ARCHIVAL_LEGAL_CLASS: Record<"open-standard" | "published-spec" | "proprietary-declined", string> = {
+  "open-standard": "rounded border border-green-300 bg-green-50 px-1.5 py-0.5 font-mono text-green-800 dark:border-green-900 dark:bg-green-950 dark:text-green-300",
+  "published-spec": "rounded border border-sky-300 bg-sky-50 px-1.5 py-0.5 font-mono text-sky-800 dark:border-sky-900 dark:bg-sky-950 dark:text-sky-300",
+  "proprietary-declined": "rounded border border-red-300 bg-red-50 px-1.5 py-0.5 font-mono text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-300",
+};
+
 function fieldTitle(f: IfcFieldResult): string {
   const parts: string[] = [`${f.field} — ${f.classification}`];
   if (f.expected !== undefined) parts.push(`expected: ${String(f.expected)}`);
@@ -193,6 +236,17 @@ function base64ToBlob(b64: string, type: string): Blob {
     bytes[i] = binary.charCodeAt(i);
   }
   return new Blob([bytes], { type });
+}
+
+/** Decode base64 back to ASCII text (the DXF exchange round trip — the DXF
+ *  payload is ASCII, so the latin-1 decode of atob is exact). */
+function base64ToText(b64: string): string {
+  return atob(b64);
+}
+
+/** Encode ASCII text as base64 (the dxf.import wire payload). */
+function textToBase64(text: string): string {
+  return bytesToBase64(new TextEncoder().encode(text));
 }
 
 function downloadBlob(blob: Blob, filename: string): void {
@@ -252,6 +306,34 @@ export function IfcWorkbench(): React.JSX.Element {
   const [bcfResult, setBcfResult] = React.useState<IfcBcfCreateResult | null>(null);
   const [bcfParsed, setBcfParsed] = React.useState<IfcBcfParseResult | null>(null);
 
+  // --- CAD-PARITY-014 (Issue #107): BCF viewpoint + lineage ------------------
+  // The optional camera fields (world metres — the IFC convention). Defaults:
+  // camera at the origin looking down −Z with +Y up (the workbench's honest
+  // "no model camera yet" default; unchecking the toggle sends the legacy
+  // topic shape without a viewpoint).
+  const [bcfViewpointOn, setBcfViewpointOn] = React.useState(true);
+  const [bcfViewpointForm, setBcfViewpointForm] = React.useState({
+    camX: "0", camY: "0", camZ: "0",
+    dirX: "0", dirY: "0", dirZ: "-1",
+    upX: "0", upY: "1", upZ: "0",
+  });
+  const [bcfSourceRevision, setBcfSourceRevision] = React.useState("");
+
+  // --- CAD-PARITY-014: DXF exchange ---------------------------------------------
+  const [dxfResult, setDxfResult] = React.useState<DxfExportResult | null>(null);
+  const [dxfInput, setDxfInput] = React.useState("");
+  const [dxfImportResult, setDxfImportResult] = React.useState<DxfImportResult | null>(null);
+
+  // --- CAD-PARITY-014: sheet export (Sheet IR → pdf/svg) -----------------------
+  const [sheetIdForm, setSheetIdForm] = React.useState("");
+  const [sheetFormat, setSheetFormat] = React.useState<"pdf" | "svg" | "sheet-ir">("pdf");
+  const [sheetResult, setSheetResult] = React.useState<DocsExportResult | DocsExportSheetResult | null>(null);
+
+  // --- CAD-PARITY-014: archival / exchange / round-trip registry ---------------
+  const [archival, setArchival] = React.useState<InteropArchivalListResult | null>(null);
+  const [exchange, setExchange] = React.useState<InteropExchangeReport | null>(null);
+  const [roundtrip, setRoundtrip] = React.useState<InteropRoundtripReportResult | null>(null);
+
   // --- derived from the snapshot (pure client-side parse, same core as server) --
 
   const bimEntities = React.useMemo(() => {
@@ -262,6 +344,17 @@ export function IfcWorkbench(): React.JSX.Element {
     }
     return out;
   }, [snapshot]);
+
+  // CAD-PARITY-014: the current documentation sheets (the sheet-export select
+  // source — the snapshot's docsSheets, absent-when-empty) + the effective
+  // selection (falls back to the first sheet while the form is unset or its
+  // sheet was removed).
+  const sheets = React.useMemo(() => snapshot?.docsSheets ?? [], [snapshot]);
+  const sheetId =
+    sheetIdForm !== "" && sheets.some((s) => s.id === sheetIdForm)
+      ? sheetIdForm
+      : (sheets[0]?.id ?? "");
+  const version = snapshot?.version?.version_number ?? 0;
 
   // --- refresh + exec (the docs-workbench proven pattern) ------------------------
 
@@ -306,6 +399,42 @@ export function IfcWorkbench(): React.JSX.Element {
       cancelled = true;
     };
   }, [refresh]);
+
+  // CAD-PARITY-014: the registry surfaces re-query on every document version
+  // bump (the DocumentationPanel version-keyed loading pattern): the archival
+  // registry is static legal evidence, the exchange report's counts track the
+  // current documentation tables. Both run engine-free — they stay functional
+  // when the IFC toolchain is absent.
+  React.useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const [archRes, exchRes] = await Promise.all([interopArchivalList(), interopExchangeReport()]);
+      if (cancelled) return;
+      if (!archRes.ok) {
+        setError(`[interop.archivalList] ${archRes.code}: ${archRes.message}`);
+      } else {
+        const arch = unwrapInteropArchivalList(archRes);
+        if (arch === null) {
+          setError("[interop.archivalList] unexpected response shape");
+        } else {
+          setArchival(arch);
+        }
+      }
+      if (!exchRes.ok) {
+        setError(`[interop.exchangeReport] ${exchRes.code}: ${exchRes.message}`);
+      } else {
+        const exch = unwrapInteropExchangeReport(exchRes);
+        if (exch === null) {
+          setError("[interop.exchangeReport] unexpected response shape");
+        } else {
+          setExchange(exch);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [version]);
 
   /** Run one async operation with the busy guard, typed-error surfacing and
    *  the trailing refresh. */
@@ -363,6 +492,12 @@ export function IfcWorkbench(): React.JSX.Element {
         setBcfResult(null);
         setBcfParsed(null);
         setBcfElements([]);
+        // CAD-PARITY-014: the exchange surfaces are equally stale on a fresh
+        // document (the registry tables themselves re-query per version).
+        setDxfResult(null);
+        setDxfImportResult(null);
+        setSheetResult(null);
+        setRoundtrip(null);
         setStatus(
           "seeded the representative building — 11 BIM elements (1 story, 4 walls incl. the rotated wall-rot, slab, 2 openings, door, window, space) in 1 atomic revision",
         );
@@ -566,7 +701,7 @@ export function IfcWorkbench(): React.JSX.Element {
       try {
         const title = bcfForm.title.trim();
         if (title === "") throw new Error("a topic needs a title");
-        const topic = {
+        const topic: IfcBcfTopicRequest = {
           title,
           description: bcfForm.description,
           author: bcfForm.author.trim() !== "" ? bcfForm.author.trim() : undefined,
@@ -576,6 +711,34 @@ export function IfcWorkbench(): React.JSX.Element {
           commentAuthor: bcfForm.commentAuthor.trim() !== "" ? bcfForm.commentAuthor.trim() : undefined,
           elementIds: bcfElements,
         };
+        // CAD-PARITY-014 (D3): the optional camera viewpoint + the source
+        // lineage — validated client-side (finite numbers) before the wire;
+        // the strict server-side validation is the boundary (LOCK-007).
+        if (bcfViewpointOn) {
+          const f = bcfViewpointForm;
+          const viewpoint: IfcBcfViewpoint = {
+            cameraViewPoint: [
+              toNum(f.camX, "cameraViewPoint[0]"),
+              toNum(f.camY, "cameraViewPoint[1]"),
+              toNum(f.camZ, "cameraViewPoint[2]"),
+            ],
+            cameraDirection: [
+              toNum(f.dirX, "cameraDirection[0]"),
+              toNum(f.dirY, "cameraDirection[1]"),
+              toNum(f.dirZ, "cameraDirection[2]"),
+            ],
+            cameraUpVector: [
+              toNum(f.upX, "cameraUpVector[0]"),
+              toNum(f.upY, "cameraUpVector[1]"),
+              toNum(f.upZ, "cameraUpVector[2]"),
+            ],
+          };
+          topic.viewpoint = viewpoint;
+        }
+        const sourceRevision = bcfSourceRevision.trim();
+        if (sourceRevision !== "") {
+          topic.sourceRevision = sourceRevision;
+        }
         setStatus("building the .bcf container…");
         const res = await exec("ifc.bcfCreate", () => ifcBcfCreate([topic]));
         if (res.ok) {
@@ -587,7 +750,9 @@ export function IfcWorkbench(): React.JSX.Element {
             setBcfResult(bcf);
             setBcfParsed(null);
             downloadBlob(base64ToBlob(bcf.bcf, "application/zip"), "offisos-topic.bcf");
-            setStatus(`created + downloaded offisos-topic.bcf (${bcf.size.toLocaleString()} bytes, ${bcf.referencedCanonicalIds} referenced guid(s)) — parse it to verify the round trip`);
+            const viewpointNote = topic.viewpoint !== undefined ? "camera viewpoint + " : "";
+            const lineageNote = topic.sourceRevision !== undefined ? "source lineage" : "no lineage";
+            setStatus(`created + downloaded offisos-topic.bcf (${bcf.size.toLocaleString()} bytes, ${bcf.referencedCanonicalIds} referenced guid(s), ${viewpointNote}${lineageNote}) — parse it to verify the round trip`);
           }
         } else {
           setBcfResult(null);
@@ -596,7 +761,7 @@ export function IfcWorkbench(): React.JSX.Element {
         setError(`[ifc.bcfCreate] ${(e as Error).message}`);
       }
     })();
-  }, [bcfForm, bcfElements, exec]);
+  }, [bcfForm, bcfElements, bcfViewpointOn, bcfViewpointForm, bcfSourceRevision, exec]);
 
   const onBcfParse = React.useCallback(() => {
     if (bcfResult === null) return;
@@ -611,7 +776,8 @@ export function IfcWorkbench(): React.JSX.Element {
         } else {
           setBcfParsed(parsed);
           const resolved = parsed.topics.flatMap((t) => t.resolvedCanonicalIds).filter((id) => id !== null).length;
-          setStatus(`BCF round trip — ${parsed.topics.length} topic(s) parsed, ${resolved} reference(s) resolved to canonical ids`);
+          const withViewpoint = parsed.topics.filter((t) => t.viewpoint !== null).length;
+          setStatus(`BCF round trip — ${parsed.topics.length} topic(s) parsed, ${resolved} reference(s) resolved to canonical ids, ${withViewpoint} with a camera viewpoint`);
         }
       } else {
         setBcfParsed(null);
@@ -619,9 +785,161 @@ export function IfcWorkbench(): React.JSX.Element {
     })();
   }, [bcfResult, exec]);
 
+  // --- CAD-PARITY-014 actions: DXF exchange ------------------------------------
+
+  const onDxfExport = React.useCallback(() => {
+    void (async () => {
+      setStatus("exporting the drafting surface to DXF… (deterministic R2000 ASCII — no engine needed)");
+      const res = await exec("dxf.export", () => dxfExport());
+      if (res.ok) {
+        const ex = unwrapDxfExport(res);
+        if (ex === null) {
+          setError("[dxf.export] unexpected response shape");
+          setDxfResult(null);
+        } else {
+          setDxfResult(ex);
+          const skipped = ex.counts.skipped > 0
+            ? `, ${ex.counts.skipped} skipped (${ex.skippedKinds.join(", ")})`
+            : "";
+          setStatus(`exported DXF · ${ex.size.toLocaleString()} bytes · ${ex.counts.exported} entities${skipped} · sha256 ${ex.sha256.slice(0, 16)}…`);
+        }
+      } else {
+        setDxfResult(null);
+      }
+    })();
+  }, [exec]);
+
+  const onDownloadDxf = React.useCallback(() => {
+    if (dxfResult === null) return;
+    downloadBlob(base64ToBlob(dxfResult.bytesBase64, "application/dxf"), "offisos-export.dxf");
+    setStatus(`downloaded offisos-export.dxf (${dxfResult.size.toLocaleString()} bytes, sha256 ${dxfResult.sha256.slice(0, 16)}…)`);
+  }, [dxfResult]);
+
+  /** Stage the last export's ASCII text into the import field (the
+   *  ifc-import-use-export pattern — the round trip should reconcile
+   *  all-unchanged into the same document). */
+  const onDxfUseExport = React.useCallback(() => {
+    if (dxfResult === null) return;
+    setDxfInput(base64ToText(dxfResult.bytesBase64));
+    setStatus("staged the last DXF export text — importing it into the same document should reconcile all-unchanged");
+  }, [dxfResult]);
+
+  const onDxfImportRun = React.useCallback(() => {
+    void (async () => {
+      try {
+        const text = dxfInput.trim();
+        if (text === "") {
+          throw new Error("paste DXF ASCII text or stage the last export first");
+        }
+        setStatus("importing the DXF… (ONE atomic revision: linetypes + layers + elements)");
+        const res = await exec("dxf.import", () => dxfImport({ dxf: textToBase64(text) }));
+        if (res.ok) {
+          const imp = unwrapDxfImport(res);
+          if (imp === null) {
+            setError("[dxf.import] unexpected response shape");
+            setDxfImportResult(null);
+          } else {
+            setDxfImportResult(imp);
+            setStatus(`DXF import — created ${imp.created} (unit ${imp.report.unit}, ×${imp.report.scaleToMm} → mm) · report hash ${imp.reportHash.slice(0, 12)}…`);
+          }
+        } else {
+          setDxfImportResult(null);
+        }
+      } catch (e) {
+        setError(`[dxf.import] ${(e as Error).message}`);
+      }
+    })();
+  }, [dxfInput, exec]);
+
+  // --- CAD-PARITY-014 actions: sheet export (Sheet IR → pdf/svg) ---------------
+
+  const onSheetExport = React.useCallback(() => {
+    void (async () => {
+      try {
+        const id = sheetId;
+        if (id === "") {
+          throw new Error("select a sheet first (documentation sheets are created in the Documentation view)");
+        }
+        setStatus(`exporting sheet ${id} as ${sheetFormat}… (the deterministic writer — byte-identical on every host)`);
+        const res = await exec("docs.exportSheet", () => docsExportSheet(id, sheetFormat));
+        if (res.ok) {
+          if (sheetFormat === "sheet-ir") {
+            // The canonical IR arm — its own legacy mirror (DocsExportResult:
+            // ir + canonical + hash — the frozen P013 interchange contract).
+            const ir = unwrapDocsExport(res);
+            if (ir === null) {
+              setError("[docs.exportSheet] unexpected response shape");
+              setSheetResult(null);
+            } else {
+              setSheetResult(ir);
+              setStatus(`exported ${id} → canonical Sheet IR (${ir.canonical.length.toLocaleString()} bytes, sha256 ${ir.hash.slice(0, 16)}…) — the frozen P013 interchange contract`);
+            }
+          } else {
+            const ex = unwrapDocsExportSheet(res);
+            if (ex === null) {
+              setError("[docs.exportSheet] unexpected response shape");
+              setSheetResult(null);
+            } else {
+              setSheetResult(ex);
+              setStatus(`exported ${id} → ${ex.format} (${ex.size.toLocaleString()} bytes, sha256 ${ex.sha256.slice(0, 16)}…, irHash ${ex.irHash.slice(0, 12)}…)`);
+            }
+          }
+        } else {
+          setSheetResult(null);
+        }
+      } catch (e) {
+        setError(`[docs.exportSheet] ${(e as Error).message}`);
+      }
+    })();
+  }, [sheetId, sheetFormat, exec]);
+
+  const onSheetDownload = React.useCallback(() => {
+    if (sheetResult === null || sheetResult.format === "sheet-ir") return;
+    if (sheetResult.format === "pdf" && sheetResult.bytesBase64 !== undefined) {
+      downloadBlob(base64ToBlob(sheetResult.bytesBase64, "application/pdf"), `${sheetResult.sheetId}.pdf`);
+      setStatus(`downloaded ${sheetResult.sheetId}.pdf (${sheetResult.size.toLocaleString()} bytes)`);
+    } else if (sheetResult.format === "svg" && sheetResult.text !== undefined) {
+      downloadBlob(new Blob([sheetResult.text], { type: "image/svg+xml" }), `${sheetResult.sheetId}.svg`);
+      setStatus(`downloaded ${sheetResult.sheetId}.svg (${sheetResult.text.length.toLocaleString()} chars)`);
+    }
+  }, [sheetResult]);
+
+  // --- CAD-PARITY-014 actions: round-trip verification -------------------------
+
+  /** interop.roundtripReport — the DRY verification loops. The dxf arm is
+   *  pure TS; the ifc arm fails typed ifc_unavailable without the toolchain
+   *  (surfaced through the standard error banner — the honest behavior). */
+  const onRoundtrip = React.useCallback(
+    (format: "ifc" | "dxf") => {
+      void (async () => {
+        setStatus(`running the ${format.toUpperCase()} round-trip verification… (dry run — nothing is written)`);
+        const res = await exec("interop.roundtripReport", () => interopRoundtripReport(format));
+        if (res.ok) {
+          const rt = unwrapInteropRoundtripReport(res);
+          if (rt === null) {
+            setError("[interop.roundtripReport] unexpected response shape");
+            setRoundtrip(null);
+          } else {
+            setRoundtrip(rt);
+            if (rt.format === "dxf") {
+              setStatus(`DXF round trip — ${rt.report.summary.unchanged}/${rt.report.elements.length} elements unchanged within 1e-5 mm · report hash ${rt.reportHash.slice(0, 12)}…`);
+            } else {
+              const docNote = rt.documentation !== undefined ? ` + ${rt.documentation.summary.unchanged} doc record(s) unchanged` : "";
+              setStatus(`IFC round trip — ${rt.elements.summary.unchanged}/${rt.elements.elements.length} elements unchanged${docNote} · report hash ${rt.reportHash.slice(0, 12)}…`);
+            }
+          }
+        } else {
+          setRoundtrip(null);
+        }
+      })();
+    },
+    [exec],
+  );
+
   // --- render ---------------------------------------------------------------------
 
   const counts = exportResult?.counts;
+  const docCounts = exportResult?.documentation;
   const compareDiff = compareResult !== null ? reportDiff(compareResult.report) : [];
 
   return (
@@ -731,6 +1049,19 @@ export function IfcWorkbench(): React.JSX.Element {
                       <Badge variant="secondary" className="font-mono">{counts.doors} doors</Badge>
                       <Badge variant="secondary" className="font-mono">{counts.windows} windows</Badge>
                       <Badge variant="secondary" className="font-mono">{counts.spaces} spaces</Badge>
+                      {/* CAD-PARITY-014 (additive): the IfcGroup documentation
+                          carrier counts — present only when at least one
+                          documentation table is non-empty. */}
+                      {docCounts !== undefined && (
+                        <>
+                          <Badge variant="secondary" className="font-mono" data-testid="ifc-export-doc-counts">
+                            doc records: {docCounts.views + docCounts.layouts + docCounts.navigatorNodes + docCounts.titleBlocks + docCounts.schedules + docCounts.revisions + docCounts.publisherSets}
+                          </Badge>
+                          {docCounts.sheetsNotExported > 0 && (
+                            <Badge variant="outline" className="font-mono">sheets not exported: {docCounts.sheetsNotExported}</Badge>
+                          )}
+                        </>
+                      )}
                     </div>
                   )}
                 </div>
@@ -945,6 +1276,206 @@ export function IfcWorkbench(): React.JSX.Element {
                 </div>
               )}
             </div>
+
+            <Separator />
+
+            {/* CAD-PARITY-014: DXF exchange panel */}
+            <div data-testid="interop-dxf-section">
+              <div className="text-sm font-semibold mb-1">DXF exchange</div>
+              <p className="text-xs text-muted-foreground mb-1.5">
+                dxf.export / dxf.import — the bounded deterministic DXF R2000 ASCII interchange of the 2D
+                drafting surface: LINE/CIRCLE/ARC/ELLIPSE/LWPOLYLINE/SPLINE/POINT/RAY/XLINE/TEXT + the
+                layer/linetype tables + $INSUNITS. Out-of-boundary constructs are skipped and counted
+                (never silent); the proprietary DWG binary is the typed decline. No engine needed — the
+                writer/reader are pure shared-core code.
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  size="sm"
+                  data-testid="interop-dxf-export"
+                  disabled={busy}
+                  onClick={onDxfExport}
+                  title="dxf.export — the bounded deterministic DXF R2000 ASCII text (identical state → identical bytes)"
+                >
+                  <FileText aria-hidden="true" />
+                  Export DXF
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  data-testid="interop-dxf-download"
+                  disabled={busy || dxfResult === null}
+                  onClick={onDownloadDxf}
+                  title="download the exported text as offisos-export.dxf"
+                >
+                  <Download aria-hidden="true" />
+                  Download .dxf
+                </Button>
+              </div>
+              {dxfResult !== null && (
+                <div data-testid="interop-dxf-result" className="mt-2 rounded border bg-muted/40 p-2.5 text-xs">
+                  <p className="font-mono break-all">sha256 {dxfResult.sha256}</p>
+                  <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                    <Badge variant="outline" className="font-mono">R2000 ASCII</Badge>
+                    <Badge variant="outline" className="font-mono">{dxfResult.size.toLocaleString()} bytes</Badge>
+                    <Badge variant="secondary" className="font-mono">{dxfResult.counts.exported} entities exported</Badge>
+                    {dxfResult.counts.skipped > 0 && (
+                      <Badge variant="secondary" className="font-mono">{dxfResult.counts.skipped} skipped</Badge>
+                    )}
+                    {Object.entries(dxfResult.counts.byKind).map(([kind, count]) => (
+                      <Badge key={kind} variant="outline" className="font-mono">{kind} ×{count}</Badge>
+                    ))}
+                    {dxfResult.skippedKinds.map((kind) => (
+                      <span key={kind} className={FIELD_CLASS_CLASS.unsupported} title="skipped out-of-boundary construct (counted, never silent)">
+                        {kind}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+              <textarea
+                data-testid="interop-dxf-input"
+                aria-label="DXF ASCII payload"
+                className="w-full min-h-20 border rounded px-2 py-1 text-xs font-mono bg-transparent break-all"
+                placeholder="paste DXF ASCII text…"
+                value={dxfInput}
+                onChange={(e) => setDxfInput(e.target.value)}
+                spellCheck={false}
+              />
+              <div className="mt-1.5 flex flex-wrap items-center gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  data-testid="interop-dxf-use-export"
+                  disabled={busy || dxfResult === null}
+                  onClick={onDxfUseExport}
+                  title="stage the last export's text — importing it into the same document should reconcile all-unchanged"
+                >
+                  Use last export
+                </Button>
+                <Button
+                  size="sm"
+                  data-testid="interop-dxf-import-run"
+                  disabled={busy}
+                  onClick={onDxfImportRun}
+                  title="dxf.import — ONE atomic versioned command (linetypes + layers + elements; ids minted by the document)"
+                >
+                  Import DXF
+                </Button>
+                <span className="text-[11px] text-muted-foreground">
+                  pasting a DWG binary is the typed dwg_unsupported decline (detected, never parsed)
+                </span>
+              </div>
+              {dxfImportResult !== null && (
+                <div data-testid="interop-dxf-import-result" className="mt-2 rounded border bg-muted/30 p-2.5 text-xs">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <Badge variant="secondary" className="font-mono">created {dxfImportResult.created}</Badge>
+                    <Badge variant="outline" className="font-mono" title={dxfImportResult.report.sourceSha256}>source {truncate(dxfImportResult.report.sourceSha256, 12)}</Badge>
+                    <Badge variant="outline" className="font-mono">unit {dxfImportResult.report.unit} ×{dxfImportResult.report.scaleToMm} → mm</Badge>
+                    <span className="font-mono text-muted-foreground" title={dxfImportResult.reportHash}>report {truncate(dxfImportResult.reportHash, 16)}</span>
+                  </div>
+                  <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                    <span className={ACTION_CLASS.created}>+{dxfImportResult.report.counts.elements} elements</span>
+                    <span className={ACTION_CLASS.created}>+{dxfImportResult.report.counts.layers} layers</span>
+                    <span className={ACTION_CLASS.created}>+{dxfImportResult.report.counts.ltypes} ltypes</span>
+                    {dxfImportResult.report.unsupported.map((u) => (
+                      <span key={u.type} className={FIELD_CLASS_CLASS.unsupported} title={`unsupported construct (skipped + counted, never approximated)`}>
+                        {u.type} ×{u.count}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <Separator />
+
+            {/* CAD-PARITY-014: sheet export panel (Sheet IR → pdf/svg) */}
+            <div data-testid="interop-sheet-section">
+              <div className="text-sm font-semibold mb-1">Sheet export (Sheet IR → PDF / SVG)</div>
+              <p className="text-xs text-muted-foreground mb-1.5">
+                docs.exportSheet — one documentation sheet through the canonical Sheet IR or the
+                deterministic writers (the Sheet IR bridges onto the existing plot writers —
+                byte-identical on every host; the irHash binds the output to the unchanged IR).
+                Sheets are created in the Documentation view.
+              </p>
+              <div className="grid grid-cols-2 gap-2 items-start text-sm">
+                <Field label="sheet">
+                  <select
+                    data-testid="interop-sheet-select"
+                    aria-label="Documentation sheet"
+                    className={INP}
+                    value={sheetId}
+                    onChange={(e) => setSheetIdForm(e.target.value)}
+                  >
+                    {sheets.length === 0 && <option value="">no sheets in this document</option>}
+                    {sheets.map((s) => (
+                      <option key={s.id} value={s.id}>{s.id} · {s.title}</option>
+                    ))}
+                  </select>
+                </Field>
+                <Field label="format">
+                  <select
+                    data-testid="interop-sheet-format"
+                    aria-label="Sheet export format"
+                    className={INP}
+                    value={sheetFormat}
+                    onChange={(e) => setSheetFormat(e.target.value as "pdf" | "svg" | "sheet-ir")}
+                  >
+                    <option value="pdf">pdf</option>
+                    <option value="svg">svg</option>
+                    <option value="sheet-ir">sheet-ir</option>
+                  </select>
+                </Field>
+              </div>
+              <p data-testid="interop-sheet-dwg-note" className="mt-1 text-[11px] leading-snug text-muted-foreground">
+                DWG is a typed decline (proprietary) — DXF is the open interchange path.
+              </p>
+              <div className="flex flex-wrap gap-2 mt-2">
+                <Button
+                  size="sm"
+                  data-testid="interop-sheet-export-run"
+                  disabled={busy || sheetId === ""}
+                  onClick={onSheetExport}
+                  title="docs.exportSheet — the canonical Sheet IR or the deterministic pdf/svg writers"
+                >
+                  <FileDown aria-hidden="true" />
+                  Export sheet
+                </Button>
+                {sheetResult !== null && sheetResult.format !== "sheet-ir" && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    data-testid="interop-sheet-download"
+                    disabled={busy}
+                    onClick={onSheetDownload}
+                    title={sheetResult.format === "pdf" ? "download the deterministic PDF bytes" : "download the deterministic SVG text"}
+                  >
+                    <Download aria-hidden="true" />
+                    Download .{sheetResult.format}
+                  </Button>
+                )}
+              </div>
+              {sheetResult !== null && (
+                <div data-testid="interop-sheet-result" className="mt-2 rounded border bg-muted/40 p-2.5 text-xs">
+                  <p className="font-mono break-all">
+                    {sheetResult.format === "sheet-ir"
+                      ? `irHash ${sheetResult.hash}`
+                      : `sha256 ${sheetResult.sha256}`}
+                  </p>
+                  <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                    <Badge variant="outline" className="font-mono">{sheetResult.format}</Badge>
+                    <Badge variant="outline" className="font-mono">{sheetResult.sheetId}</Badge>
+                    <Badge variant="outline" className="font-mono">
+                      {(sheetResult.format === "sheet-ir" ? sheetResult.canonical.length : sheetResult.size).toLocaleString()} bytes
+                    </Badge>
+                    {sheetResult.format !== "sheet-ir" && (
+                      <Badge variant="outline" className="font-mono" title={sheetResult.irHash}>ir {truncate(sheetResult.irHash, 12)}</Badge>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
 
           {/* --- right: seed + IDS + BCF + records ------------------------------- */}
@@ -1062,6 +1593,51 @@ export function IfcWorkbench(): React.JSX.Element {
                   <input className={INP} aria-label="BCF topic comment" value={bcfForm.comment} onChange={(e) => setBcfForm((f) => ({ ...f, comment: e.target.value }))} />
                 </Field>
               </div>
+              {/* CAD-PARITY-014 (D3): the optional camera viewpoint + source lineage. */}
+              <div className="mt-2 rounded border bg-muted/20 p-2">
+                <label className="flex items-center gap-1.5 text-xs font-medium">
+                  <input
+                    type="checkbox"
+                    data-testid="interop-bcf-viewpoint-toggle"
+                    checked={bcfViewpointOn}
+                    onChange={(e) => setBcfViewpointOn(e.target.checked)}
+                    aria-label="include a camera viewpoint"
+                  />
+                  Camera viewpoint (world metres — camera / direction / up)
+                </label>
+                {bcfViewpointOn && (
+                  <div className="mt-1.5 grid grid-cols-[max-content_1fr_1fr_1fr] gap-1.5 items-center text-xs">
+                    <span className="text-muted-foreground font-medium">cameraViewPoint</span>
+                    <input className={INP} data-testid="interop-bcf-camera-x" aria-label="camera view point x" value={bcfViewpointForm.camX} onChange={(e) => setBcfViewpointForm((f) => ({ ...f, camX: e.target.value }))} placeholder="x" />
+                    <input className={INP} data-testid="interop-bcf-camera-y" aria-label="camera view point y" value={bcfViewpointForm.camY} onChange={(e) => setBcfViewpointForm((f) => ({ ...f, camY: e.target.value }))} placeholder="y" />
+                    <input className={INP} data-testid="interop-bcf-camera-z" aria-label="camera view point z" value={bcfViewpointForm.camZ} onChange={(e) => setBcfViewpointForm((f) => ({ ...f, camZ: e.target.value }))} placeholder="z" />
+                    <span className="text-muted-foreground font-medium">cameraDirection</span>
+                    <input className={INP} data-testid="interop-bcf-dir-x" aria-label="camera direction x" value={bcfViewpointForm.dirX} onChange={(e) => setBcfViewpointForm((f) => ({ ...f, dirX: e.target.value }))} placeholder="x" />
+                    <input className={INP} data-testid="interop-bcf-dir-y" aria-label="camera direction y" value={bcfViewpointForm.dirY} onChange={(e) => setBcfViewpointForm((f) => ({ ...f, dirY: e.target.value }))} placeholder="y" />
+                    <input className={INP} data-testid="interop-bcf-dir-z" aria-label="camera direction z" value={bcfViewpointForm.dirZ} onChange={(e) => setBcfViewpointForm((f) => ({ ...f, dirZ: e.target.value }))} placeholder="z" />
+                    <span className="text-muted-foreground font-medium">cameraUpVector</span>
+                    <input className={INP} data-testid="interop-bcf-up-x" aria-label="camera up vector x" value={bcfViewpointForm.upX} onChange={(e) => setBcfViewpointForm((f) => ({ ...f, upX: e.target.value }))} placeholder="x" />
+                    <input className={INP} data-testid="interop-bcf-up-y" aria-label="camera up vector y" value={bcfViewpointForm.upY} onChange={(e) => setBcfViewpointForm((f) => ({ ...f, upY: e.target.value }))} placeholder="y" />
+                    <input className={INP} data-testid="interop-bcf-up-z" aria-label="camera up vector z" value={bcfViewpointForm.upZ} onChange={(e) => setBcfViewpointForm((f) => ({ ...f, upZ: e.target.value }))} placeholder="z" />
+                  </div>
+                )}
+                <div className="mt-1.5">
+                  <input
+                    className={INP}
+                    data-testid="interop-bcf-source-rev"
+                    aria-label="BCF source revision (model state reference)"
+                    value={bcfSourceRevision}
+                    onChange={(e) => setBcfSourceRevision(e.target.value)}
+                    placeholder="the model state reference, e.g. the save sha256"
+                  />
+                </div>
+                <p className="mt-1 text-[11px] leading-snug text-muted-foreground">
+                  The viewpoint rides as the BCF 3.0 VisualizationInfo camera (perspective here; parsed
+                  back within the declared 1e-6 tolerance); the source revision rides as the topic's
+                  document reference (description "offisos-source-model-revision") and parses back
+                  exactly. Uncheck for the legacy topic shape (origin-target camera, no lineage).
+                </p>
+              </div>
               <p className="text-xs text-muted-foreground mt-2 mb-1">
                 Referenced elements (canonical ids — {bcfElements.length} selected):
               </p>
@@ -1129,6 +1705,18 @@ export function IfcWorkbench(): React.JSX.Element {
                           <span className="text-muted-foreground">({c.date})</span>: {c.comment}
                         </p>
                       ))}
+                      {/* CAD-PARITY-014: the parsed camera viewpoint + the source
+                          lineage — the round-trip evidence (null is honest). */}
+                      <p data-testid="interop-bcf-parsed-viewpoint" className="mt-0.5 font-mono">
+                        {topic.viewpoint !== null
+                          ? `viewpoint: camera (${topic.viewpoint.cameraViewPoint.join(", ")}) · dir (${topic.viewpoint.cameraDirection.join(", ")}) · up (${topic.viewpoint.cameraUpVector.join(", ")}) · ${topic.viewpoint.orthogonal ? `orthogonal ×${topic.viewpoint.viewToWorldScale ?? "?"}` : "perspective"}`
+                          : "viewpoint: none (the legacy topic shape)"}
+                      </p>
+                      <p data-testid="interop-bcf-parsed-source-rev" className="mt-0.5 font-mono">
+                        {topic.sourceRevision !== null
+                          ? `source revision: ${truncate(topic.sourceRevision, 24)}`
+                          : "source revision: none"}
+                      </p>
                       <p className="mt-1 font-medium">References → canonical ids:</p>
                       <ul className="mt-0.5 space-y-0.5 font-mono">
                         {topic.references.map((guid, j) => {
@@ -1192,6 +1780,178 @@ export function IfcWorkbench(): React.JSX.Element {
               </div>
             </div>
           </div>
+        </div>
+
+        <Separator />
+
+        {/* CAD-PARITY-014 (Issue #107): the archival / exchange / round-trip
+            registry — the legal compatibility surface (engine-free). */}
+        <div data-testid="interop-registry-section">
+          <div className="text-sm font-semibold mb-1">Archival registry · exchange classification · round trips</div>
+          <p className="text-xs text-muted-foreground mb-2">
+            interop.archivalList — the legal compatibility surface of every carrier (open standards,
+            published specs, the proprietary DWG decline; the determinism column marks sha256
+            evidence) · interop.exchangeReport — the authoritative per-concept classification
+            (exact/tolerance/lossy/unsupported) · interop.roundtripReport — the DRY verification
+            loops (nothing is written; the ifc loop needs the IFC adapter — a typed ifc_unavailable
+            failure without the toolchain is the honest result, shown in the error banner).
+          </p>
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+            <div>
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 mb-1">
+                <span className="text-xs font-medium">Archival formats</span>
+                {archival !== null && <Badge variant="outline" className="font-mono">{archival.contract}</Badge>}
+              </div>
+              <div data-testid="interop-archival-rows" className="overflow-x-auto rounded border">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="border-b bg-muted/40 text-left">
+                      <th className="px-2 py-1.5 font-medium">format</th>
+                      <th className="px-2 py-1.5 font-medium">legal</th>
+                      <th className="px-2 py-1.5 font-medium">carrier</th>
+                      <th className="px-2 py-1.5 font-medium">determinism</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(archival?.rows ?? []).map((row) => (
+                      <tr key={row.format} className="border-b last:border-b-0 align-top" title={row.bounded}>
+                        <td className="px-2 py-1.5 font-mono whitespace-nowrap">{row.format}</td>
+                        <td className="px-2 py-1.5">
+                          <span className={ARCHIVAL_LEGAL_CLASS[row.legal]}>{row.legal}</span>
+                        </td>
+                        <td className="px-2 py-1.5 font-mono text-muted-foreground">{row.carrier}</td>
+                        <td className="px-2 py-1.5">
+                          {row.determinism.sha256Available ? (
+                            <span className="font-mono text-green-700 dark:text-green-400">sha256 ✓</span>
+                          ) : (
+                            <span className="font-mono text-muted-foreground">—</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                    {archival === null && (
+                      <tr>
+                        <td colSpan={4} className="px-2 py-1.5 text-muted-foreground">loading the archival registry…</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+            <div>
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 mb-1">
+                <span className="text-xs font-medium">Exchange classification</span>
+                {exchange !== null && <Badge variant="outline" className="font-mono">{exchange.contract}</Badge>}
+              </div>
+              <div data-testid="interop-exchange-rows" className="overflow-x-auto rounded border max-h-72 overflow-y-auto">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="border-b bg-muted/40 text-left">
+                      <th className="px-2 py-1.5 font-medium">concept</th>
+                      <th className="px-2 py-1.5 font-medium">classification</th>
+                      <th className="px-2 py-1.5 font-medium">note</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(exchange?.classifications ?? []).map((row) => (
+                      <tr key={row.concept} className="border-b last:border-b-0 align-top">
+                        <td className="px-2 py-1.5 font-mono whitespace-nowrap">{row.concept}</td>
+                        <td className="px-2 py-1.5">
+                          <span className={FIELD_CLASS_CLASS[row.classification as IfcFieldClassification]}>{row.classification}</span>
+                        </td>
+                        <td className="px-2 py-1.5 text-muted-foreground">{row.note}</td>
+                      </tr>
+                    ))}
+                    {exchange === null && (
+                      <tr>
+                        <td colSpan={3} className="px-2 py-1.5 text-muted-foreground">loading the exchange classification…</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+              {exchange !== null && (
+                <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-xs">
+                  <span className="text-muted-foreground">current document:</span>
+                  <Badge variant="outline" className="font-mono">{exchange.counts.elements} elements</Badge>
+                  <Badge variant="outline" className="font-mono">{exchange.counts.layers} layers</Badge>
+                  <Badge variant="outline" className="font-mono">{exchange.counts.views} views</Badge>
+                  <Badge variant="outline" className="font-mono">{exchange.counts.sheets} sheets</Badge>
+                  <Badge variant="outline" className="font-mono">{exchange.counts.layouts} layouts</Badge>
+                  <Badge variant="outline" className="font-mono">{exchange.counts.titleBlocks} title blocks</Badge>
+                  <Badge variant="outline" className="font-mono">{exchange.counts.schedules} schedules</Badge>
+                  <Badge variant="outline" className="font-mono">{exchange.counts.revisions} revisions</Badge>
+                  <Badge variant="outline" className="font-mono">{exchange.counts.publisherSets} publisher sets</Badge>
+                  <Badge variant="outline" className="font-mono">{exchange.counts.navigatorNodes} navigator nodes</Badge>
+                </div>
+              )}
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-2 mt-3">
+            <Button
+              size="sm"
+              variant="secondary"
+              data-testid="interop-roundtrip-dxf"
+              disabled={busy}
+              onClick={() => onRoundtrip("dxf")}
+              title="interop.roundtripReport 'dxf' — export → parse → the DRY mapping with the per-field 1e-5 mm classification (pure TS, nothing is written)"
+            >
+              <ArrowLeftRight aria-hidden="true" />
+              Round-trip DXF
+            </Button>
+            <Button
+              size="sm"
+              variant="secondary"
+              data-testid="interop-roundtrip-ifc"
+              disabled={busy}
+              onClick={() => onRoundtrip("ifc")}
+              title="interop.roundtripReport 'ifc' — export → parse → the DRY element + documentation reconciliation (needs the IFC adapter; typed ifc_unavailable without it)"
+            >
+              <ArrowLeftRight aria-hidden="true" />
+              Round-trip IFC
+            </Button>
+          </div>
+          {roundtrip !== null && (
+            <div data-testid="interop-roundtrip-result" className="mt-2 rounded border bg-muted/30 p-2.5 text-xs">
+              <p className="font-mono break-all" title={roundtrip.sourceSha256}>source sha256 {truncate(roundtrip.sourceSha256, 24)}</p>
+              {roundtrip.format === "dxf" ? (
+                <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                  <Badge variant="outline" className="font-mono">dxf</Badge>
+                  <span className={ACTION_CLASS.unchanged}>unchanged {roundtrip.report.summary.unchanged}</span>
+                  <span className={ACTION_CLASS.reconciled}>reconciled {roundtrip.report.summary.reconciled}</span>
+                  <span className={ACTION_CLASS.unsupported}>unsupported {roundtrip.report.summary.unsupported}</span>
+                  <span className="text-muted-foreground">·</span>
+                  <span className={FIELD_CLASS_CLASS.exact}>exact {roundtrip.report.summary.exact}</span>
+                  <span className={FIELD_CLASS_CLASS.tolerance}>tolerance {roundtrip.report.summary.tolerance}</span>
+                  <span className={FIELD_CLASS_CLASS.lossy}>lossy {roundtrip.report.summary.lossy}</span>
+                  <span className="text-muted-foreground">
+                    · {roundtrip.report.source.exported} exported · layers {roundtrip.report.layers.matched} matched
+                  </span>
+                  {roundtrip.report.unsupported.map((u) => (
+                    <span key={u.type} className={FIELD_CLASS_CLASS.unsupported}>{u.type} ×{u.count}</span>
+                  ))}
+                </div>
+              ) : (
+                <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                  <Badge variant="outline" className="font-mono">ifc</Badge>
+                  <span className={ACTION_CLASS.unchanged}>elements unchanged {roundtrip.elements.summary.unchanged}</span>
+                  <span className={ACTION_CLASS.reconciled}>reconciled {roundtrip.elements.summary.reconciled}</span>
+                  <span className={ACTION_CLASS.unsupported}>unsupported {roundtrip.elements.summary.unsupported}</span>
+                  {roundtrip.documentation !== undefined && (
+                    <>
+                      <span className="text-muted-foreground">·</span>
+                      <span className={ACTION_CLASS.unchanged}>doc records unchanged {roundtrip.documentation.summary.unchanged}</span>
+                      <span className={ACTION_CLASS.created}>doc created {roundtrip.documentation.summary.created}</span>
+                    </>
+                  )}
+                  <span className="text-muted-foreground">
+                    · fields: exact {roundtrip.elements.summary.exact}, tolerance {roundtrip.elements.summary.tolerance}, lossy {roundtrip.elements.summary.lossy}
+                  </span>
+                </div>
+              )}
+              <p className="mt-1 font-mono text-muted-foreground" title={roundtrip.reportHash}>report {truncate(roundtrip.reportHash, 24)}</p>
+            </div>
+          )}
         </div>
       </CardContent>
     </Card>

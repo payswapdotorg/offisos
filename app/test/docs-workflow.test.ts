@@ -277,10 +277,19 @@ test("sheets + title blocks: placements validate; export IR is canonical + deter
   assert.equal(e1.ir.views.length, 4);
   assert.match(e1.hash, /^[0-9a-f]{64}$/);
 
-  // PDF/DWG writers are contracts only — typed explicit failure.
-  const pdf = errVal(await qq(h, "docs.exportSheet", { sheetId: "sh-000001", format: "pdf" }));
-  assert.equal(pdf.code, "docs_unsupported");
-  assert.match(pdf.message, /not implemented/);
+  // CAD-PARITY-014 (Issue #107): pdf/svg are now REAL deterministic writers
+  // (the Sheet IR bridges onto the plot writers) — bytes + sha; DWG stays
+  // the typed proprietary decline. (This assertion was the P013 interim
+  // "contract only" decline; the P014 committed design supersedes it — the
+  // only intentionally-updated prior assertion in this slice, disclosed.)
+  const pdf1 = val<{ format: string; bytesBase64: string; size: number; sha256: string }>(
+    await qq(h, "docs.exportSheet", { sheetId: "sh-000001", format: "pdf" }),
+  );
+  const pdf2 = val<{ sha256: string }>(await qq(h, "docs.exportSheet", { sheetId: "sh-000001", format: "pdf" }));
+  assert.equal(pdf1.format, "pdf");
+  assert.ok(pdf1.size > 500, "a real PDF document");
+  assert.match(pdf1.sha256, /^[0-9a-f]{64}$/);
+  assert.equal(pdf1.sha256, pdf2.sha256, "deterministic PDF bytes");
   const dwg = errVal(await qq(h, "docs.exportSheet", { sheetId: "sh-000001", format: "dwg" }));
   assert.equal(dwg.code, "docs_unsupported");
 });

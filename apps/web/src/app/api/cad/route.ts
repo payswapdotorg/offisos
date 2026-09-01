@@ -72,7 +72,22 @@ const ENGINE_MODE = process.env.OFFISOS_GEOMETRY_ENGINE ?? "auto";
 async function createHandler(): Promise<AppApiHandler> {
   let bundle;
   if (ENGINE_MODE === "reference") {
-    bundle = createReferenceAdapterBundle();
+    // CAD-PARITY-014 (Issue #107, additive binding): reference mode can now
+    // ALSO serve ifc.* interop — the IFC interop adapter (a disposable
+    // IfcOpenShell worker spawned per ifc.* op, never the geometry path) is
+    // bound when the worker is explicitly configured ($OFFISOS_IFC_WORKER,
+    // the same env the ifc-process driver resolves). Hosts that do not set
+    // it keep the exact pre-P014 reference bundle (ifc.* fails typed
+    // ifc_unavailable — honest, never a silent fallback). The
+    // OFFISOS_GEOMETRY_ENGINE=reference parity-smoke basis can therefore
+    // exercise the full interop surface with the toolchain installed.
+    const ifcWorker = process.env.OFFISOS_IFC_WORKER;
+    bundle = createReferenceAdapterBundle(
+      undefined,
+      typeof ifcWorker === "string" && ifcWorker.length > 0
+        ? { ifc: createIfcInteropAdapter() }
+        : {},
+    );
   } else if (ENGINE_MODE === "occt") {
     bundle = createOcctAdapterBundle({ ifc: createIfcInteropAdapter() });
   } else {

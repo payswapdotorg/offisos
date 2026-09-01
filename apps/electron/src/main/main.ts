@@ -2018,20 +2018,26 @@ async function runDocsSmoke(win: BrowserWindow): Promise<void> {
     `${exportText} · direct hash identical=${exportHash10 === directHash10}`,
   );
 
-  // 11. Export pdf via the UI → the typed docs_unsupported failure surfaces in
-  //     the shared cad-error alert (+ direct assert of the typed code).
+  // 11. Export pdf via the UI → CAD-PARITY-014 (Issue #107): the REAL
+  //     deterministic PDF writer — bytes + sha256 + the irHash binding to the
+  //     step-10 Sheet IR + double-export byte-identity (the disclosed
+  //     migration of the P013 interim typed-decline assertion).
   const run11 = await currentRun();
   const clickedPdf = await click("docs-export-pdf");
   const pdfStatus = await waitDocsOp("export-pdf", run11 + 1, 30000);
-  const errorText11 = await readText("cad-error");
+  const pdfReadout11 = await readText("docs-export-readout");
   const directPdf = await qq("docs.exportSheet", { sheetId: "sh-000001", format: "pdf" });
-  const directPdfCode = directPdf && !directPdf.ok ? (directPdf as { code?: string }).code : "";
+  const directPdfAgain = await qq("docs.exportSheet", { sheetId: "sh-000001", format: "pdf" });
+  const pdfVal = directPdf && directPdf.ok ? (directPdf.value as { sha256?: string; size?: number; irHash?: string }) : null;
+  const pdfOk = pdfVal !== null && /^[0-9a-f]{64}$/.test(pdfVal.sha256 ?? "") && (pdfVal.size ?? 0) > 500;
   push(
     "11",
-    "export pdf via UI → typed docs_unsupported surfaced in the shared alert + direct assert",
-    clickedPdf && pdfStatus.state === "error" && /docs_unsupported/.test(errorText11) &&
-      directPdf.ok === false && directPdfCode === "docs_unsupported",
-    `ui=[${pdfStatus.state}] ${errorText11.slice(0, 160)} | direct code=${directPdfCode || "n/a"}`,
+    "export pdf via UI → the real deterministic writer (sha + irHash binding + byte-determinism)",
+    clickedPdf && pdfStatus.state === "done" &&
+      pdfOk && (pdfVal?.irHash ?? "") === (exportHash10 ?? "") &&
+      pdfVal?.sha256 === (directPdfAgain && directPdfAgain.ok ? (directPdfAgain.value as { sha256?: string }).sha256 : "") &&
+      pdfReadout11.includes((pdfVal?.sha256 ?? "").slice(0, 16)),
+    `ui=[${pdfStatus.state}] ${pdfReadout11.slice(0, 160)} | direct sha=${(pdfVal?.sha256 ?? "n/a").slice(0, 16)}… size=${pdfVal?.size ?? 0} irHash-identical=${(pdfVal?.irHash ?? "") === (exportHash10 ?? "")}`,
   );
 
   // 12. Save → open round trip via the UI → identical graph events hash, with

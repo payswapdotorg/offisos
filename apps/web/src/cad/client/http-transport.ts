@@ -912,9 +912,11 @@ export async function docsListSheets(): Promise<CommandQueryResponse> {
   return query("docs.listSheets", {});
 }
 
-/** Export one sheet. format "sheet-ir" returns the canonical IR + hash;
- *  "pdf"/"dwg" answer the typed `docs_unsupported` failure (contract only). */
-export async function docsExportSheet(sheetId: string, format: "sheet-ir" | "pdf" | "dwg"): Promise<CommandQueryResponse> {
+/** Export one sheet. "sheet-ir" returns the canonical IR + hash;
+ *  "pdf"/"svg" return the deterministic writer output (CAD-PARITY-014,
+ *  additive — the plot.export shapes); "dwg" stays the typed
+ *  `docs_unsupported` proprietary decline (the standard error path). */
+export async function docsExportSheet(sheetId: string, format: "sheet-ir" | "pdf" | "svg" | "dwg"): Promise<CommandQueryResponse> {
   return query("docs.exportSheet", { sheetId, format });
 }
 
@@ -1001,6 +1003,21 @@ export interface IfcExportCounts {
   spaces: number;
 }
 
+/** CAD-PARITY-014 (additive): the documentation-table export counts of an
+ *  `ifc.export` — present only when at least one table is non-empty (legacy
+ *  exports stay shape-identical). Sheets stay out of IFC by design (the
+ *  canonical Sheet IR is their carrier) and are counted as not exported. */
+export interface IfcExportDocumentationCounts {
+  views: number;
+  layouts: number;
+  navigatorNodes: number;
+  titleBlocks: number;
+  schedules: number;
+  revisions: number;
+  publisherSets: number;
+  sheetsNotExported: number;
+}
+
 /** Response value of `ifc.export` (mirror of the wire). */
 export interface IfcExportResult {
   /** Base64 of the deterministic IFC file bytes. */
@@ -1011,6 +1028,9 @@ export interface IfcExportResult {
   schema: string;
   engineVersion: string;
   counts: IfcExportCounts;
+  /** CAD-PARITY-014 (additive): the IfcGroup documentation carrier counts —
+   *  absent when the model carries no documentation tables. */
+  documentation?: IfcExportDocumentationCounts;
 }
 
 /** Field-level preservation classification of a reconciliation field. */
@@ -1107,6 +1127,22 @@ export interface IfcBcfTopicRequest {
   comment?: string;
   commentAuthor?: string;
   elementIds: string[];
+  /** CAD-PARITY-014 (additive): the topic's camera viewpoint (world metres;
+   *  absent = the legacy origin-target camera) and the source lineage (the
+   *  caller-chosen canonical model state reference). */
+  viewpoint?: IfcBcfViewpoint;
+  sourceRevision?: string;
+}
+
+/** A BCF 3.0 camera viewpoint of `ifc.bcfCreate` (CAD-PARITY-014, additive:
+ *  world metres; the vectors are three finite numbers each). */
+export interface IfcBcfViewpoint {
+  cameraViewPoint: [number, number, number];
+  cameraDirection: [number, number, number];
+  cameraUpVector: [number, number, number];
+  /** Orthogonal camera (viewToWorldScale required); absent = perspective. */
+  orthogonal?: boolean;
+  viewToWorldScale?: number;
 }
 
 /** Response value of `ifc.bcfCreate` (mirror of the wire). */
@@ -1171,6 +1207,20 @@ export interface IfcBcfParsedTopic {
   comments: IfcBcfParsedComment[];
   references: string[];
   resolvedCanonicalIds: (string | null)[];
+  /** CAD-PARITY-014 (additive): the parsed camera viewpoint (null when the
+   *  topic carries none) and the source lineage (null when absent). */
+  viewpoint: IfcBcfParsedViewpoint | null;
+  sourceRevision: string | null;
+}
+
+/** The parsed BCF camera viewpoint (viewToWorldScale null for perspective
+ *  cameras). */
+export interface IfcBcfParsedViewpoint {
+  cameraViewPoint: [number, number, number];
+  cameraDirection: [number, number, number];
+  cameraUpVector: [number, number, number];
+  orthogonal: boolean;
+  viewToWorldScale: number | null;
 }
 
 /** Response value of `ifc.bcfParse` (mirror of the wire). */
@@ -2161,4 +2211,296 @@ export function unwrapPublisherRun(res: CommandQueryResponse): PublisherRunResul
     return null;
   }
   return v as PublisherRunResult;
+}
+
+// --- CAD-PARITY-014 (Issue #107): file interoperability surface --------------
+//
+// Browser-safe mirror interfaces for the P014 ok-value shapes + the typed
+// wrappers (one command/query function + one null-on-mismatch unwrap per
+// surface — the P012/P013 discipline). `dxf.import` is the ONE versioned
+// command of the slice (ONE atomic revision, the ifc.import pattern incl.
+// the post-edit snapshot); `dxf.export` and the interop.* surfaces are
+// NON-VERSIONED queries (the plot.export precedent — nothing is written).
+
+/** Response value of `dxf.export` (mirror of the wire; NON-VERSIONED — the
+ *  plot.export precedent): the bounded deterministic DXF R2000 ASCII text
+ *  of the current drafting surface. */
+export interface DxfExportResult {
+  readonly format: "dxf";
+  /** Base64 of the DXF text bytes. */
+  readonly bytesBase64: string;
+  readonly size: number;
+  /** SHA-256 of the DXF bytes (the determinism proof). */
+  readonly sha256: string;
+  readonly counts: {
+    readonly exported: number;
+    readonly skipped: number;
+    /** Exported entities per DXF entity type (LINE/CIRCLE/…/TEXT). */
+    readonly byKind: Readonly<Record<string, number>>;
+  };
+  /** The sorted distinct skipped element kinds (counted, never silent). */
+  readonly skippedKinds: readonly string[];
+}
+
+/** One unsupported-construct count of a DXF import report (LOCK-007). */
+export interface DxfUnsupportedCount {
+  readonly type: string;
+  readonly count: number;
+}
+
+/** The canonical import report of `dxf.import` (the ifc.import report
+ *  discipline: per-entity classification rows + the canonical reportHash). */
+export interface DxfImportReport {
+  readonly sourceSha256: string;
+  /** The declared DXF unit + its factor to canonical mm. */
+  readonly unit: string;
+  readonly scaleToMm: number;
+  readonly counts: {
+    readonly elements: number;
+    readonly layers: number;
+    readonly ltypes: number;
+    readonly unsupported: number;
+  };
+  readonly rows: readonly IfcElementReport[];
+  readonly unsupported: readonly DxfUnsupportedCount[];
+}
+
+/** Response value of `dxf.import` (ONE atomic versioned command — the
+ *  ifc.import pattern incl. the post-edit snapshot). */
+export interface DxfImportResult {
+  readonly report: DxfImportReport;
+  readonly reportHash: string;
+  /** Element drafts + created layers count. */
+  readonly created: number;
+  readonly snapshot: unknown;
+}
+
+/** One `interop.exchangeReport` classification row (the ifc/report.ts
+ *  vocabulary over the exchange concepts). */
+export interface InteropExchangeEntry {
+  readonly concept: string;
+  readonly classification: string;
+  readonly note: string;
+}
+
+/** Response value of `interop.exchangeReport` — the P014 authoritative
+ *  exchange classification (the successor surface; the P013
+ *  docs.exchangeReport stays the frozen slice record) + the CURRENT
+ *  document table counts. */
+export interface InteropExchangeReport {
+  readonly contract: string;
+  readonly classifications: readonly InteropExchangeEntry[];
+  readonly counts: {
+    readonly elements: number;
+    readonly layers: number;
+    readonly views: number;
+    readonly sheets: number;
+    readonly layouts: number;
+    readonly titleBlocks: number;
+    readonly schedules: number;
+    readonly revisions: number;
+    readonly publisherSets: number;
+    readonly navigatorNodes: number;
+  };
+}
+
+/** One `interop.archivalList` registry row (the legal compatibility
+ *  surface). */
+export interface InteropArchivalRow {
+  readonly format: string;
+  readonly legal: "open-standard" | "published-spec" | "proprietary-declined";
+  /** The app-api surface that produces (or declines) the format. */
+  readonly carrier: string;
+  readonly determinism: { readonly sha256Available: boolean };
+  readonly bounded: string;
+}
+
+/** Response value of `interop.archivalList` (mirror of the wire). */
+export interface InteropArchivalListResult {
+  readonly contract: string;
+  readonly rows: readonly InteropArchivalRow[];
+}
+
+/** The documentation dimension of the ifc round-trip report (mirror — the
+ *  IfcGroup documentation carrier records + their summary). */
+export interface IfcRoundtripDocumentation {
+  readonly records: readonly IfcElementReport[];
+  readonly summary: IfcImportReport["summary"];
+}
+
+/** Response value of `interop.roundtripReport` — the "dxf" arm (the pure
+ *  export → parse → DRY-map loop; nothing is written). */
+export interface DxfRoundtripResult {
+  readonly format: "dxf";
+  readonly sourceSha256: string;
+  readonly report: {
+    readonly source: {
+      readonly sha256: string;
+      readonly unit: string;
+      readonly scaleToMm: number;
+      readonly exported: number;
+      readonly skipped: number;
+    };
+    readonly elements: readonly IfcElementReport[];
+    readonly layers: { readonly matched: number; readonly created: number; readonly lossy: number };
+    readonly unsupported: readonly DxfUnsupportedCount[];
+    readonly summary: IfcImportReport["summary"];
+  };
+  readonly reportHash: string;
+}
+
+/** Response value of `interop.roundtripReport` — the "ifc" arm (export →
+ *  parse → the DRY element + documentation reconciliation through the IFC
+ *  adapter; typed ifc_unavailable without one). */
+export interface IfcRoundtripResult {
+  readonly format: "ifc";
+  readonly sourceSha256: string;
+  readonly elements: IfcImportReport;
+  /** Present when the exported file carries the documentation carrier. */
+  readonly documentation?: IfcRoundtripDocumentation;
+  readonly reportHash: string;
+}
+
+/** Response value of `interop.roundtripReport` (either arm, identified by
+ *  the format discriminant). */
+export type InteropRoundtripReportResult = DxfRoundtripResult | IfcRoundtripResult;
+
+/** Response value of `docs.exportSheet` — the P014 writer arms (pdf →
+ *  bytesBase64/size/sha256/irHash, svg → text/size/sha256/irHash — the
+ *  EXACT plot.export shapes; "dwg" declines typed through the standard
+ *  error path). The legacy "sheet-ir" arm is mirrored by DocsExportResult. */
+export interface DocsExportSheetResult {
+  readonly format: "pdf" | "svg";
+  readonly sheetId: string;
+  /** pdf: base64 of the deterministic PDF bytes. */
+  readonly bytesBase64?: string;
+  /** svg: the deterministic SVG text. */
+  readonly text?: string;
+  readonly size: number;
+  readonly sha256: string;
+  /** The Sheet IR hash the writers are bound to (the unchanged IR proof). */
+  readonly irHash: string;
+}
+
+/** `dxf.import` — parse the bounded DXF and apply ONE atomic edit batch
+ *  (ltypes + layers + elements; ids minted by the document authority). The
+ *  DWG binary magic is the typed proprietary decline (dwg_unsupported);
+ *  units outside the declared set fail dxf_unsupported (no guessing). */
+export async function dxfImport(payload: { dxf: string }): Promise<CommandQueryResponse> {
+  return command("dxf.import", payload);
+}
+
+/** `dxf.export` (query) — the bounded deterministic DXF R2000 ASCII text
+ *  of the current drafting surface (identical state → identical bytes). */
+export async function dxfExport(): Promise<CommandQueryResponse> {
+  return query("dxf.export", {});
+}
+
+/** `interop.exchangeReport` (query) — the authoritative exchange
+ *  classification + the current document counts. */
+export async function interopExchangeReport(): Promise<CommandQueryResponse> {
+  return query("interop.exchangeReport", {});
+}
+
+/** `interop.archivalList` (query) — the archival format registry (the
+ *  legal compatibility surface: static, deterministic). */
+export async function interopArchivalList(): Promise<CommandQueryResponse> {
+  return query("interop.archivalList", {});
+}
+
+/** `interop.roundtripReport` (query, NON-VERSIONED — the DRY verification
+ *  loops never mutate). */
+export async function interopRoundtripReport(format: "ifc" | "dxf"): Promise<CommandQueryResponse> {
+  return query("interop.roundtripReport", { format });
+}
+
+/** Extract a DxfExportResult from a dxf.export ok response. */
+export function unwrapDxfExport(res: CommandQueryResponse): DxfExportResult | null {
+  if (!res.ok) return null;
+  const v = res.value as Partial<DxfExportResult> | null;
+  if (
+    typeof v !== "object" || v === null ||
+    typeof v.bytesBase64 !== "string" || typeof v.sha256 !== "string" ||
+    typeof v.size !== "number" ||
+    typeof v.counts !== "object" || v.counts === null ||
+    !Array.isArray(v.skippedKinds)
+  ) {
+    return null;
+  }
+  return v as DxfExportResult;
+}
+
+/** Extract a DxfImportResult from a dxf.import ok response. */
+export function unwrapDxfImport(res: CommandQueryResponse): DxfImportResult | null {
+  if (!res.ok) return null;
+  const v = res.value as Partial<DxfImportResult> | null;
+  if (
+    typeof v !== "object" || v === null ||
+    typeof v.report !== "object" || v.report === null ||
+    typeof v.reportHash !== "string" ||
+    typeof v.created !== "number"
+  ) {
+    return null;
+  }
+  return v as DxfImportResult;
+}
+
+/** Extract an InteropExchangeReport from an interop.exchangeReport ok
+ *  response. */
+export function unwrapInteropExchangeReport(res: CommandQueryResponse): InteropExchangeReport | null {
+  if (!res.ok) return null;
+  const v = res.value as Partial<InteropExchangeReport> | null;
+  if (
+    typeof v !== "object" || v === null ||
+    typeof v.contract !== "string" ||
+    !Array.isArray(v.classifications) ||
+    typeof v.counts !== "object" || v.counts === null
+  ) {
+    return null;
+  }
+  return v as InteropExchangeReport;
+}
+
+/** Extract an InteropArchivalListResult from an interop.archivalList ok
+ *  response. */
+export function unwrapInteropArchivalList(res: CommandQueryResponse): InteropArchivalListResult | null {
+  if (!res.ok) return null;
+  const v = res.value as Partial<InteropArchivalListResult> | null;
+  if (typeof v !== "object" || v === null || typeof v.contract !== "string" || !Array.isArray(v.rows)) {
+    return null;
+  }
+  return v as InteropArchivalListResult;
+}
+
+/** Extract an InteropRoundtripReportResult from an interop.roundtripReport
+ *  ok response (either arm — identified by the format discriminant). */
+export function unwrapInteropRoundtripReport(res: CommandQueryResponse): InteropRoundtripReportResult | null {
+  if (!res.ok) return null;
+  const v = res.value as Partial<InteropRoundtripReportResult> | null;
+  if (
+    typeof v !== "object" || v === null ||
+    (v.format !== "ifc" && v.format !== "dxf") ||
+    typeof v.sourceSha256 !== "string" || typeof v.reportHash !== "string"
+  ) {
+    return null;
+  }
+  return v as InteropRoundtripReportResult;
+}
+
+/** Extract a DocsExportSheetResult from a docs.exportSheet pdf/svg ok
+ *  response ("dwg" declines typed through the standard error path; the
+ *  sheet-ir arm is unwrapped by unwrapDocsExport). */
+export function unwrapDocsExportSheet(res: CommandQueryResponse): DocsExportSheetResult | null {
+  if (!res.ok) return null;
+  const v = res.value as Partial<DocsExportSheetResult> | null;
+  if (
+    typeof v !== "object" || v === null ||
+    (v.format !== "pdf" && v.format !== "svg") ||
+    typeof v.sheetId !== "string" ||
+    typeof v.size !== "number" || typeof v.sha256 !== "string" ||
+    typeof v.irHash !== "string"
+  ) {
+    return null;
+  }
+  return v as DocsExportSheetResult;
 }

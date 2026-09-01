@@ -13,6 +13,10 @@
  *   file     — ReferenceFileAdapter: canonical Offisos JSON serialization
  *     (the document format is canonical, not engine property; format id
  *     "offisos-reference").
+ *   ifc      — (optional, CAD-PARITY-014 / Issue #107): the IFC interop
+ *     adapter when the host binds one through the bundle factory options —
+ *     absent by default (legacy bundles stay shape-identical; the App API
+ *     probes and fails typed ifc_unavailable).
  *
  * Hosts choose the bundle at AppApiHandler.create({ adapterBundle, ... }) —
  * the SAME single wiring point the dummy and OCCT bundles use (LOCK-003: a
@@ -25,6 +29,7 @@ import type {
   EngineAdapterBundle,
   FileEngineAdapter,
   GeometryEngineAdapter,
+  IfcInteropAdapter,
 } from "../../contracts/adapter.js";
 import { ADAPTER_BOUNDARY_MARK } from "../../contracts/adapter.js";
 import type { CADDocumentSnapshot, Element } from "../../contracts/caddocument.js";
@@ -68,13 +73,20 @@ export const ReferenceFileAdapter: FileEngineAdapter = {
 };
 
 /** Create the reference EngineAdapterBundle (geometry engine of your choice
- *  defaults to the analytic reference engine). */
+ *  defaults to the analytic reference engine). CAD-PARITY-014 (Issue #107,
+ *  additive + optional — the createOcctAdapterBundle discipline): pass `ifc`
+ *  to bind the IFC interop adapter (a disposable IfcOpenShell worker per
+ *  ifc.* op, never the geometry path) alongside the reference engines —
+ *  hosts opt in; without it the bundle is shape-identical to the legacy
+ *  reference bundle, so every existing caller is unaffected. */
 export function createReferenceAdapterBundle(
   geometry: GeometryEngineAdapter = createReferenceGeometryAdapter(),
+  options: { ifc?: IfcInteropAdapter } = {},
 ): EngineAdapterBundle {
   return {
     geometry,
     bim: ReferenceBimAdapter,
     file: ReferenceFileAdapter,
+    ...(options.ifc !== undefined ? { ifc: options.ifc } : {}),
   };
 }

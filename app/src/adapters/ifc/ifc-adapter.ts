@@ -156,6 +156,31 @@ export function createIfcInteropAdapter(options: IfcInteropAdapterOptions = {}):
         if (!Array.isArray(ok.topics)) {
           throw new AdapterFailure("engine_error", "IFC worker bcf_parse response is malformed", false);
         }
+        // CAD-PARITY-014 (D3): the viewpoint + lineage fields are part of
+        // the response contract — structural validation before the App API.
+        for (const topic of ok.topics) {
+          if (typeof topic !== "object" || topic === null) {
+            throw new AdapterFailure("engine_error", "IFC worker bcf_parse topic is malformed", false);
+          }
+          if (topic.viewpoint !== null && typeof topic.viewpoint !== "object") {
+            throw new AdapterFailure("engine_error", "IFC worker bcf_parse topic viewpoint is malformed", false);
+          }
+          if (topic.viewpoint !== null) {
+            const vp = topic.viewpoint as Record<string, unknown>;
+            for (const key of ["cameraViewPoint", "cameraDirection", "cameraUpVector"] as const) {
+              const vec = vp[key];
+              if (!Array.isArray(vec) || vec.length !== 3 || !vec.every((x) => isFiniteNumber(x))) {
+                throw new AdapterFailure("engine_error", `IFC worker bcf_parse viewpoint.${key} is malformed`, false);
+              }
+            }
+            if (typeof vp.orthogonal !== "boolean" || (vp.viewToWorldScale !== null && !isFiniteNumber(vp.viewToWorldScale))) {
+              throw new AdapterFailure("engine_error", "IFC worker bcf_parse viewpoint camera kind is malformed", false);
+            }
+          }
+          if (topic.sourceRevision !== null && typeof topic.sourceRevision !== "string") {
+            throw new AdapterFailure("engine_error", "IFC worker bcf_parse topic sourceRevision is malformed", false);
+          }
+        }
         return ok;
       }, options);
       return { topics: response.topics };

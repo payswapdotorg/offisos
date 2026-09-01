@@ -30,7 +30,8 @@
  * seeds the representative building + plan/elevation/section/detail views,
  * parametric dimensions + tags bound to canonical element ids, an A1 sheet
  * with title block, regenerates deterministically, exports the canonical
- * Sheet IR (PDF/DWG writers are typed docs_unsupported rejects), and proves
+ * Sheet IR + the CAD-PARITY-014 real deterministic PDF writer (DWG stays the
+ * typed docs_unsupported decline), and proves
  * undo/redo + save/open identity. Everything crosses the App API ONLY via
  * window.cad.send — no docs/* module is imported into the renderer; the
  * projection is pure deterministic TS inside the core (engine-free).
@@ -671,7 +672,7 @@ function buildShell(root: HTMLElement): Shell {
   // COMPAT-CAD-003: construction documentation panel (visible only in docs mode).
   const docsCard = card(
     "Construction documentation",
-    "COMPAT-CAD-003 — drawing production through the shared App API (docs.*). Views are projected deterministically from the BIM model (plan / elevation / section / detail), annotations bind to canonical element ids, sheets carry A1 title blocks; regeneration is the determinism proof and the canonical Sheet IR is the export contract (PDF/DWG writers fail typed docs_unsupported — explicit, no partial writer). Pure deterministic TS behind the frozen API: no engine involved.",
+    "COMPAT-CAD-003 — drawing production through the shared App API (docs.*). Views are projected deterministically from the BIM model (plan / elevation / section / detail), annotations bind to canonical element ids, sheets carry A1 title blocks; regeneration is the determinism proof and the canonical Sheet IR is the export contract (CAD-PARITY-014: the pdf writer is REAL and deterministic; DWG fails typed docs_unsupported — the proprietary boundary). Pure deterministic TS behind the frozen API: no engine involved.",
   );
   docsCard.setAttribute("data-testid", "docs-card");
   docsCard.style.display = "none"; // drafting is the default mode
@@ -763,9 +764,9 @@ function buildShell(root: HTMLElement): Shell {
   const bDocsExport = btn("primary", "Export sheet-ir", "⇩");
   bDocsExport.type = "button"; bDocsExport.setAttribute("data-testid", "docs-export");
   bDocsExport.title = "docs.exportSheet {format:'sheet-ir'} — the canonical deterministic Sheet IR + sha256 hash (the future PDF/DWG adapter contract)";
-  const bDocsExportPdf = btn("danger", "Export pdf (typed reject)", "✕");
+  const bDocsExportPdf = btn("danger", "Export pdf", "⬇");
   bDocsExportPdf.type = "button"; bDocsExportPdf.setAttribute("data-testid", "docs-export-pdf");
-  bDocsExportPdf.title = "docs.exportSheet {format:'pdf'} — the writer is outside this slice; the request fails typed docs_unsupported (explicit, no partial writer)";
+  bDocsExportPdf.title = "docs.exportSheet {format:'pdf'} — CAD-PARITY-014: the real deterministic PDF writer (bytes + sha256 + the irHash binding); the Sheet IR bridge reuses the proven plot writer";
   docsExportGroup.append(bDocsExport, bDocsExportPdf);
   const docsExportReadout = docsMonoP("docs-export-readout", "export: —");
   docsExportReadout.setAttribute("data-hash", "");
@@ -1837,10 +1838,14 @@ async function onDocsExport(): Promise<void> {
   }
 }
 
-/** docs.exportSheet {format:"pdf"} — the writer is outside this slice: the
- *  typed docs_unsupported failure surfaces in the shared cad-error alert. */
+/** docs.exportSheet {format:"pdf"} — CAD-PARITY-014 (Issue #107): pdf is
+ *  now the REAL deterministic writer (the Sheet IR bridges onto the proven
+ *  plot writers; bytes + sha256 + the irHash binding). The result renders in
+ *  the export readout (the sheet-ir arm's pattern); DWG stays the typed
+ *  proprietary decline. */
 async function onDocsExportPdf(): Promise<void> {
-  await docsRun("export-pdf", async () => {
+  if (!ui) return;
+  const res = await docsRun("export-pdf", async () => {
     const sheetId = await firstSheetId();
     if (sheetId === null) {
       return {
@@ -1851,6 +1856,16 @@ async function onDocsExportPdf(): Promise<void> {
     }
     return query("docs.exportSheet", { sheetId, format: "pdf" });
   });
+  if (res !== null && res.ok) {
+    const v = res.value as { format: string; sheetId: string; sha256: string; size: number; irHash: string };
+    ui.docsExportReadout.setAttribute("data-hash", v.sha256);
+    ui.docsExportReadout.setAttribute("data-sheet", v.sheetId);
+    ui.docsExportReadout.textContent = `pdf ${v.sheetId} · ${v.size} bytes · sha256 ${v.sha256.slice(0, 16)}… · ir ${v.irHash.slice(0, 16)}… (deterministic writer, irHash-bound)`;
+  } else {
+    ui.docsExportReadout.setAttribute("data-hash", "");
+    ui.docsExportReadout.setAttribute("data-sheet", "");
+    ui.docsExportReadout.textContent = "export: failed — see the error alert";
+  }
 }
 
 /** Save → open round trip through the SAME handler document: the Construction
