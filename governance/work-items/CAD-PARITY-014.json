@@ -48,7 +48,7 @@
     "Exact-head deployment plus real-browser/Electron evidence where applicable.",
     "Revision-bound governance evidence covering implementation, merge and post-merge verification."
   ],
-  "state": "IMPLEMENTING",
+  "state": "PR_OPEN",
   "transitions": [
     {
       "from": "DRAFT",
@@ -84,8 +84,65 @@
         "issue": 107,
         "commit": "e2470ac0f0fc6bb6d5324c50de00bad357aff10f"
       }
+    },
+    {
+      "from": "IMPLEMENTING",
+      "to": "PR_OPEN",
+      "at": "2026-09-01T05:30:00Z",
+      "actor": "z-ai-implementation-agent",
+      "role": "implementer",
+      "reason": "The CAD-PARITY-014 implementation is complete and submitted as PR #108 (implementation head d1273ae: the shared core 0dea3e5, the web host ee9aed4 and the evidence layer d1273ae). All implementer gates are green — the full app suite (1197/1152/0/45 incl. the 35 new interop tests, zero regressions vs the 1162/1117/0/45 baseline), the twelve-smoke web chain with the eleven prior fixtures byte-identical and the new P014 fixture matching across fresh server restarts (a449e1a8…), app+web tsc clean, web lint+build clean, governance validate 414/414 (no inherited failures — the P012 ledger is reconciled on main), check-protected and check-verified-revisions PASS. The exact implementation head is deployed sha-bound (dpl_CsJH5fyW395aYZnJNqmCVLJt7pkj, meta gitsha/pr/workitem) and real-browser verified through the instance-pinning relay. Stopping at PR_OPEN/VERIFYING for Architect review per the workflow lock.",
+      "references": {
+        "pr": 108,
+        "commit": "d1273ae0b0c6f6326553b576554ca83e41e9e2ff",
+        "evidence": [
+          "EV-001",
+          "EV-002",
+          "EV-003"
+        ]
+      }
     }
   ],
-  "evidence": [],
+  "evidence": [
+    {
+      "id": "EV-001",
+      "type": "automated-test-suite",
+      "description": "Full implementation suite at implementation head d1273ae: 1197 tests / 1152 pass / 0 fail / 45 environmental OCCT-gated skips (baseline 1162/1117/0/45 -> +35 new interop tests, zero regressions; the IFC-gated tests RUN against the pinned ifcopenshell 0.8.5 + IfcTester 0.8.5 toolchain through OFFISOS_PYTHON, never skipped locally), including interop-dxf (writer/reader determinism + the entity/layer round-trip + unsupported classification + the DWG magic typed decline + unit normalization + R2000 structure sanity), interop-sheet-export (pdf/svg deterministic bytes + structural sanity + the dwg decline + the sheet-ir unchanged basis), interop-ifcdocs (export counts incl. documentation, export->parse->documentation records back, reconcile into a fresh document with minted ids + linkage resolved + the classification report, determinism, the legacy model WITHOUT documentation byte-identical to the pinned LEGACY_EXPORT_SHA256 — the IfcGroup carrier is strictly additive), interop-bcf (viewpoint + sourceRevision round-trip + classification + container byte-determinism + the legacy no-viewpoint payload), interop-archival (the registry rows + carriers + roundtrip reports for dxf and ifc) and interop-host-parity (the same interop stream through WebHost/WebSocketTransport AND ElectronHost/IpcTransport -> identical shas/report hashes/record ids). App tsc clean; web tsc/lint/build clean; the no-forbidden-imports scan now guards src/interop; governance validate 414/414; check-protected PASS; check-verified-revisions PASS.",
+      "produced_at": "2026-09-01T04:15:00Z",
+      "reproducible": true,
+      "reproduction": "npm install; pip install ifcopenshell==0.8.5 IfcTester==0.8.5 numpy==2.1.3; cd app && OFFISOS_PYTHON=<toolchain-python> node --import tsx --test test/*.test.ts; node_modules/.bin/tsc --noEmit -p app/tsconfig.json; cd ../apps/web && npm run lint && npx tsc --noEmit && npm run build; cd ../.. && npm run governance -- validate && npm run governance -- check-protected --base origin/main && npm run governance -- check-verified-revisions",
+      "references": {
+        "commit": "d1273ae0b0c6f6326553b576554ca83e41e9e2ff",
+        "path": "app/test/interop-dxf.test.ts"
+      }
+    },
+    {
+      "id": "EV-002",
+      "type": "reproducible-script",
+      "description": "The pinned Web-host parity smoke apps/web/test/interop-p014-smoke.mjs (44 app-api calls) against the dev server in REFERENCE mode with the additive IFC binding (OFFISOS_GEOMETRY_ENGINE=reference + OFFISOS_IFC_WORKER + OFFISOS_PYTHON): the ifc-idsbcf building + 3 drafting entities + the P013 documentation seed (views/sheet/folder/subset/layout+assign/titleblock+place/revision/schedule/publisher set), then the deterministic ifc.export with per-kind documentation carrier counts + double-export byte-identical (f50cdc32…, 9 documentation records), the in-place ifc.import identity reconciliation (created 0 / unchanged 4 / documentation created-per-kind 0 / ONE atomic revision), interop.roundtripReport ifc (sourceSha256 + reportHash), BCF create/parse with the camera viewpoint + sourceRevision lineage + resolvedCanonicalIds + double-build byte-determinism (b3725263…), IDS validation with the fire-rating spec failing on exactly the three walls by their derived guids (every entity row bound to its canonical provenance), dxf.export/import with the counts + determinism (2ae0eefd…) + the round-trip report, the DWG magic typed dwg_unsupported, docs.exportSheet sheet-ir/pdf (PDF-1.4 + %%EOF + irHash binding + determinism, 7da58890…)/svg (ffa6190d…)/dwg (typed docs_unsupported), and the registries (interop.archivalList 7 rows, interop.exchangeReport 10 rows). The pinned fixture app/test/fixtures/cad-parity-014-interop.json (34 keys + the command stream) matches byte-identically across TWO fresh dev-server instances; the eleven prior smokes stay byte-identical against the same reference+ifc server (P013 88f172dd…, P012 94cca7b9…, workspace PASS — re-verified) and the full TWELVE-smoke chain runs in the cad-parity-014 CI workflow.",
+      "produced_at": "2026-09-01T05:20:00Z",
+      "reproducible": true,
+      "reproduction": "cd apps/web && OFFISOS_GEOMETRY_ENGINE=reference OFFISOS_IFC_WORKER=<repo>/app/src/adapters/ifc/worker/ifc-worker.py OFFISOS_PYTHON=<toolchain-python> npm run dev -- --webpack -p 3100 & then: node --import tsx apps/web/test/interop-p014-smoke.mjs (first run --write-fixture; CI: .github/workflows/cad-parity-014.yml)",
+      "references": {
+        "commit": "d1273ae0b0c6f6326553b576554ca83e41e9e2ff",
+        "pr": 108,
+        "path": "apps/web/test/interop-p014-smoke.mjs"
+      }
+    },
+    {
+      "id": "EV-003",
+      "type": "reproducible-script",
+      "description": "Exact-head Vercel deployment and real-browser verification for PR #108: the exact implementation head d1273ae0b0c6f6326553b576554ca83e41e9e2ff deployed from the clean repo checkout to the Offisos Vercel project (team ekonplacidegmailcoms-projects, project offisos, Root Directory apps/web) as deployment dpl_CsJH5fyW395aYZnJNqmCVLJt7pkj at https://offisos-atmw62g6q-ekonplacidegmailcoms-projects.vercel.app (READY), sha-bound via meta.gitsha=d1273ae0b0c6f6326553b576554ca83e41e9e2ff, meta.pr=108, meta.workitem=CAD-PARITY-014 (REST identity proof through /v6/deployments). Deployed verification through the instance-pinning serializing relay (158 serialized requests, ONE keep-alive pinned instance): the interop-deployed-protocol 18/18 PASS — every deployment-applicable deterministic artifact equals the pinned local fixture values byte-for-byte (dxf.export 2ae0eefd… + double-run byte-identical, dxf.import report b805e39a…, roundtripReport dxf dccfe239…, sheet-ir f0e68ad0…, sheet pdf 7da58890… / svg ffa6190d… bound to the same irHash, the archival + exchange registries bit-identical) AND the honest serverless boundary asserted (ifc.probe reports the toolchain unavailable; ifc.export and interop.roundtripReport ifc fail typed ifc_unavailable — no fabricated exchange; the DWG magic typed decline). Real-browser protocol against the SAME deployed build through the relay with ZERO page errors and zero console errors: the Interoperability workbench renders (27 interop-* surfaces), the DXF exchange driven through the REAL DOM (export -> sha256 + counts + download, use-last-export -> import -> created 9 / +9 elements with the report hash), the Sheet export through the REAL select + button (pdf -> sha256 7da58890… = the pinned fixture, irHash-bound), the archival/exchange registry tables render, and the BCF/IFC surface shows the typed ifc_unavailable banner (the honest boundary). The P013 regression smoke also matches byte-identically against this deployment (88f172dd…, 36 commands). Screenshot: /home/z/cp14/deployed-workbench.png.",
+      "produced_at": "2026-09-01T05:40:00Z",
+      "reproducible": true,
+      "reproduction": "From the repo root at d1273ae0b0c6f6326553b576554ca83e41e9e2ff: vercel deploy --project offisos --scope ekonplacidegmailcoms-projects --yes --meta gitsha=d1273ae0b0c6f6326553b576554ca83e41e9e2ff --meta pr=108 --meta workitem=CAD-PARITY-014 --token $VERCEL_TOKEN; verify via /v6/deployments (projectId prj_p4IGIM5pBpL8pgVdfJhczR789BFL); node relay.mjs --port 3121 --target <deployment-url>; OFFISOS_WEB_URL=http://localhost:3121 node interop-deployed-protocol.mjs (18 checks); OFFISOS_WEB_URL=http://localhost:3121 node --import tsx apps/web/test/docs-p013-smoke.mjs (the P013 regression fixture byte-match)",
+      "references": {
+        "commit": "d1273ae0b0c6f6326553b576554ca83e41e9e2ff",
+        "pr": 108,
+        "path": "/home/z/cp14/interop-deployed-protocol.mjs",
+        "artifact_path": "/home/z/cp14/deployed-workbench.png"
+      }
+    }
+  ],
   "decisions": []
 }
