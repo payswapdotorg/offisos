@@ -173,6 +173,21 @@
         "pr": 108,
         "path": "/home/z/cp14/interop-deployed-protocol.mjs"
       }
+    },
+    {
+      "id": "EV-005",
+      "type": "reproducible-script",
+      "description": "The final-head CI-stabilization arc and the exact FINAL head (51f3d07) deployment binding, superseding EV-004's record-head (97ff529) binding after two disclosed post-VERIFYING fix commits. The fixes: 7d2a6d7 (the Electron smoke:docs pdf step migrated to the real deterministic writer — the renderer's pdf arm renders bytes+sha+irHash like the sheet-ir arm, closing the disclosed P013 interim-decline supersession at the Electron surface) and 51f3d07 (the cross-CPU export byte-determinism fix — the r9 trig rounding in the IFC worker pins the export trig math to CPU-independent values because numpy's SIMD-dispatched ufunc inner loops differ in the last bits across CPU families; the pinned legacy export sha repinned CPU-independent c85e518a…, the interop smoke fixture repinned to the CPU-independent values, and the compat-cad-003 inline pdf assertion migrated to the real writer). Neither fix touches the deployment-applicable web surface: 51f3d07 changes only the Python IFC worker (typed ifc_unavailable on the serverless host by construction), CI workflow, and test fixtures; 7d2a6d7 changes only the Electron host. Exact-head CI on 51f3d07: the cad-parity-014 workflow run 33474268256 fully green (workspace-shell tsc + the full suite with the six interop test files + the extended LOCK-018 scan; web-host lint/tsc/build + the reference-mode dev server with the additive ifc binding + ALL TWELVE smokes chained early-exit + the artifact upload; electron-host the 18 smokes with the migrated smoke:docs step) and the governance workflow run 33474268141 green, alongside the PR regression matrix. The final-head deployment: dpl_2YffcGiVJJitj32ijaYT82GUjLzY READY at https://offisos-h0hzyamy4-ekonplacidegmailcoms-projects.vercel.app with meta gitsha=51f3d079bc16fd11bc844bd57546098e8ee739b0, pr=108, workitem=CAD-PARITY-014 (REST identity proof asserted through the Vercel API; githubCommitSha/githubCommitRef/org/repo all bound). Re-verified through the instance-pinning relay against THIS deployment: the interop deployed protocol 18/18 (every deployment-applicable deterministic artifact byte-equal to the pinned fixture values — the dxf export/import/roundtrip hashes, the sheet-ir/pdf/svg hashes, the archival/exchange registry shas, the honest typed ifc_unavailable serverless boundary, the DWG magic decline; single x-vercel-id proxy prefix across the stateful API request stream), the P013 regression smoke fixture byte-match (88f172dd…, 36 commands) against the same deployment, and a real-browser spot-check (the Interoperability workbench renders; the DXF export golden path through the deployed UI returns the deterministic sha with the per-kind counts; ZERO page errors; screenshot /home/z/cp14/final-head-51f3d07-verified.png).",
+      "produced_at": "2026-09-01T06:25:00Z",
+      "reproducible": true,
+      "reproduction": "source /home/z/.vercel_env && vercel link --yes --project offisos --token \"$VERCEL_TOKEN\" --scope ekonplacidegmailcoms-projects && vercel deploy --yes --token \"$VERCEL_TOKEN\" --meta gitsha=51f3d079… pr=108 workitem=CAD-PARITY-014 (from the repo root); node /home/z/cp12-remediation/relay.mjs --port 3121 --target https://offisos-h0hzyamy4-ekonplacidegmailcoms-projects.vercel.app; OFFISOS_WEB_URL=http://localhost:3121 node /home/z/cp14/interop-deployed-protocol.mjs; cd /home/z/offisos && OFFISOS_WEB_URL=http://localhost:3121 node --import tsx apps/web/test/docs-p013-smoke.mjs; verify the deployment identity via GET https://api.vercel.com/v13/deployments/get?url=offisos-h0hzyamy4-…vercel.app (gitsha/pr/workitem)",
+      "references": {
+        "commit": "51f3d079bc16fd11bc844bd57546098e8ee739b0",
+        "pr": 108,
+        "workflow_run": "33474268256",
+        "path": "/home/z/cp14/interop-deployed-protocol.mjs",
+        "artifact_path": "/home/z/cp14/final-head-51f3d07-verified.png"
+      }
     }
   ],
   "decisions": []
