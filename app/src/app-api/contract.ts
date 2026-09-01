@@ -276,8 +276,34 @@ import {
   reconcileIfcImport,
   type IfcImportReport,
 } from "../ifc/index.js";
+// CAD-PARITY-014 (additive, Issue #107): the documentation exchange carrier
+// (the IfcGroup mapping + the reconcile/classification side).
+import {
+  buildIfcDocumentationExport,
+  reconcileIfcDocumentation,
+  type IfcDocsMint,
+  type IfcDocsTargetState,
+} from "../ifc/index.js";
+// CAD-PARITY-014 (additive, Issue #107): the bounded interoperability shared
+// core (pure, engine-free, LOCK-018 — the dxf writer/reader/import mapping,
+// the Sheet-IR→Plot-IR bridge, the exchange report, the archival registry
+// and the dxf round-trip verification loop).
+import {
+  archivalList,
+  buildInteropExchangeReport,
+  dxfRoundtripReport,
+  looksLikeDwg,
+  readDxf,
+  sheetIRToPlotIR,
+  writeDxf,
+  mapDxfImport,
+  dxfUnitFactor,
+  DxfError,
+  type DxfWriteInput,
+} from "../interop/index.js";
 import { isIfcInteropProvider } from "../contracts/adapter.js";
 import type { IfcInteropAdapter } from "../contracts/adapter.js";
+import type { IfcBcfViewpoint } from "../contracts/ifc.js";
 // COMPAT-CAD-003: the pure construction-documentation core (LOCK-018 scanned).
 import {
   annotationElement,
@@ -673,6 +699,9 @@ export class AppApiHandler {
         return this.cmdIfcImport(command.payload);
       case "ifc.bcfCreate":
         return this.cmdIfcBcfCreate(command.payload);
+      // --- CAD-PARITY-014 (additive, Issue #107): file interoperability ---
+      case "dxf.import":
+        return this.cmdDxfImport(command.payload);
       default: {
         const _exhaustive: never = command.name;
         return err("unknown_command", `unknown command: ${JSON.stringify(_exhaustive)}`);
@@ -1056,6 +1085,16 @@ export class AppApiHandler {
         return this.qPublisherList();
       case "docs.exchangeReport":
         return this.qDocsExchangeReport();
+      // --- CAD-PARITY-014 (additive, Issue #107): the file-interoperability
+      // read surfaces (non-mutating, computed fresh every call). ---
+      case "dxf.export":
+        return this.qDxfExport();
+      case "interop.exchangeReport":
+        return this.qInteropExchangeReport();
+      case "interop.archivalList":
+        return this.qInteropArchivalList();
+      case "interop.roundtripReport":
+        return await this.qInteropRoundtripReport(query.payload);
       default: {
         const _exhaustive: never = query.name;
         return err("unknown_query", `unknown query: ${JSON.stringify(_exhaustive)}`);
@@ -7159,7 +7198,10 @@ export class AppApiHandler {
 
   /** ifc.export — deterministically export the document's BIM model to IFC
    *  bytes (byte-identical for equal inputs; identity psets carry the
-   *  canonical ids; GlobalIds derive from them). */
+   *  canonical ids; GlobalIds derive from them). CAD-PARITY-014: the P013
+   *  documentation tables ride as IfcGroup entities (the D2 carrier) —
+   *  absent tables (the legacy model) keep the export BYTE-IDENTICAL to the
+   *  pre-P014 bytes (no groups are created; the fixture-pinned invariant). */
   private async cmdIfcExport(payload: unknown): Promise<CommandQueryResponse> {
     const adapter = this.ifcInterop();
     if (adapter === null) {
@@ -7178,7 +7220,28 @@ export class AppApiHandler {
         if (entity.type === "bim.story") storyLevels.set(entity.id, entity.level);
       }
       const outcome = buildIfcExportRequest(entities, rawPropsById, storyLevels, projectName);
-      const built = await adapter.build(outcome.request);
+      // CAD-PARITY-014 (D2): the documentation tables → IfcGroup exchange
+      // records. Attached ONLY when at least one table is non-empty (the
+      // legacy byte-identity invariant).
+      const tables = {
+        views: snapshot.docsViews ?? [],
+        layouts: snapshot.layouts ?? [],
+        navigatorNodes: snapshot.navigatorNodes ?? [],
+        titleBlocks: snapshot.titleBlocks ?? [],
+        schedules: snapshot.schedules ?? [],
+        revisions: snapshot.revisions ?? [],
+        publisherSets: snapshot.publisherSets ?? [],
+      };
+      const documentation =
+        tables.views.length > 0 || tables.layouts.length > 0 || tables.navigatorNodes.length > 0 ||
+        tables.titleBlocks.length > 0 || tables.schedules.length > 0 || tables.revisions.length > 0 ||
+        tables.publisherSets.length > 0
+          ? buildIfcDocumentationExport(tables, (snapshot.docsSheets ?? []).length)
+          : null;
+      const built = await adapter.build({
+        ...outcome.request,
+        ...(documentation !== null ? { documentation: { groups: documentation.groups } } : {}),
+      });
       return ok({
         ifc: built.ifc,
         size: built.size,
@@ -7186,6 +7249,7 @@ export class AppApiHandler {
         schema: "IFC4",
         engineVersion: built.engineVersion,
         counts: outcome.counts,
+        ...(documentation !== null ? { documentation: documentation.counts } : {}),
       });
     } catch (e) {
       if (isAdapterFailure(e)) return err(e.code, e.message, e.retryable);
@@ -7225,6 +7289,42 @@ export class AppApiHandler {
       for (const patch of outcome.patches) {
         edits.push({ type: "setProps", elementId: patch.elementId, patch: patch.patch });
       }
+      // CAD-PARITY-014 (D2): the documentation IfcGroup records reconcile
+      // against the current tables and re-create as document records (fresh
+      // minted ids, linkage resolved through the DomainId map; the record
+      // drafts re-validate through the SAME grammars at execute). Story
+      // links resolve through the target elements (preserved identities +
+      // the existing elements — the element-id map below).
+      const documentation = parsed.documentation ?? null;
+      let documentationOutcome: ReturnType<typeof reconcileIfcDocumentation> | null = null;
+      if (documentation !== null) {
+        const elementIdByDomainId = new Map<string, string>();
+        for (const el of snapshot.elements) elementIdByDomainId.set(el.id, el.id);
+        for (const el of newElements) {
+          if (el.id.length > 0) elementIdByDomainId.set(el.id, el.id);
+        }
+        const existing: IfcDocsTargetState = {
+          views: this.doc.viewTable,
+          layouts: this.doc.layoutTable,
+          navigatorNodes: this.doc.navigatorNodeTable,
+          titleBlocks: this.doc.titleBlockTable,
+          schedules: this.doc.scheduleTable,
+          revisions: this.doc.revisionTable,
+          publisherSets: this.doc.publisherSetTable,
+          elementIdByDomainId,
+        };
+        const mint: IfcDocsMint = {
+          view: () => this.doc.mintViewId(),
+          layout: () => this.doc.mintLayoutId(),
+          navigatorNode: () => this.doc.mintNavigatorNodeId(),
+          titleBlock: () => this.doc.mintTitleBlockId(),
+          schedule: () => this.doc.mintScheduleId(),
+          revision: () => this.doc.mintRevisionId(),
+          publisherSet: () => this.doc.mintPublisherSetId(),
+        };
+        documentationOutcome = reconcileIfcDocumentation(documentation, existing, mint);
+        edits.push(...this.documentationEditsOf(documentationOutcome.drafts));
+      }
       edits.push({
         type: "addIfcImport",
         record: { ...outcome.record, id: "", at: AppApiHandler.IFC_IMPORT_NOW },
@@ -7238,6 +7338,23 @@ export class AppApiHandler {
         reportHash: outcome.record.reportHash,
         created: newElements.map((e) => e.id).filter((id) => id.length > 0),
         patched: outcome.patches.map((patch) => patch.elementId),
+        ...(documentationOutcome !== null
+          ? {
+              documentation: {
+                report: documentationOutcome.report,
+                reportHash: documentationOutcome.reportHash,
+                created: {
+                  views: documentationOutcome.drafts.views.length,
+                  layouts: documentationOutcome.drafts.layouts.length,
+                  navigatorNodes: documentationOutcome.drafts.navigatorNodes.length,
+                  titleBlocks: documentationOutcome.drafts.titleBlocks.length,
+                  schedules: documentationOutcome.drafts.schedules.length,
+                  revisions: documentationOutcome.drafts.revisions.length,
+                  publisherSets: documentationOutcome.drafts.publisherSets.length,
+                },
+              },
+            }
+          : {}),
         snapshot: this.doc.snapshot(),
       });
     } catch (e) {
@@ -7250,10 +7367,84 @@ export class AppApiHandler {
     }
   }
 
+  /** CAD-PARITY-014 (D2): the documentation record drafts → DocumentEdits in
+   *  dependency order (one atomic batch with the element edits): navigator
+   *  nodes topologically parent-first, title blocks, views source-view-first
+   *  (story + folder links resolve; a detail's source must EXIST when the
+   *  detail applies — the draft order is guid-sorted, not dependency order),
+   *  layouts masters-first WITHOUT revisionIds, then revisions (layoutIds
+   *  resolve), then the revisionIds layout patches, schedules and publisher
+   *  sets — the apply-time cross-reference order. */
+  private documentationEditsOf(drafts: import("../ifc/docmap.js").IfcDocsRecordDrafts): DocumentEdit[] {
+    const edits: DocumentEdit[] = [];
+    // Navigator nodes: parents before children (deterministic depth order,
+    // then the source order).
+    const byId = new Map(drafts.navigatorNodes.map((node) => [node.id, node] as const));
+    const depthOf = (id: string, seen: ReadonlySet<string> = new Set()): number => {
+      const node = byId.get(id);
+      if (node === undefined || node.parentId === null || seen.has(id)) return 0;
+      return 1 + depthOf(node.parentId, new Set([...seen, id]));
+    };
+    const nodes = [...drafts.navigatorNodes].sort((a, b) =>
+      depthOf(a.id) - depthOf(b.id) || drafts.navigatorNodes.indexOf(a) - drafts.navigatorNodes.indexOf(b));
+    for (const node of nodes) {
+      edits.push({ type: "addNavigatorNode", node });
+    }
+    for (const titleBlock of drafts.titleBlocks) {
+      edits.push({ type: "addTitleBlock", titleBlock });
+    }
+    // Views: source views before their details (deterministic source-depth
+    // order, then the draft order — the drafts arrive guid-sorted).
+    const viewById = new Map(drafts.views.map((view) => [view.id, view] as const));
+    const sourceDepth = (id: string, seen: ReadonlySet<string> = new Set()): number => {
+      const view = viewById.get(id);
+      if (view === undefined || view.sourceViewId === undefined || seen.has(id)) return 0;
+      return 1 + sourceDepth(view.sourceViewId, new Set([...seen, id]));
+    };
+    const views = [...drafts.views].sort((a, b) =>
+      sourceDepth(a.id) - sourceDepth(b.id) || drafts.views.indexOf(a) - drafts.views.indexOf(b));
+    for (const view of views) {
+      edits.push({ type: "addView", view });
+    }
+    // Layouts: masters first (single-level masters), revisionIds deferred.
+    const layoutById = new Map(drafts.layouts.map((layout) => [layout.id, layout] as const));
+    const masterDepth = (id: string, seen: ReadonlySet<string> = new Set()): number => {
+      const layout = layoutById.get(id);
+      if (layout === undefined || layout.masterId === undefined || seen.has(id)) return 0;
+      return 1 + masterDepth(layout.masterId, new Set([...seen, id]));
+    };
+    const layouts = [...drafts.layouts].sort((a, b) =>
+      masterDepth(a.id) - masterDepth(b.id) || drafts.layouts.indexOf(a) - drafts.layouts.indexOf(b));
+    for (const layout of layouts) {
+      const { revisionIds: _deferred, ...withoutRevisions } = layout;
+      edits.push({ type: "addLayout", layout: withoutRevisions });
+    }
+    for (const revision of drafts.revisions) {
+      edits.push({ type: "addRevision", revision });
+    }
+    for (const layout of layouts) {
+      if (layout.revisionIds !== undefined && layout.revisionIds.length > 0) {
+        edits.push({ type: "updateLayout", layoutId: layout.id, patch: { revisionIds: [...layout.revisionIds] } });
+      }
+    }
+    for (const schedule of drafts.schedules) {
+      edits.push({ type: "addSchedule", schedule });
+    }
+    for (const set of drafts.publisherSets) {
+      edits.push({ type: "addPublisherSet", set });
+    }
+    return edits;
+  }
+
   /** ifc.bcfCreate — build a BCF-XML v3 .bcf container binding topics to
    *  CANONICAL elements (IfcGuids derived deterministically from the
    *  canonical ids). BCF is a transport contract, never the system of
-   *  record (Issue #47). */
+   *  record (Issue #47). CAD-PARITY-014 (D3): topics may carry a camera
+   *  viewpoint (position/direction/up; orthogonal with viewToWorldScale)
+   *  and a sourceRevision lineage (the caller-chosen canonical model state
+   *  reference — carried as the topic's document reference). The container
+   *  is byte-deterministic (fixed dates + deterministic guids in the
+   *  worker). */
   private async cmdIfcBcfCreate(payload: unknown): Promise<CommandQueryResponse> {
     const adapter = this.ifcInterop();
     if (adapter === null) {
@@ -7282,6 +7473,37 @@ export class AppApiHandler {
             throw new Error(`topics[${index}]: element id '${String(id)}' does not exist in the document`);
           }
         }
+        // CAD-PARITY-014 (D3): the optional viewpoint + lineage (validated
+        // strictly — LOCK-007; absent = the legacy topic shape).
+        let viewpoint: IfcBcfViewpoint | undefined;
+        if (t.viewpoint !== undefined && t.viewpoint !== null) {
+          if (typeof t.viewpoint !== "object") {
+            throw new Error(`topics[${index}].viewpoint must be an object`);
+          }
+          const v = t.viewpoint as Record<string, unknown>;
+          const vec = (key: string): [number, number, number] => {
+            const raw2 = v[key];
+            if (!Array.isArray(raw2) || raw2.length !== 3 || !raw2.every((x) => typeof x === "number" && Number.isFinite(x))) {
+              throw new Error(`topics[${index}].viewpoint.${key} must be an array of 3 finite numbers`);
+            }
+            return [raw2[0] as number, raw2[1] as number, raw2[2] as number];
+          };
+          viewpoint = {
+            cameraViewPoint: vec("cameraViewPoint"),
+            cameraDirection: vec("cameraDirection"),
+            cameraUpVector: vec("cameraUpVector"),
+            ...(v.orthogonal === true ? { orthogonal: true } : {}),
+            ...(typeof v.viewToWorldScale === "number" && Number.isFinite(v.viewToWorldScale) ? { viewToWorldScale: v.viewToWorldScale } : {}),
+          };
+          if (viewpoint.orthogonal === true && viewpoint.viewToWorldScale === undefined) {
+            throw new Error(`topics[${index}].viewpoint.viewToWorldScale is required for orthogonal cameras`);
+          }
+          if (viewpoint.viewToWorldScale !== undefined && !(viewpoint.viewToWorldScale > 0)) {
+            throw new Error(`topics[${index}].viewpoint.viewToWorldScale must be positive`);
+          }
+        }
+        const sourceRevision =
+          typeof t.sourceRevision === "string" && t.sourceRevision.length > 0 ? t.sourceRevision : undefined;
         return {
           title: t.title,
           description: t.description,
@@ -7291,6 +7513,8 @@ export class AppApiHandler {
           references: (elementIds as string[]).map((id) => ifcGuidFor(id)),
           comment: typeof t.comment === "string" && t.comment.length > 0 ? t.comment : null,
           commentAuthor: typeof t.commentAuthor === "string" ? t.commentAuthor : null,
+          ...(viewpoint !== undefined ? { viewpoint } : {}),
+          ...(sourceRevision !== undefined ? { sourceRevision } : {}),
         };
       });
       const built = await adapter.buildBcf(topics);
@@ -7432,6 +7656,222 @@ export class AppApiHandler {
     return ok({ records: this.doc.ifcImportRecords });
   }
 
+  // --- CAD-PARITY-014 (additive, Issue #107): file interoperability ----------
+  // Typed-error convention (the ifc.* house rules): dxf_unsupported = a
+  // construct/unit outside the bounded DXF vocabulary; dwg_unsupported =
+  // THE proprietary DWG boundary (the binary magic is detected and declined,
+  // never parsed); dxf_invalid = a malformed bounded file; bad_payload =
+  // wire-shape failures (retryable). Skipped out-of-boundary constructs are
+  // COUNTED in the typed reports, never silently approximated (LOCK-007).
+
+  /** The writer input of the current drafting surface (pure data — both
+   *  hosts build the identical DXF bytes; the plotIRInputOf discipline). */
+  private dxfWriteInputOf(): DxfWriteInput {
+    const settings = this.doc.draftingSettings;
+    return {
+      elements: this.doc.allElements(),
+      layers: this.doc.layerTable,
+      ltypes: this.doc.ltypeTable,
+      ...(settings.standards !== undefined ? { standards: settings.standards } : {}),
+    };
+  }
+
+  /** dxf.export (query, NON-VERSIONED — the plot.export precedent): the
+   *  bounded deterministic DXF R2000 ASCII text of the current drafting
+   *  surface. Identical document state → byte-identical DXF. */
+  private qDxfExport(): CommandQueryResponse {
+    try {
+      const written = writeDxf(this.dxfWriteInputOf());
+      const bytes = Buffer.from(written.text, "utf8");
+      return ok({
+        format: "dxf",
+        bytesBase64: bytes.toString("base64"),
+        size: bytes.length,
+        sha256: createHash("sha256").update(bytes).digest("hex"),
+        counts: written.counts,
+        skippedKinds: written.skippedKinds,
+      });
+    } catch (e) {
+      return err("dxf_invalid", (e as Error).message, false);
+    }
+  }
+
+  /** dxf.import (command, VERSIONED — the ifc.import pattern): parse the
+   *  bounded DXF, map through the strict canonical constructors and apply
+   *  ONE atomic edit batch (ltypes + layers + elements; ids minted by the
+   *  document authority; one revision, one undo). Unsupported constructs
+   *  are skipped + counted per type; the DWG binary magic is the typed
+   *  proprietary decline; units outside the declared vocabulary fail
+   *  dxf_unsupported (no guessing). */
+  private cmdDxfImport(payload: unknown): CommandQueryResponse {
+    const p = payload as { dxf?: unknown } | null;
+    if (p === null || typeof p !== "object" || typeof p.dxf !== "string" || p.dxf.length === 0) {
+      return err("bad_payload", "dxf.import requires a dxf base64 payload", true);
+    }
+    let bytes: Buffer;
+    try {
+      bytes = Buffer.from(p.dxf, "base64");
+    } catch {
+      return err("bad_payload", "dxf.import requires a dxf base64 payload", true);
+    }
+    // THE explicit DWG boundary (D5): the binary magic is detected and
+    // declined typed — never parsed, never guessed.
+    if (looksLikeDwg(bytes)) {
+      return err(
+        "dwg_unsupported",
+        "the payload is a proprietary DWG binary (the 'AC' version magic) — reading DWG is an explicit work-item non-goal (reverse engineering is out of scope); DXF is the open interchange path for the same content class",
+        false,
+      );
+    }
+    let text: string;
+    try {
+      text = bytes.toString("utf8");
+    } catch {
+      return err("dxf_invalid", "dxf.import requires UTF-8 ASCII DXF text", false);
+    }
+    try {
+      const parsed = readDxf(text);
+      const unit = dxfUnitFactor(parsed.header.insunits);
+      if (unit === null) {
+        return err(
+          "dxf_unsupported",
+          `DXF import: unsupported $INSUNITS value ${String(parsed.header.insunits)} (the declared set is in/ft/mm/cm/m — no guessing)`,
+          false,
+        );
+      }
+      const sourceSha256 = createHash("sha256").update(bytes).digest("hex");
+      const mapped = mapDxfImport(parsed, { layers: this.doc.layerTable, ltypes: this.doc.ltypeTable }, unit, {
+        mintLayerId: () => this.doc.mintLayerId(),
+        mintElementId: () => this.doc.mintElementId(),
+      });
+      const edits: DocumentEdit[] = [
+        ...mapped.ltypeEdits,
+        ...mapped.layerEdits,
+        ...mapped.elements.map((element) => ({ type: "addElement", element }) as DocumentEdit),
+      ];
+      if (edits.length > 0) {
+        this.doc.execute({ type: "applyEdits", edits });
+      }
+      const report = {
+        sourceSha256,
+        unit: unit.unit,
+        scaleToMm: unit.factor,
+        counts: {
+          elements: mapped.elements.length,
+          layers: mapped.layerEdits.length,
+          ltypes: mapped.ltypeEdits.length,
+          unsupported: mapped.unsupported.reduce((sum, u) => sum + u.count, 0),
+        },
+        rows: mapped.rows,
+        unsupported: mapped.unsupported,
+      };
+      return ok({
+        report,
+        reportHash: createHash("sha256").update(canonicalStringify(report)).digest("hex"),
+        created: mapped.created,
+        snapshot: this.doc.snapshot(),
+      });
+    } catch (e) {
+      if (e instanceof DxfError) return err(e.code, e.message, false);
+      return err("dxf_invalid", (e as Error).message, false);
+    }
+  }
+
+  /** interop.exchangeReport (query) — the P014 authoritative exchange
+   *  classification (the successor surface; the P013 docs.exchangeReport
+   *  stays the frozen slice record). */
+  private qInteropExchangeReport(): CommandQueryResponse {
+    const snapshot = this.doc.snapshot();
+    const views = snapshot.docsViews ?? [];
+    return ok(buildInteropExchangeReport({
+      elements: snapshot.elements.length,
+      layers: (snapshot.layers ?? []).length,
+      views: views.length,
+      sheets: (snapshot.docsSheets ?? []).length,
+      layouts: (snapshot.layouts ?? []).length,
+      titleBlocks: (snapshot.titleBlocks ?? []).length,
+      schedules: (snapshot.schedules ?? []).length,
+      revisions: (snapshot.revisions ?? []).length,
+      publisherSets: (snapshot.publisherSets ?? []).length,
+      navigatorNodes: (snapshot.navigatorNodes ?? []).length,
+    }));
+  }
+
+  /** interop.archivalList (query) — the archival format registry (the legal
+   *  compatibility surface: open standards, published specs, the
+   *  proprietary DWG decline). */
+  private qInteropArchivalList(): CommandQueryResponse {
+    return ok(archivalList());
+  }
+
+  /** interop.roundtripReport (query, NON-VERSIONED) — the format round-trip
+   *  verification loops (D6). "dxf" is pure TS (export → parse → the DRY
+   *  mapping + the per-element field classification + the source sha);
+   *  "ifc" composes export → parse → the DRY element + documentation
+   *  reconciliation through the IFC adapter (typed ifc_unavailable when no
+   *  adapter is bound). Nothing is written — the DRY loops never mutate. */
+  private async qInteropRoundtripReport(payload: unknown): Promise<CommandQueryResponse> {
+    const p = payload as { format?: unknown } | null;
+    if (p === null || typeof p !== "object" || (p.format !== "ifc" && p.format !== "dxf")) {
+      return err("bad_payload", "interop.roundtripReport requires format ('ifc' | 'dxf')", true);
+    }
+    if (p.format === "dxf") {
+      try {
+        const outcome = dxfRoundtripReport(this.dxfWriteInputOf());
+        return ok(outcome);
+      } catch (e) {
+        if (e instanceof DxfError) return err(e.code, e.message, false);
+        return err("dxf_invalid", (e as Error).message, false);
+      }
+    }
+    const adapter = this.ifcInterop();
+    if (adapter === null) {
+      return err("ifc_unavailable", "no IFC interop adapter is bound to this host's engine bundle (bind one to use the ifc round-trip report)", false);
+    }
+    try {
+      // Export the CURRENT document (deterministic bytes), parse it back
+      // and reconcile DRY against the same state — zero-loss by design;
+      // the documentation dimension rides the IfcGroup carrier.
+      const exportResult = await this.cmdIfcExport({ projectName: "Offisos Round-trip" });
+      if (exportResult.ok !== true) {
+        return exportResult;
+      }
+      const ifcPayload = (exportResult.value as { ifc: string }).ifc;
+      const bytes = Buffer.from(ifcPayload, "base64");
+      const sourceSha256 = createHash("sha256").update(bytes).digest("hex");
+      const parsed = await adapter.parse(ifcPayload);
+      const elementsOutcome = reconcileIfcImport(parsed, sourceSha256, this.doc.snapshot().elements, {});
+      const snapshot = this.doc.snapshot();
+      const elementIdByDomainId = new Map<string, string>();
+      for (const el of snapshot.elements) elementIdByDomainId.set(el.id, el.id);
+      const docsOutcome = parsed.documentation !== undefined
+        ? reconcileIfcDocumentation(parsed.documentation, {
+          views: this.doc.viewTable,
+          layouts: this.doc.layoutTable,
+          navigatorNodes: this.doc.navigatorNodeTable,
+          titleBlocks: this.doc.titleBlockTable,
+          schedules: this.doc.scheduleTable,
+          revisions: this.doc.revisionTable,
+          publisherSets: this.doc.publisherSetTable,
+          elementIdByDomainId,
+        }, null)
+        : null;
+      const report = {
+        format: "ifc" as const,
+        sourceSha256,
+        elements: elementsOutcome.report,
+        ...(docsOutcome !== null ? { documentation: docsOutcome.report } : {}),
+      };
+      return ok({
+        ...report,
+        reportHash: createHash("sha256").update(canonicalStringify(report)).digest("hex"),
+      });
+    } catch (e) {
+      if (isAdapterFailure(e)) return err(e.code, e.message, e.retryable);
+      return err("ifc_invalid", (e as Error).message, false);
+    }
+  }
+
   // --- COMPAT-CAD-003 (additive): documentation queries ----------------------
 
   /** docs.listViews — every view with its CURRENT content hash, primitive
@@ -7491,21 +7931,24 @@ export class AppApiHandler {
     return ok({ sheets: this.doc.sheetTable });
   }
 
-  /** docs.exportSheet — the canonical Sheet IR (the PDF/DWG adapter
-   *  contract). pdf/dwg are CONTRACTS ONLY in this slice: the writers are
-   *  not implemented and the request fails typed docs_unsupported. */
+  /** docs.exportSheet — the canonical Sheet IR (the interchange contract) or
+   *  the deterministic pdf/svg writers (CAD-PARITY-014, D4: the Sheet IR
+   *  bridges onto the existing plot writers through interop/sheet-export.ts
+   *  — the plot.export bytes-return precedent). dwg stays the typed
+   *  docs_unsupported decline (the proprietary DWG writer boundary; DXF is
+   *  the open interchange path). */
   private qDocsExportSheet(payload: unknown): CommandQueryResponse {
     const p = payload as { sheetId?: unknown; format?: unknown } | null;
     if (
       p === null || typeof p !== "object" || typeof p.sheetId !== "string" ||
       !isDocsExportFormat(p.format)
     ) {
-      return err("bad_payload", "docs.exportSheet requires sheetId + format ('sheet-ir' | 'pdf' | 'dwg')", true);
+      return err("bad_payload", "docs.exportSheet requires sheetId + format ('sheet-ir' | 'pdf' | 'svg' | 'dwg')", true);
     }
-    if (p.format !== "sheet-ir") {
+    if (p.format === "dwg") {
       return err(
         "docs_unsupported",
-        `'${p.format}' writer is not implemented in this slice — the export CONTRACT is the canonical Sheet IR ('sheet-ir'); future adapters consume it (explicit, no partial writer)`,
+        "the proprietary DWG writer boundary — DWG is not legally compatible for this writer and writing it is an explicit non-goal; the canonical Sheet IR ('sheet-ir') and the deterministic pdf/svg writers are the export paths, DXF is the open interchange path for the same content class",
         false,
       );
     }
@@ -7515,7 +7958,33 @@ export class AppApiHandler {
     }
     try {
       const built = buildSheetIR(sheet as DocsSheetRecord, this.doc.viewTable, this.doc.allElements());
-      return ok({ format: "sheet-ir", sheetId: sheet.id, ir: built.ir, canonical: built.canonical, hash: built.hash });
+      if (p.format === "sheet-ir") {
+        return ok({ format: "sheet-ir", sheetId: sheet.id, ir: built.ir, canonical: built.canonical, hash: built.hash });
+      }
+      // CAD-PARITY-014 (D4): the Sheet IR → Plot IR bridge → the EXISTING
+      // deterministic writers (byte-identical on every host; the plot
+      // discipline — no timestamps, fixed construction order).
+      const plotIR = sheetIRToPlotIR(built.ir);
+      if (p.format === "svg") {
+        const svg = plotIRToSVG(plotIR);
+        return ok({
+          format: "svg",
+          sheetId: sheet.id,
+          text: svg,
+          size: svg.length,
+          sha256: createHash("sha256").update(svg).digest("hex"),
+          irHash: built.hash,
+        });
+      }
+      const pdf = plotIRToPDF(plotIR);
+      return ok({
+        format: "pdf",
+        sheetId: sheet.id,
+        bytesBase64: Buffer.from(pdf).toString("base64"),
+        size: pdf.length,
+        sha256: createHash("sha256").update(pdf).digest("hex"),
+        irHash: built.hash,
+      });
     } catch (e) {
       return err("docs_invalid", (e as Error).message, false);
     }

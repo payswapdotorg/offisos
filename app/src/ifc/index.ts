@@ -18,6 +18,20 @@ export {
   type IfcImportOutcome,
   type IfcImportRecord,
 } from "./importmap.js";
+// CAD-PARITY-014 (additive, Issue #107): the documentation exchange carrier
+// (the IfcGroup mapping + reconciliation).
+export {
+  buildIfcDocumentationExport,
+  ifcDocsReportHash,
+  reconcileIfcDocumentation,
+  type IfcDocumentationExport,
+  type IfcDocumentationTables,
+  type IfcDocsMint,
+  type IfcDocsRecordDrafts,
+  type IfcDocsReconcileOutcome,
+  type IfcDocsReport,
+  type IfcDocsTargetState,
+} from "./docmap.js";
 export {
   ifcReportHash,
   IFC_ROUNDTRIP_TOLERANCE_MM,

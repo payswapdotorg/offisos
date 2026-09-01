@@ -81,6 +81,13 @@ export type CommandName =
   | "ifc.export"
   | "ifc.import"
   | "ifc.bcfCreate"
+  // --- CAD-PARITY-014 (additive, Issue #107): file interoperability ---
+  // dxf.import — the bounded DXF R2000 ASCII reader → canonical document
+  // edits as ONE atomic versioned command (the ifc.import pattern: ltype/
+  // layer/element creation through the document authority, ids minted,
+  // unsupported constructs skipped + counted typed). The DWG binary is the
+  // explicit typed decline (dwg_unsupported). Export is a QUERY (dxf.export).
+  | "dxf.import"
   // --- CAD-PARITY-004 (additive, Issue #80): layers, properties, styles ---
   // The professional properties & palettes command surface. Layer-table
   // edits stay on the COMPAT-CAD-001 drafting.* commands (extended fields);
@@ -408,7 +415,20 @@ export type QueryName =
   | "schedules.run"
   | "revisions.list"
   | "publisher.list"
-  | "docs.exchangeReport";
+  | "docs.exchangeReport"
+  // --- CAD-PARITY-014 (additive, Issue #107): file interoperability read
+  // surfaces (non-mutating, computed fresh every call, never persisted
+  // stale). dxf.export = the bounded deterministic DXF R2000 ASCII writer
+  // over the current drafting surface (bytes + counts + the skipped-kind
+  // classification — the plot.export bytes precedent);
+  // interop.exchangeReport = the P014 authoritative exchange
+  // classification; interop.archivalList = the archival format registry
+  // (the legal compatibility surface); interop.roundtripReport = the
+  // format round-trip verification loops (dxf pure-TS, ifc adapter-bound). ---
+  | "dxf.export"
+  | "interop.exchangeReport"
+  | "interop.archivalList"
+  | "interop.roundtripReport";
 
 export interface Command {
   readonly type: "command";
