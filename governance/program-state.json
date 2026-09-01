@@ -51,22 +51,22 @@
     ]
   },
   "current": {
-    "verified_through": "CAD-PARITY-013",
+    "verified_through": "CAD-PARITY-014",
     "verified_supporting_governance": ["ARCH-WF-002"],
-    "active_work_item": "CAD-PARITY-014",
-    "active_issue": 107,
+    "active_work_item": "CAD-PARITY-015",
+    "active_issue": 110,
     "active_pr": null,
-    "active_branch": "work/cad-parity-014-file-interoperability",
+    "active_branch": "work/cad-parity-015-schedules-quantities",
     "active_state": "ASSIGNED",
-    "implementation_head": null,
-    "base_main_revision": "d5825e9a7a71f85e2869516ef0467224ada5fe42",
-    "blocking_gate": "P014 implementation submission.",
-    "blocking_reason": "CAD-PARITY-013 is VERIFIED and CAD-PARITY-014 is registered and assigned. The implementer may now proceed to IMPLEMENTING, then PR_OPEN/VERIFYING for Architect review. No approval or verification is authorized before the complete P014 evidence package is available.",
-    "next_after_p013": "CAD-PARITY-014"
+    "implementation_head": "32a70aa111d85cfe59378ce28ccd5c1a2723adf8",
+    "base_main_revision": "efd98e754d8e9338be578f257ba993d6f433f0f8",
+    "blocking_gate": "P015 implementation submission.",
+    "blocking_reason": "CAD-PARITY-014 is VERIFIED and CAD-PARITY-015 is registered and assigned. The implementer may now proceed to IMPLEMENTING, then PR_OPEN/VERIFYING for Architect review. No approval or verification is authorized before the complete P015 evidence package is available.",
+    "next_after_p014": "CAD-PARITY-015"
   },
   "current_work_item_sources": {
-    "work_item": "governance/work-items/CAD-PARITY-014.json",
-    "issue": "https://github.com/pectoraux/offisos/issues/107",
+    "work_item": "governance/work-items/CAD-PARITY-015.json",
+    "issue": "https://github.com/pectoraux/offisos/issues/110",
     "pull_request": null
   },
   "verification_protocol": {
