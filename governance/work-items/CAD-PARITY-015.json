@@ -3,15 +3,8 @@
   "title": "Schedules, indexes, properties and quantity workflows",
   "issue": 110,
   "architecture_version": "1.1",
-  "requirements": [
-    "IFC-001"
-  ],
-  "dependencies": [
-    "CAD-PARITY-014",
-    "COMPAT-BIM-003",
-    "COMPAT-CAD-003",
-    "COMPAT-IFC-001"
-  ],
+  "requirements": ["IFC-001"],
+  "dependencies": ["CAD-PARITY-014", "COMPAT-BIM-003", "COMPAT-CAD-003", "COMPAT-IFC-001"],
   "objective": "Extend the verified CAD/BIM product with deterministic schedules, indexes, property-driven reporting and quantity workflows, using the Construction Graph as the authoritative information source and preserving frozen ConstructionOS Architecture v1.1.",
   "acceptance_criteria": [
     "Schedule and index definitions are document-owned, deterministic and persist through save/open/replay.",
@@ -46,7 +39,7 @@
     "Exact-head deployment plus real-browser/Electron evidence where applicable.",
     "Revision-bound governance evidence covering implementation, merge and post-merge verification."
   ],
-  "state": "ASSIGNED",
+  "state": "IMPLEMENTING",
   "transitions": [
     {
       "from": "DRAFT",
@@ -65,6 +58,15 @@
       "role": "architect",
       "reason": "All declared P015 dependencies are verified on main. Assign implementation to the logical implementation agent and require stopping at PR_OPEN/VERIFYING for Architect review.",
       "references": {"issue": 110,"assignee": "z-ai-implementation-agent"}
+    },
+    {
+      "from": "ASSIGNED",
+      "to": "IMPLEMENTING",
+      "at": "2026-09-01T11:45:00Z",
+      "actor": "z-ai-implementation-agent",
+      "role": "implementer",
+      "reason": "Implementation begins for CAD-PARITY-015 from the verified CAD-PARITY-014 mainline baseline. Scope is the bounded deterministic schedules, indexes, property-driven reporting and quantity workflows defined by Issue #110, preserving Construction Graph authority, shared Web/Electron semantics, adapter/worker boundaries and the PR_OPEN/VERIFYING stop gate.",
+      "references": {"issue": 110,"commit": "32a70aa111d85cfe59378ce28ccd5c1a2723adf8"}
     }
   ],
   "evidence": [],
