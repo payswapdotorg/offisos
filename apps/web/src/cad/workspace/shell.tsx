@@ -39,6 +39,11 @@ import {
   revisionsList,
   save,
   schedulesList,
+  // CAD-PARITY-015 (Issue #110): the properties/quantities surfaces.
+  propertiesList,
+  quantitiesRun,
+  unwrapPropertiesList,
+  unwrapQuantityReport,
   send,
   setSelection as setDocumentSelection,
   unwrapCoordinationClash,
@@ -81,6 +86,8 @@ import { BimWorkbench } from "@/cad/bim/workbench";
 import { DocsWorkbench } from "@/cad/docs/workbench";
 import { IfcWorkbench } from "@/cad/ifc/workbench";
 import { ComponentsWorkbench } from "@/cad/components/workbench";
+// CAD-PARITY-015 (Issue #110): the Schedules/Properties/Quantities workbench.
+import { SchedulesWorkbench } from "@/cad/schedules/workbench";
 // CAD-PARITY-012 (Issue #102): the shared material display helpers — the
 // SAME resolution the canvas paint loop and the Coordination palette run;
 // materialViewsOf derives the id-sorted table rows from the snapshot (the
@@ -103,6 +110,9 @@ const VIEW_TABS: readonly { id: WorkspaceView; label: string }[] = [
   { id: "docs", label: "Documentation" },
   { id: "ifc", label: "Interoperability" },
   { id: "components", label: "Components" },
+  // CAD-PARITY-015 (Issue #110): the schedules/indexes/properties/quantity
+  // workflows surface.
+  { id: "schedules", label: "Schedules" },
 ];
 
 export function WorkspaceShell(): React.JSX.Element {
@@ -404,14 +414,19 @@ export function WorkspaceShell(): React.JSX.Element {
               // clash result and the bill of materials).
               setDockTab("coordination");
               setDockVisible(true);
-            } else if (palette === "documentation" || palette === "schedules") {
+            } else if (palette === "documentation") {
               // CAD-PARITY-013 (Issue #104): REVLIST/SCHLIST — the
               // Documentation palette (the navigator View Map + Layout Book,
-              // title blocks, revisions, schedules, publisher). The P1
-              // SCHLIST instant command emits palette "schedules" — it maps
-              // onto the same Documentation dock tab (its schedules section).
+              // title blocks, revisions, schedules, publisher).
               setDockTab("documentation");
               setDockVisible(true);
+            } else if (palette === "schedules") {
+              // CAD-PARITY-015 (Issue #110): PROPLIST/SCHLIST/QTO — the
+              // Schedules workbench (the property registry, the schedules
+              // run surface with groups/totals, the quantity takeoff). The
+              // P013 SCHLIST instant command emits palette "schedules" — it
+              // now maps onto the dedicated workbench view.
+              setView("schedules");
             } else if (palette === "workspace") {
               setPreset((p) => (p === "compact" ? "drafting" : "compact"));
             }
@@ -515,6 +530,69 @@ export function WorkspaceShell(): React.JSX.Element {
               setHistoryLines((h) => [...h, ...lines]);
             } catch {
               setHistoryLines((h) => [...h, "*ERROR* report.revisions: the query failed."]);
+            }
+            break;
+          }
+          // CAD-PARITY-015 (Issue #110): the properties/quantities report ui
+          // actions (the report.schedule precedent — the host renders the
+          // REAL query results to the command-line history; failures print a
+          // typed *ERROR* history line, never crash the shell).
+          case "report.properties": {
+            try {
+              const res = await propertiesList();
+              const rows = unwrapPropertiesList(res);
+              if (rows === null) {
+                setHistoryLines((h) => [
+                  ...h,
+                  `*ERROR* report.properties: ${res.ok ? "unexpected response shape" : `${res.code} — ${res.message}`}`,
+                ]);
+                break;
+              }
+              const lines = [`PROPERTIES: ${rows.length} definition${rows.length === 1 ? "" : "s"} (values counted from the element property-set overlay).`];
+              for (const row of rows) {
+                lines.push(
+                  `PROPERTIES: ${row.name} | ${row.set}.${row.key} | ${row.type}${row.unit !== undefined ? ` ${row.unit}` : ""} | ${row.elementsWithValue} value(s), ${row.typeMatches} match, ${row.typeMismatches} mismatch.`,
+                );
+              }
+              setHistoryLines((h) => [...h, ...lines]);
+            } catch {
+              setHistoryLines((h) => [...h, "*ERROR* report.properties: the query failed."]);
+            }
+            break;
+          }
+          case "report.quantities": {
+            try {
+              const payload = (action.payload as { source?: unknown; groupBy?: unknown; filter?: unknown } | undefined) ?? {};
+              const res = await quantitiesRun({
+                source: (typeof payload.source === "string" ? payload.source : "elements") as "elements" | "components" | "materials",
+                groupBy: (typeof payload.groupBy === "string" ? payload.groupBy : "none") as "none" | "type" | "story" | "material",
+              });
+              const report = unwrapQuantityReport(res);
+              if (report === null) {
+                setHistoryLines((h) => [
+                  ...h,
+                  `*ERROR* report.quantities: ${res.ok ? "unexpected response shape" : `${res.code} — ${res.message}`}`,
+                ]);
+                break;
+              }
+              const lines = [
+                `QTO: ${report.source} grouped by ${report.groupBy} — rev ${report.revision.revision_number}, ${report.rows.length + report.bom.length} row(s), ${report.skipped.length} skipped.`,
+              ];
+              if (report.bom.length > 0) {
+                for (const row of report.bom) {
+                  lines.push(
+                    `QTO: ${row.materialName} | ${row.count} | vol ${row.volume === null ? "-" : String(row.volume)} mm3 | mass ${row.mass === null ? "-" : String(row.mass)} kg.`,
+                  );
+                }
+              } else if (report.totals !== null) {
+                lines.push(
+                  `QTO: totals | ${report.totals.count} | length ${report.totals.length === null ? "-" : String(report.totals.length)} mm | area ${report.totals.area === null ? "-" : String(report.totals.area)} mm2 | volume ${report.totals.volume === null ? "-" : String(report.totals.volume)} mm3.`,
+                );
+              }
+              lines.push(`QTO: sha256 ${report.reportSha256.slice(0, 12)}.`);
+              setHistoryLines((h) => [...h, ...lines]);
+            } catch {
+              setHistoryLines((h) => [...h, "*ERROR* report.quantities: the query failed."]);
             }
             break;
           }
@@ -1059,6 +1137,7 @@ export function WorkspaceShell(): React.JSX.Element {
             {view === "docs" && <DocsWorkbench />}
             {view === "ifc" && <IfcWorkbench />}
             {view === "components" && <ComponentsWorkbench />}
+            {view === "schedules" && <SchedulesWorkbench />}
             {view === "layout" && (
               <LayoutCanvas
                 snapshot={snapshot}
