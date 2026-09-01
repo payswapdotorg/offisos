@@ -3,8 +3,15 @@
   "title": "Schedules, indexes, properties and quantity workflows",
   "issue": 110,
   "architecture_version": "1.1",
-  "requirements": ["IFC-001"],
-  "dependencies": ["CAD-PARITY-014","COMPAT-BIM-003","COMPAT-CAD-003","COMPAT-IFC-001"],
+  "requirements": [
+    "IFC-001"
+  ],
+  "dependencies": [
+    "CAD-PARITY-014",
+    "COMPAT-BIM-003",
+    "COMPAT-CAD-003",
+    "COMPAT-IFC-001"
+  ],
   "objective": "Extend the verified CAD/BIM product with deterministic schedules, indexes, property-driven reporting and quantity workflows, using the Construction Graph as the authoritative information source and preserving frozen ConstructionOS Architecture v1.1.",
   "acceptance_criteria": [
     "Schedule and index definitions are document-owned, deterministic and persist through save/open/replay.",
@@ -17,13 +24,48 @@
     "Exact final head must be CI-verified, deployment/browser/Electron verified where applicable, and revision-bound before merge.",
     "No protected architecture paths are modified."
   ],
-  "non_goals": ["Unbounded spreadsheet replacement.","4D/5D enterprise planning beyond the bounded quantity semantics required here.","Cloud collaboration infrastructure (P016).","General automation/API expansion (P017).","Architecture changes without an ACR."],
-  "risk_assumptions": ["CAD-PARITY-014 is VERIFIED and is the current interoperability baseline.","COMPAT-BIM-003 is VERIFIED and remains the BIM information baseline.","COMPAT-CAD-003 remains available as the documentation/quantity baseline.","COMPAT-IFC-001 remains available for exchange-backed property semantics.","Architecture v1.1 remains frozen throughout P015."],
-  "evidence_requirements": ["Deterministic schedule/index/property and quantity tests.","Representative Web/Electron parity fixtures for schedule and quantity workflows.","Canonical Construction Graph/property lineage checks demonstrating no parallel source of truth.","Regression proof that CAD-PARITY-002..014 and compatibility baselines remain green and byte-identical.","Exact-head deployment plus real-browser/Electron evidence where applicable.","Revision-bound governance evidence covering implementation, merge and post-merge verification."],
+  "non_goals": [
+    "Unbounded spreadsheet replacement.",
+    "4D/5D enterprise planning beyond the bounded quantity semantics required here.",
+    "Cloud collaboration infrastructure (P016).",
+    "General automation/API expansion (P017).",
+    "Architecture changes without an ACR."
+  ],
+  "risk_assumptions": [
+    "CAD-PARITY-014 is VERIFIED and is the current interoperability baseline.",
+    "COMPAT-BIM-003 is VERIFIED and remains the BIM information baseline.",
+    "COMPAT-CAD-003 remains available as the documentation/quantity baseline.",
+    "COMPAT-IFC-001 remains available for exchange-backed property semantics.",
+    "Architecture v1.1 remains frozen throughout P015."
+  ],
+  "evidence_requirements": [
+    "Deterministic schedule/index/property and quantity tests.",
+    "Representative Web/Electron parity fixtures for schedule and quantity workflows.",
+    "Canonical Construction Graph/property lineage checks demonstrating no parallel source of truth.",
+    "Regression proof that CAD-PARITY-002..014 and compatibility baselines remain green and byte-identical.",
+    "Exact-head deployment plus real-browser/Electron evidence where applicable.",
+    "Revision-bound governance evidence covering implementation, merge and post-merge verification."
+  ],
   "state": "ASSIGNED",
   "transitions": [
-    {"from":"DRAFT","to":"READY","at":"2026-09-01T11:37:00Z","actor":"pectoraux","role":"architect","reason":"Release CAD-PARITY-015 as the next bounded schedules, indexes, properties and quantity slice following verified interoperability.","references":{"issue":110}},
-    {"from":"READY","to":"ASSIGNED","at":"2026-09-01T11:37:15Z","actor":"pectoraux","role":"architect","reason":"All declared P015 dependencies are verified on main. Assign implementation to the logical implementation agent and require stopping at PR_OPEN/VERIFYING for Architect review.","references":{"issue":110,"assignee":"z-ai-implementation-agent"}}
+    {
+      "from": "DRAFT",
+      "to": "READY",
+      "at": "2026-09-01T11:37:00Z",
+      "actor": "pectoraux",
+      "role": "architect",
+      "reason": "Release CAD-PARITY-015 as the next bounded schedules, indexes, properties and quantity slice following verified interoperability.",
+      "references": {"issue": 110}
+    },
+    {
+      "from": "READY",
+      "to": "ASSIGNED",
+      "at": "2026-09-01T11:37:15Z",
+      "actor": "pectoraux",
+      "role": "architect",
+      "reason": "All declared P015 dependencies are verified on main. Assign implementation to the logical implementation agent and require stopping at PR_OPEN/VERIFYING for Architect review.",
+      "references": {"issue": 110,"assignee": "z-ai-implementation-agent"}
+    }
   ],
   "evidence": [],
   "decisions": []
