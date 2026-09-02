@@ -24,6 +24,7 @@ import {
   type ActivityKind,
   type ActivityView,
   type CollabMemberView,
+  type CollabPersistedState,
   type CollabRole,
   type CommentTarget,
   type CommentTargetKind,
@@ -544,6 +545,122 @@ export class CollabStore {
     this.seq.activity += 1;
     this.activity.push({ seq: this.seq.activity, at: clock, actor, kind, detail });
     while (this.activity.length > ACTIVITY_LIMIT) this.activity.shift();
+  }
+
+  // --- the durable/shared persistence boundary (the P016 remediation) -----
+
+  /** Rehydrate the store from the durable project record's collab section
+   *  (deep-copied into mutable session-side records — the record itself is
+   *  never aliased). */
+  static rehydrate(persisted: CollabPersistedState): CollabStore {
+    const store = new CollabStore();
+    for (const m of persisted.members) {
+      store.members.set(m.userId, {
+        userId: m.userId,
+        role: m.role,
+        joinedAt: m.joinedAt,
+        lastSeenAt: m.lastSeenAt,
+        lastSeenVersion: m.lastSeenVersion,
+      });
+    }
+    store.comments.push(
+      ...persisted.comments.map((c) => ({
+        id: c.id,
+        userId: c.userId,
+        body: c.body,
+        target: { ...c.target },
+        resolved: c.resolved,
+        resolvedBy: c.resolvedBy,
+        createdAt: c.createdAt,
+        documentVersion: c.documentVersion,
+      })),
+    );
+    store.activity.push(
+      ...persisted.activity.map((a) => ({
+        seq: a.seq,
+        at: a.at,
+        actor: a.actor,
+        kind: a.kind as ActivityKind,
+        detail: a.detail,
+      })),
+    );
+    store.transactions.push(
+      ...persisted.transactions.map((t) => ({
+        id: t.id,
+        author: t.author,
+        baseVersion: t.baseVersion,
+        touchedElementIds: [...t.touchedElementIds],
+        edits: [...t.edits],
+        editCount: t.editCount,
+        status: t.status,
+        recordedAt: t.recordedAt,
+        resultingVersion: t.resultingVersion,
+        conflict: t.conflict === null ? null : { ...t.conflict },
+        merge: t.merge === null ? null : { ...t.merge },
+      })),
+    );
+    store.seq = {
+      member: persisted.seq.member,
+      comment: persisted.seq.comment,
+      txn: persisted.seq.txn,
+      merge: persisted.seq.merge,
+      activity: persisted.seq.activity,
+    };
+    store.presenceBeats = persisted.presenceBeats;
+    return store;
+  }
+
+  /** Dehydrate the store into the serializable durable record section. */
+  dehydrate(): CollabPersistedState {
+    return {
+      members: [...this.members.values()].map((m) => ({
+        userId: m.userId,
+        role: m.role,
+        joinedAt: m.joinedAt,
+        lastSeenAt: m.lastSeenAt,
+        lastSeenVersion: m.lastSeenVersion,
+      })),
+      comments: this.comments.map((c) => ({
+        id: c.id,
+        userId: c.userId,
+        body: c.body,
+        target: { ...c.target },
+        resolved: c.resolved,
+        resolvedBy: c.resolvedBy,
+        createdAt: c.createdAt,
+        documentVersion: c.documentVersion,
+      })),
+      activity: this.activity.map((a) => ({
+        seq: a.seq,
+        at: a.at,
+        actor: a.actor,
+        kind: a.kind,
+        detail: a.detail,
+      })),
+      transactions: this.transactions.map((t) => ({
+        id: t.id,
+        author: t.author,
+        baseVersion: t.baseVersion,
+        touchedElementIds: [...t.touchedElementIds],
+        edits: [...t.edits],
+        editCount: t.editCount,
+        status: t.status,
+        recordedAt: t.recordedAt,
+        resultingVersion: t.resultingVersion,
+        conflict: t.conflict === null ? null : { ...t.conflict },
+        merge: t.merge === null ? null : { ...t.merge },
+      })),
+      seq: { ...this.seq },
+      presenceBeats: this.presenceBeats,
+    };
+  }
+
+  /** The retained edit batch of a transaction (the rebase replay basis —
+   *  the handler replays the winning rebase on the real session document
+   *  exactly once, after the durable append). */
+  replayableEditsOf(transactionId: string): readonly unknown[] {
+    const record = this.transactions.find((t) => t.id === transactionId);
+    return record === undefined ? [] : [...record.edits];
   }
 }
 

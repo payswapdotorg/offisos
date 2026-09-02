@@ -357,3 +357,113 @@ export interface PerfBudgetsView {
   readonly budgets: readonly PerfBudgetRow[];
   readonly counters: PerfCountersView;
 }
+
+// ---------------------------------------------------------------------------
+// CAD-PARITY-016 (Issue #112) — the durable/shared persistence boundary.
+// The P016 remediation contracts: the persisted project record types (the
+// serializable durable state, versioned through append-only events), the
+// persistence backend vocabulary and the observability view. Architecture
+// v1.1 §6: PostgreSQL is authoritative for structured domain state/events
+// and object storage for immutable artifacts; the port below carries those
+// semantics — every adapter (memory/file/postgres/blob) implements the SAME
+// serialized durable append + content-addressed immutable blobs contract, so
+// the shared collaboration state survives process/session/participant
+// boundaries while the CADDocument stays the canonical system of record
+// (LOCK-019) and the stream cache stays a non-authoritative support
+// mechanism.
+// ---------------------------------------------------------------------------
+
+/** The persistence backend vocabulary (the closed set the hosts may wire). */
+export type P016PersistBackend = "memory" | "file" | "postgres" | "blob";
+
+/** The persistence observability view (surfaced through collab.state — the
+ *  honest backend identity for the shared-state evidence). */
+export interface P016PersistenceView {
+  readonly backend: P016PersistBackend;
+  /** The project scope — the canonical document entity id. */
+  readonly projectKey: string;
+  /** The persisted project event count (== the deterministic project clock). */
+  readonly eventCount: number;
+}
+
+/** The serializable collab-store state (the durable project record part). */
+export interface CollabPersistedState {
+  readonly members: readonly {
+    readonly userId: string;
+    readonly role: CollabRole;
+    readonly joinedAt: SessionClock;
+    readonly lastSeenAt: SessionClock | null;
+    readonly lastSeenVersion: number | null;
+  }[];
+  readonly comments: readonly {
+    readonly id: string;
+    readonly userId: string;
+    readonly body: string;
+    readonly target: CommentTarget;
+    readonly resolved: boolean;
+    readonly resolvedBy: string | null;
+    readonly createdAt: SessionClock;
+    readonly documentVersion: number;
+  }[];
+  readonly activity: readonly {
+    readonly seq: number;
+    readonly at: SessionClock;
+    readonly actor: string;
+    readonly kind: string;
+    readonly detail: string;
+  }[];
+  readonly transactions: readonly {
+    readonly id: string;
+    readonly author: string;
+    readonly baseVersion: number;
+    readonly touchedElementIds: readonly string[];
+    readonly edits: readonly unknown[];
+    readonly editCount: number;
+    readonly status: TransactionStatus;
+    readonly recordedAt: SessionClock;
+    readonly resultingVersion: number | null;
+    readonly conflict: ConflictView | null;
+    readonly merge: MergeLineageView | null;
+  }[];
+  readonly seq: { member: number; comment: number; txn: number; merge: number; activity: number };
+  readonly presenceBeats: number;
+}
+
+/** The serializable recovery-store state: the checkpoint VIEWS (the
+ *  content-addressed snapshot blobs live separately — object-storage
+ *  semantics; the view's contentHash IS the blob address). */
+export interface RecoveryPersistedState {
+  readonly checkpoints: readonly CheckpointView[];
+  readonly nextSeq: number;
+}
+
+/** The serializable job-store state. */
+export interface JobsPersistedState {
+  readonly jobs: readonly {
+    readonly id: string;
+    readonly kind: JobKind;
+    readonly status: JobStatus;
+    readonly step: number;
+    readonly totalSteps: number;
+    readonly createdAt: SessionClock;
+    readonly finishedAt: SessionClock | null;
+    readonly result: JobResultSummary | null;
+    readonly failure: { readonly code: string; readonly message: string } | null;
+    readonly params: Readonly<Record<string, unknown>>;
+    readonly work: Readonly<Record<string, unknown>>;
+  }[];
+  readonly seq: number;
+  readonly tickCount: number;
+}
+
+/** The durable, shared, project-scoped P016 state — the record every
+ *  persistence adapter versions through append-only events. The project
+ *  clock is the deterministic timeline: ONE tick per persisted project
+ *  event (the store's serialization point), so every P016 output stays a
+ *  pure function of the persisted event sequence. */
+export interface PersistedP016State {
+  readonly clock: SessionClock;
+  readonly collab: CollabPersistedState;
+  readonly recovery: RecoveryPersistedState;
+  readonly jobs: JobsPersistedState;
+}

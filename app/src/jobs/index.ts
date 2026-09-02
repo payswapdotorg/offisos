@@ -23,6 +23,7 @@ import type {
   JobKind,
   JobResultSummary,
   JobView,
+  JobsPersistedState,
   SessionClock,
   StreamPageView,
 } from "../contracts/collab.js";
@@ -352,6 +353,58 @@ export class JobStore {
       result: record.result,
       failure: record.failure,
       persistHint: JOB_PERSIST_HINT,
+    };
+  }
+
+  // --- the durable/shared persistence boundary (the P016 remediation) -----
+
+  /** Rehydrate the store from the durable project record's jobs section
+   *  (deep-copied mutable records — the durable record is never aliased;
+   *  the per-step working state `workMut` re-binds to the persisted `work`).
+   *  A job's lifecycle therefore survives handler restarts and process
+   *  death — any session's tick advances the SAME durable job. */
+  static rehydrate(persisted: JobsPersistedState): JobStore {
+    const store = new JobStore();
+    for (const j of persisted.jobs) {
+      const workMut: Record<string, unknown> = { ...j.work };
+      store.jobs.push({
+        id: j.id,
+        kind: j.kind,
+        status: j.status,
+        step: j.step,
+        totalSteps: j.totalSteps,
+        createdAt: j.createdAt,
+        finishedAt: j.finishedAt,
+        result: j.result === null ? null : { ...j.result },
+        failure: j.failure === null ? null : { ...j.failure },
+        params: { ...j.params },
+        work: workMut,
+        workMut,
+      });
+    }
+    store.seq = persisted.seq;
+    store.tickCount = persisted.tickCount;
+    return store;
+  }
+
+  /** Dehydrate the store into the serializable durable record section. */
+  dehydrate(): JobsPersistedState {
+    return {
+      jobs: this.jobs.map((j) => ({
+        id: j.id,
+        kind: j.kind,
+        status: j.status,
+        step: j.step,
+        totalSteps: j.totalSteps,
+        createdAt: j.createdAt,
+        finishedAt: j.finishedAt,
+        result: j.result === null ? null : { ...j.result },
+        failure: j.failure === null ? null : { ...j.failure },
+        params: { ...j.params },
+        work: { ...j.workMut },
+      })),
+      seq: this.seq,
+      tickCount: this.tickCount,
     };
   }
 }

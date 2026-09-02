@@ -67,7 +67,7 @@ test("collab: join registers project-scoped members; rejoin and bad roles declin
   );
   assert.equal(member.userId, "ekon");
   assert.equal(member.role, "editor");
-  assert.equal(member.joinedAt, 2); // the 2nd command after the create reset (elements=1, join=2)
+  assert.equal(member.joinedAt, 1); // the 1st persisted project event (the remediation clock: one tick per durable event)
   assert.equal(member.active, false); // no heartbeat yet
   assert.equal(member.lastSeenVersion, null);
 
@@ -82,35 +82,41 @@ test("collab: join registers project-scoped members; rejoin and bad roles declin
 test("collab: presence heartbeats update liveness + the viewed revision; TTL is deterministic", async () => {
   const h = AppApiHandler.create(CONFIG);
   await seed(h);
-  await cmd(h, "collab.join", { userId: "ekon", role: "editor" }); // command 3
+  await cmd(h, "collab.join", { userId: "ekon", role: "editor" }); // event 1
 
   const beat1 = val<{ member: CollabMemberView; presenceTtl: number }>(
-    await cmd(h, "collab.presence", { userId: "ekon" }), // command 4
+    await cmd(h, "collab.presence", { userId: "ekon" }), // event 2
   );
   assert.equal(beat1.member.active, true);
-  assert.equal(beat1.member.lastSeenAt, 3);
+  assert.equal(beat1.member.lastSeenAt, 2);
   assert.equal(beat1.member.lastSeenVersion, 2);
   assert.equal(beat1.presenceTtl, 30);
 
-  // Within the TTL window (30 commands) the member stays active; beyond it
-  // they go stale — deterministic, a pure function of the command count.
+  // Within the TTL window (30 persisted events) the member stays active;
+  // beyond it they go stale — deterministic, a pure function of the
+  // persisted project event count (a second member's heartbeats advance the
+  // shared clock without touching ekon's lastSeenAt).
+  await cmd(h, "collab.join", { userId: "bob", role: "viewer" }); // event 3
   for (let i = 0; i < 20; i += 1) {
-    await cmd(h, "bim.move", { ids: ["wall-south"], dx: 0, dy: 1, dz: 0 });
+    await cmd(h, "collab.presence", { userId: "bob" }); // events 4..23
   }
-  const state1 = val<{ members: CollabMemberView[]; sessionClock: number }>(await qq(h, "collab.state"));
-  assert.equal(state1.members[0]!.active, true); // 23 - 3 = 20 <= 30
+  const state1 = val<{ members: CollabMemberView[]; clock: number }>(await qq(h, "collab.state"));
+  const ekon1 = state1.members.find((m) => m.userId === "ekon")!;
+  assert.equal(ekon1.active, true); // 23 - 2 = 21 <= 30
 
   for (let i = 0; i < 11; i += 1) {
-    await cmd(h, "bim.move", { ids: ["wall-south"], dx: 0, dy: 1, dz: 0 });
+    await cmd(h, "collab.presence", { userId: "bob" }); // events 24..34
   }
-  const state2 = val<{ members: CollabMemberView[]; sessionClock: number }>(await qq(h, "collab.state"));
-  assert.equal(state2.sessionClock, 34);
-  assert.equal(state2.members[0]!.active, false); // 34 - 3 = 31 > 30
+  const state2 = val<{ members: CollabMemberView[]; clock: number }>(await qq(h, "collab.state"));
+  assert.equal(state2.clock, 34);
+  const ekon2 = state2.members.find((m) => m.userId === "ekon")!;
+  assert.equal(ekon2.active, false); // 34 - 2 = 32 > 30
   // A fresh heartbeat revives them and records the CURRENT revision.
   await cmd(h, "collab.presence", { userId: "ekon" });
   const state3 = val<{ members: CollabMemberView[] }>(await qq(h, "collab.state"));
-  assert.equal(state3.members[0]!.active, true);
-  assert.ok(state3.members[0]!.lastSeenVersion! > 2);
+  const ekon3 = state3.members.find((m) => m.userId === "ekon")!;
+  assert.equal(ekon3.active, true);
+  assert.equal(ekon3.lastSeenVersion, 2);
 
   // Heartbeat without membership declines typed.
   const ghost = errVal(await cmd(h, "collab.presence", { userId: "ghost" }));
@@ -212,7 +218,7 @@ test("collab: the activity stream records the P016 events in clock order (bounde
   ]);
   assert.equal(activity[0]!.seq, 1);
   assert.equal(activity[0]!.actor, "ekon");
-  assert.equal(activity[0]!.at, 2); // the 2nd command after the create reset
+  assert.equal(activity[0]!.at, 1); // the 1st persisted project event (the remediation clock)
   assert.equal(activity[2]!.actor, "system");
   assert.match(activity[2]!.detail, /ckpt-000001 saved \(manual/);
   // Monotonic seq + clock order.

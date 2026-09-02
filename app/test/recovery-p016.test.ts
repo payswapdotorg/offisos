@@ -166,52 +166,78 @@ test("recovery: latest-valid default restore + requested-id declines typed", asy
   assert.match(bad.message, /does not exist/);
 });
 
-test("recovery: corrupt candidates are SKIPPED with typed reasons, never silently repaired (unit scan)", () => {
+test("recovery: corrupt candidates are SKIPPED with typed reasons, never silently repaired (unit scan)", async () => {
   const doc = CADDocument.empty("p016-recovery-unit", "offisos-dummy", "1", "p016-recovery-unit");
   doc.execute({ type: "addElement", element: { id: "e-1", kind: "geometry", engineId: null, props: {} } });
   const store = new CheckpointStore({ autosaveEvery: 5, keep: 8 });
+  const mints = new Map<string, unknown>();
   const first = store.create(doc, "manual", 1, checkpointIdOf);
+  mints.set(first.view.contentHash, first.blob.content);
   // A further mutation so the two checkpoints carry DIFFERENT content hashes.
   doc.execute({ type: "addElement", element: { id: "e-2", kind: "geometry", engineId: null, props: {} } });
   const second = store.create(doc, "manual", 2, checkpointIdOf);
-  assert.equal(first.id, "ckpt-000001");
-  assert.equal(second.id, "ckpt-000002");
-  assert.notEqual(first.contentHash, second.contentHash);
+  mints.set(second.view.contentHash, second.blob.content);
+  assert.equal(first.view.id, "ckpt-000001");
+  assert.equal(second.view.id, "ckpt-000002");
+  assert.notEqual(first.view.contentHash, second.view.contentHash);
 
   const open = (snapshot: unknown): CADDocument =>
     CADDocument.open(snapshot as never, "p016-recovery-unit");
+  const fetcher = async (sha: string): Promise<unknown | null> => mints.get(sha) ?? null;
 
   // A lying content-hash oracle for the LATEST checkpoint: the scan must
   // skip it (integrity_mismatch) and restore the previous valid one.
   const lyingHash = (d: CADDocument): string =>
-    d.currentContentHash() === second.contentHash ? "deadbeef".repeat(8) : d.currentContentHash();
-  const { report } = store.scanAndRestore(null, open, lyingHash, () => [], 9);
-  assert.equal(report.chosen.id, first.id);
+    d.currentContentHash() === second.view.contentHash ? "deadbeef".repeat(8) : d.currentContentHash();
+  const { report } = await store.scanAndRestore(null, fetcher, open, lyingHash, () => [], 9);
+  assert.equal(report.chosen.id, first.view.id);
   assert.equal(report.skipped.length, 1);
-  assert.equal(report.skipped[0]!.id, second.id);
+  assert.equal(report.skipped[0]!.id, second.view.id);
   assert.match(report.skipped[0]!.reason, /^integrity_mismatch: /);
 
   // An open that throws for the newest snapshot: skipped with open_failed.
   const throwingOpen = (snapshot: unknown): CADDocument => {
     const doc2 = open(snapshot);
-    if (doc2.currentContentHash() === second.contentHash) {
+    if (doc2.currentContentHash() === second.view.contentHash) {
       throw new Error("simulated corrupt snapshot");
     }
     return doc2;
   };
-  const { report: report2 } = store.scanAndRestore(null, throwingOpen, (d) => d.currentContentHash(), () => [], 10);
+  const { report: report2 } = await store.scanAndRestore(
+    null,
+    fetcher,
+    throwingOpen,
+    (d) => d.currentContentHash(),
+    () => [],
+    10,
+  );
   assert.equal(report2.chosen.id, "ckpt-000001");
   assert.equal(report2.skipped.length, 1);
   assert.match(report2.skipped[0]!.reason, /^open_failed: /);
 
+  // A MISSING content-addressed blob: skipped with snapshot_missing (the
+  // durable-store gap is a typed skip, never a crash).
+  const missingFetcher = async (sha: string): Promise<unknown | null> =>
+    sha === second.view.contentHash ? null : (mints.get(sha) ?? null);
+  const { report: report3 } = await store.scanAndRestore(
+    null,
+    missingFetcher,
+    open,
+    (d) => d.currentContentHash(),
+    () => [],
+    11,
+  );
+  assert.equal(report3.chosen.id, "ckpt-000001");
+  assert.match(report3.skipped[0]!.reason, /^snapshot_missing: /);
+
   // No valid candidate at all → the typed unrecoverable failure.
-  assert.throws(
-    () => store.scanAndRestore(null, open, () => "deadbeef".repeat(8), () => [], 9),
+  await assert.rejects(
+    () => store.scanAndRestore(null, fetcher, open, () => "deadbeef".repeat(8), () => [], 9),
     /no valid recoverable checkpoint/,
   );
 });
 
-test("recovery: retention trims the oldest first (bounded memory)", () => {
+test("recovery: the retention window trims the oldest first (bounded records)", () => {
   const doc = CADDocument.empty("p016-recovery-trim", "offisos-dummy", "1", "unit");
   const store = new CheckpointStore({ autosaveEvery: 5, keep: 3 });
   for (let i = 0; i < 6; i += 1) {
@@ -219,6 +245,40 @@ test("recovery: retention trims the oldest first (bounded memory)", () => {
   }
   const ids = store.list().map((c) => c.id);
   assert.deepEqual(ids, ["ckpt-000004", "ckpt-000005", "ckpt-000006"]);
+});
+
+test("recovery (REMEDIATION): checkpoints are DURABLE across the document-reopen boundary — a reopened document recovers them", async () => {
+  // The Architect blocker #1: resetP016Session used to DESTROY the
+  // checkpoint store on document.open. The remediation persists the project
+  // record keyed by the canonical document entity id: reopening the SAME
+  // document (the save/open round-trip preserves the identity) retains the
+  // checkpoints and the restore works from the durable blobs.
+  const h = AppApiHandler.create(CONFIG);
+  await seed(h);
+  await cmd(h, "recovery.checkpoint", {}); // ckpt-000001 (manual)
+  const hashAtCheckpoint = h.currentContentHash();
+
+  // Mutate past the checkpoint, save, and REOPEN the same document (the
+  // crash/session boundary: a fresh session over the same project).
+  await cmd(h, "bim.move", { ids: ["wall-south"], dx: 0, dy: 500, dz: 0 });
+  const saved = val<{ bytes: number[] }>(await cmd(h, "document.save", {}));
+  await cmd(h, "document.open", { source: saved.bytes });
+
+  // The checkpoints SURVIVED the reopen (the durable project record).
+  const list = val<{ checkpoints: CheckpointView[]; counters: { commands: number; retained: number } }>(
+    await qq(h, "recovery.list"),
+  );
+  assert.equal(list.checkpoints.length, 1, "the checkpoint is durable across the reopen boundary");
+  assert.equal(list.checkpoints[0]!.id, "ckpt-000001");
+  // The SESSION observability re-armed (commands counter reset — the session
+  // is new; the durable record is not).
+  assert.equal(list.counters.commands, 0);
+
+  // The restore rebuilds the checkpoint state from the durable blob.
+  const out = val<{ report: RecoveryReport }>(await cmd(h, "recovery.restore", {}));
+  assert.equal(out.report.chosen.id, "ckpt-000001");
+  assert.equal(out.report.restoredContentHash, hashAtCheckpoint);
+  assert.equal(h.currentContentHash(), hashAtCheckpoint);
 });
 
 test("recovery: headRevisionIdOf derives the canonical base/head revision id (the shared formula)", async () => {

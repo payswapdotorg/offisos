@@ -23,6 +23,7 @@ import {
   DEFAULT_RECOVERY_POLICY,
   type CheckpointCause,
   type CheckpointView,
+  type RecoveryPersistedState,
   type RecoveryPolicy,
   type RecoveryReport,
   type SessionClock,
@@ -43,24 +44,40 @@ export function headRevisionIdOf(history: ModelHistory): { number: number; id: s
   return { number: head.revision_number, id: head.revision_id };
 }
 
-/** The persisted internal checkpoint (the view + the captured snapshot). */
-interface InternalCheckpoint {
+/** The immutable, content-addressed checkpoint snapshot blob a mint emits
+ *  (the view's contentHash IS the store address — object-storage semantics:
+ *  immutable, deduplicated by construction; the durable adapters persist
+ *  it, the memory adapter retains it). */
+export interface CheckpointBlob {
+  readonly sha: string;
+  readonly content: unknown;
+}
+
+/** The mint outcome: the checkpoint VIEW plus the content-addressed
+ *  snapshot blob to persist alongside it. */
+export interface CheckpointMint {
   readonly view: CheckpointView;
-  readonly snapshot: unknown;
+  readonly blob: CheckpointBlob;
 }
 
 /**
- * The bounded checkpoint store. "Durable" within the session semantics of
- * the P016 slice: the store survives every request/command boundary of the
- * host session (the same lifetime the CADDocument session has), is
- * versioned (monotonic seq + the canonical document version + content hash
- * + the model revision head), and is traceable: every record cites the
- * canonical revision it captured. Crash/session recovery restores the
- * latest VALID checkpoint deterministically — a corrupt latest falls back
+ * The bounded checkpoint store. CAD-PARITY-016 remediation: the retained
+ * records are the checkpoint VIEWS (metadata) — the snapshot CONTENTS live
+ * in the durable persistence boundary as content-addressed immutable blobs
+ * (the view's contentHash is the address). The whole store is serializable
+ * (rehydrate/dehydrate) and re-binds to any handler/session: recovery from
+ * a FRESH instance — after a handler restart, a process crash or a document
+ * reopen — fetches the snapshots from the store and rebuilds through the
+ * canonical `CADDocument.open` path exactly as an in-session restore does.
+ *
+ * The store is versioned (monotonic seq + the canonical document version +
+ * content hash + the model revision head) and traceable: every record cites
+ * the canonical revision it captured. Recovery restores the latest VALID
+ * checkpoint deterministically — a corrupt or missing candidate falls back
  * down the list with a typed, recorded reason (never a silent repair).
  */
 export class CheckpointStore {
-  private readonly records: InternalCheckpoint[] = [];
+  private readonly views: CheckpointView[] = [];
   private nextSeq = 0;
   private readonly policy: RecoveryPolicy;
 
@@ -73,32 +90,34 @@ export class CheckpointStore {
   }
 
   get checkpointCount(): number {
-    return this.records.length;
+    return this.views.length;
   }
 
   /** The retained checkpoint views (oldest first — insertion order). */
   list(): readonly CheckpointView[] {
-    return this.records.map((r) => r.view);
+    return this.views.map((v) => ({ ...v }));
   }
 
   byId(id: string): CheckpointView | null {
-    const found = this.records.find((r) => r.view.id === id);
-    return found !== undefined ? found.view : null;
+    const found = this.views.find((v) => v.id === id);
+    return found !== undefined ? { ...found } : null;
   }
 
-  /** Capture a checkpoint of the CURRENT canonical document state.
-   *  Minted ids (`ckpt-NNNNNN`) are never reused; the retention window
-   *  trims the OLDEST records first (bounded memory). */
+  /** Capture a checkpoint of the CURRENT canonical document state. Minted
+   *  ids (`ckpt-NNNNNN`) are never reused; the retention window trims the
+   *  OLDEST records first (bounded records). Returns the view PLUS the
+   *  content-addressed snapshot blob for the persistence boundary. */
   create(
     doc: CADDocument,
     cause: CheckpointCause,
     clock: SessionClock,
     mintId: (seq: number) => string,
-  ): CheckpointView {
+  ): CheckpointMint {
     this.nextSeq += 1;
     const snapshot = doc.snapshot();
     const version = snapshot.version;
     const head = headRevisionIdOf(doc.history);
+    const contentHash = doc.currentContentHash();
     const view: CheckpointView = {
       id: mintId(this.nextSeq),
       seq: this.nextSeq,
@@ -106,68 +125,80 @@ export class CheckpointStore {
       entityId: version.entity_id,
       documentVersionId: version.version_id,
       documentVersionNumber: version.version_number,
-      contentHash: doc.currentContentHash(),
+      contentHash,
       modelRevisionNumber: head.number,
       modelRevisionId: head.id,
       elementCount: snapshot.elements.length,
       at: clock,
     };
-    this.records.push({ view, snapshot });
-    while (this.records.length > this.policy.keep) {
-      this.records.shift();
+    this.views.push(view);
+    while (this.views.length > this.policy.keep) {
+      this.views.shift();
     }
-    return view;
+    return { view: { ...view }, blob: { sha: contentHash, content: snapshot } };
   }
 
   /** Deterministic crash/session recovery: scan the checkpoints from the
-   *  LATEST to the oldest, restore the first one that (a) opens through the
-   *  canonical path and (b) reproduces its recorded content hash exactly.
-   *  Pre-restore safety checkpoints (captures of the state ABOUT to be
-   *  replaced) are excluded from the DEFAULT scan — they are restorable
+   *  LATEST to the oldest, fetch each candidate's snapshot blob from the
+   *  DURABLE store (the content-addressed fetch — the same path a fresh
+   *  handler/instance takes), restore the first one that (a) opens through
+   *  the canonical path and (b) reproduces its recorded content hash
+   *  exactly. Pre-restore safety checkpoints (captures of the state ABOUT to
+   *  be replaced) are excluded from the DEFAULT scan — they are restorable
    *  only by explicit id. Every skipped candidate is reported with a typed
-   *  reason. The returned document is the canonical rebuilt state
-   *  (CADDocument.open — the same validation a persisted file round-trip
-   *  gets). */
-  scanAndRestore(
+   *  reason (a missing blob is `snapshot_missing`; a corrupt snapshot is
+   *  `open_failed`/`integrity_mismatch`). The returned document is the
+   *  canonical rebuilt state (CADDocument.open — the same validation a
+   *  persisted file round-trip gets). */
+  async scanAndRestore(
     requestedId: string | null,
+    fetchSnapshot: (sha: string) => Promise<unknown | null>,
     open: (snapshot: unknown) => CADDocument,
     contentHashOf: (doc: CADDocument) => string,
     xrefStatusOf: (doc: CADDocument) => readonly XrefStatusView[],
     clock: SessionClock,
-  ): { doc: CADDocument; report: RecoveryReport } {
-    const ordered = [...this.records].reverse(); // latest first
+  ): Promise<{ doc: CADDocument; report: RecoveryReport }> {
+    const ordered = [...this.views].reverse(); // latest first
     const candidates =
       requestedId !== null
-        ? ordered.filter((r) => r.view.id === requestedId)
-        : ordered.filter((r) => r.view.cause !== "pre-restore");
+        ? ordered.filter((v) => v.id === requestedId)
+        : ordered.filter((v) => v.cause !== "pre-restore");
     if (requestedId !== null && candidates.length === 0) {
       throw new Error(
-        `recovery: requested checkpoint '${requestedId}' does not exist (retained: ${this.records.length})`,
+        `recovery: requested checkpoint '${requestedId}' does not exist (retained: ${this.views.length})`,
       );
     }
     const skipped: { id: string; reason: string }[] = [];
     for (const candidate of candidates) {
+      const snapshot = await fetchSnapshot(candidate.contentHash);
+      if (snapshot === null || snapshot === undefined) {
+        skipped.push({
+          id: candidate.id,
+          reason: `snapshot_missing: no content-addressed blob at sha ${candidate.contentHash.slice(0, 12)}…`,
+        });
+        continue;
+      }
       let restored: CADDocument;
       try {
-        restored = open(candidate.snapshot);
+        restored = open(snapshot);
       } catch (e) {
         skipped.push({
-          id: candidate.view.id,
+          id: candidate.id,
           reason: `open_failed: ${(e as Error).message.slice(0, 120)}`,
         });
         continue;
       }
       const hash = contentHashOf(restored);
-      if (hash !== candidate.view.contentHash) {
+      if (hash !== candidate.contentHash) {
         skipped.push({
-          id: candidate.view.id,
-          reason: `integrity_mismatch: recorded ${candidate.view.contentHash.slice(0, 12)}… restored ${hash.slice(0, 12)}…`,
+          id: candidate.id,
+          reason: `integrity_mismatch: recorded ${candidate.contentHash.slice(0, 12)}… restored ${hash.slice(0, 12)}…`,
         });
         continue;
       }
       const report: RecoveryReport = {
         requestedId,
-        chosen: candidate.view,
+        chosen: { ...candidate },
         skipped,
         restoredVersionNumber: restored.snapshot().version.version_number,
         restoredContentHash: hash,
@@ -181,6 +212,26 @@ export class CheckpointStore {
         .map((s) => s.id)
         .join(", ")})`,
     );
+  }
+
+  // --- the durable/shared persistence boundary (the P016 remediation) -----
+
+  /** Rehydrate the store from the durable project record's recovery
+   *  section (the checkpoint views; the snapshot contents are fetched from
+   *  the store's content-addressed blobs at restore time). */
+  static rehydrate(persisted: RecoveryPersistedState): CheckpointStore {
+    const store = new CheckpointStore();
+    store.views.push(...persisted.checkpoints.map((v) => ({ ...v })));
+    store.nextSeq = persisted.nextSeq;
+    return store;
+  }
+
+  /** Dehydrate the store into the serializable durable record section. */
+  dehydrate(): RecoveryPersistedState {
+    return {
+      checkpoints: this.views.map((v) => ({ ...v })),
+      nextSeq: this.nextSeq,
+    };
   }
 }
 
