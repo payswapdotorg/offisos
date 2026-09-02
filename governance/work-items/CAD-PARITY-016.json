@@ -84,7 +84,7 @@
     {
       "from": "ASSIGNED",
       "to": "IMPLEMENTING",
-      "at": "2026-09-02T03:30:00Z",
+      "at": "2026-09-02T03:03:00Z",
       "actor": "z-ai-implementation-agent",
       "role": "implementer",
       "reason": "Implementation begins for CAD-PARITY-016 from the verified CAD-PARITY-015 mainline baseline. Scope is the bounded collaboration, recovery and scale slice defined by Issue #112 — durable versioned recovery checkpoints traceable to canonical document revisions with deterministic crash/session recovery, project-scoped permission-aware comments/presence/activity, versioned transactional collaboration with explicit conflict and merge/resolution lineage, the controlled external-reference lifecycle with fresh unavailable/stale/unsupported outcomes, bounded large-model streaming/caching with explicit cache non-authority, background regeneration with durable job state through the existing worker/adapter boundaries, observable revision-bound performance budgets, and Web/Electron semantic parity — preserving Construction Graph authority, frozen Architecture v1.1, the byte-identical CAD-PARITY-002..015 and compatibility baselines, and the PR_OPEN/VERIFYING stop gate.",
@@ -96,7 +96,7 @@
     {
       "from": "IMPLEMENTING",
       "to": "PR_OPEN",
-      "at": "2026-09-02T05:15:00Z",
+      "at": "2026-09-02T04:23:00Z",
       "actor": "z-ai-implementation-agent",
       "role": "implementer",
       "reason": "Implementation complete and submitted as PR #115 with deterministic collaboration/recovery/scale semantics (durable versioned checkpoints + deterministic crash recovery, project-scoped permission-aware comments/presence/activity, versioned transactions with explicit conflict + merge lineage, the controlled external-reference lifecycle, bounded non-authoritative large-model streaming, durable stepwise background-regeneration jobs, observable revision-bound performance budgets, Web/Electron parity) and evidence coverage.",
@@ -113,7 +113,7 @@
     {
       "from": "PR_OPEN",
       "to": "VERIFYING",
-      "at": "2026-09-02T05:16:00Z",
+      "at": "2026-09-02T04:24:00Z",
       "actor": "z-ai-implementation-agent",
       "role": "implementer",
       "reason": "Submitted PR #115 for Architect review: the exact-head CI binding, the exact-head deployment plus real-browser evidence and the regression matrix will be recorded as additional evidence per the P015 discipline.",
@@ -133,7 +133,7 @@
       "id": "EV-001",
       "type": "automated-test-suite",
       "description": "Full P016 deterministic implementation suite: 1238/1238 tests pass, 0 fail, 41 engine-dependent skips (unchanged baseline); 23 new P016 tests (recovery 7, collab 8, jobs+stream 7, host-parity 1) on top of the pre-existing 1215 baseline; tsc app-shell typecheck green.",
-      "produced_at": "2026-09-02T05:20:00Z",
+      "produced_at": "2026-09-02T04:20:00Z",
       "reproducible": true,
       "reproduction": "cd app && node --import tsx --test test/*.test.ts",
       "references": {
@@ -146,7 +146,7 @@
       "id": "EV-002",
       "type": "reproducible-script",
       "description": "The CAD-PARITY-016 web-host parity smoke (36 commands, 46 echo lines, 7 observable performance-budget wall-clock assertions reported to the run log and never pinned) passes against the live /api/cad in REFERENCE mode; the pinned fixture cad-parity-016-collab.json is byte-identical across repeat fresh-session runs (verified 3x: the checkpoint lineage, the member roster, the transaction/merge lineage, the activity stream, the job lifecycle, the stream cache stats, the xref outcome table and the deterministic budget counters).",
-      "produced_at": "2026-09-02T05:20:00Z",
+      "produced_at": "2026-09-02T04:20:00Z",
       "reproducible": true,
       "reproduction": "cd apps/web && OFFISOS_GEOMETRY_ENGINE=reference OFFISOS_WEB_URL=http://localhost:3100 node --import tsx test/collab-p016-smoke.mjs",
       "references": {
@@ -159,13 +159,40 @@
       "id": "EV-003",
       "type": "automated-test-suite",
       "description": "Web/Electron semantic parity: the identical P016 command/query sequence through WebHost/WebSocketTransport AND ElectronHost/IpcTransport converges to identical semantic results — the session clocks, the minted checkpoint/comment/transaction ids, the checkpoint content hashes, the conflict + merge/resolution lineage, the stream page shapes, the cache counters and the perf-budget counters; the canonical documents converge to the same content hash.",
-      "produced_at": "2026-09-02T05:20:00Z",
+      "produced_at": "2026-09-02T04:20:00Z",
       "reproducible": true,
       "reproduction": "cd app && node --import tsx --test test/collab-p016-host-parity.test.ts",
       "references": {
         "commit": "179a87c33405ca4e68e3a7120090f4067b251955",
         "pr": 115,
         "path": "app/test/collab-p016-host-parity.test.ts"
+      }
+    },
+    {
+      "id": "EV-004",
+      "type": "ci-run",
+      "description": "The dedicated cad-parity-016 workflow run 33590626202 on the exact implementation head 179a87c completed with ALL THREE JOBS SUCCESS: the Workspace deterministic suite (typecheck + the full 1238-test app suite with both real engines + the LOCK-018 scan covering the four new core dirs), the Web host (lint + typecheck + build + ALL FOURTEEN parity smokes incl. the new pinned CAD-PARITY-016 fixture), and the Electron host (build + the eighteen unchanged smokes + the honest no-new-Electron-UI-surface note); the full exact-head regression matrix on the same head draining green.",
+      "produced_at": "2026-09-02T04:48:00Z",
+      "reproducible": true,
+      "reproduction": "https://github.com/pectoraux/offisos/actions/runs/33590626202 (re-run from the Actions UI on this head, or: git checkout 179a87c && the EV-001/EV-002/EV-003 reproduction commands)",
+      "references": {
+        "commit": "179a87c33405ca4e68e3a7120090f4067b251955",
+        "pr": 115,
+        "workflow_run": "https://github.com/pectoraux/offisos/actions/runs/33590626202",
+        "path": ".github/workflows/cad-parity-016.yml"
+      }
+    },
+    {
+      "id": "EV-005",
+      "type": "reproducible-script",
+      "description": "The exact-head Vercel deployment + the deployed deterministic smoke + the real-browser evidence: the governance head bf1f69b deployed to the Offisos Vercel project as dpl_DbtikAsVAVQwfD3UDVC6WbmbVfPU at https://offisos-900lq6m4h-ekonplacidegmailcoms-projects.vercel.app (READY; REST-proven meta.gitsha=bf1f69b… byte-exact, meta.pr=115, meta.workitem=CAD-PARITY-016; a sibling same-SHA deployment dpl_L21Sr1JRcGZs5is9ngrf1312gBe5 (READY, same meta bindings) from the same session precedes it); the collab-p016 smoke ran DIRECTLY against the deployment URL — PASS with the pinned fixture byte-identical (36 commands, 7 observable performance-budget wall-clock assertions within budget, reported to the run log and never pinned); the real-browser session through the instance-pinning serializing relay rendered the shell + the Collab workbench with ZERO console messages and ZERO page errors, exercising the real UI workflow (the BIM demo seed, the member join + roster render, the heartbeat, the comment, the checkpoint, the deterministic recover, the stream page) with the typed gates surfacing honestly through the UI (collab_not_joined, recovery_failed — never a crash). Honest boundary: Vercel serverless has no session affinity — instance rotation observed across socket reconnects (the relay's POST heartbeat pins one instance across idle gaps; multi-query UI refresh bursts can still rotate), disclosed per the P015 EV-006 precedent; production alias untouched (preview-target deployment).",
+      "produced_at": "2026-09-02T04:50:00Z",
+      "reproducible": true,
+      "reproduction": "OFFISOS_WEB_URL=https://offisos-900lq6m4h-ekonplacidegmailcoms-projects.vercel.app node --import tsx apps/web/test/collab-p016-smoke.mjs (from the repo root after apps/web deps install); the deployment identity is REST-provable: GET https://api.vercel.com/v6/deployments?teamId=ekonplacidegmailcoms-projects with the team token — dpl_DbtikAsVAVQwfD3UDVC6WbmbVfPU carries meta.gitsha=bf1f69b2353634e82c6d6bcb73639e4a8a191348.",
+      "references": {
+        "commit": "bf1f69b2353634e82c6d6bcb73639e4a8a191348",
+        "pr": 115,
+        "path": "apps/web/test/collab-p016-smoke.mjs"
       }
     }
   ]
