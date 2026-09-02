@@ -350,9 +350,9 @@ test("automation: runScript executes every step through the governed App API and
     assert.ok(Number.isInteger(step.documentVersion));
     assert.equal(step.contentHash.length, 64);
   }
-  assert.equal(run.steps[0].documentVersion, startedVersion);
-  assert.equal(run.steps[1].documentVersion, startedVersion + 1);
-  assert.equal(run.steps[2].documentVersion, startedVersion + 1);
+  assert.equal(run.steps[0]!.documentVersion, startedVersion);
+  assert.equal(run.steps[1]!.documentVersion, startedVersion + 1);
+  assert.equal(run.steps[2]!.documentVersion, startedVersion + 1);
   assert.equal(run.outcomeDigest.length, 64);
   assert.equal(run.reproducible, true);
   // The governed path applied the patch to the CANONICAL document.
@@ -394,9 +394,9 @@ test("automation: onError abort stops at the first failed step; continue records
   ).run;
   assert.equal(abortRun.status, "failed");
   assert.equal(abortRun.steps.length, 1); // stopped at the first failed step
-  assert.equal(abortRun.steps[0].ok, false);
-  assert.equal(abortRun.steps[0].code, "edit_failed");
-  assert.ok(abortRun.steps[0].message !== undefined);
+  assert.equal(abortRun.steps[0]!.ok, false);
+  assert.equal(abortRun.steps[0]!.code, "edit_failed");
+  assert.ok(abortRun.steps[0]!.message !== undefined);
 
   const continueScript = val<{ script: AutomationScriptView }>(
     await cmd(h, "automation.registerScript", { principalId: "editor-bot", script: failing("continue") }),
@@ -406,8 +406,8 @@ test("automation: onError abort stops at the first failed step; continue records
   ).run;
   assert.equal(continueRun.status, "completed"); // the tolerated failure is recorded, not hidden
   assert.equal(continueRun.steps.length, 2);
-  assert.equal(continueRun.steps[0].ok, false);
-  assert.equal(continueRun.steps[1].ok, true);
+  assert.equal(continueRun.steps[0]!.ok, false);
+  assert.equal(continueRun.steps[1]!.ok, true);
 });
 
 test("automation: identical canonical inputs re-run identically (the reproducibility contract)", async () => {
@@ -494,9 +494,9 @@ test("automation: scripts and runs are bounded (typed limits, oldest-first trim)
   }
   const runs = val<{ runs: AutomationRunView[] }>(await qq(h, "automation.runs")).runs;
   assert.equal(runs.length, 50); // the bounded history — oldest trimmed
-  assert.equal(runs[0].id, "run-000011"); // the first 10 trimmed
+  assert.equal(runs[0]!.id, "run-000011"); // the first 10 trimmed
   // The run history is durable + deterministic (the ids sequence).
-  assert.equal(runs[runs.length - 1].id, "run-000060");
+  assert.equal(runs[runs.length - 1]!.id, "run-000060");
 });
 
 // ---------------------------------------------------------------------------
@@ -568,8 +568,8 @@ test("automation: events deliver bounded, ordered, scoped feeds derived from can
   assert.equal(jobsFeed.subscriptions, 3);
   const jobEvents = jobsFeed.events.filter((e) => e.scope === "jobs");
   assert.equal(jobEvents.length, 1); // the kind filter passes only job.succeeded
-  assert.equal(jobEvents[0].kind, "job.succeeded");
-  assert.ok(jobEvents[0].revisionBinding.recordId.startsWith("job-"));
+  assert.equal(jobEvents[0]!.kind, "job.succeeded");
+  assert.ok(jobEvents[0]!.revisionBinding.recordId.startsWith("job-"));
 
   // unsubscribe removes exactly that subscription.
   const removed = val<{ subscription: AutomationSubscriptionView }>(
@@ -644,11 +644,11 @@ test("automation: extensions register capability-scoped manifests and install th
   assert.equal(outcome.extension.version, "1.0.0");
   assert.deepEqual([...outcome.extension.capabilities].sort(), ["document.applyEdit", "document.getVersion"]);
   assert.equal(outcome.scripts.length, 1);
-  assert.equal(outcome.scripts[0].extensionId, "qc-runner");
-  assert.ok(outcome.scripts[0].id.startsWith("scr-"));
+  assert.equal(outcome.scripts[0]!.extensionId, "qc-runner");
+  assert.ok(outcome.scripts[0]!.id.startsWith("scr-"));
   // The installed script runs through the SAME governed surface.
   const run = val<{ run: AutomationRunView }>(
-    await cmd(h, "automation.runScript", { principalId: "ext-bot", scriptId: outcome.scripts[0].id }),
+    await cmd(h, "automation.runScript", { principalId: "ext-bot", scriptId: outcome.scripts[0]!.id }),
   );
   assert.equal(run.run.status, "completed");
   const state = val<{ elements: { id: string; props: Record<string, unknown> }[] }>(await qq(h, "document.getState"));
@@ -775,9 +775,9 @@ test("automation: the persisted automation state is durable and shared across ha
   await cmd(siteB, "document.open", { snapshot: saved });
   const scriptsB = val<{ scripts: AutomationScriptView[] }>(await qq(siteB, "automation.scripts"));
   assert.equal(scriptsB.scripts.length, 1);
-  assert.equal(scriptsB.scripts[0].id, script.id);
+  assert.equal(scriptsB.scripts[0]!.id, script.id);
   const rosterB = val<{ principals: AutomationPrincipalView[] }>(await qq(siteB, "automation.principals"));
-  assert.equal(rosterB.principals[0].principalId, "shared-bot");
+  assert.equal(rosterB.principals[0]!.principalId, "shared-bot");
   // Site B can run the script site A registered (shared durable state, no
   // cross-session gap).
   const runB = val<{ run: AutomationRunView }>(
@@ -825,8 +825,8 @@ test("automation: the derived event feed is bounded (the last 100 deliveries)", 
   const subs = [{ id: "sub-000001", principalId: "bot", scope: "document" as const, kinds: null }];
   const feed = deriveFeed(transactions, subs);
   assert.equal(feed.events.length, 100); // bounded
-  assert.equal(feed.events[0].eventId, "evt:transaction:txn-000160"); // the LAST 100
-  assert.equal(feed.events[99].eventId, "evt:transaction:txn-000259");
+  assert.equal(feed.events[0]!.eventId, "evt:transaction:txn-000160"); // the LAST 100
+  assert.equal(feed.events[99]!.eventId, "evt:transaction:txn-000259");
   // Deterministic order: clock ascending.
   const clocks = feed.events.map((e) => e.clock);
   assert.deepEqual([...clocks].sort((a, b) => a - b), clocks);

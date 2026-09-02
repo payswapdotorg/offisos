@@ -162,7 +162,7 @@ async function runP017Sequence(r: Renderer): Promise<P017SequenceResult> {
 
   // The script lifecycle: remove the extension script (owner) — the
   // inventory converges.
-  const extScriptId = (registered as { scripts: { id: string }[] }).scripts[0].id;
+  const extScriptId = (registered as { scripts: { id: string }[] }).scripts[0]!.id;
   const removed = val<{ script: unknown }>(
     await c(r, "automation.deleteScript", { principalId: "parity-bot", scriptId: extScriptId }),
   );

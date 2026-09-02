@@ -34,7 +34,7 @@ import {
 import type { GeometryPrepareResult } from "../contracts/geometry.js";
 import { IdempotencyCache } from "./idempotency.js";
 import { bridgeModelHistory } from "../graph/index.js";
-import { verifiedReplay } from "../caddocument/history.js";
+import { canonicalHashOf, verifiedReplay } from "../caddocument/history.js";
 import { runImpactCascade } from "../impact/index.js";
 import type { ModelReplayResult } from "../contracts/model.js";
 import {
@@ -9686,6 +9686,28 @@ export class AppApiHandler {
     }
   }
 
+  /** CAD-PARITY-017 (Issue #116): the step-content hash — the persisted
+   *  document content WITHOUT the version identity fields. The restore
+   *  path legitimately re-stamps version.created_by through the canonical
+   *  CADDocument.open(snapshot, handler createdBy) — P016 semantics,
+   *  unchanged — so the reproducibility basis pins the CONTENT (format,
+   *  lineage, elements, layers, drafting settings), never the version
+   *  authorship; the version NUMBER is pinned per-step separately. */
+  private automationStepContentHash(): string {
+    const {
+      modelHistory: _history,
+      selection: _selection,
+      editorState: _editorState,
+      version: _version,
+      ...content
+    } = this.doc.snapshot();
+    void _history;
+    void _selection;
+    void _editorState;
+    void _version;
+    return canonicalHashOf(content);
+  }
+
   /** automation.runScript — the deterministic script executor. Every step
    *  dispatches through this.handle() — the SAME governed path (payload
    *  validation, idempotency, durable appends, the autosave policy) every
@@ -9744,7 +9766,7 @@ export class AppApiHandler {
               }
             : {}),
           documentVersion: this.doc.snapshot().version.version_number,
-          contentHash: this.doc.currentContentHash(),
+          contentHash: this.automationStepContentHash(),
         });
         if (failed && step.onError === "abort") {
           status = "failed";
@@ -9796,7 +9818,7 @@ export class AppApiHandler {
       return ok({
         run,
         documentVersion: endVersion,
-        contentHash: this.doc.currentContentHash(),
+        contentHash: this.automationStepContentHash(),
       });
     } catch (e) {
       return this.p016Err(e);
