@@ -2113,6 +2113,113 @@ export const COMMAND_PAYLOAD_SCHEMAS: Readonly<Record<CommandName, object>> = {
     },
     required: ["patch"],
   },
+  // --- CAD-PARITY-016 (additive, Issue #112): the collaboration/recovery/
+  // scale command payloads. ---
+  "recovery.checkpoint": { type: "object", properties: {} },
+  "recovery.restore": {
+    type: "object",
+    properties: {
+      checkpointId: { type: "string", minLength: 1 },
+    },
+  },
+  "recovery.autosave": { type: "object", properties: {} },
+  "collab.join": {
+    type: "object",
+    properties: {
+      userId: { type: "string", minLength: 1, maxLength: 64 },
+      role: { type: "string", enum: ["viewer", "commenter", "editor"] },
+    },
+    required: ["userId", "role"],
+  },
+  "collab.presence": {
+    type: "object",
+    properties: {
+      userId: { type: "string", minLength: 1, maxLength: 64 },
+    },
+    required: ["userId"],
+  },
+  "collab.comment": {
+    type: "object",
+    properties: {
+      userId: { type: "string", minLength: 1, maxLength: 64 },
+      body: { type: "string", minLength: 1, maxLength: 500 },
+      target: {
+        type: "object",
+        properties: {
+          kind: { type: "string", enum: ["document", "element", "revision"] },
+          id: { type: "string", minLength: 1 },
+          revisionRef: { type: "string", minLength: 1 },
+        },
+        required: ["kind"],
+      },
+    },
+    required: ["userId", "body"],
+  },
+  "collab.resolveComment": {
+    type: "object",
+    properties: {
+      commentId: { type: "string", minLength: 1 },
+      userId: { type: "string", minLength: 1, maxLength: 64 },
+    },
+    required: ["commentId", "userId"],
+  },
+  "collab.commit": {
+    type: "object",
+    properties: {
+      userId: { type: "string", minLength: 1, maxLength: 64 },
+      baseVersion: { type: "integer", minimum: 0 },
+      edits: {
+        type: "array",
+        minItems: 1,
+        maxItems: 200,
+        items: {
+          type: "object",
+          properties: {
+            type: {
+              type: "string",
+              enum: ["addElement", "removeElement", "updateElement", "setProps"],
+            },
+            elementId: { type: "string", minLength: 1 },
+            element: { type: "object" },
+            patch: { type: "object" },
+          },
+          required: ["type"],
+        },
+      },
+    },
+    required: ["userId", "baseVersion", "edits"],
+  },
+  "collab.merge": {
+    type: "object",
+    properties: {
+      transactionId: { type: "string", minLength: 1 },
+      userId: { type: "string", minLength: 1, maxLength: 64 },
+      strategy: { type: "string", enum: ["rebase", "discard"] },
+    },
+    required: ["transactionId", "userId", "strategy"],
+  },
+  "jobs.create": {
+    type: "object",
+    properties: {
+      kind: { type: "string", enum: ["docs.regenerate", "quantity.recalculate", "model.stream.warm"] },
+      params: {
+        type: "object",
+        properties: {
+          source: { type: "string", enum: ["elements", "components", "materials"] },
+          groupBy: { type: "string", enum: ["none", "type", "story", "material"] },
+          pageSize: { type: "integer", minimum: 10, maximum: 500 },
+        },
+      },
+    },
+    required: ["kind"],
+  },
+  "jobs.tick": {
+    type: "object",
+    properties: {
+      jobId: { type: "string", minLength: 1 },
+    },
+    required: ["jobId"],
+  },
 };
 
 export const QUERY_PAYLOAD_SCHEMAS: Readonly<Record<QueryName, object>> = {
@@ -2406,6 +2513,40 @@ export const QUERY_PAYLOAD_SCHEMAS: Readonly<Record<QueryName, object>> = {
     },
     required: ["format"],
   },
+  // --- CAD-PARITY-016 (additive, Issue #112): the collaboration/recovery/
+  // scale query payloads. ---
+  "recovery.list": { type: "object", properties: {} },
+  "collab.state": { type: "object", properties: {} },
+  "collab.comments": { type: "object", properties: {} },
+  "collab.activity": { type: "object", properties: {} },
+  "collab.transactions": { type: "object", properties: {} },
+  "jobs.list": { type: "object", properties: {} },
+  "jobs.get": {
+    type: "object",
+    properties: {
+      jobId: { type: "string", minLength: 1 },
+    },
+    required: ["jobId"],
+  },
+  "model.stream": {
+    type: "object",
+    properties: {
+      pageIndex: { type: "integer", minimum: 0 },
+      pageSize: { type: "integer", minimum: 10, maximum: 500 },
+    },
+    required: ["pageIndex"],
+  },
+  "model.streamStats": { type: "object", properties: {} },
+  "xrefs.status": { type: "object", properties: {} },
+  "xrefs.probe": {
+    type: "object",
+    properties: {
+      name: { type: "string", minLength: 1 },
+      sourceHash: { type: "string", minLength: 1 },
+    },
+    required: ["name", "sourceHash"],
+  },
+  "perf.budgets": { type: "object", properties: {} },
 };
 
 export const WIRE_ENVELOPE_SCHEMA = {

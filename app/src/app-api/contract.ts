@@ -368,6 +368,37 @@ import type {
   PropertyDefRecord,
 } from "../contracts/caddocument.js";
 import type { IfcFieldClassification } from "../ifc/report.js";
+// CAD-PARITY-016 (additive, Issue #112): the collaboration/recovery/scale
+// cores — the durable versioned recovery checkpoints + the deterministic
+// crash/session recovery (recovery), the project-scoped members/presence/
+// comments/activity + the versioned transactions with explicit conflict
+// and merge/resolution lineage (collab), the durable stepwise
+// background-regeneration job engine (jobs) and the bounded large-model
+// stream cache with explicit non-authority (modelstream). All engine-free
+// shared core (LOCK-018); the stores are SESSION-side support mechanisms —
+// the CADDocument remains the single canonical system of record (LOCK-019).
+import { CheckpointStore, checkpointIdOf, headRevisionIdOf } from "../recovery/index.js";
+import { CollabStore, CollabError } from "../collab/index.js";
+import { JobStore, JobError } from "../jobs/index.js";
+import {
+  ModelStreamCache,
+  StreamError,
+  STREAM_PAGE_SIZE_DEFAULT,
+  STREAM_PAGE_SIZE_MAX,
+  STREAM_PAGE_SIZE_MIN,
+} from "../modelstream/index.js";
+import {
+  PRESENCE_TTL,
+  type CheckpointView,
+  type CollabMemberView,
+  type CommentTarget,
+  type JobKind,
+  type PerfBudgetsView,
+  type RecoveryReport,
+  type SessionClock,
+  type XrefOutcome,
+  type XrefStatusView,
+} from "../contracts/collab.js";
 
 export interface AppApiHandlerOptions {
   readonly adapterBundle: EngineAdapterBundle;
@@ -375,6 +406,17 @@ export interface AppApiHandlerOptions {
   readonly format: string;
   readonly formatVersion: string;
   readonly createdBy: string;
+}
+
+/** CAD-PARITY-016 (Issue #112): the lowercase path extension of an
+ *  external-reference path ("" when none) — the deterministic basis of the
+ *  unsupported-format outcome. */
+function pathExtensionOf(path: string): string {
+  const slash = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"));
+  const base = slash >= 0 ? path.slice(slash + 1) : path;
+  const dot = base.lastIndexOf(".");
+  if (dot <= 0) return "";
+  return base.slice(dot).toLowerCase();
 }
 
 export class AppApiHandler {
@@ -388,6 +430,22 @@ export class AppApiHandler {
    *  invalidates its entries; dual budgets; exact counters for the
    *  performance-budget evidence). */
   private readonly tessellationCache = new TessellationCache();
+  // --- CAD-PARITY-016 (additive, Issue #112): the session-side
+  // collaboration/recovery/scale state. The virtual session clock advances
+  // one tick per DISPATCHED command (queries are free — the P016
+  // determinism convention: every session record is a pure function of the
+  // command sequence, so all outputs are fixture-pinnable across hosts and
+  // the wire). The stores are support mechanisms; the CADDocument above
+  // remains the single canonical system of record (LOCK-019). ---
+  private sessionClock: SessionClock = 0;
+  private commandCount = 0;
+  private mutationsSinceAutosave = 0;
+  private autosaveCount = 0;
+  private restoreCount = 0;
+  private readonly checkpoints = new CheckpointStore();
+  private readonly collab = new CollabStore();
+  private readonly jobs = new JobStore();
+  private readonly stream = new ModelStreamCache();
 
   private constructor(options: AppApiHandlerOptions, doc: CADDocument, adapters: EngineAdapterBundle) {
     this.options = options;
@@ -414,12 +472,55 @@ export class AppApiHandler {
       const cached = this.idempotency.get(request.idempotencyKey);
       if (cached !== undefined) return cached;
     }
+    // CAD-PARITY-016 (Issue #112): the virtual session clock — one tick per
+    // DISPATCHED command (idempotent replays return the cached response and
+    // do NOT tick; queries are free). The command's session records carry
+    // this clock value, so every P016 output is a pure function of the
+    // command sequence.
+    let versionBefore = 0;
+    if (request.type === "command") {
+      this.commandCount += 1;
+      this.sessionClock += 1;
+      versionBefore = this.doc.snapshot().version.version_number;
+    }
     const response =
       request.type === "command" ? await this.handleCommand(request) : await this.handleQuery(request);
-    if (request.type === "command" && request.idempotencyKey !== undefined) {
-      this.idempotency.set(request.idempotencyKey, response);
+    if (request.type === "command") {
+      // CAD-PARITY-016: the bounded autosave policy — a durable versioned
+      // checkpoint is minted automatically every N document-mutating
+      // commands (transparent: the command's response is untouched, so
+      // every pre-P016 surface stays byte-identical).
+      if (response.ok && this.doc.snapshot().version.version_number !== versionBefore) {
+        this.maybeAutosave();
+      }
+      if (request.idempotencyKey !== undefined) {
+        this.idempotency.set(request.idempotencyKey, response);
+      }
     }
     return response;
+  }
+
+  /** CAD-PARITY-016: the bounded autosave tick (called after a successful
+   *  version-changing command; deterministic — a pure function of the
+   *  command sequence). */
+  private maybeAutosave(): void {
+    this.mutationsSinceAutosave += 1;
+    if (this.mutationsSinceAutosave >= this.checkpoints.recoveryPolicy.autosaveEvery) {
+      this.mutationsSinceAutosave = 0;
+      this.autosaveCount += 1;
+      this.mintCheckpoint("autosave");
+    }
+  }
+
+  /** CAD-PARITY-016: the shared checkpoint mint (store + activity entry). */
+  private mintCheckpoint(cause: "manual" | "autosave" | "pre-restore"): CheckpointView {
+    const view = this.checkpoints.create(this.doc, cause, this.sessionClock, checkpointIdOf);
+    this.collab.noteSystemEvent(
+      "checkpoint.saved",
+      `checkpoint ${view.id} saved (${cause}, v${view.documentVersionNumber}, sha ${view.contentHash.slice(0, 12)}…, ${view.elementCount} element(s))`,
+      this.sessionClock,
+    );
+    return view;
   }
 
   /** Current document content hash (for parity assertions across hosts). */
@@ -730,6 +831,30 @@ export class AppApiHandler {
       // --- CAD-PARITY-014 (additive, Issue #107): file interoperability ---
       case "dxf.import":
         return this.cmdDxfImport(command.payload);
+      // --- CAD-PARITY-016 (additive, Issue #112): the collaboration/
+      // recovery/scale command surface. ---
+      case "recovery.checkpoint":
+        return this.cmdRecoveryCheckpoint();
+      case "recovery.restore":
+        return this.cmdRecoveryRestore(command.payload);
+      case "recovery.autosave":
+        return this.cmdRecoveryAutosave();
+      case "collab.join":
+        return this.cmdCollabJoin(command.payload);
+      case "collab.presence":
+        return this.cmdCollabPresence(command.payload);
+      case "collab.comment":
+        return this.cmdCollabComment(command.payload);
+      case "collab.resolveComment":
+        return this.cmdCollabResolveComment(command.payload);
+      case "collab.commit":
+        return this.cmdCollabCommit(command.payload);
+      case "collab.merge":
+        return this.cmdCollabMerge(command.payload);
+      case "jobs.create":
+        return this.cmdJobsCreate(command.payload);
+      case "jobs.tick":
+        return this.cmdJobsTick(command.payload);
       default: {
         const _exhaustive: never = command.name;
         return err("unknown_command", `unknown command: ${JSON.stringify(_exhaustive)}`);
@@ -1131,6 +1256,33 @@ export class AppApiHandler {
         return this.qInteropArchivalList();
       case "interop.roundtripReport":
         return await this.qInteropRoundtripReport(query.payload);
+      // --- CAD-PARITY-016 (additive, Issue #112): the collaboration/
+      // recovery/scale query surfaces (non-mutating, computed fresh every
+      // call, never persisted stale). ---
+      case "recovery.list":
+        return this.qRecoveryList();
+      case "collab.state":
+        return this.qCollabState();
+      case "collab.comments":
+        return this.qCollabComments();
+      case "collab.activity":
+        return this.qCollabActivity();
+      case "collab.transactions":
+        return this.qCollabTransactions();
+      case "jobs.list":
+        return this.qJobsList();
+      case "jobs.get":
+        return this.qJobsGet(query.payload);
+      case "model.stream":
+        return this.qModelStream(query.payload);
+      case "model.streamStats":
+        return this.qModelStreamStats();
+      case "xrefs.status":
+        return this.qXrefsStatus();
+      case "xrefs.probe":
+        return this.qXrefsProbe(query.payload);
+      case "perf.budgets":
+        return this.qPerfBudgets();
       default: {
         const _exhaustive: never = query.name;
         return err("unknown_query", `unknown query: ${JSON.stringify(_exhaustive)}`);
@@ -8455,6 +8607,598 @@ export class AppApiHandler {
         navigatorNodes: this.doc.navigatorNodeTable.length,
       },
     });
+  }
+
+  // ===========================================================================
+  // CAD-PARITY-016 (additive, Issue #112): the collaboration/recovery/scale
+  // command + query surface. The CADDocument remains the single canonical
+  // system of record (LOCK-019); every store below is a session-side
+  // support mechanism bound to canonical revisions/objects.
+  // ===========================================================================
+
+  /** The shared typed-error mapping for the P016 support cores. */
+  private p016Err(e: unknown): CommandQueryResponse {
+    if (e instanceof CollabError) return err(e.code, e.message, false);
+    if (e instanceof JobError) return err(e.code, e.message, false);
+    if (e instanceof StreamError) return err(e.code, e.message, false);
+    return err("p016_failed", (e as Error).message, false);
+  }
+
+  // --- recovery -------------------------------------------------------------
+
+  /** recovery.checkpoint — capture a durable versioned checkpoint of the
+   *  CURRENT canonical revision (manual cause; the autosave policy runs in
+   *  the background on every version-changing command). */
+  private cmdRecoveryCheckpoint(): CommandQueryResponse {
+    const view = this.mintCheckpoint("manual");
+    return ok({
+      checkpoint: view,
+      policy: this.checkpoints.recoveryPolicy,
+      retained: this.checkpoints.checkpointCount,
+      snapshot: this.doc.snapshot(),
+    });
+  }
+
+  /** recovery.autosave — force an autosave-cause checkpoint through the SAME
+   *  store path the automatic policy takes (the policy escape hatch). */
+  private cmdRecoveryAutosave(): CommandQueryResponse {
+    this.autosaveCount += 1;
+    this.mutationsSinceAutosave = 0;
+    const view = this.mintCheckpoint("autosave");
+    return ok({
+      checkpoint: view,
+      policy: this.checkpoints.recoveryPolicy,
+      retained: this.checkpoints.checkpointCount,
+      snapshot: this.doc.snapshot(),
+    });
+  }
+
+  /** recovery.restore — deterministic crash/session recovery. A pre-restore
+   *  safety checkpoint of the CURRENT state is minted first (nothing is
+   *  lost); the requested checkpoint (default: the latest VALID one) is
+   *  rebuilt through the canonical CADDocument.open path and integrity-
+   *  validated hash-exactly; corrupt candidates are skipped with typed
+   *  reasons — never a silent repair. The restored document IS the
+   *  canonical document. */
+  private cmdRecoveryRestore(payload: unknown): CommandQueryResponse {
+    const p = payload as { checkpointId?: unknown } | null;
+    if (p !== null && typeof p === "object" && p.checkpointId !== undefined &&
+        (typeof p.checkpointId !== "string" || p.checkpointId.length === 0)) {
+      return err("bad_payload", "recovery.restore checkpointId must be a non-empty string when present", true);
+    }
+    const requestedId =
+      p !== null && typeof p === "object" && typeof p.checkpointId === "string" && p.checkpointId.length > 0
+        ? p.checkpointId
+        : null;
+    const pre = this.mintCheckpoint("pre-restore");
+    try {
+      const { doc: restored, report } = this.checkpoints.scanAndRestore(
+        requestedId,
+        (snapshot) => CADDocument.open(snapshot as CADDocumentSnapshot, this.options.createdBy),
+        (d) => d.currentContentHash(),
+        (d) => this.freshXrefStatuses(d),
+        this.sessionClock,
+      );
+      this.doc = restored;
+      this.restoreCount += 1;
+      this.mutationsSinceAutosave = 0;
+      this.collab.noteSystemEvent(
+        "recovery.restored",
+        `recovery restored ${report.chosen.id} (cause ${report.chosen.cause}, v${report.restoredVersionNumber}, ${report.skipped.length} skipped) — pre-restore ${pre.id} retained`,
+        this.sessionClock,
+      );
+      return ok({
+        report,
+        preRestoreCheckpoint: pre,
+        snapshot: this.doc.snapshot(),
+      });
+    } catch (e) {
+      return err("recovery_failed", (e as Error).message, false);
+    }
+  }
+
+  /** recovery.list — the retained checkpoint inventory + the policy + the
+   *  recovery counters (fresh, never persisted stale). */
+  private qRecoveryList(): CommandQueryResponse {
+    return ok({
+      checkpoints: this.checkpoints.list(),
+      policy: this.checkpoints.recoveryPolicy,
+      counters: {
+        commands: this.commandCount,
+        mutationsSinceAutosave: this.mutationsSinceAutosave,
+        autosaves: this.autosaveCount,
+        restores: this.restoreCount,
+        retained: this.checkpoints.checkpointCount,
+      },
+    });
+  }
+
+  // --- collaboration ----------------------------------------------------------
+
+  /** collab.join — register a project-scoped member with a closed role. */
+  private cmdCollabJoin(payload: unknown): CommandQueryResponse {
+    const p = payload as { userId?: unknown; role?: unknown } | null;
+    if (p === null || typeof p !== "object" || typeof p.userId !== "string" || typeof p.role !== "string") {
+      return err("bad_payload", "collab.join requires { userId, role }", true);
+    }
+    try {
+      const member = this.collab.join(p.userId, p.role as CollabMemberView["role"], this.sessionClock);
+      return ok({ member, documentVersion: this.doc.snapshot().version.version_number });
+    } catch (e) {
+      return this.p016Err(e);
+    }
+  }
+
+  /** collab.presence — the heartbeat (liveness + the revision the member is
+   *  viewing; deterministic session-clock semantics). */
+  private cmdCollabPresence(payload: unknown): CommandQueryResponse {
+    const p = payload as { userId?: unknown } | null;
+    if (p === null || typeof p !== "object" || typeof p.userId !== "string") {
+      return err("bad_payload", "collab.presence requires { userId }", true);
+    }
+    try {
+      const member = this.collab.presence(
+        p.userId,
+        this.sessionClock,
+        this.doc.snapshot().version.version_number,
+      );
+      return ok({ member, presenceTtl: PRESENCE_TTL });
+    } catch (e) {
+      return this.p016Err(e);
+    }
+  }
+
+  /** collab.comment — add a permission-checked comment linked to a canonical
+   *  target (document / element id / model revision), bound to the document
+   *  version at creation. */
+  private cmdCollabComment(payload: unknown): CommandQueryResponse {
+    const p = payload as { userId?: unknown; body?: unknown; target?: unknown } | null;
+    if (p === null || typeof p !== "object" || typeof p.userId !== "string" || typeof p.body !== "string") {
+      return err("bad_payload", "collab.comment requires { userId, body, target? }", true);
+    }
+    let target: CommentTarget = { kind: "document" };
+    if (p.target !== undefined && p.target !== null) {
+      const t = p.target as { kind?: unknown; id?: unknown; revisionRef?: unknown };
+      if (typeof t !== "object" || typeof t.kind !== "string") {
+        return err("bad_payload", "comment target must be { kind, id?, revisionRef? }", true);
+      }
+      if (t.kind !== "document" && t.kind !== "element" && t.kind !== "revision") {
+        return err("bad_payload", "comment target kind must be document|element|revision", true);
+      }
+      target = {
+        kind: t.kind,
+        ...(typeof t.id === "string" ? { id: t.id } : {}),
+        ...(typeof t.revisionRef === "string" ? { revisionRef: t.revisionRef } : {}),
+      };
+    }
+    // The canonical-target validation (a comment must link a REAL canonical
+    // object/revision — never a dangling reference).
+    if (target.kind === "element") {
+      if (typeof target.id !== "string" || this.doc.elementById(target.id) === undefined) {
+        return err(
+          "collab_bad_target",
+          `comment target element '${String(target.id)}' does not exist in the canonical document`,
+          false,
+        );
+      }
+    } else if (target.kind === "revision") {
+      if (typeof target.revisionRef !== "string") {
+        return err("collab_bad_target", "revision comment target requires a revisionRef", true);
+      }
+      const known = new Set<string>(this.doc.history.revisions.map((r) => r.revision_id));
+      known.add(headRevisionIdOf(this.doc.history).id);
+      if (!known.has(target.revisionRef)) {
+        return err(
+          "collab_bad_target",
+          `comment target revision '${target.revisionRef}' is not a canonical model revision of this document`,
+          false,
+        );
+      }
+    }
+    try {
+      const comment = this.collab.addComment(
+        p.userId,
+        p.body,
+        target,
+        this.sessionClock,
+        this.doc.snapshot().version.version_number,
+      );
+      return ok({ comment });
+    } catch (e) {
+      return this.p016Err(e);
+    }
+  }
+
+  /** collab.resolveComment — record the resolving member. */
+  private cmdCollabResolveComment(payload: unknown): CommandQueryResponse {
+    const p = payload as { commentId?: unknown; userId?: unknown } | null;
+    if (p === null || typeof p !== "object" || typeof p.commentId !== "string" || typeof p.userId !== "string") {
+      return err("bad_payload", "collab.resolveComment requires { commentId, userId }", true);
+    }
+    try {
+      const comment = this.collab.resolveComment(p.commentId, p.userId, this.sessionClock);
+      return ok({ comment });
+    } catch (e) {
+      return this.p016Err(e);
+    }
+  }
+
+  /** collab.commit — the versioned transactional change. ONE atomic
+   *  versioned revision per applied transaction (the applyEdits batch —
+   *  the same atomicity the professional batch commands use); a moved head
+   *  produces the explicit reproducible conflict record. */
+  private cmdCollabCommit(payload: unknown): CommandQueryResponse {
+    const p = payload as { userId?: unknown; baseVersion?: unknown; edits?: unknown } | null;
+    if (
+      p === null || typeof p !== "object" ||
+      typeof p.userId !== "string" ||
+      typeof p.baseVersion !== "number" || !Number.isInteger(p.baseVersion) ||
+      !Array.isArray(p.edits) || p.edits.length === 0
+    ) {
+      return err("bad_payload", "collab.commit requires { userId, baseVersion, edits }", true);
+    }
+    if (p.edits.length > 200) {
+      return err("bad_payload", "collab.commit edits are bounded to 200 per transaction", true);
+    }
+    for (const edit of p.edits) {
+      const e = edit as { type?: unknown; elementId?: unknown; element?: unknown };
+      if (typeof e?.type !== "string") {
+        return err("bad_payload", "each collab edit requires a type", true);
+      }
+      if (e.type === "addElement") {
+        if (typeof e.element !== "object" || e.element === null) {
+          return err("bad_payload", "addElement requires element", true);
+        }
+      } else if (e.type === "removeElement" || e.type === "updateElement" || e.type === "setProps") {
+        if (typeof e.elementId !== "string" || e.elementId.length === 0) {
+          return err("bad_payload", `${e.type} requires elementId`, true);
+        }
+      } else {
+        return err(
+          "bad_payload",
+          `collab edit type must be addElement|removeElement|updateElement|setProps (got '${e.type}')`,
+          true,
+        );
+      }
+    }
+    const edits = p.edits as DocumentEdit[];
+    try {
+      const currentVersion = this.doc.snapshot().version.version_number;
+      const outcome = this.collab.commit(
+        p.userId,
+        p.baseVersion,
+        edits,
+        this.sessionClock,
+        currentVersion,
+        (batch) => {
+          this.doc.execute({ type: "applyEdits", edits: batch as DocumentEdit[] });
+          return this.doc.snapshot().version.version_number;
+        },
+      );
+      return ok({
+        applied: outcome.applied,
+        transaction: outcome.view,
+        ...(outcome.applied ? { snapshot: this.doc.snapshot() } : {}),
+      });
+    } catch (e) {
+      return this.p016Err(e);
+    }
+  }
+
+  /** collab.merge — resolve an open conflict through the closed
+   *  rebase/discard vocabulary with recorded merge/resolution lineage. */
+  private cmdCollabMerge(payload: unknown): CommandQueryResponse {
+    const p = payload as { transactionId?: unknown; userId?: unknown; strategy?: unknown } | null;
+    if (
+      p === null || typeof p !== "object" ||
+      typeof p.transactionId !== "string" ||
+      typeof p.userId !== "string" ||
+      typeof p.strategy !== "string"
+    ) {
+      return err("bad_payload", "collab.merge requires { transactionId, userId, strategy }", true);
+    }
+    if (p.strategy !== "rebase" && p.strategy !== "discard") {
+      return err("bad_payload", "collab.merge strategy must be rebase|discard", true);
+    }
+    try {
+      const currentVersion = this.doc.snapshot().version.version_number;
+      const outcome = this.collab.merge(
+        p.transactionId,
+        p.userId,
+        p.strategy,
+        this.sessionClock,
+        currentVersion,
+        (batch) => {
+          this.doc.execute({ type: "applyEdits", edits: batch as DocumentEdit[] });
+          return this.doc.snapshot().version.version_number;
+        },
+      );
+      return ok({
+        transaction: outcome.view,
+        merge: outcome.merge,
+        ...(outcome.merge.resultingVersion !== null ? { snapshot: this.doc.snapshot() } : {}),
+      });
+    } catch (e) {
+      return this.p016Err(e);
+    }
+  }
+
+  /** collab.state — the member roster with computed presence liveness. */
+  private qCollabState(): CommandQueryResponse {
+    return ok({
+      members: this.collab.memberList(this.sessionClock),
+      presenceTtl: PRESENCE_TTL,
+      sessionClock: this.sessionClock,
+      commands: this.commandCount,
+      documentVersion: this.doc.snapshot().version.version_number,
+    });
+  }
+
+  /** collab.comments — the comment list (canonical targets + revision
+   *  bindings). */
+  private qCollabComments(): CommandQueryResponse {
+    return ok({ comments: this.collab.commentList() });
+  }
+
+  /** collab.activity — the bounded append-only activity stream. */
+  private qCollabActivity(): CommandQueryResponse {
+    return ok({ activity: this.collab.activityList() });
+  }
+
+  /** collab.transactions — the versioned transaction inventory with the
+   *  conflict and merge/resolution lineage. */
+  private qCollabTransactions(): CommandQueryResponse {
+    return ok({ transactions: this.collab.transactionList() });
+  }
+
+  // --- background regeneration (durable jobs) --------------------------------
+
+  /** jobs.create — queue a durable background-regeneration job (closed kind
+   *  vocabulary; read-only document work; never authority). */
+  private cmdJobsCreate(payload: unknown): CommandQueryResponse {
+    const p = payload as { kind?: unknown; params?: unknown } | null;
+    if (p === null || typeof p !== "object" || typeof p.kind !== "string") {
+      return err("bad_payload", "jobs.create requires { kind, params? }", true);
+    }
+    try {
+      const job = this.jobs.create(p.kind as JobKind, p.params, this.sessionClock, this.doc);
+      this.collab.noteSystemEvent(
+        "job.created",
+        `job ${job.id} queued (${job.kind}, ${job.totalSteps} step(s))`,
+        this.sessionClock,
+      );
+      return ok({ job });
+    } catch (e) {
+      return this.p016Err(e);
+    }
+  }
+
+  /** jobs.tick — advance ONE job by ONE deterministic step (the
+   *  serverless-honest durable execution model — no hidden background
+   *  thread). */
+  private cmdJobsTick(payload: unknown): CommandQueryResponse {
+    const p = payload as { jobId?: unknown } | null;
+    if (p === null || typeof p !== "object" || typeof p.jobId !== "string" || p.jobId.length === 0) {
+      return err("bad_payload", "jobs.tick requires { jobId }", true);
+    }
+    try {
+      const job = this.jobs.tick(p.jobId, this.sessionClock, {
+        doc: this.doc,
+        streamPage: (doc, pageIndex, pageSize) => this.stream.page(doc, pageIndex, pageSize),
+      });
+      if (job.status === "succeeded") {
+        this.collab.noteSystemEvent(
+          "job.succeeded",
+          `job ${job.id} succeeded (${job.kind}, ${job.step}/${job.totalSteps} steps)`,
+          this.sessionClock,
+        );
+      } else if (job.status === "failed") {
+        this.collab.noteSystemEvent(
+          "job.failed",
+          `job ${job.id} failed (${job.kind}: ${job.failure?.code ?? "job_failed"})`,
+          this.sessionClock,
+        );
+      }
+      return ok({ job });
+    } catch (e) {
+      return this.p016Err(e);
+    }
+  }
+
+  /** jobs.list / jobs.get — the durable job states (read-only). */
+  private qJobsList(): CommandQueryResponse {
+    return ok({ jobs: this.jobs.list() });
+  }
+
+  private qJobsGet(payload: unknown): CommandQueryResponse {
+    const p = payload as { jobId?: unknown } | null;
+    if (p === null || typeof p !== "object" || typeof p.jobId !== "string" || p.jobId.length === 0) {
+      return err("bad_payload", "jobs.get requires { jobId }", true);
+    }
+    const job = this.jobs.byId(p.jobId);
+    if (job === null) {
+      return err("job_not_found", `job '${p.jobId}' does not exist`, false);
+    }
+    return ok({ job });
+  }
+
+  // --- large-model streaming (bounded, cache non-authority) -------------------
+
+  /** model.stream — ONE canonical id-sorted element page (version +
+   *  content-hash bound; the bounded page-size grammar). */
+  private qModelStream(payload: unknown): CommandQueryResponse {
+    const p = payload as { pageIndex?: unknown; pageSize?: unknown } | null;
+    if (p === null || typeof p !== "object" || typeof p.pageIndex !== "number" || !Number.isInteger(p.pageIndex) || p.pageIndex < 0) {
+      return err("bad_payload", "model.stream requires { pageIndex, pageSize? }", true);
+    }
+    const pageSize =
+      p.pageSize === undefined
+        ? STREAM_PAGE_SIZE_DEFAULT
+        : typeof p.pageSize === "number" && Number.isInteger(p.pageSize)
+          ? p.pageSize
+          : -1;
+    try {
+      const page = this.stream.page(this.doc, p.pageIndex, pageSize);
+      return ok({ page });
+    } catch (e) {
+      return this.p016Err(e);
+    }
+  }
+
+  /** model.streamStats — the bounded stream cache's exact counters (the
+   *  explicit non-authority + performance-budget evidence). */
+  private qModelStreamStats(): CommandQueryResponse {
+    return ok({ stats: this.stream.stats() });
+  }
+
+  // --- external references (fresh status + explicit outcomes) ------------------
+
+  /** The fresh external-reference status computation (the P016 outcome
+   *  table — computed against the supplied document, never persisted
+   *  stale). */
+  private freshXrefStatuses(doc: CADDocument): readonly XrefStatusView[] {
+    const elements = doc.allElements();
+    const binding = {
+      documentVersionNumber: doc.snapshot().version.version_number,
+      contentHash: doc.currentContentHash(),
+    };
+    return doc.xrefTable.map((rec) => {
+      let instances = 0;
+      for (const el of elements) {
+        const props = el.props as Record<string, unknown>;
+        if (props.drafting === true && props.type === "xref-ref" && props.xrefId === rec.id) instances++;
+      }
+      const ext = pathExtensionOf(rec.path);
+      let outcome: XrefOutcome;
+      let detail: string;
+      if (rec.status === "unresolved") {
+        outcome = "unavailable";
+        detail = "external source not supplied (unresolved record — content required at attach/reload)";
+      } else if (ext === ".dwg" || ext === ".rvt" || ext === ".dgn") {
+        outcome = "unsupported";
+        detail = `declared source format '${ext}' is outside the bounded external-reference support (the dwg_unsupported-class decline)`;
+      } else {
+        outcome = "available";
+        detail = `loaded (sha ${rec.sourceHash?.slice(0, 12) ?? ""}…, ${rec.entities.length} entit${rec.entities.length === 1 ? "y" : "ies"}, ${instances} instance${instances === 1 ? "" : "s"})`;
+      }
+      return {
+        id: rec.id,
+        name: rec.name,
+        path: rec.path,
+        recordStatus: rec.status,
+        sourceHash: rec.sourceHash,
+        entityCount: rec.entities.length,
+        instances,
+        outcome,
+        detail,
+        revisionBinding: binding,
+      };
+    });
+  }
+
+  /** xrefs.status — the fresh external-reference status with the explicit
+   *  available/unavailable/unsupported outcomes + the canonical revision
+   *  binding. */
+  private qXrefsStatus(): CommandQueryResponse {
+    return ok({ xrefs: this.freshXrefStatuses(this.doc) });
+  }
+
+  /** xrefs.probe — the client-supplied source-hash probe (the explicit
+   *  STALE outcome: the record's attach/reload-time hash vs the current
+   *  external source hash; the record is never mutated by a probe). */
+  private qXrefsProbe(payload: unknown): CommandQueryResponse {
+    const p = payload as { name?: unknown; sourceHash?: unknown } | null;
+    if (p === null || typeof p !== "object" || typeof p.name !== "string" || typeof p.sourceHash !== "string" || p.sourceHash.length === 0) {
+      return err("bad_payload", "xrefs.probe requires { name, sourceHash }", true);
+    }
+    const rec = this.doc.xrefByName(p.name);
+    if (rec === undefined) {
+      return err("xref_not_found", `external reference '${p.name}' does not exist`, false);
+    }
+    if (rec.status === "unresolved" || rec.sourceHash === null) {
+      return ok({
+        probe: {
+          id: rec.id,
+          name: rec.name,
+          recordSourceHash: null,
+          probedSourceHash: p.sourceHash,
+          outcome: "unavailable" as XrefOutcome,
+          detail: "record is unresolved — no recorded source hash to compare against",
+        },
+      });
+    }
+    const outcome: XrefOutcome = rec.sourceHash === p.sourceHash ? "available" : "stale";
+    const detail =
+      outcome === "available"
+        ? "record and probed source hashes match — the external source is current"
+        : `record sha ${rec.sourceHash.slice(0, 12)}… vs probed ${p.sourceHash.slice(0, 12)}… — the external source moved (reload to adopt)`;
+    return ok({
+      probe: {
+        id: rec.id,
+        name: rec.name,
+        recordSourceHash: rec.sourceHash,
+        probedSourceHash: p.sourceHash,
+        outcome,
+        detail,
+      },
+    });
+  }
+
+  // --- observable performance budgets (revision-bound) -------------------------
+
+  /** The declared observable performance-budget thresholds (the smoke
+   *  measures wall-clock per call and asserts these; only deterministic
+   *  counters are pinned — never the wall-clock values). */
+  private static readonly P016_PERF_BUDGETS: readonly {
+    workflow: string;
+    thresholdMs: number;
+  }[] = [
+    { workflow: "recovery.checkpoint (per call)", thresholdMs: 2000 },
+    { workflow: "recovery.restore (per call)", thresholdMs: 5000 },
+    { workflow: "collab.comment (per call)", thresholdMs: 1000 },
+    { workflow: "collab.commit (per call)", thresholdMs: 2000 },
+    { workflow: "model.stream page (cache miss, 500+ elements)", thresholdMs: 3000 },
+    { workflow: "jobs.tick (per step)", thresholdMs: 2000 },
+  ];
+
+  /** perf.budgets — the declared thresholds + the deterministic P016
+   *  counters, bound to the current canonical revision. */
+  private qPerfBudgets(): CommandQueryResponse {
+    const snapshot = this.doc.snapshot();
+    const head = headRevisionIdOf(this.doc.history);
+    const view: PerfBudgetsView = {
+      revision: {
+        documentVersionId: snapshot.version.version_id,
+        documentVersionNumber: snapshot.version.version_number,
+        contentHash: this.doc.currentContentHash(),
+        modelRevisionNumber: head.number,
+        modelRevisionId: head.id,
+        elementCount: snapshot.elements.length,
+      },
+      budgets: AppApiHandler.P016_PERF_BUDGETS.map((b) => ({
+        workflow: b.workflow,
+        thresholdMs: b.thresholdMs,
+        unit: "ms" as const,
+        measuredBy: "smoke-observed" as const,
+      })),
+      counters: {
+        commands: this.commandCount,
+        checkpoints: this.checkpoints.checkpointCount + this.autosaveCount + this.restoreCount,
+        autosaves: this.autosaveCount,
+        restores: this.restoreCount,
+        comments: this.collab.commentCount,
+        presenceBeats: this.collab.presenceBeatCount,
+        transactions: this.collab.transactionCount,
+        conflicts: this.collab.conflictCount,
+        merges: this.collab.mergeCount,
+        streamPages: this.stream.servedPageCount,
+        cacheHits: this.stream.hitCount,
+        cacheMisses: this.stream.missCount,
+        cacheStaleEvictions: this.stream.staleEvictionCount,
+        jobTicks: this.jobs.jobTickCount,
+      },
+    };
+    return ok(view);
   }
 
 }
