@@ -55,7 +55,7 @@
     "Exact-head deployment plus real-browser/Electron evidence where applicable.",
     "Revision-bound governance evidence covering implementation, merge and post-merge verification."
   ],
-  "state": "ASSIGNED",
+  "state": "IMPLEMENTING",
   "transitions": [
     {
       "from": "DRAFT",
@@ -79,6 +79,18 @@
       "references": {
         "issue": 112,
         "assignee": "z-ai-implementation-agent"
+      }
+    },
+    {
+      "from": "ASSIGNED",
+      "to": "IMPLEMENTING",
+      "at": "2026-09-02T03:30:00Z",
+      "actor": "z-ai-implementation-agent",
+      "role": "implementer",
+      "reason": "Implementation begins for CAD-PARITY-016 from the verified CAD-PARITY-015 mainline baseline. Scope is the bounded collaboration, recovery and scale slice defined by Issue #112 — durable versioned recovery checkpoints traceable to canonical document revisions with deterministic crash/session recovery, project-scoped permission-aware comments/presence/activity, versioned transactional collaboration with explicit conflict and merge/resolution lineage, the controlled external-reference lifecycle with fresh unavailable/stale/unsupported outcomes, bounded large-model streaming/caching with explicit cache non-authority, background regeneration with durable job state through the existing worker/adapter boundaries, observable revision-bound performance budgets, and Web/Electron semantic parity — preserving Construction Graph authority, frozen Architecture v1.1, the byte-identical CAD-PARITY-002..015 and compatibility baselines, and the PR_OPEN/VERIFYING stop gate.",
+      "references": {
+        "issue": 112,
+        "commit": "30f3e4a3910466ea99fb6783dbb91cf307f66368"
       }
     }
   ]
