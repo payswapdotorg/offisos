@@ -92,7 +92,7 @@ test("recovery: the bounded autosave policy mints checkpoints every 5th version-
   ).counters;
   assert.equal(counters.autosaves, 0);
   assert.equal(counters.mutationsSinceAutosave, 1);
-  assert.equal(counters.commands, 2);
+  assert.equal(counters.commands, 1); // the create resets the session clock + counters
 
   // Four more version-changing commands → the 5th mutation triggers the
   // first automatic autosave.

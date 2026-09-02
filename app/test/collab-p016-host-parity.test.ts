@@ -101,14 +101,14 @@ async function runP016Sequence(r: Renderer): Promise<P016SequenceResult> {
   const commentList = val<{ comments: unknown }>(await qq(r, "collab.comments"));
 
   // The versioned transactional semantics: A applies at the current base…
-  const applied = val<{ transaction: { id: string; baseVersion: number } }>(
+  const applied = val<{ applied: boolean; transaction: { id: string; baseVersion: number } }>(
     await c(r, "collab.commit", {
       userId: "ekon",
       baseVersion: 2,
-      edits: [{ type: "setProps", elementId: "wall-south", patch: { FireRating: 90 } }],
+      edits: [{ type: "updateElement", elementId: "wall-south", patch: { FireRating: 90 } }],
     }),
   );
-  assert.equal(applied.transaction.status === undefined || true, true);
+  assert.equal(applied.applied, true);
 
   // …a second transaction commits from the SAME stale base on a different
   // element → the explicit conflict (the editor authors both — the conflict
@@ -117,7 +117,7 @@ async function runP016Sequence(r: Renderer): Promise<P016SequenceResult> {
     await c(r, "collab.commit", {
       userId: "ekon",
       baseVersion: 2,
-      edits: [{ type: "setProps", elementId: "wall-east", patch: { AcousticRating: "Class B" } }],
+      edits: [{ type: "updateElement", elementId: "wall-east", patch: { AcousticRating: "Class B" } }],
     }),
   );
 

@@ -439,13 +439,17 @@ export class AppApiHandler {
   // remains the single canonical system of record (LOCK-019). ---
   private sessionClock: SessionClock = 0;
   private commandCount = 0;
+  /** Bumped whenever the session's DOCUMENT is replaced (create/open/
+   *  deserialize/restore) — a document swap is not a modeling mutation, so
+   *  the autosave version-compare must not tick for it. */
+  private docEpoch = 0;
   private mutationsSinceAutosave = 0;
   private autosaveCount = 0;
   private restoreCount = 0;
-  private readonly checkpoints = new CheckpointStore();
-  private readonly collab = new CollabStore();
-  private readonly jobs = new JobStore();
-  private readonly stream = new ModelStreamCache();
+  private checkpoints = new CheckpointStore();
+  private collab = new CollabStore();
+  private jobs = new JobStore();
+  private stream = new ModelStreamCache();
 
   private constructor(options: AppApiHandlerOptions, doc: CADDocument, adapters: EngineAdapterBundle) {
     this.options = options;
@@ -478,10 +482,12 @@ export class AppApiHandler {
     // this clock value, so every P016 output is a pure function of the
     // command sequence.
     let versionBefore = 0;
+    let epochBefore = 0;
     if (request.type === "command") {
       this.commandCount += 1;
       this.sessionClock += 1;
       versionBefore = this.doc.snapshot().version.version_number;
+      epochBefore = this.docEpoch;
     }
     const response =
       request.type === "command" ? await this.handleCommand(request) : await this.handleQuery(request);
@@ -489,8 +495,14 @@ export class AppApiHandler {
       // CAD-PARITY-016: the bounded autosave policy — a durable versioned
       // checkpoint is minted automatically every N document-mutating
       // commands (transparent: the command's response is untouched, so
-      // every pre-P016 surface stays byte-identical).
-      if (response.ok && this.doc.snapshot().version.version_number !== versionBefore) {
+      // every pre-P016 surface stays byte-identical). A document SWAP
+      // (create/open/deserialize/restore — the epoch guard) is not a
+      // modeling mutation and never ticks the policy.
+      if (
+        response.ok &&
+        this.docEpoch === epochBefore &&
+        this.doc.snapshot().version.version_number !== versionBefore
+      ) {
         this.maybeAutosave();
       }
       if (request.idempotencyKey !== undefined) {
@@ -510,6 +522,25 @@ export class AppApiHandler {
       this.autosaveCount += 1;
       this.mintCheckpoint("autosave");
     }
+  }
+
+  /** CAD-PARITY-016: reset the session-side collaboration/recovery/scale
+   *  state when a NEW document becomes the session's document (create/open/
+   *  deserialize) — the collab members, comments, presence, activity,
+   *  transactions, checkpoints, jobs and stream cache belong to the
+   *  document session, never to the host process. This keeps every smoke
+   *  and CI run deterministic regardless of prior requests. */
+  private resetP016Session(): void {
+    this.docEpoch += 1;
+    this.sessionClock = 0;
+    this.commandCount = 0;
+    this.mutationsSinceAutosave = 0;
+    this.autosaveCount = 0;
+    this.restoreCount = 0;
+    this.checkpoints = new CheckpointStore();
+    this.collab = new CollabStore();
+    this.jobs = new JobStore();
+    this.stream = new ModelStreamCache();
   }
 
   /** CAD-PARITY-016: the shared checkpoint mint (store + activity entry). */
@@ -877,6 +908,7 @@ export class AppApiHandler {
     const formatVersion = typeof p.formatVersion === "string" ? p.formatVersion : this.options.formatVersion;
     const createdBy = typeof p.createdBy === "string" ? p.createdBy : this.options.createdBy;
     this.doc = CADDocument.empty(entityId, format, formatVersion, createdBy);
+    this.resetP016Session();
     return ok(this.doc.snapshot());
   }
 
@@ -904,6 +936,7 @@ export class AppApiHandler {
       // revision history carried by the snapshot (LOCK-007: malformed
       // history is rejected, never guessed or silently repaired).
       this.doc = CADDocument.open(snapshot, this.options.createdBy);
+      this.resetP016Session();
     } catch (e) {
       return err("open_failed", `open rejected the snapshot: ${(e as Error).message}`, false);
     }
@@ -947,6 +980,7 @@ export class AppApiHandler {
     try {
       const snapshot = deserialize(p.text);
       this.doc = CADDocument.open(snapshot, this.options.createdBy);
+      this.resetP016Session();
     } catch (e) {
       return err("deserialize_failed", (e as Error).message, false);
     }
@@ -8680,6 +8714,7 @@ export class AppApiHandler {
         this.sessionClock,
       );
       this.doc = restored;
+      this.docEpoch += 1;
       this.restoreCount += 1;
       this.mutationsSinceAutosave = 0;
       this.collab.noteSystemEvent(
@@ -8961,7 +8996,8 @@ export class AppApiHandler {
       return err("bad_payload", "jobs.create requires { kind, params? }", true);
     }
     try {
-      const job = this.jobs.create(p.kind as JobKind, p.params, this.sessionClock, this.doc);
+      const params = p.params === undefined || p.params === null ? {} : p.params;
+      const job = this.jobs.create(p.kind as JobKind, params, this.sessionClock, this.doc);
       this.collab.noteSystemEvent(
         "job.created",
         `job ${job.id} queued (${job.kind}, ${job.totalSteps} step(s))`,

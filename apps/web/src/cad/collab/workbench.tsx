@@ -272,7 +272,7 @@ export function CollabWorkbench(): React.JSX.Element {
       const res = await collabCommit({
         userId: txnForm.userId.trim(),
         baseVersion: Number.isInteger(base) ? base : 0,
-        edits: [{ type: "setProps", elementId: txnForm.elementId.trim(), patch: { [txnForm.key]: Number(txnForm.value) } }],
+        edits: [{ type: "updateElement", elementId: txnForm.elementId.trim(), patch: { [txnForm.key]: Number(txnForm.value) } }],
       });
       if (!res.ok) {
         setTxnError(describeFailure(res));

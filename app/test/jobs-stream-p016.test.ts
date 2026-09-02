@@ -280,7 +280,7 @@ test("perf.budgets: revision-bound counters for the P016 workflows", async () =>
     assert.ok(b.thresholdMs > 0);
   }
   const c = budgets.counters;
-  assert.equal(c.commands, 6); // create+elements+join+presence+comment+commit — stream/perf are queries
+  assert.equal(c.commands, 5); // elements+join+presence+comment+commit (create resets the counters) — stream/perf are queries
   assert.equal(c.comments, 1);
   assert.equal(c.presenceBeats, 1);
   assert.equal(c.transactions, 1);

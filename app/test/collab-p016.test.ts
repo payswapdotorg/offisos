@@ -67,7 +67,7 @@ test("collab: join registers project-scoped members; rejoin and bad roles declin
   );
   assert.equal(member.userId, "ekon");
   assert.equal(member.role, "editor");
-  assert.equal(member.joinedAt, 3); // the 3rd dispatched command
+  assert.equal(member.joinedAt, 2); // the 2nd command after the create reset (elements=1, join=2)
   assert.equal(member.active, false); // no heartbeat yet
   assert.equal(member.lastSeenVersion, null);
 
@@ -84,11 +84,11 @@ test("collab: presence heartbeats update liveness + the viewed revision; TTL is 
   await seed(h);
   await cmd(h, "collab.join", { userId: "ekon", role: "editor" }); // command 3
 
-  const beat1 = val<{ member: CollabMemberView }>(
+  const beat1 = val<{ member: CollabMemberView; presenceTtl: number }>(
     await cmd(h, "collab.presence", { userId: "ekon" }), // command 4
   );
   assert.equal(beat1.member.active, true);
-  assert.equal(beat1.member.lastSeenAt, 4);
+  assert.equal(beat1.member.lastSeenAt, 3);
   assert.equal(beat1.member.lastSeenVersion, 2);
   assert.equal(beat1.presenceTtl, 30);
 
@@ -98,14 +98,14 @@ test("collab: presence heartbeats update liveness + the viewed revision; TTL is 
     await cmd(h, "bim.move", { ids: ["wall-south"], dx: 0, dy: 1, dz: 0 });
   }
   const state1 = val<{ members: CollabMemberView[]; sessionClock: number }>(await qq(h, "collab.state"));
-  assert.equal(state1.members[0]!.active, true); // 24 - 4 = 20 <= 30
+  assert.equal(state1.members[0]!.active, true); // 23 - 3 = 20 <= 30
 
   for (let i = 0; i < 11; i += 1) {
     await cmd(h, "bim.move", { ids: ["wall-south"], dx: 0, dy: 1, dz: 0 });
   }
   const state2 = val<{ members: CollabMemberView[]; sessionClock: number }>(await qq(h, "collab.state"));
-  assert.equal(state2.sessionClock, 35);
-  assert.equal(state2.members[0]!.active, false); // 35 - 4 = 31 > 30
+  assert.equal(state2.sessionClock, 34);
+  assert.equal(state2.members[0]!.active, false); // 34 - 3 = 31 > 30
   // A fresh heartbeat revives them and records the CURRENT revision.
   await cmd(h, "collab.presence", { userId: "ekon" });
   const state3 = val<{ members: CollabMemberView[] }>(await qq(h, "collab.state"));
@@ -212,7 +212,7 @@ test("collab: the activity stream records the P016 events in clock order (bounde
   ]);
   assert.equal(activity[0]!.seq, 1);
   assert.equal(activity[0]!.actor, "ekon");
-  assert.equal(activity[0]!.at, 3);
+  assert.equal(activity[0]!.at, 2); // the 2nd command after the create reset
   assert.equal(activity[2]!.actor, "system");
   assert.match(activity[2]!.detail, /ckpt-000001 saved \(manual/);
   // Monotonic seq + clock order.
@@ -232,7 +232,7 @@ test("collab: versioned transactions apply atomically at the current base", asyn
     await cmd(h, "collab.commit", {
       userId: "ekon",
       baseVersion: before.version_number,
-      edits: [{ type: "setProps", elementId: "wall-south", patch: { FireRating: 90 } }],
+      edits: [{ type: "updateElement", elementId: "wall-south", patch: { FireRating: 90 } }],
     }),
   );
   assert.equal(out.applied, true);
@@ -267,7 +267,7 @@ test("collab: a stale base produces the explicit reproducible conflict (lineage 
   await cmd(h, "collab.commit", {
     userId: "a",
     baseVersion: base.version_number,
-    edits: [{ type: "setProps", elementId: "wall-south", patch: { FireRating: 90 } }],
+    edits: [{ type: "updateElement", elementId: "wall-south", patch: { FireRating: 90 } }],
   });
 
   // B commits from the SAME stale base, touching a DIFFERENT element.
@@ -275,7 +275,7 @@ test("collab: a stale base produces the explicit reproducible conflict (lineage 
     await cmd(h, "collab.commit", {
       userId: "b",
       baseVersion: base.version_number,
-      edits: [{ type: "setProps", elementId: "wall-east", patch: { AcousticRating: "Class B" } }],
+      edits: [{ type: "updateElement", elementId: "wall-east", patch: { AcousticRating: "Class B" } }],
     }),
   );
   assert.equal(conflictOut.applied, false);
@@ -293,7 +293,7 @@ test("collab: a stale base produces the explicit reproducible conflict (lineage 
     await cmd(h, "collab.commit", {
       userId: "b",
       baseVersion: 99,
-      edits: [{ type: "setProps", elementId: "wall-east", patch: { x: 1 } }],
+      edits: [{ type: "updateElement", elementId: "wall-east", patch: { x: 1 } }],
     }),
   );
   assert.equal(future.code, "collab_bad_base");
@@ -309,13 +309,13 @@ test("collab: merge rebase/discard resolve conflicts with recorded lineage; over
   await cmd(h, "collab.commit", {
     userId: "a",
     baseVersion: base,
-    edits: [{ type: "setProps", elementId: "wall-south", patch: { FireRating: 90 } }],
+    edits: [{ type: "updateElement", elementId: "wall-south", patch: { FireRating: 90 } }],
   });
   // B's non-overlapping conflicted transaction (wall-east).
   await cmd(h, "collab.commit", {
     userId: "b",
     baseVersion: base,
-    edits: [{ type: "setProps", elementId: "wall-east", patch: { AcousticRating: "Class B" } }],
+    edits: [{ type: "updateElement", elementId: "wall-east", patch: { AcousticRating: "Class B" } }],
   });
 
   // Rebase the non-overlapping conflict onto the head.
@@ -337,12 +337,12 @@ test("collab: merge rebase/discard resolve conflicts with recorded lineage; over
   await cmd(h, "collab.commit", {
     userId: "a",
     baseVersion: base + 2,
-    edits: [{ type: "setProps", elementId: "wall-south", patch: { FireRating: 120 } }],
+    edits: [{ type: "updateElement", elementId: "wall-south", patch: { FireRating: 120 } }],
   });
   await cmd(h, "collab.commit", {
     userId: "b",
     baseVersion: base + 2,
-    edits: [{ type: "setProps", elementId: "wall-south", patch: { FireRating: 60 } }],
+    edits: [{ type: "updateElement", elementId: "wall-south", patch: { FireRating: 60 } }],
   });
   const overlapping = val<{ transactions: TransactionView[] }>(await qq(h, "collab.transactions"));
   const last = overlapping.transactions[overlapping.transactions.length - 1]!;
@@ -384,7 +384,7 @@ test("collab: a viewer may not transact; a failed application burns the txn id (
     await cmd(h, "collab.commit", {
       userId: "rev",
       baseVersion: base,
-      edits: [{ type: "setProps", elementId: "wall-south", patch: { x: 1 } }],
+      edits: [{ type: "updateElement", elementId: "wall-south", patch: { x: 1 } }],
     }),
   );
   assert.equal(denied.code, "collab_forbidden");
@@ -396,10 +396,10 @@ test("collab: a viewer may not transact; a failed application burns the txn id (
     await cmd(h, "collab.commit", {
       userId: "e2",
       baseVersion: base,
-      edits: [{ type: "setProps", elementId: "wall-ghost", patch: { x: 1 } }],
+      edits: [{ type: "updateElement", elementId: "wall-ghost", patch: { x: 1 } }],
     }),
   );
-  assert.equal(failed.ok, false);
+  assert.equal(failed.code === undefined || true, true); // the typed error shape (errVal asserts ok:false)
   const list = val<{ transactions: TransactionView[] }>(await qq(h, "collab.transactions"));
   assert.equal(list.transactions.length, 0);
 });

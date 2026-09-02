@@ -91,9 +91,9 @@ function textValue(values: Readonly<Record<string, PromptValue>>, id: string, fa
 const COLLAB_ROLES: readonly string[] = ["viewer", "commenter", "editor"];
 
 function collabRoleOf(values: Readonly<Record<string, PromptValue>>): string | null {
-  if (optionValue(values, "role", "viewer") !== null) return "viewer";
-  if (optionValue(values, "role", "commenter") !== null) return "commenter";
-  if (optionValue(values, "role", "editor") !== null) return "editor";
+  if (optionValue(values, "role", "VIE") !== null) return "viewer";
+  if (optionValue(values, "role", "COM") !== null) return "commenter";
+  if (optionValue(values, "role", "ED") !== null) return "editor";
   const typed = (textValue(values, "role", "editor") ?? "").trim().toLowerCase();
   return COLLAB_ROLES.find((r) => r === typed) ?? null;
 }
@@ -101,9 +101,9 @@ function collabRoleOf(values: Readonly<Record<string, PromptValue>>): string | n
 const COMMENT_TARGET_KINDS: readonly string[] = ["document", "element", "revision"];
 
 function commentTargetKindOf(values: Readonly<Record<string, PromptValue>>): string | null {
-  if (optionValue(values, "targetKind", "document") !== null) return "document";
-  if (optionValue(values, "targetKind", "element") !== null) return "element";
-  if (optionValue(values, "targetKind", "revision") !== null) return "revision";
+  if (optionValue(values, "targetKind", "D") !== null) return "document";
+  if (optionValue(values, "targetKind", "EL") !== null) return "element";
+  if (optionValue(values, "targetKind", "REV") !== null) return "revision";
   const typed = (textValue(values, "targetKind", "document") ?? "").trim().toLowerCase();
   return COMMENT_TARGET_KINDS.find((k) => k === typed) ?? null;
 }
@@ -111,9 +111,9 @@ function commentTargetKindOf(values: Readonly<Record<string, PromptValue>>): str
 const JOB_KINDS_PROMPT: readonly string[] = ["docs.regenerate", "quantity.recalculate", "model.stream.warm"];
 
 function jobKindOf(values: Readonly<Record<string, PromptValue>>): string | null {
-  if (optionValue(values, "kind", "docs.regenerate") !== null) return "docs.regenerate";
-  if (optionValue(values, "kind", "quantity.recalculate") !== null) return "quantity.recalculate";
-  if (optionValue(values, "kind", "model.stream.warm") !== null) return "model.stream.warm";
+  if (optionValue(values, "kind", "DOC") !== null) return "docs.regenerate";
+  if (optionValue(values, "kind", "QTY") !== null) return "quantity.recalculate";
+  if (optionValue(values, "kind", "STRM") !== null) return "model.stream.warm";
   const typed = (textValue(values, "kind", "docs.regenerate") ?? "").trim().toLowerCase();
   return JOB_KINDS_PROMPT.find((k) => k === typed) ?? null;
 }
@@ -203,7 +203,7 @@ export const COMMANDS_COLLAB: readonly WorkspaceCommand[] = [
       }
       return plan(
         [{ name: "collab.join", payload: { userId, role } }],
-        [`JOIN: member '${userId}' joined as ${role}.`],
+        [`COLLABJOIN: member '${userId}' joined as ${role}.`],
       );
     },
   },
@@ -308,7 +308,7 @@ export const COMMANDS_COLLAB: readonly WorkspaceCommand[] = [
     aliases: ["TX"],
     label: "Versioned transaction",
     description:
-      "Commit a versioned transactional change: one bounded setProps patch authored against a declared base version. When the base is current the patch applies as ONE atomic versioned revision; when the head moved, the explicit reproducible conflict record is returned (intervening transactions + the overlapping canonical element ids) — resolve it through MERGE.",
+      "Commit a versioned transactional change: one bounded updateElement merge-patch authored against a declared base version. When the base is current the patch applies as ONE atomic versioned revision; when the head moved, the explicit reproducible conflict record is returned (intervening transactions + the overlapping canonical element ids) — resolve it through MERGE.",
     category: "modify",
     ribbonTab: "Collab",
     steps: [
@@ -349,7 +349,7 @@ export const COMMANDS_COLLAB: readonly WorkspaceCommand[] = [
             payload: {
               userId,
               baseVersion,
-              edits: [{ type: "setProps", elementId, patch: { [key]: value } }],
+              edits: [{ type: "updateElement", elementId, patch: { [key]: value } }],
             },
           },
         ],
@@ -376,7 +376,8 @@ export const COMMANDS_COLLAB: readonly WorkspaceCommand[] = [
       {
         id: "strategy",
         kind: "text",
-        prompt: "Strategy [REBase/DIScard]:",
+        prompt: "Strategy [REBase/DIScard] <rebase>:",
+        defaultValue: "rebase",
         options: [
           { keyword: "RE", label: "rebase", flag: true },
           { keyword: "DIS", label: "discard", flag: true },
@@ -393,9 +394,9 @@ export const COMMANDS_COLLAB: readonly WorkspaceCommand[] = [
         throw new Error("MERGE requires the conflicted transaction id.");
       }
       let strategy: "rebase" | "discard";
-      if (optionValue(values, "strategy", "rebase") !== null) {
+      if (optionValue(values, "strategy", "RE") !== null) {
         strategy = "rebase";
-      } else if (optionValue(values, "strategy", "discard") !== null) {
+      } else if (optionValue(values, "strategy", "DIS") !== null) {
         strategy = "discard";
       } else {
         const typed = (textValue(values, "strategy") ?? "").trim().toLowerCase();
