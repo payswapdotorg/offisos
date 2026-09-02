@@ -271,6 +271,12 @@ export type CommandName =
   | "schedule.create"
   | "schedule.update"
   | "schedule.remove"
+  // --- CAD-PARITY-015 (additive, Issue #110): the property-definition
+  // registry command surface (document-owned declarations; values live on
+  // the canonical element property-set overlay). ---
+  | "property.create"
+  | "property.update"
+  | "property.remove"
   | "revision.add"
   | "revision.update"
   | "revision.remove"
@@ -413,6 +419,13 @@ export type QueryName =
   | "navigator.tree"
   | "schedules.list"
   | "schedules.run"
+  // --- CAD-PARITY-015 (additive, Issue #110): the properties/quantities
+  // query surfaces (the property registry inventory with live lineage
+  // stats; the deterministic revision-bound quantity takeoff + the closed
+  // canonical rule table). ---
+  | "properties.list"
+  | "quantities.run"
+  | "quantities.rules"
   | "revisions.list"
   | "publisher.list"
   | "docs.exchangeReport"

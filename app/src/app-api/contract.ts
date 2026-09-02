@@ -329,6 +329,9 @@ import {
   validateRevisionRecord,
   validateScheduleRecord,
   validateTitleBlockRecord,
+  // CAD-PARITY-015 (additive, Issue #110): the property-definition registry
+  // validator.
+  validatePropertyDefRecord,
 } from "../caddocument/workspace.js";
 // CAD-PARITY-013 (additive, Issue #104): the documentation production core —
 // the fresh schedule row derivation (docs/schedules.ts) + the Layout Book
@@ -338,6 +341,20 @@ import {
 // consume, LOCK-004).
 import { runSchedule } from "../docs/index.js";
 import type { ScheduleRunContext } from "../docs/index.js";
+// CAD-PARITY-015 (additive, Issue #110): the quantities workflows core —
+// the closed canonical rule table + the deterministic revision-bound
+// takeoff engine (pure, engine-free, the SAME modules both hosts consume,
+// LOCK-004/018) — and the meta overlay reader for the property lineage
+// statistics.
+import {
+  parseQuantityTakeoffInput,
+  runQuantityTakeoff,
+  QUANTITY_MEASURE_UNITS,
+  QUANTITY_RULE_TABLE,
+  QUANTITY_SOURCES,
+  QUANTITY_GROUPINGS,
+} from "../quantities/index.js";
+import { bimMetaOfProps } from "../bim/meta.js";
 import { revisionCodesOf, sheetNumberOf, subsetLayouts } from "../workspace/layouts/index.js";
 import type {
   NavigatorNodeRecord,
@@ -346,6 +363,9 @@ import type {
   RevisionRecord,
   ScheduleRecord,
   TitleBlockRecord,
+  // CAD-PARITY-015 (additive, Issue #110): the property-definition registry
+  // record.
+  PropertyDefRecord,
 } from "../contracts/caddocument.js";
 import type { IfcFieldClassification } from "../ifc/report.js";
 
@@ -631,6 +651,14 @@ export class AppApiHandler {
         return this.cmdScheduleUpdate(command.payload);
       case "schedule.remove":
         return this.cmdScheduleRemove(command.payload);
+      // --- CAD-PARITY-015 (additive, Issue #110): the property-definition
+      // registry command surface. ---
+      case "property.create":
+        return this.cmdPropertyDefCreate(command.payload);
+      case "property.update":
+        return this.cmdPropertyDefUpdate(command.payload);
+      case "property.remove":
+        return this.cmdPropertyDefRemove(command.payload);
       case "revision.add":
         return this.cmdRevisionAdd(command.payload);
       case "revision.update":
@@ -1079,6 +1107,14 @@ export class AppApiHandler {
         return this.qSchedulesList();
       case "schedules.run":
         return this.qSchedulesRun(query.payload);
+      // --- CAD-PARITY-015 (additive, Issue #110): the properties/quantities
+      // query surfaces (computed fresh, never persisted). ---
+      case "properties.list":
+        return this.qPropertiesList();
+      case "quantities.run":
+        return this.qQuantitiesRun(query.payload);
+      case "quantities.rules":
+        return this.qQuantitiesRules();
       case "revisions.list":
         return this.qRevisionsList();
       case "publisher.list":
@@ -6770,7 +6806,10 @@ export class AppApiHandler {
    *  per-source column vocabulary + the dynamic ps:<set>.<key> columns).
    *  Rows are ALWAYS derived fresh (schedules.run) — never stored. */
   private cmdScheduleCreate(payload: unknown): CommandQueryResponse {
-    const p = payload as { name?: unknown; source?: unknown; filter?: unknown; columns?: unknown } | null;
+    const p = payload as {
+      name?: unknown; source?: unknown; filter?: unknown; columns?: unknown;
+      sort?: unknown; grouping?: unknown; conditions?: unknown;
+    } | null;
     if (p === null || typeof p !== "object" || typeof p.name !== "string" || p.name.trim().length === 0) {
       return err("bad_payload", "schedule.create requires a name", true);
     }
@@ -6780,6 +6819,11 @@ export class AppApiHandler {
     }
     const filter =
       p.filter === undefined || p.filter === null ? undefined : (p.filter as NonNullable<ScheduleRecord["filter"]>);
+    // CAD-PARITY-015 (Issue #110): the optional sort/grouping/conditions
+    // pass through to the validator (the same closed grammar as the record).
+    const sort = p.sort === undefined || p.sort === null ? undefined : (p.sort as NonNullable<ScheduleRecord["sort"]>);
+    const grouping = p.grouping === undefined || p.grouping === null ? undefined : (p.grouping as NonNullable<ScheduleRecord["grouping"]>);
+    const conditions = p.conditions === undefined || p.conditions === null ? undefined : (p.conditions as NonNullable<ScheduleRecord["conditions"]>);
     // PRE-MINT draft validation (the shared source/column vocabulary — a
     // failing command never burns a sch- id).
     const draft = {
@@ -6788,6 +6832,9 @@ export class AppApiHandler {
       source: p.source,
       ...(filter !== undefined ? { filter } : {}),
       columns: p.columns,
+      ...(sort !== undefined ? { sort } : {}),
+      ...(grouping !== undefined ? { grouping } : {}),
+      ...(conditions !== undefined ? { conditions } : {}),
     } as unknown as ScheduleRecord;
     const invalid = this.draftRecordError("schedule_invalid", () => validateScheduleRecord(draft));
     if (invalid !== null) return invalid;
@@ -6797,6 +6844,9 @@ export class AppApiHandler {
       source: p.source as ScheduleRecord["source"],
       ...(filter !== undefined ? { filter } : {}),
       columns: p.columns as ScheduleRecord["columns"],
+      ...(sort !== undefined ? { sort } : {}),
+      ...(grouping !== undefined ? { grouping } : {}),
+      ...(conditions !== undefined ? { conditions } : {}),
     };
     try {
       this.doc.execute({ type: "addSchedule", schedule });
@@ -6848,6 +6898,111 @@ export class AppApiHandler {
       return ok({ removed: p.id, snapshot: this.doc.snapshot() });
     } catch (e) {
       return err("schedule_invalid", (e as Error).message, false);
+    }
+  }
+
+  // --- CAD-PARITY-015 (additive, Issue #110): the property-definition
+  // registry command surface. Declarations only — property VALUES live on
+  // the canonical element property-set overlay (bim.metaOfProps), never in
+  // the registry: there is NO parallel source of truth. ---
+
+  /** property.create — add ONE property definition (unique name; unique
+   *  (set, key) address; closed type/unit/appliesTo grammar). */
+  private cmdPropertyDefCreate(payload: unknown): CommandQueryResponse {
+    const p = payload as {
+      name?: unknown; set?: unknown; key?: unknown; type?: unknown; unit?: unknown; appliesTo?: unknown;
+    } | null;
+    if (p === null || typeof p !== "object" || typeof p.name !== "string" || p.name.trim().length === 0) {
+      return err("bad_payload", "property.create requires a name", true);
+    }
+    const name = p.name.trim();
+    if (this.doc.propertyDefByName(name) !== undefined) {
+      return err("property_exists", `property definition name '${name}' already exists — names are unique`, false);
+    }
+    if (typeof p.set === "string" && typeof p.key === "string") {
+      const clash = this.doc.propertyDefByAddress(p.set, p.key);
+      if (clash !== undefined) {
+        return err("property_exists", `property definition address '${p.set}.${p.key}' already exists — (set, key) addresses are unique`, false);
+      }
+    }
+    // PRE-MINT draft validation (a failing command never burns a prd- id).
+    const draft = {
+      id: "prd-draft",
+      name,
+      set: p.set,
+      key: p.key,
+      type: p.type,
+      ...(p.unit !== undefined && p.unit !== null ? { unit: p.unit } : {}),
+      ...(p.appliesTo !== undefined && p.appliesTo !== null ? { appliesTo: p.appliesTo } : {}),
+    } as unknown as PropertyDefRecord;
+    const invalid = this.draftRecordError("property_invalid", () => validatePropertyDefRecord(draft));
+    if (invalid !== null) return invalid;
+    const propertyDef: PropertyDefRecord = {
+      id: this.doc.mintPropertyDefId(),
+      name,
+      set: p.set as string,
+      key: p.key as string,
+      type: p.type as PropertyDefRecord["type"],
+      ...(p.unit !== undefined && p.unit !== null ? { unit: (p.unit as string).trim() } : {}),
+      ...(p.appliesTo !== undefined && p.appliesTo !== null ? { appliesTo: p.appliesTo as readonly string[] } : {}),
+    };
+    try {
+      this.doc.execute({ type: "addPropertyDef", propertyDef });
+      return ok({ propertyDef, snapshot: this.doc.snapshot() });
+    } catch (e) {
+      return err("property_invalid", (e as Error).message, false);
+    }
+  }
+
+  /** property.update — whitelisted patch (name/set/key/type/unit/appliesTo;
+   *  null unit/appliesTo removes the field). */
+  private cmdPropertyDefUpdate(payload: unknown): CommandQueryResponse {
+    const p = payload as { id?: unknown; patch?: unknown } | null;
+    if (p === null || typeof p !== "object" || typeof p.id !== "string" || p.id.length === 0 || typeof p.patch !== "object" || p.patch === null) {
+      return err("bad_payload", "property.update requires id + patch", true);
+    }
+    if (this.doc.propertyDefById(p.id) === undefined) {
+      return err("property_not_found", `no property definition '${p.id}'`, false);
+    }
+    const patch = p.patch as Record<string, unknown>;
+    if (Object.keys(patch).length === 0) {
+      return err("bad_payload", "property.update requires a non-empty patch", true);
+    }
+    if (typeof patch.name === "string" && patch.name.trim().length > 0) {
+      const clash = this.doc.propertyDefByName(patch.name.trim());
+      if (clash !== undefined && clash.id !== p.id) {
+        return err("property_exists", `property definition name '${patch.name.trim()}' already exists — names are unique`, false);
+      }
+    }
+    if (typeof patch.set === "string" && typeof patch.key === "string") {
+      const clash = this.doc.propertyDefByAddress(patch.set, patch.key);
+      if (clash !== undefined && clash.id !== p.id) {
+        return err("property_exists", `property definition address '${patch.set}.${patch.key}' already exists — (set, key) addresses are unique`, false);
+      }
+    }
+    try {
+      this.doc.execute({ type: "updatePropertyDef", propertyDefId: p.id, patch });
+      return ok({ propertyDef: this.doc.propertyDefById(p.id), snapshot: this.doc.snapshot() });
+    } catch (e) {
+      return err("property_invalid", (e as Error).message, false);
+    }
+  }
+
+  /** property.remove — no gates (schedule pd:<id> columns render the
+   *  deterministic missing cell afterwards; nothing is stored stale). */
+  private cmdPropertyDefRemove(payload: unknown): CommandQueryResponse {
+    const p = payload as { id?: unknown } | null;
+    if (p === null || typeof p !== "object" || typeof p.id !== "string" || p.id.length === 0) {
+      return err("bad_payload", "property.remove requires an id", true);
+    }
+    if (this.doc.propertyDefById(p.id) === undefined) {
+      return err("property_not_found", `no property definition '${p.id}'`, false);
+    }
+    try {
+      this.doc.execute({ type: "removePropertyDef", propertyDefId: p.id });
+      return ok({ removed: p.id, snapshot: this.doc.snapshot() });
+    } catch (e) {
+      return err("property_invalid", (e as Error).message, false);
     }
   }
 
@@ -8126,9 +8281,119 @@ export class AppApiHandler {
       revisions: this.doc.revisionTable,
       titleBlocks: this.doc.titleBlockTable,
       layers: this.doc.layerTable,
+      // CAD-PARITY-015 (Issue #110): the pd:<prd-NNNNNN> column resolution.
+      propertyDefs: this.doc.propertyDefTable,
     };
     const result = runSchedule(schedule, ctx);
-    return ok({ schedule, rows: result.rows, rowCount: result.rowCount, sha256: result.sha256 });
+    // CAD-PARITY-015: groups/totals are present ONLY when the schedule
+    // declares grouping — the P013 response shape stays byte-identical.
+    return ok({
+      schedule,
+      rows: result.rows,
+      rowCount: result.rowCount,
+      sha256: result.sha256,
+      ...(result.groups !== undefined && result.totals !== undefined
+        ? { groups: result.groups, totals: result.totals }
+        : {}),
+    });
+  }
+
+  // --- CAD-PARITY-015 (additive, Issue #110): the properties/quantities
+  // query surfaces (computed fresh on every call, never persisted). ---
+
+  /** properties.list (query) — the property-definition registry inventory
+   *  with the LIVE lineage statistics: the values are counted from the
+   *  canonical element property-set overlay ONLY (bim.metaOfProps — the
+   *  single source of truth); a value whose observed type does not match
+   *  the declared type is counted as a typeMismatch (reported, never
+   *  silently coerced — LOCK-007). */
+  private qPropertiesList(): CommandQueryResponse {
+    interface PropertyRow {
+      readonly id: string;
+      readonly name: string;
+      readonly set: string;
+      readonly key: string;
+      readonly type: PropertyDefRecord["type"];
+      readonly unit?: string;
+      readonly appliesTo?: readonly string[];
+      readonly elementsWithValue: number;
+      readonly typeMatches: number;
+      readonly typeMismatches: number;
+    }
+    const elements = this.doc.allElements();
+    const rows: PropertyRow[] = this.doc.propertyDefTable.map((d) => {
+      let elementsWithValue = 0;
+      let typeMatches = 0;
+      let typeMismatches = 0;
+      for (const el of elements) {
+        const meta = bimMetaOfProps(el.props as Readonly<Record<string, unknown>>);
+        const set = meta?.propertySets?.find((s) => s.name === d.set);
+        const property = set?.properties.find((pr) => pr.key === d.key);
+        if (property === undefined) continue;
+        elementsWithValue += 1;
+        const observed = typeof property.value;
+        const declared = d.type === "text" ? "string" : d.type;
+        if (observed === declared) typeMatches += 1;
+        else typeMismatches += 1;
+      }
+      return {
+        id: d.id, name: d.name, set: d.set, key: d.key, type: d.type,
+        ...(d.unit !== undefined ? { unit: d.unit } : {}),
+        ...(d.appliesTo !== undefined ? { appliesTo: [...d.appliesTo] } : {}),
+        elementsWithValue, typeMatches, typeMismatches,
+      };
+    });
+    return ok({
+      contract: "offisos-properties/1",
+      valueSource: "element-property-set-overlay",
+      propertyDefs: rows,
+    });
+  }
+
+  /** quantities.run (query) — the FRESH deterministic, revision-bound
+   *  quantity takeoff over the CURRENT canonical state (the closed
+   *  canonical rule table; nothing is stored, the report carries the
+   *  RevisionRef of the model head it was computed over). */
+  private qQuantitiesRun(payload: unknown): CommandQueryResponse {
+    let input: ReturnType<typeof parseQuantityTakeoffInput>;
+    const sourceField = (payload as { source?: unknown } | null | undefined)?.source;
+    if (
+      typeof payload !== "object" || payload === null || Array.isArray(payload) ||
+      typeof sourceField !== "string" || sourceField.length === 0
+    ) {
+      return err("bad_payload", "quantities.run requires an object payload { source, groupBy?, filter? } with a source", true);
+    }
+    try {
+      input = parseQuantityTakeoffInput(payload);
+    } catch (e) {
+      return err("quantities_invalid", (e as Error).message, false);
+    }
+    const report = runQuantityTakeoff(input, {
+      elements: this.doc.allElements(),
+      history: this.doc.history,
+    });
+    return ok(report);
+  }
+
+  /** quantities.rules (query) — the closed canonical rule table + the live
+   *  per-type element counts: the EXPLICIT typed-unsupported surface of the
+   *  quantity workflows (types outside the table carry count only — never
+   *  approximated). */
+  private qQuantitiesRules(): CommandQueryResponse {
+    const counts = new Map<string, number>();
+    for (const el of this.doc.allElements()) {
+      const type = (el.props as Readonly<Record<string, unknown>>)["type"];
+      if (typeof type === "string") counts.set(type, (counts.get(type) ?? 0) + 1);
+    }
+    return ok({
+      contract: "offisos-quantity-rules/1",
+      units: QUANTITY_MEASURE_UNITS,
+      measures: ["count", "length", "area", "volume", "mass"],
+      sources: [...QUANTITY_SOURCES],
+      groupings: [...QUANTITY_GROUPINGS],
+      rules: QUANTITY_RULE_TABLE.map((entry) => ({ ...entry })),
+      liveCounts: [...counts.entries()].sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0)).map(([type, count]) => ({ type, count })),
+    });
   }
 
   /** revisions.list (query) — the revision table (document order). */

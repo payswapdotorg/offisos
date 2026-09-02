@@ -223,6 +223,43 @@ function scheduleSourceOf(values: Readonly<Record<string, PromptValue>>): string
   return SCHEDULE_SOURCES.find((s) => s === typed) ?? null;
 }
 
+// --- CAD-PARITY-015 (Issue #110): the property-definition + QTO option
+// resolvers (the scheduleSourceOf pattern: a flag keyword wins, else the
+// typed text; null = a typed builder failure). -----------------------------
+
+/** The PROPDEF type step: TE/NUM/BO flags or the typed text. */
+function propertyTypeOf(values: Readonly<Record<string, PromptValue>>): "text" | "number" | "boolean" | null {
+  if (optionValue(values, "type", "TE") !== null) return "text";
+  if (optionValue(values, "type", "NUM") !== null) return "number";
+  if (optionValue(values, "type", "BO") !== null) return "boolean";
+  const typed = (textValue(values, "type", "text") ?? "").trim().toLowerCase();
+  if (typed === "text" || typed === "number" || typed === "boolean") return typed;
+  return null;
+}
+
+const QTO_SOURCES: readonly string[] = ["elements", "components", "materials"];
+
+/** The QTO source step: EL/COM/MAT flags or the typed text. */
+function qtoSourceOf(values: Readonly<Record<string, PromptValue>>): string | null {
+  if (optionValue(values, "source", "EL") !== null) return "elements";
+  if (optionValue(values, "source", "COM") !== null) return "components";
+  if (optionValue(values, "source", "MAT") !== null) return "materials";
+  const typed = (textValue(values, "source", "elements") ?? "").trim().toLowerCase();
+  return QTO_SOURCES.find((s) => s === typed) ?? null;
+}
+
+const QTO_GROUPINGS: readonly string[] = ["none", "type", "story", "material"];
+
+/** The QTO group-by step: NONE/TY/ST/MAT flags or the typed text. */
+function qtoGroupOf(values: Readonly<Record<string, PromptValue>>): string | null {
+  if (optionValue(values, "group", "NONE") !== null) return "none";
+  if (optionValue(values, "group", "TY") !== null) return "type";
+  if (optionValue(values, "group", "ST") !== null) return "story";
+  if (optionValue(values, "group", "MAT") !== null) return "material";
+  const typed = (textValue(values, "group", "none") ?? "").trim().toLowerCase();
+  return QTO_GROUPINGS.find((g) => g === typed) ?? null;
+}
+
 // ---------------------------------------------------------------------------
 // The numbering options (SUBSET) as prompt flags.
 // ---------------------------------------------------------------------------
@@ -729,6 +766,163 @@ export const COMMANDS_DOCUMENTATION: readonly WorkspaceCommand[] = [
       return plan(
         [{ name: "publisher.run", payload: { id: set.id } }],
         [`PUBLISHBOOK: '${set.name}'.`],
+      );
+    },
+  },
+
+  // --- CAD-PARITY-015 (additive, Issue #110): the property-definition and
+  // --- quantity-workflow command surfaces. -----------------------------------
+
+  // --- PROPDEF — create a property definition ----------------------------------
+  {
+    id: "propdef",
+    name: "PROPDEF",
+    aliases: ["PD"],
+    label: "Property definition",
+    description:
+      "Create a document-owned property definition (name, property set, key, the closed TExt/NUMber/BOOLean type, an optional unit on number definitions, an optional comma-separated applies-to type list e.g. bim.wall,bim.slab). Declarations only — values stay on the elements' property sets (no parallel source of truth).",
+    category: "document",
+    ribbonTab: "Documentation",
+    steps: [
+      { id: "name", kind: "text", prompt: "Property definition name:" },
+      { id: "set", kind: "text", prompt: "Property set name (e.g. PSet_WallCommon):" },
+      { id: "key", kind: "text", prompt: "Property key (e.g. FireRating):" },
+      {
+        id: "type",
+        kind: "text",
+        prompt: "Type [TExt/NUMber/BOOLean] <text>:",
+        defaultValue: "text",
+        options: [
+          { keyword: "TE", label: "text", flag: true },
+          { keyword: "NUM", label: "number", flag: true },
+          { keyword: "BO", label: "boolean", flag: true },
+        ],
+      },
+      { id: "unit", kind: "text", prompt: "Unit (number definitions only, Enter = none):", optional: true },
+      { id: "applies", kind: "text", prompt: "Applies to types, comma-separated (Enter = all):", optional: true },
+    ],
+    build: (values, ctx) => {
+      const name = textValue(values, "name")!.trim();
+      if (name.length === 0) {
+        throw new Error("PROPDEF requires a non-empty name.");
+      }
+      const set = textValue(values, "set")!.trim();
+      if (set.length === 0) {
+        throw new Error("PROPDEF requires a non-empty property set name.");
+      }
+      const key = textValue(values, "key")!.trim();
+      if (key.length === 0) {
+        throw new Error("PROPDEF requires a non-empty property key.");
+      }
+      const type = propertyTypeOf(values);
+      if (type === null) {
+        const typed = (textValue(values, "type", "text") ?? "").trim();
+        throw new Error(`PROPDEF type '${typed}' is not in the vocabulary [text, number, boolean].`);
+      }
+      const payload: Record<string, unknown> = { name, set, key, type };
+      const unitText = (textValue(values, "unit", "") ?? "").trim();
+      if (unitText.length > 0) {
+        if (type !== "number") {
+          throw new Error(`PROPDEF unit is only valid on number definitions (got type '${type}').`);
+        }
+        payload.unit = unitText;
+      }
+      const appliesText = (textValue(values, "applies", "") ?? "").trim();
+      if (appliesText.length > 0) {
+        const appliesTo = appliesText.split(",").map((s) => s.trim()).filter((s) => s.length > 0);
+        if (appliesTo.length === 0) {
+          throw new Error("PROPDEF applies-to must be a comma-separated element type list (or empty for all).");
+        }
+        payload.appliesTo = appliesTo;
+      }
+      void ctx;
+      return plan(
+        [{ name: "property.create", payload }],
+        [
+          `PROPDEF: '${name}' ${set}.${key} (${type}${unitText.length > 0 ? `, ${unitText}` : ""}${appliesText.length > 0 ? `, applies to ${appliesText}` : ""}).`,
+        ],
+      );
+    },
+  },
+
+  // --- PROPLIST — the property registry report surface --------------------------
+  {
+    id: "proplist",
+    name: "PROPLIST",
+    aliases: ["PLS"],
+    label: "Property list",
+    description:
+      "List the property definitions with their live lineage statistics (values counted from the canonical element property-set overlay; type mismatches are reported, never coerced). Renders through the report.properties action + the Schedules palette.",
+    category: "view",
+    ribbonTab: "Documentation",
+    steps: [],
+    instant: () =>
+      plan([], ["PROPLIST."], [{ action: "report.properties" }, { action: "palette.show", payload: { palette: "schedules" } }]),
+  },
+
+  // --- QTO — run the quantity takeoff (NON-MUTATING query surface) --------------
+  {
+    id: "qto",
+    name: "QTO",
+    aliases: ["QTY"],
+    label: "Quantity takeoff",
+    description:
+      "Run the deterministic revision-bound quantity takeoff over one of the three sources (ELements/COMponents/MATerials), optionally grouped by TYpe/STory/MATerial and scoped by an element type filter. A query surface — no revision; the host runs quantities.run and renders the report.",
+    category: "view",
+    ribbonTab: "Documentation",
+    steps: [
+      {
+        id: "source",
+        kind: "text",
+        prompt: "Source [ELements/COMponents/MATerials] <elements>:",
+        defaultValue: "elements",
+        options: [
+          { keyword: "EL", label: "elements", flag: true },
+          { keyword: "COM", label: "components", flag: true },
+          { keyword: "MAT", label: "materials", flag: true },
+        ],
+      },
+      {
+        id: "group",
+        kind: "text",
+        prompt: "Group by [NONE/TYpe/STory/MATerial] <none>:",
+        defaultValue: "none",
+        options: [
+          { keyword: "NONE", label: "none", flag: true },
+          { keyword: "TY", label: "type", flag: true },
+          { keyword: "ST", label: "story", flag: true },
+          { keyword: "MAT", label: "material", flag: true },
+        ],
+      },
+      { id: "type", kind: "text", prompt: "Element type filter (Enter = none, e.g. bim.wall):", optional: true },
+    ],
+    build: (values, ctx) => {
+      const source = qtoSourceOf(values);
+      if (source === null) {
+        const typed = (textValue(values, "source", "elements") ?? "").trim();
+        throw new Error(`QTO source '${typed}' is not in the vocabulary [elements, components, materials].`);
+      }
+      const groupBy = qtoGroupOf(values);
+      if (groupBy === null) {
+        const typed = (textValue(values, "group", "none") ?? "").trim();
+        throw new Error(`QTO group-by '${typed}' is not in the vocabulary [none, type, story, material].`);
+      }
+      if (source === "materials" && groupBy !== "none") {
+        throw new Error("QTO the materials source is the material aggregation itself — group-by must be none.");
+      }
+      const payload: Record<string, unknown> = { source, groupBy };
+      const typeText = (textValue(values, "type", "") ?? "").trim();
+      if (typeText.length > 0) {
+        if (source === "materials") {
+          throw new Error("QTO a type filter is only valid on the elements/components sources.");
+        }
+        payload.filter = { type: typeText };
+      }
+      void ctx;
+      return plan(
+        [],
+        [`QTO: ${source} grouped by ${groupBy}${typeText.length > 0 ? `, type ${typeText}` : ""}.`],
+        [{ action: "report.quantities", payload }],
       );
     },
   },

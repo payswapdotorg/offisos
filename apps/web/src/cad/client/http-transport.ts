@@ -1748,6 +1748,23 @@ export type ScheduleSource = "elements" | "components" | "materials" | "views" |
 export interface ScheduleColumn {
   readonly key: string;
   readonly label: string;
+  /** CAD-PARITY-015 (Issue #110): the calculated-field formula (calc:
+   *  columns only) + the deterministic presentation format. */
+  readonly formula?: ScheduleFormulaWire;
+  readonly format?: ScheduleColumnFormatWire;
+}
+
+/** The bounded calculated-field formula ({op, left, right}). */
+export interface ScheduleFormulaWire {
+  readonly op: "add" | "sub" | "mul" | "div";
+  readonly left: { readonly column: string } | { readonly value: number };
+  readonly right: { readonly column: string } | { readonly value: number };
+}
+
+/** The deterministic column presentation (unit suffix + alignment). */
+export interface ScheduleColumnFormatWire {
+  readonly unit?: string;
+  readonly align?: "left" | "right";
 }
 
 /** A saved schedule/index definition (`sch-NNNNNN`; rows are computed fresh
@@ -1859,12 +1876,17 @@ export interface NavigatorTree {
 
 /** Response value of `schedules.run` — the FRESH deterministic row
  *  derivation over the CURRENT canonical state (every cell a string; the
- *  sha256 over the canonical rows serialization). */
+ *  sha256 over the canonical rows serialization). CAD-PARITY-015 (Issue
+ *  #110): the structured group segments + grand totals are present ONLY
+ *  when the schedule declares grouping (the P013 shape is unchanged
+ *  otherwise). */
 export interface ScheduleRunResult {
   readonly schedule: ScheduleRecord;
   readonly rows: readonly (readonly string[])[];
   readonly rowCount: number;
   readonly sha256: string;
+  readonly groups?: readonly ScheduleGroupRow[];
+  readonly totals?: readonly (number | null)[];
 }
 
 /** Response value of `revisions.list` (the revision table, document order). */
@@ -1996,6 +2018,11 @@ export async function scheduleCreate(payload: {
   source: ScheduleSource;
   filter?: { type?: string; storyId?: string };
   columns: readonly ScheduleColumn[];
+  /** CAD-PARITY-015 (Issue #110): the optional engine powers (all
+   *  opt-in — a bare payload is the P013 shape). */
+  sort?: readonly { key: string; direction: "asc" | "desc" }[];
+  grouping?: readonly string[];
+  conditions?: readonly { set: string; key: string; op: "eq" | "ne" | "gt" | "lt" | "contains"; value: string | number | boolean }[];
 }): Promise<CommandQueryResponse> {
   return command("schedule.create", payload);
 }
@@ -2503,4 +2530,221 @@ export function unwrapDocsExportSheet(res: CommandQueryResponse): DocsExportShee
     return null;
   }
   return v as DocsExportSheetResult;
+}
+
+// --- CAD-PARITY-015 (additive, Issue #110): the property-definition registry
+// --- + the quantity-workflow surfaces (the P013/P014 wrapper pattern). -------
+
+/** One group segment of a grouped `schedules.run` (present only when the
+ *  schedule declares grouping — the P013 response shape is unchanged
+ *  otherwise). */
+export interface ScheduleGroupRow {
+  readonly key: readonly string[];
+  readonly rowCount: number;
+  readonly firstRowIndex: number;
+  readonly subtotals: readonly (number | null)[];
+}
+
+/** A saved property definition (`prd-NNNNNN`) — the full record. */
+export interface PropertyDefRecord {
+  readonly id: string;
+  readonly name: string;
+  readonly set: string;
+  readonly key: string;
+  readonly type: "text" | "number" | "boolean";
+  readonly unit?: string;
+  readonly appliesTo?: readonly string[];
+}
+
+/** One `properties.list` row (the registry + the LIVE lineage statistics —
+ *  values counted from the canonical element property-set overlay only). */
+export interface PropertyDefRow extends PropertyDefRecord {
+  readonly elementsWithValue: number;
+  readonly typeMatches: number;
+  readonly typeMismatches: number;
+}
+
+/** Response value of `properties.list`. */
+export interface PropertiesListResult {
+  readonly contract: string;
+  readonly valueSource: string;
+  readonly propertyDefs: readonly PropertyDefRow[];
+}
+
+/** One measured element row of `quantities.run` (null measures are
+ *  absent-rendered "-" at the surface). */
+export interface QuantityReportRow {
+  readonly elementId: string;
+  readonly type: string;
+  readonly name: string;
+  readonly story: string;
+  readonly material: string;
+  readonly length: number | null;
+  readonly area: number | null;
+  readonly volume: number | null;
+}
+
+/** One group segment of a grouped `quantities.run`. */
+export interface QuantityGroupRow {
+  readonly key: readonly string[];
+  readonly rowCount: number;
+  readonly count: number;
+  readonly length: number | null;
+  readonly area: number | null;
+  readonly volume: number | null;
+  readonly mass: number | null;
+}
+
+/** The grand totals of a grouped `quantities.run`. */
+export interface QuantityTotalsRow {
+  readonly count: number;
+  readonly length: number | null;
+  readonly area: number | null;
+  readonly volume: number | null;
+}
+
+/** One material BOM row (the `materials` source — the effective-material
+ *  aggregation; mass = density kg/m³ × volume m³, null when no density). */
+export interface MaterialBomRow {
+  readonly materialId: string;
+  readonly materialName: string;
+  readonly category: string;
+  readonly count: number;
+  readonly volume: number | null;
+  readonly mass: number | null;
+}
+
+/** An element outside the closed quantity rule table (honest skip). */
+export interface SkippedElementRow {
+  readonly elementId: string;
+  readonly type: string;
+  readonly reason: string;
+}
+
+/** The RevisionRef binding of a `quantities.run` (the model head the report
+ *  was computed over — the same deterministic binding as the graph bridge). */
+export interface QuantityRevisionRef {
+  readonly revision_id: string;
+  readonly revision_number: number;
+  readonly version_id: string;
+  readonly version_number: number;
+  readonly parent_version_id: string | null;
+  readonly content_hash: string;
+}
+
+/** Response value of `quantities.run` — the FRESH deterministic,
+ *  revision-bound takeoff (never stored). */
+export interface QuantityReport {
+  readonly contract: string;
+  readonly source: string;
+  readonly groupBy: string;
+  readonly revision: QuantityRevisionRef;
+  readonly rows: readonly QuantityReportRow[];
+  readonly groups: readonly QuantityGroupRow[];
+  readonly totals: QuantityTotalsRow | null;
+  readonly bom: readonly MaterialBomRow[];
+  readonly skipped: readonly SkippedElementRow[];
+  readonly reportSha256: string;
+}
+
+/** Response value of `quantities.rules` — the closed canonical rule table
+ *  + the live per-type element counts (the typed unsupported surface). */
+export interface QuantityRulesReport {
+  readonly contract: string;
+  readonly units: Record<string, string>;
+  readonly measures: readonly string[];
+  readonly sources: readonly string[];
+  readonly groupings: readonly string[];
+  readonly rules: readonly {
+    readonly type: string;
+    readonly length: string | null;
+    readonly area: string | null;
+    readonly volume: string | null;
+    readonly formula: { readonly length?: string; readonly area?: string; readonly volume?: string };
+  }[];
+  readonly liveCounts: readonly { readonly type: string; readonly count: number }[];
+}
+
+/** `property.create` (command) — add ONE property definition. */
+export async function propertyDefCreate(input: {
+  name: string;
+  set: string;
+  key: string;
+  type: "text" | "number" | "boolean";
+  unit?: string;
+  appliesTo?: readonly string[];
+}): Promise<CommandQueryResponse> {
+  return command("property.create", input);
+}
+
+/** `property.update` (command) — whitelisted patch (null unit/appliesTo
+ *  removes the field). */
+export async function propertyDefUpdate(
+  id: string,
+  patch: Record<string, unknown>,
+): Promise<CommandQueryResponse> {
+  return command("property.update", { id, patch });
+}
+
+/** `property.remove` (command) — no gates (pd: columns render the
+ *  deterministic missing cell afterwards). */
+export async function propertyDefRemove(id: string): Promise<CommandQueryResponse> {
+  return command("property.remove", { id });
+}
+
+/** `properties.list` (query) — the registry + live lineage statistics. */
+export async function propertiesList(): Promise<CommandQueryResponse> {
+  return query("properties.list", {});
+}
+
+/** `quantities.run` (query) — the deterministic revision-bound takeoff. */
+export async function quantitiesRun(input: {
+  source: "elements" | "components" | "materials";
+  groupBy?: "none" | "type" | "story" | "material";
+  filter?: { type?: string; storyId?: string };
+}): Promise<CommandQueryResponse> {
+  return query("quantities.run", input);
+}
+
+/** `quantities.rules` (query) — the closed canonical rule table. */
+export async function quantitiesRules(): Promise<CommandQueryResponse> {
+  return query("quantities.rules", {});
+}
+
+/** Extract the PropertyDefRow[] from a properties.list ok response. */
+export function unwrapPropertiesList(res: CommandQueryResponse): PropertyDefRow[] | null {
+  if (!res.ok) return null;
+  const v = res.value as { propertyDefs?: unknown } | null;
+  if (typeof v !== "object" || v === null || !Array.isArray(v.propertyDefs)) return null;
+  return v.propertyDefs as PropertyDefRow[];
+}
+
+/** Extract a QuantityReport from a quantities.run ok response. */
+export function unwrapQuantityReport(res: CommandQueryResponse): QuantityReport | null {
+  if (!res.ok) return null;
+  const v = res.value as Partial<QuantityReport> | null;
+  if (
+    typeof v !== "object" || v === null ||
+    typeof v.contract !== "string" ||
+    typeof v.source !== "string" ||
+    typeof v.reportSha256 !== "string" ||
+    typeof v.revision !== "object" || v.revision === null
+  ) {
+    return null;
+  }
+  return v as QuantityReport;
+}
+
+/** Extract a QuantityRulesReport from a quantities.rules ok response. */
+export function unwrapQuantityRules(res: CommandQueryResponse): QuantityRulesReport | null {
+  if (!res.ok) return null;
+  const v = res.value as Partial<QuantityRulesReport> | null;
+  if (
+    typeof v !== "object" || v === null ||
+    typeof v.contract !== "string" ||
+    !Array.isArray(v.rules) || !Array.isArray(v.liveCounts)
+  ) {
+    return null;
+  }
+  return v as QuantityRulesReport;
 }

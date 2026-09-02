@@ -56,6 +56,8 @@ import type {
   PublisherSetRecord,
   RevisionRecord,
   ScheduleRecord,
+  // CAD-PARITY-015 (additive, Issue #110): the property-definition registry.
+  PropertyDefRecord,
   TitleBlockRecord,
 } from "../contracts/caddocument.js";
 import type { ModelHistory } from "../contracts/model.js";
@@ -80,6 +82,9 @@ import {
   applyPublisherSetPatch,
   applyRevisionPatch,
   applySchedulePatch,
+  // CAD-PARITY-015 (additive, Issue #110): the property-definition registry
+  // validators/derivations.
+  applyPropertyDefPatch,
   applyTitleBlockPatch,
   captureLayerState,
   defaultBimSettings,
@@ -100,6 +105,7 @@ import {
   deriveRevisionSequence,
   deriveScheduleSequence,
   deriveTitleBlockSequence,
+  derivePropertyDefSequence,
   elementLayerReference,
   validateBimSettings,
   validateBlockDefinitionRecord,
@@ -122,6 +128,7 @@ import {
   validatePublisherSetRecord,
   validateRevisionRecord,
   validateScheduleRecord,
+  validatePropertyDefRecord,
   validateTitleBlockRecord,
 } from "./workspace.js";
 import { assertDefinitionGraph, normalizeBlockEntities, referencedBlockIds } from "../workspace/blocks/types.js";
@@ -301,6 +308,13 @@ export class CADDocument {
   private readonly schedules: Map<string, ScheduleRecord> = new Map();
   /** CAD-PARITY-013: monotonic mint counter for `sch-NNNNNN` identities. */
   private nextScheduleSequence: number;
+  /** CAD-PARITY-015 (Issue #110): the document-owned property DEFINITIONS
+   *  (id-keyed, insertion-ordered; names unique; (set, key) addresses
+   *  unique). Declarations only — values live on the canonical element
+   *  property-set overlay, never here (no parallel source of truth). */
+  private readonly propertyDefs: Map<string, PropertyDefRecord> = new Map();
+  /** CAD-PARITY-015: monotonic mint counter for `prd-NNNNNN` identities. */
+  private nextPropertyDefSequence: number;
   /** CAD-PARITY-013: the document revision records (id-keyed, insertion-
    *  ordered; codes unique — the user-facing address). */
   private readonly revisions: Map<string, RevisionRecord> = new Map();
@@ -362,6 +376,8 @@ export class CADDocument {
     nextTitleBlockSequence: number,
     schedules: Iterable<ScheduleRecord>,
     nextScheduleSequence: number,
+    propertyDefs: Iterable<PropertyDefRecord>,
+    nextPropertyDefSequence: number,
     revisions: Iterable<RevisionRecord>,
     nextRevisionSequence: number,
     publisherSets: Iterable<PublisherSetRecord>,
@@ -416,6 +432,9 @@ export class CADDocument {
     this.nextTitleBlockSequence = nextTitleBlockSequence;
     for (const s of schedules) this.schedules.set(s.id, s);
     this.nextScheduleSequence = nextScheduleSequence;
+    // CAD-PARITY-015: the property-definition registry.
+    for (const d of propertyDefs) this.propertyDefs.set(d.id, d);
+    this.nextPropertyDefSequence = nextPropertyDefSequence;
     for (const rev of revisions) this.revisions.set(rev.id, rev);
     this.nextRevisionSequence = nextRevisionSequence;
     for (const ps of publisherSets) this.publisherSets.set(ps.id, ps);
@@ -678,6 +697,31 @@ export class CADDocument {
       scheduleNames.add(validated.name);
       scheduleRecords.push(validated);
     }
+    // CAD-PARITY-015: adopt the property-definition registry when present
+    // (validated structurally — unique ids, unique names, unique (set, key)
+    // addresses; LOCK-007); a legacy snapshot opens with an empty registry
+    // (the additive-feature default, not a repair).
+    const propertyDefRecords: PropertyDefRecord[] = [];
+    const propertyDefIds = new Set<string>();
+    const propertyDefNames = new Set<string>();
+    const propertyDefAddresses = new Set<string>();
+    for (const d of [...(snapshot.propertyDefs ?? [])]) {
+      const validated = validatePropertyDefRecord(d);
+      if (propertyDefIds.has(validated.id)) {
+        throw new Error(`open: duplicate property definition id '${validated.id}'`);
+      }
+      if (propertyDefNames.has(validated.name)) {
+        throw new Error(`open: duplicate property definition name '${validated.name}'`);
+      }
+      const address = `${validated.set}.${validated.key}`;
+      if (propertyDefAddresses.has(address)) {
+        throw new Error(`open: duplicate property definition address '${address}' (set + key must be unique among definitions)`);
+      }
+      propertyDefIds.add(validated.id);
+      propertyDefNames.add(validated.name);
+      propertyDefAddresses.add(address);
+      propertyDefRecords.push(validated);
+    }
     const revisionRecords: RevisionRecord[] = [];
     const revisionIds = new Set<string>();
     const revisionCodes = new Set<string>();
@@ -822,6 +866,8 @@ export class CADDocument {
       Math.max(deriveTitleBlockSequence(titleBlockRecords), history.next_title_block_sequence ?? 1),
       scheduleRecords,
       Math.max(deriveScheduleSequence(scheduleRecords), history.next_schedule_sequence ?? 1),
+      propertyDefRecords,
+      Math.max(derivePropertyDefSequence(propertyDefRecords), history.next_property_def_sequence ?? 1),
       revisionRecords,
       Math.max(deriveRevisionSequence(revisionRecords), history.next_revision_sequence ?? 1),
       publisherSetRecords,
@@ -884,6 +930,9 @@ export class CADDocument {
       1,
       [],
       1,
+      [],
+      1,
+      // CAD-PARITY-015: empty property-definition registry.
       [],
       1,
       [],
@@ -1003,6 +1052,7 @@ export class CADDocument {
       nextNavigatorNodeSequence: this.nextNavigatorNodeSequence,
       nextTitleBlockSequence: this.nextTitleBlockSequence,
       nextScheduleSequence: this.nextScheduleSequence,
+      nextPropertyDefSequence: this.nextPropertyDefSequence,
       nextRevisionSequence: this.nextRevisionSequence,
       nextPublisherSetSequence: this.nextPublisherSetSequence,
     });
@@ -1062,6 +1112,7 @@ export class CADDocument {
       nextNavigatorNodeSequence: this.nextNavigatorNodeSequence,
       nextTitleBlockSequence: this.nextTitleBlockSequence,
       nextScheduleSequence: this.nextScheduleSequence,
+      nextPropertyDefSequence: this.nextPropertyDefSequence,
       nextRevisionSequence: this.nextRevisionSequence,
       nextPublisherSetSequence: this.nextPublisherSetSequence,
     });
@@ -1105,6 +1156,7 @@ export class CADDocument {
       nextNavigatorNodeSequence: this.nextNavigatorNodeSequence,
       nextTitleBlockSequence: this.nextTitleBlockSequence,
       nextScheduleSequence: this.nextScheduleSequence,
+      nextPropertyDefSequence: this.nextPropertyDefSequence,
       nextRevisionSequence: this.nextRevisionSequence,
       nextPublisherSetSequence: this.nextPublisherSetSequence,
     });
@@ -1174,6 +1226,7 @@ export class CADDocument {
       ...(this.navigatorNodes.size > 0 ? { navigatorNodes: [...this.navigatorNodes.values()] } : {}),
       ...(this.titleBlocks.size > 0 ? { titleBlocks: [...this.titleBlocks.values()] } : {}),
       ...(this.schedules.size > 0 ? { schedules: [...this.schedules.values()] } : {}),
+      ...(this.propertyDefs.size > 0 ? { propertyDefs: [...this.propertyDefs.values()] } : {}),
       ...(this.revisions.size > 0 ? { revisions: [...this.revisions.values()] } : {}),
       ...(this.publisherSets.size > 0 ? { publisherSets: [...this.publisherSets.values()] } : {}),
     };
@@ -1429,6 +1482,13 @@ export class CADDocument {
       let minted = this.mintScheduleId();
       while (this.schedules.has(minted)) minted = this.mintScheduleId();
       return { ...edit, schedule: { ...edit.schedule, id: minted } } as DocumentEdit;
+    }
+    if (edit.type === "addPropertyDef") {
+      const raw = edit.propertyDef as { id?: unknown };
+      if (typeof raw.id === "string" && raw.id.length > 0) return edit;
+      let minted = this.mintPropertyDefId();
+      while (this.propertyDefs.has(minted)) minted = this.mintPropertyDefId();
+      return { ...edit, propertyDef: { ...edit.propertyDef, id: minted } } as DocumentEdit;
     }
     if (edit.type === "addRevision") {
       const raw = edit.revision as { id?: unknown };
@@ -2234,6 +2294,52 @@ export class CADDocument {
         if (edit.scheduleId === undefined) throw new Error("removeSchedule requires scheduleId");
         if (!this.schedules.has(edit.scheduleId)) throw new Error(`removeSchedule: no schedule '${edit.scheduleId}'`);
         this.schedules.delete(edit.scheduleId);
+        break;
+      }
+      // CAD-PARITY-015 (Issue #110): the property-definition registry edits.
+      case "addPropertyDef": {
+        if (edit.propertyDef === undefined) throw new Error("addPropertyDef requires propertyDef");
+        const def = validatePropertyDefRecord(edit.propertyDef);
+        if (this.propertyDefs.has(def.id)) {
+          throw new Error(
+            `addPropertyDef: property definition id '${def.id}' already exists — canonical property definition identity must not be reused while the record exists`,
+          );
+        }
+        this.assertPropertyDefNameFree(def.name, null);
+        this.assertPropertyDefAddressFree(def.set, def.key, null);
+        this.propertyDefs.set(def.id, def);
+        break;
+      }
+      case "updatePropertyDef": {
+        if (edit.propertyDefId === undefined || edit.patch === undefined) {
+          throw new Error("updatePropertyDef requires propertyDefId + patch");
+        }
+        const current = this.propertyDefs.get(edit.propertyDefId);
+        if (current === undefined) throw new Error(`updatePropertyDef: no property definition '${edit.propertyDefId}'`);
+        const merged = applyPropertyDefPatch(current, edit.patch);
+        this.assertPropertyDefNameFree(merged.name, edit.propertyDefId);
+        this.assertPropertyDefAddressFree(merged.set, merged.key, edit.propertyDefId);
+        this.propertyDefs.set(edit.propertyDefId, merged);
+        break;
+      }
+      case "setPropertyDefRecord": {
+        if (edit.propertyDefId === undefined || edit.propertyDef === undefined) {
+          throw new Error("setPropertyDefRecord requires propertyDefId + propertyDef");
+        }
+        const def = validatePropertyDefRecord(edit.propertyDef);
+        if (def.id !== edit.propertyDefId) throw new Error("setPropertyDefRecord: propertyDef.id must equal propertyDefId");
+        if (!this.propertyDefs.has(def.id)) throw new Error(`setPropertyDefRecord: no property definition '${def.id}'`);
+        this.assertPropertyDefNameFree(def.name, def.id);
+        this.assertPropertyDefAddressFree(def.set, def.key, def.id);
+        this.propertyDefs.set(def.id, def);
+        break;
+      }
+      case "removePropertyDef": {
+        if (edit.propertyDefId === undefined) throw new Error("removePropertyDef requires propertyDefId");
+        if (!this.propertyDefs.has(edit.propertyDefId)) throw new Error(`removePropertyDef: no property definition '${edit.propertyDefId}'`);
+        // No gates: schedule pd:<id> columns render the deterministic missing
+        // cell afterwards (rows are derived fresh — nothing is stored stale).
+        this.propertyDefs.delete(edit.propertyDefId);
         break;
       }
       case "addRevision": {
@@ -3068,6 +3174,45 @@ export class CADDocument {
         if (existing === undefined) throw new Error(`removeSchedule: no schedule '${edit.scheduleId}'`);
         return { type: "addSchedule", schedule: existing };
       }
+      // CAD-PARITY-015 (Issue #110): the property-definition registry inverses.
+      case "addPropertyDef": {
+        if (edit.propertyDef === undefined) throw new Error("addPropertyDef requires propertyDef");
+        const def = validatePropertyDefRecord(edit.propertyDef);
+        return { type: "removePropertyDef", propertyDefId: def.id };
+      }
+      case "updatePropertyDef": {
+        if (edit.propertyDefId === undefined || edit.patch === undefined) {
+          throw new Error("updatePropertyDef requires propertyDefId + patch");
+        }
+        const current = this.propertyDefs.get(edit.propertyDefId);
+        if (current === undefined) throw new Error(`updatePropertyDef: no property definition '${edit.propertyDefId}'`);
+        const patchKeys = Object.keys(edit.patch);
+        const changesKeySet = patchKeys.some(
+          (k) => !Object.prototype.hasOwnProperty.call(current as unknown as Record<string, unknown>, k),
+        );
+        if (changesKeySet) {
+          return { type: "setPropertyDefRecord", propertyDefId: edit.propertyDefId, propertyDef: current };
+        }
+        const prevValues: Record<string, unknown> = {};
+        for (const k of patchKeys) {
+          prevValues[k] = (current as unknown as Record<string, unknown>)[k];
+        }
+        return { type: "updatePropertyDef", propertyDefId: edit.propertyDefId, patch: prevValues };
+      }
+      case "setPropertyDefRecord": {
+        if (edit.propertyDefId === undefined || edit.propertyDef === undefined) {
+          throw new Error("setPropertyDefRecord requires propertyDefId + propertyDef");
+        }
+        const current = this.propertyDefs.get(edit.propertyDefId);
+        if (current === undefined) throw new Error(`setPropertyDefRecord: no property definition '${edit.propertyDefId}'`);
+        return { type: "setPropertyDefRecord", propertyDefId: edit.propertyDefId, propertyDef: current };
+      }
+      case "removePropertyDef": {
+        if (edit.propertyDefId === undefined) throw new Error("removePropertyDef requires propertyDefId");
+        const existing = this.propertyDefs.get(edit.propertyDefId);
+        if (existing === undefined) throw new Error(`removePropertyDef: no property definition '${edit.propertyDefId}'`);
+        return { type: "addPropertyDef", propertyDef: existing };
+      }
       case "addRevision": {
         if (edit.revision === undefined) throw new Error("addRevision requires revision");
         const revision = validateRevisionRecord(edit.revision);
@@ -3459,6 +3604,46 @@ export class CADDocument {
     return this.nextScheduleSequence;
   }
 
+  /** CAD-PARITY-015: mint a canonical property-definition identity
+   *  (`prd-NNNNNN`, monotonic, never reused) — document authority. */
+  mintPropertyDefId(): string {
+    const minted = `prd-${String(this.nextPropertyDefSequence).padStart(6, "0")}`;
+    this.nextPropertyDefSequence += 1;
+    return minted;
+  }
+
+  /** CAD-PARITY-015: the property-definition registry (insertion order). */
+  get propertyDefTable(): readonly PropertyDefRecord[] {
+    return [...this.propertyDefs.values()];
+  }
+
+  /** CAD-PARITY-015: look up a property definition by canonical id. */
+  propertyDefById(id: string): PropertyDefRecord | undefined {
+    return this.propertyDefs.get(id);
+  }
+
+  /** CAD-PARITY-015: look up a property definition by its unique name. */
+  propertyDefByName(name: string): PropertyDefRecord | undefined {
+    for (const d of this.propertyDefs.values()) {
+      if (d.name === name) return d;
+    }
+    return undefined;
+  }
+
+  /** CAD-PARITY-015: look up a property definition by its unique (set, key)
+   *  address (the `ps:<set>.<key>` resolution grammar). */
+  propertyDefByAddress(set: string, key: string): PropertyDefRecord | undefined {
+    for (const d of this.propertyDefs.values()) {
+      if (d.set === set && d.key === key) return d;
+    }
+    return undefined;
+  }
+
+  /** CAD-PARITY-015: current mint counter for property-definition identities. */
+  get propertyDefSequence(): number {
+    return this.nextPropertyDefSequence;
+  }
+
   /** The revision records (insertion order). */
   get revisionTable(): readonly RevisionRecord[] {
     return [...this.revisions.values()];
@@ -3606,6 +3791,26 @@ export class CADDocument {
     for (const s of this.schedules.values()) {
       if (s.id !== excludeId && s.name === name) {
         throw new Error(`schedule name '${name}' already exists — schedule names are unique`);
+      }
+    }
+  }
+
+  /** CAD-PARITY-015: a property-definition name must stay unique (null
+   *  excludeId = pure add check). */
+  private assertPropertyDefNameFree(name: string, excludeId: string | null): void {
+    for (const d of this.propertyDefs.values()) {
+      if (d.id !== excludeId && d.name === name) {
+        throw new Error(`property definition name '${name}' already exists — property definition names are unique`);
+      }
+    }
+  }
+
+  /** CAD-PARITY-015: a property-definition (set, key) address must stay
+   *  unique (null excludeId = pure add check). */
+  private assertPropertyDefAddressFree(set: string, key: string, excludeId: string | null): void {
+    for (const d of this.propertyDefs.values()) {
+      if (d.id !== excludeId && d.set === set && d.key === key) {
+        throw new Error(`property definition address '${set}.${key}' already exists — (set, key) addresses are unique among property definitions`);
       }
     }
   }

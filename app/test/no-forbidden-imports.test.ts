@@ -8,7 +8,8 @@
  * COMPAT-CAD-003 — src/docs, the construction-documentation core, — and
  * since COMPAT-IFC-001 — src/ifc, the IFC/openBIM core, — and since
  * CAD-PARITY-002 — src/workspace, the shared command/selection/input
- * foundation, — and since CAD-PARITY-014 (Issue #107) — src/interop, the
+ * foundation, — and since CAD-PARITY-014 (Issue #107) — src/interop, and
+ * since CAD-PARITY-015 (Issue #110) — src/quantities, the
  * bounded file-interoperability core) imports
  * Electron, browser UI, or CAD/BIM engine packages. The renderer/editor
  * core, the Construction Graph bridge, the drafting core, the BIM core and
@@ -43,7 +44,10 @@ const FORBIDDEN_SPECIFIERS = [
   "IfcOpenShell",
 ];
 
-const PROTECTED_DIRS = ["src/contracts", "src/renderer", "src/app-api", "src/caddocument", "src/graph", "src/impact", "src/drafting", "src/bim", "src/docs", "src/ifc", "src/workspace", "src/interop"];
+// CAD-PARITY-015 (Issue #110): src/quantities joins the scanned core (the
+// canonical quantity rules + the revision-bound takeoff are engine-free
+// shared core, LOCK-018).
+const PROTECTED_DIRS = ["src/contracts", "src/renderer", "src/app-api", "src/caddocument", "src/graph", "src/impact", "src/drafting", "src/bim", "src/docs", "src/ifc", "src/workspace", "src/interop", "src/quantities"];
 
 function* walk(dir: string): Generator<string> {
   for (const entry of readdirSync(dir)) {

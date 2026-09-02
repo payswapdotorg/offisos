@@ -48,6 +48,14 @@ import type {
   ScheduleSource,
   TitleBlockRecord,
   TitleBlockRow,
+  // CAD-PARITY-015 (additive, Issue #110): the schedules/indexes engine
+  // extensions (formula/operand/format/condition) + the property-definition
+  // registry record.
+  ScheduleFormula,
+  ScheduleOperand,
+  ScheduleColumnFormat,
+  ScheduleCondition,
+  PropertyDefRecord,
 } from "../contracts/caddocument.js";
 import { DOCS_SHEET_FRAME as SHEET_FRAME } from "../contracts/caddocument.js";
 // CAD-PARITY-013: the canonical BIM property-set key grammar (the dynamic
@@ -1973,13 +1981,50 @@ export function isDynamicPropertyColumn(key: string): boolean {
   );
 }
 
+// --- CAD-PARITY-015 (additive, Issue #110): the dynamic column key forms --
+//
+// `pd:<prd-NNNNNN>` — a property-DEFINITION column (the document-owned
+// property registry; the run resolves the definition's (set, key) address
+// against the element property-set overlay — values are NEVER stored on
+// the definition). Valid on the elements/components sources only.
+// `calc:<name>` — a calculated column carrying a bounded arithmetic
+// formula over the schedule's numeric columns. Valid on EVERY source.
+
+/** The calculated-column key grammar: `calc:` + a canonical name (a letter
+ *  followed by letters/digits/underscores, ≤ 32 chars). */
+export const SCHEDULE_CALC_KEY_PATTERN = /^calc:[A-Za-z][A-Za-z0-9_]{0,31}$/;
+
+/** The property-definition column key grammar: `pd:` + a canonical minted
+ *  `prd-NNNNNN` identity. */
+export const SCHEDULE_PD_KEY_PATTERN = /^pd:prd-\d{6}$/;
+
+/** Is a column key a calculated-field column (`calc:<name>`)? */
+export function isCalculatedColumn(key: string): boolean {
+  return SCHEDULE_CALC_KEY_PATTERN.test(key);
+}
+
+/** Is a column key a property-definition column (`pd:<prd-NNNNNN>`)? */
+export function isPropertyDefColumn(key: string): boolean {
+  return SCHEDULE_PD_KEY_PATTERN.test(key);
+}
+
 /** CAD-PARITY-013: validate + normalize a schedule record (the structural
  *  grammar: name trimmed non-empty max 60, a closed source vocabulary, a
  *  filter ONLY on the elements/components sources ({type?, storyId?} —
  *  non-empty strings), 1..12 columns each with a trimmed non-empty label
  *  max 40 and a key from the CLOSED per-source vocabulary or the dynamic
  *  `ps:<set>.<key>` form on the elements/components sources). Name
- *  UNIQUENESS among schedules is enforced at the document boundary. */
+ *  UNIQUENESS among schedules is enforced at the document boundary.
+ *
+ *  CAD-PARITY-015 (additive, Issue #110): the dynamic column grammar
+ *  extends to `pd:<prd-NNNNNN>` (elements/components sources) and
+ *  `calc:<name>` (every source — a calc column MUST carry a bounded
+ *  arithmetic formula, non-calc columns MUST NOT); columns may carry an
+ *  optional deterministic `format` {unit?, align?}; and the record may
+ *  carry optional `sort` (1..3 column-key rules, stable), `grouping`
+ *  (1..3 column keys) and `conditions` (1..4 property-driven AND-ed
+ *  conditions, elements/components sources only — gt/lt need a number
+ *  comparand, contains a string, eq/ne any typed value). */
 export function validateScheduleRecord(record: unknown): ScheduleRecord {
   if (typeof record !== "object" || record === null || Array.isArray(record)) {
     throw new Error("schedule record must be an object");
@@ -2020,6 +2065,7 @@ export function validateScheduleRecord(record: unknown): ScheduleRecord {
   }
   const vocabulary = SCHEDULE_COLUMN_KEYS[source];
   const dynamic = (SCHEDULE_FILTERED_SOURCES as readonly string[]).includes(source);
+  const rawColumnKeys = (r.columns as { key?: unknown }[]).map((c) => (typeof c.key === "string" ? c.key : ""));
   const columns: ScheduleColumn[] = [];
   for (let i = 0; i < r.columns.length; i++) {
     const raw = r.columns[i];
@@ -2030,31 +2076,299 @@ export function validateScheduleRecord(record: unknown): ScheduleRecord {
     if (typeof col.key !== "string" || col.key.length === 0) {
       throw new Error(`schedule '${r.id}': columns[${i}].key must be a non-empty string`);
     }
-    if (!vocabulary.includes(col.key) && !(dynamic && isDynamicPropertyColumn(col.key))) {
+    const isCalc = isCalculatedColumn(col.key);
+    const isPd = isPropertyDefColumn(col.key);
+    if (
+      !vocabulary.includes(col.key) &&
+      !(dynamic && isDynamicPropertyColumn(col.key)) &&
+      !(dynamic && isPd) &&
+      !isCalc
+    ) {
       throw new Error(
-        `schedule '${r.id}': columns[${i}].key '${col.key}' is not in the '${source}' column vocabulary [${vocabulary.join(", ")}${dynamic ? ", ps:<set>.<key>" : ""}]`,
+        `schedule '${r.id}': columns[${i}].key '${col.key}' is not in the '${source}' column vocabulary [${vocabulary.join(", ")}${dynamic ? ", ps:<set>.<key>, pd:<prd-NNNNNN>" : ""}, calc:<name>]`,
       );
     }
     if (typeof col.label !== "string" || col.label.trim().length === 0 || col.label.trim().length > 40) {
       throw new Error(`schedule '${r.id}': columns[${i}].label must be a non-empty trimmed string (max 40 chars)`);
     }
-    columns.push({ key: col.key, label: col.label.trim() });
+    // CAD-PARITY-015: the calculated-field formula — REQUIRED on calc:
+    // columns, FORBIDDEN on every other key form. Operand column references
+    // validate against THIS schedule's raw column-key list (every declared
+    // column key, in declaration order).
+    let formula: ScheduleColumn["formula"];
+    if (col.formula !== undefined && col.formula !== null) {
+      if (!isCalc) {
+        throw new Error(
+          `schedule '${r.id}': columns[${i}].formula is only valid on calc:<name> columns (got key '${col.key}')`,
+        );
+      }
+      formula = validateScheduleFormula(r.id, i, col.formula, rawColumnKeys);
+    } else if (isCalc) {
+      throw new Error(`schedule '${r.id}': columns[${i}] (key '${col.key}') requires a formula { op, left, right }`);
+    }
+    // CAD-PARITY-015: the deterministic presentation format (any column).
+    let format: ScheduleColumn["format"];
+    if (col.format !== undefined && col.format !== null) {
+      format = validateScheduleColumnFormat(r.id, i, col.format);
+    }
+    columns.push({
+      key: col.key,
+      label: col.label.trim(),
+      ...(formula !== undefined ? { formula } : {}),
+      ...(format !== undefined ? { format } : {}),
+    });
   }
+  // CAD-PARITY-015: sort / grouping / conditions (column-key references are
+  // resolved against THIS schedule's validated column set).
+  const columnKeys = columns.map((c) => c.key);
+  const sort = validateScheduleSort(r.id, r.sort, columnKeys);
+  const grouping = validateScheduleGrouping(r.id, r.grouping, columnKeys, source);
+  const conditions = validateScheduleConditions(r.id, r.conditions, source);
   return {
     id: r.id,
     name: (r.name as string).trim(),
     source,
     ...(filter !== undefined ? { filter } : {}),
     columns,
+    ...(sort !== undefined ? { sort } : {}),
+    ...(grouping !== undefined ? { grouping } : {}),
+    ...(conditions !== undefined ? { conditions } : {}),
   };
 }
 
-/** Keys a schedule patch may carry (id is the record identity). */
-export const SCHEDULE_PATCH_KEYS = ["name", "source", "filter", "columns"] as const;
+/** CAD-PARITY-015: validate one formula operand ({column} | {value}). */
+function validateScheduleOperand(
+  scheduleId: string,
+  colIndex: number,
+  side: "left" | "right",
+  value: unknown,
+  columnKeys: readonly string[],
+): ScheduleOperand {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new Error(`schedule '${scheduleId}': columns[${colIndex}].formula.${side} must be { column } or { value }`);
+  }
+  const op = value as Record<string, unknown>;
+  const keys = Object.keys(op);
+  if (keys.length !== 1) {
+    throw new Error(`schedule '${scheduleId}': columns[${colIndex}].formula.${side} must have exactly one of column | value`);
+  }
+  if (keys[0] === "column") {
+    const ref = op.column;
+    if (typeof ref !== "string" || !columnKeys.includes(ref)) {
+      throw new Error(
+        `schedule '${scheduleId}': columns[${colIndex}].formula.${side}.column '${JSON.stringify(ref)}' is not a column of this schedule [${columnKeys.join(", ")}]`,
+      );
+    }
+    if (isCalculatedColumn(ref)) {
+      throw new Error(
+        `schedule '${scheduleId}': columns[${colIndex}].formula.${side}.column '${ref}' is itself a calc column — calculated fields reference non-calc columns only (single-pass evaluation)`,
+      );
+    }
+    return { column: ref };
+  }
+  if (keys[0] === "value") {
+    const literal = op.value;
+    if (typeof literal !== "number" || !Number.isFinite(literal)) {
+      throw new Error(`schedule '${scheduleId}': columns[${colIndex}].formula.${side}.value must be a finite number`);
+    }
+    return { value: literal };
+  }
+  throw new Error(`schedule '${scheduleId}': columns[${colIndex}].formula.${side} must be { column } or { value } (got key '${keys[0]}')`);
+}
+
+/** CAD-PARITY-015: validate the bounded formula grammar ({op, left, right}).
+ *  Operand column references must address a NON-calc column of this
+ *  schedule (single-pass evaluation — calc-on-calc references would be
+ *  cyclic and are structurally rejected). */
+function validateScheduleFormula(
+  scheduleId: string,
+  colIndex: number,
+  value: unknown,
+  columnKeys: readonly string[],
+): ScheduleFormula {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new Error(`schedule '${scheduleId}': columns[${colIndex}].formula must be an object { op, left, right }`);
+  }
+  const f = value as Record<string, unknown>;
+  for (const key of Object.keys(f)) {
+    if (key !== "op" && key !== "left" && key !== "right") {
+      throw new Error(`schedule '${scheduleId}': columns[${colIndex}].formula unknown field '${key}' (allowed: op, left, right)`);
+    }
+  }
+  if (f.op !== "add" && f.op !== "sub" && f.op !== "mul" && f.op !== "div") {
+    throw new Error(`schedule '${scheduleId}': columns[${colIndex}].formula.op must be one of add | sub | mul | div`);
+  }
+  return {
+    op: f.op,
+    left: validateScheduleOperand(scheduleId, colIndex, "left", f.left, columnKeys),
+    right: validateScheduleOperand(scheduleId, colIndex, "right", f.right, columnKeys),
+  };
+}
+
+/** CAD-PARITY-015: validate the optional deterministic column format. */
+function validateScheduleColumnFormat(
+  scheduleId: string,
+  colIndex: number,
+  value: unknown,
+): ScheduleColumnFormat {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new Error(`schedule '${scheduleId}': columns[${colIndex}].format must be an object { unit?, align? }`);
+  }
+  const f = value as Record<string, unknown>;
+  for (const key of Object.keys(f)) {
+    if (key !== "unit" && key !== "align") {
+      throw new Error(`schedule '${scheduleId}': columns[${colIndex}].format unknown field '${key}' (allowed: unit, align)`);
+    }
+  }
+  let unit: string | undefined;
+  if (f.unit !== undefined && f.unit !== null) {
+    if (typeof f.unit !== "string" || f.unit.trim().length === 0 || f.unit.trim().length > 8) {
+      throw new Error(`schedule '${scheduleId}': columns[${colIndex}].format.unit must be a trimmed non-empty string (max 8 chars)`);
+    }
+    unit = f.unit.trim();
+  }
+  let align: "left" | "right" | undefined;
+  if (f.align !== undefined && f.align !== null) {
+    if (f.align !== "left" && f.align !== "right") {
+      throw new Error(`schedule '${scheduleId}': columns[${colIndex}].format.align must be left | right`);
+    }
+    align = f.align;
+  }
+  return { ...(unit !== undefined ? { unit } : {}), ...(align !== undefined ? { align } : {}) };
+}
+
+/** CAD-PARITY-015: validate the optional sort rules (1..3 column-key rules,
+ *  unique keys, asc|desc). */
+function validateScheduleSort(
+  scheduleId: string,
+  value: unknown,
+  columnKeys: readonly string[],
+): ScheduleRecord["sort"] {
+  if (value === undefined || value === null) return undefined;
+  if (!Array.isArray(value) || value.length < 1 || value.length > 3) {
+    throw new Error(`schedule '${scheduleId}': sort must be an array of 1..3 { key, direction } rules`);
+  }
+  const seen = new Set<string>();
+  const out: { key: string; direction: "asc" | "desc" }[] = [];
+  for (let i = 0; i < value.length; i++) {
+    const raw = value[i];
+    if (typeof raw !== "object" || raw === null) {
+      throw new Error(`schedule '${scheduleId}': sort[${i}] must be an object { key, direction }`);
+    }
+    const rule = raw as Record<string, unknown>;
+    for (const key of Object.keys(rule)) {
+      if (key !== "key" && key !== "direction") {
+        throw new Error(`schedule '${scheduleId}': sort[${i}] unknown field '${key}' (allowed: key, direction)`);
+      }
+    }
+    if (typeof rule.key !== "string" || !columnKeys.includes(rule.key)) {
+      throw new Error(`schedule '${scheduleId}': sort[${i}].key '${JSON.stringify(rule.key)}' is not a column of this schedule [${columnKeys.join(", ")}]`);
+    }
+    if (rule.direction !== "asc" && rule.direction !== "desc") {
+      throw new Error(`schedule '${scheduleId}': sort[${i}].direction must be asc | desc`);
+    }
+    if (seen.has(rule.key)) {
+      throw new Error(`schedule '${scheduleId}': sort[${i}].key '${rule.key}' is already sorted on (unique keys)`);
+    }
+    seen.add(rule.key);
+    out.push({ key: rule.key, direction: rule.direction });
+  }
+  return out;
+}
+
+/** CAD-PARITY-015: validate the optional grouping keys (1..3 unique column
+ *  keys; valid on every source). */
+function validateScheduleGrouping(
+  scheduleId: string,
+  value: unknown,
+  columnKeys: readonly string[],
+  source: ScheduleSource,
+): ScheduleRecord["grouping"] {
+  void source;
+  if (value === undefined || value === null) return undefined;
+  if (!Array.isArray(value) || value.length < 1 || value.length > 3) {
+    throw new Error(`schedule '${scheduleId}': grouping must be an array of 1..3 column keys`);
+  }
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (let i = 0; i < value.length; i++) {
+    const key = value[i];
+    if (typeof key !== "string" || !columnKeys.includes(key)) {
+      throw new Error(`schedule '${scheduleId}': grouping[${i}] '${JSON.stringify(key)}' is not a column of this schedule [${columnKeys.join(", ")}]`);
+    }
+    if (seen.has(key)) {
+      throw new Error(`schedule '${scheduleId}': grouping[${i}] '${key}' is already a group key (unique keys)`);
+    }
+    seen.add(key);
+    out.push(key);
+  }
+  return out;
+}
+
+/** CAD-PARITY-015: validate the optional property-driven conditions (1..4,
+ *  elements/components sources only; gt/lt number, contains string, eq/ne
+ *  any typed value). */
+function validateScheduleConditions(
+  scheduleId: string,
+  value: unknown,
+  source: ScheduleSource,
+): ScheduleRecord["conditions"] {
+  if (value === undefined || value === null) return undefined;
+  if (!(SCHEDULE_FILTERED_SOURCES as readonly string[]).includes(source)) {
+    throw new Error(`schedule '${scheduleId}': conditions are only valid on the elements/components sources (got '${source}')`);
+  }
+  if (!Array.isArray(value) || value.length < 1 || value.length > 4) {
+    throw new Error(`schedule '${scheduleId}': conditions must be an array of 1..4 conditions`);
+  }
+  const out: ScheduleCondition[] = [];
+  for (let i = 0; i < value.length; i++) {
+    const raw = value[i];
+    if (typeof raw !== "object" || raw === null) {
+      throw new Error(`schedule '${scheduleId}': conditions[${i}] must be an object { set, key, op, value }`);
+    }
+    const cond = raw as Record<string, unknown>;
+    for (const key of Object.keys(cond)) {
+      if (key !== "set" && key !== "key" && key !== "op" && key !== "value") {
+        throw new Error(`schedule '${scheduleId}': conditions[${i}] unknown field '${key}' (allowed: set, key, op, value)`);
+      }
+    }
+    if (typeof cond.set !== "string" || cond.set.length === 0 || cond.set.length > 64) {
+      throw new Error(`schedule '${scheduleId}': conditions[${i}].set must be a non-empty string (max 64 chars)`);
+    }
+    if (typeof cond.key !== "string" || !BIM_PROPERTY_KEY_PATTERN.test(cond.key)) {
+      throw new Error(`schedule '${scheduleId}': conditions[${i}].key must match the canonical property key pattern`);
+    }
+    const op = cond.op;
+    if (op !== "eq" && op !== "ne" && op !== "gt" && op !== "lt" && op !== "contains") {
+      throw new Error(`schedule '${scheduleId}': conditions[${i}].op must be one of eq | ne | gt | lt | contains`);
+    }
+    const v = cond.value;
+    if (typeof v !== "string" && typeof v !== "number" && typeof v !== "boolean") {
+      throw new Error(`schedule '${scheduleId}': conditions[${i}].value must be a string, number or boolean`);
+    }
+    if (typeof v === "number" && !Number.isFinite(v)) {
+      throw new Error(`schedule '${scheduleId}': conditions[${i}].value must be a finite number`);
+    }
+    if ((op === "gt" || op === "lt") && typeof v !== "number") {
+      throw new Error(`schedule '${scheduleId}': conditions[${i}].op '${op}' requires a NUMBER value (got ${typeof v})`);
+    }
+    if (op === "contains" && typeof v !== "string") {
+      throw new Error(`schedule '${scheduleId}': conditions[${i}].op 'contains' requires a STRING value (got ${typeof v})`);
+    }
+    out.push({ set: cond.set, key: cond.key, op, value: v });
+  }
+  return out;
+}
+
+/** Keys a schedule patch may carry (id is the record identity). The
+ *  CAD-PARITY-015 fields (sort/grouping/conditions) patch like filter:
+ *  null REMOVES the field. */
+export const SCHEDULE_PATCH_KEYS = ["name", "source", "filter", "columns", "sort", "grouping", "conditions"] as const;
 
 /** Validate + merge an updateSchedule patch (the merged record re-validates
- *  as a whole; filter null removes the filter). */
+ *  as a whole; filter/sort/grouping/conditions null removes the field). */
 export function applySchedulePatch(current: ScheduleRecord, patch: Readonly<Record<string, unknown>>): ScheduleRecord {
+  const NULLABLE_KEYS = ["filter", "sort", "grouping", "conditions"] as const;
   for (const key of Object.keys(patch)) {
     if (key === "id") {
       throw new Error("updateSchedule: id is the schedule identity — immutable");
@@ -2065,7 +2379,7 @@ export function applySchedulePatch(current: ScheduleRecord, patch: Readonly<Reco
   }
   const cleaned: Record<string, unknown> = { ...current };
   for (const [key, value] of Object.entries(patch)) {
-    if (value === null && key === "filter") {
+    if (value === null && (NULLABLE_KEYS as readonly string[]).includes(key)) {
       delete cleaned[key];
       continue;
     }
@@ -2081,6 +2395,155 @@ export function deriveScheduleSequence(schedules: readonly ScheduleRecord[]): nu
   let max = 0;
   for (const s of schedules) {
     const m = /^sch-(\d{6,})$/.exec(s.id);
+    if (m !== null && m[1] !== undefined) max = Math.max(max, Number.parseInt(m[1], 10));
+  }
+  return max + 1;
+}
+
+// ---------------------------------------------------------------------------
+// CAD-PARITY-015 (additive, Issue #110): the property-definition registry.
+// ---------------------------------------------------------------------------
+
+/** The CLOSED appliesTo vocabulary: the canonical BIM element types a
+ *  property definition may be declared for (mirrors the BimElementType
+ *  union of bim/elements.ts — the closed table is declared here, the
+ *  BIM_CLASSIFICATION_TABLE precedent, so the validator stays a local
+ *  leaf import graph for the browser bundle). */
+export const PROPERTY_APPLIES_TO_TYPES: readonly string[] = Object.freeze([
+  "bim.story",
+  "bim.wall",
+  "bim.slab",
+  "bim.opening",
+  "bim.door",
+  "bim.window",
+  "bim.space",
+  "bim.componentDef",
+  "bim.componentInstance",
+  "bim.material",
+  "bim.grid",
+  "bim.referencePlane",
+  "bim.roof",
+  "bim.stair",
+  "bim.railing",
+  "bim.zone",
+  "bim.optionGroup",
+]);
+
+/** The declared property types. */
+export const PROPERTY_DEF_TYPES: readonly string[] = Object.freeze(["text", "number", "boolean"]);
+
+/** CAD-PARITY-015: validate + normalize a property-definition record (the
+ *  structural grammar: name trimmed non-empty max 60; set non-empty max 64;
+ *  key matching the canonical BIM property key pattern; type from the closed
+ *  text|number|boolean vocabulary; unit — trimmed non-empty max 16 — ONLY on
+ *  number definitions; appliesTo an optional 1..12-entry array of UNIQUE
+ *  canonical BimElementType strings from the closed table). NAME uniqueness
+ *  and (set, key) ADDRESS uniqueness among definitions are enforced at the
+ *  document boundary. */
+export function validatePropertyDefRecord(record: unknown): PropertyDefRecord {
+  if (typeof record !== "object" || record === null || Array.isArray(record)) {
+    throw new Error("property definition record must be an object");
+  }
+  const r = record as Record<string, unknown>;
+  for (const key of Object.keys(r)) {
+    if (key !== "id" && key !== "name" && key !== "set" && key !== "key" && key !== "type" && key !== "unit" && key !== "appliesTo") {
+      throw new Error(`property definition: unknown field '${key}' (allowed: id, name, set, key, type, unit, appliesTo)`);
+    }
+  }
+  if (typeof r.id !== "string" || r.id.length === 0) {
+    throw new Error("property definition record: id must be a non-empty string");
+  }
+  if (typeof r.name !== "string" || r.name.trim().length === 0 || r.name.trim().length > 60) {
+    throw new Error(`property definition '${r.id}': name must be a non-empty trimmed string (max 60 chars)`);
+  }
+  if (typeof r.set !== "string" || r.set.length === 0 || r.set.length > 64) {
+    throw new Error(`property definition '${r.id}': set must be a non-empty string (max 64 chars — the ps:<set>… grammar)`);
+  }
+  if (typeof r.key !== "string" || !BIM_PROPERTY_KEY_PATTERN.test(r.key)) {
+    throw new Error(`property definition '${r.id}': key must match the canonical property key pattern (letters/digits/underscores)`);
+  }
+  const type = r.type as PropertyDefRecord["type"];
+  if (typeof r.type !== "string" || !(PROPERTY_DEF_TYPES as readonly string[]).includes(r.type)) {
+    throw new Error(`property definition '${r.id}': type must be one of ${PROPERTY_DEF_TYPES.join(" | ")}`);
+  }
+  let unit: string | undefined;
+  if (r.unit !== undefined && r.unit !== null) {
+    if (type !== "number") {
+      throw new Error(`property definition '${r.id}': unit is only valid on number definitions (got type '${type}')`);
+    }
+    if (typeof r.unit !== "string" || r.unit.trim().length === 0 || r.unit.trim().length > 16) {
+      throw new Error(`property definition '${r.id}': unit must be a trimmed non-empty string (max 16 chars)`);
+    }
+    unit = r.unit.trim();
+  }
+  let appliesTo: readonly string[] | undefined;
+  if (r.appliesTo !== undefined && r.appliesTo !== null) {
+    if (!Array.isArray(r.appliesTo) || r.appliesTo.length < 1 || r.appliesTo.length > 12) {
+      throw new Error(`property definition '${r.id}': appliesTo must be an array of 1..12 element types`);
+    }
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (let i = 0; i < r.appliesTo.length; i++) {
+      const entry = r.appliesTo[i];
+      if (typeof entry !== "string" || !(PROPERTY_APPLIES_TO_TYPES as readonly string[]).includes(entry)) {
+        throw new Error(
+          `property definition '${r.id}': appliesTo[${i}] '${JSON.stringify(entry)}' is not a canonical BIM element type (closed table: ${PROPERTY_APPLIES_TO_TYPES.join(", ")})`,
+        );
+      }
+      if (seen.has(entry)) {
+        throw new Error(`property definition '${r.id}': appliesTo[${i}] '${entry}' is already declared (unique types)`);
+      }
+      seen.add(entry);
+      out.push(entry);
+    }
+    appliesTo = out;
+  }
+  return {
+    id: r.id,
+    name: (r.name as string).trim(),
+    set: r.set,
+    key: r.key,
+    type,
+    ...(unit !== undefined ? { unit } : {}),
+    ...(appliesTo !== undefined ? { appliesTo } : {}),
+  };
+}
+
+/** Keys a property-definition patch may carry (id is the record identity). */
+export const PROPERTY_DEF_PATCH_KEYS = ["name", "set", "key", "type", "unit", "appliesTo"] as const;
+
+/** Validate + merge an updatePropertyDef patch (the merged record
+ *  re-validates as a whole; unit/appliesTo null REMOVES the field). */
+export function applyPropertyDefPatch(
+  current: PropertyDefRecord,
+  patch: Readonly<Record<string, unknown>>,
+): PropertyDefRecord {
+  for (const key of Object.keys(patch)) {
+    if (key === "id") {
+      throw new Error("updatePropertyDef: id is the property definition identity — immutable");
+    }
+    if (!(PROPERTY_DEF_PATCH_KEYS as readonly string[]).includes(key)) {
+      throw new Error(`updatePropertyDef: unknown field '${key}' (allowed: ${PROPERTY_DEF_PATCH_KEYS.join(", ")})`);
+    }
+  }
+  const cleaned: Record<string, unknown> = { ...current };
+  for (const [key, value] of Object.entries(patch)) {
+    if (value === null && (key === "unit" || key === "appliesTo")) {
+      delete cleaned[key];
+      continue;
+    }
+    if (value === undefined) continue;
+    cleaned[key] = value;
+  }
+  return validatePropertyDefRecord(cleaned);
+}
+
+/** CAD-PARITY-015: derive the property-definition mint-sequence counter
+ *  from existing minted ids (`prd-NNNNNN`). */
+export function derivePropertyDefSequence(propertyDefs: readonly PropertyDefRecord[]): number {
+  let max = 0;
+  for (const d of propertyDefs) {
+    const m = /^prd-(\d{6,})$/.exec(d.id);
     if (m !== null && m[1] !== undefined) max = Math.max(max, Number.parseInt(m[1], 10));
   }
   return max + 1;

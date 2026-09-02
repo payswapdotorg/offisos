@@ -576,20 +576,87 @@ export type ScheduleSource = "elements" | "components" | "materials" | "views" |
 
 /** One schedule column (CAD-PARITY-013): a closed per-source key vocabulary
  *  (plus the dynamic `ps:<set>.<key>` property columns for the
- *  elements/components sources) with a user label. */
+ *  elements/components sources) with a user label.
+ *
+ *  CAD-PARITY-015 (additive, Issue #110): the elements/components sources
+ *  additionally accept `pd:<prd-NNNNNN>` property-definition columns (the
+ *  document-owned property registry — values still resolve from the
+ *  canonical element property-set overlay); EVERY source additionally
+ *  accepts `calc:<name>` calculated columns carrying a bounded arithmetic
+ *  formula over numeric columns, and every column may carry an optional
+ *  deterministic presentation `format` (unit suffix + alignment). */
 export interface ScheduleColumn {
   /** Closed vocabulary per source (see caddocument/workspace.ts); the
-   *  elements/components sources additionally accept `ps:<set>.<key>`. */
+   *  elements/components sources additionally accept `ps:<set>.<key>` and
+   *  `pd:<prd-NNNNNN>`; every source additionally accepts `calc:<name>`
+   *  (CAD-PARITY-015). */
   readonly key: string;
   /** Trimmed non-empty, max 40 chars. */
   readonly label: string;
+  /** CAD-PARITY-015: REQUIRED on `calc:` columns (and forbidden on every
+   *  other key form) — the bounded arithmetic formula. */
+  readonly formula?: ScheduleFormula;
+  /** CAD-PARITY-015: optional deterministic presentation (unit suffix
+   *  appended to the cell text, alignment). Presentation NEVER transforms
+   *  the underlying canonical value. */
+  readonly format?: ScheduleColumnFormat;
+}
+
+/** The bounded calculated-field grammar (CAD-PARITY-015, Issue #110): ONE
+ *  binary operation over two operands. An operand is either a reference to
+ *  ANOTHER column of the SAME schedule (which must NOT itself be a calc
+ *  column — evaluation is single-pass, cycles are structurally impossible)
+ *  or a numeric literal. Non-numeric operand values, division by zero and
+ *  non-finite results render the cell as the deterministic missing value
+ *  "-" (never a guess — LOCK-007). */
+export interface ScheduleFormula {
+  readonly op: "add" | "sub" | "mul" | "div";
+  readonly left: ScheduleOperand;
+  readonly right: ScheduleOperand;
+}
+
+/** One formula operand: a same-schedule column reference OR a finite
+ *  numeric literal. */
+export type ScheduleOperand = { readonly column: string } | { readonly value: number };
+
+/** Deterministic column presentation (CAD-PARITY-015): a unit suffix
+ *  appended to the rendered cell ("<value> <unit>") and the cell alignment.
+ *  Both are presentation-only — the canonical cell values and every hash
+ *  derived from them are unchanged by formatting. */
+export interface ScheduleColumnFormat {
+  /** Trimmed non-empty, max 8 chars (e.g. "mm", "m2", "kg"). */
+  readonly unit?: string;
+  readonly align?: "left" | "right";
+}
+
+/** One property-driven filter condition (CAD-PARITY-015, Issue #110). A
+ *  condition addresses one property of the element's canonical property-set
+ *  overlay (`set` + `key`, the same grammar as the `ps:` columns) with a
+ *  typed comparison. `gt`/`lt` require a NUMBER comparand, `contains` a
+ *  STRING comparand; `eq`/`ne` accept any typed property value. Elements
+ *  whose overlay carries no such property (or a differently-typed value for
+ *  gt/lt) DO NOT match — absent is never guessed. */
+export interface ScheduleCondition {
+  readonly set: string;
+  readonly key: string;
+  readonly op: "eq" | "ne" | "gt" | "lt" | "contains";
+  readonly value: string | number | boolean;
 }
 
 /** A saved schedule/index definition (CAD-PARITY-013). Canonical identity
  *  `sch-NNNNNN` is minted by the document (monotonic, never reused); the
  *  NAME is unique among schedules. Rows are COMPUTED FRESH on demand
  *  (schedules.run — the deterministic derivation over the CURRENT canonical
- *  state) and NEVER stored: there is no parallel source of truth. */
+ *  state) and NEVER stored: there is no parallel source of truth.
+ *
+ *  CAD-PARITY-015 (additive, Issue #110): optional `sort` (1..3 column
+ *  keys, multi-key stable with document-order ties), optional `grouping`
+ *  (1..3 column keys — the run derives structured groups with per-group
+ *  subtotals of the numeric columns and a grand total row; the fields are
+ *  present in the run result ONLY when grouping is declared, so every
+ *  CAD-PARITY-013-era schedule response stays byte-identical) and optional
+ *  `conditions` (1..4 AND-ed property-driven filter conditions, valid on
+ *  the elements/components sources only). */
 export interface ScheduleRecord {
   readonly id: string;
   /** Trimmed non-empty, max 60 chars, UNIQUE among schedules. */
@@ -600,6 +667,52 @@ export interface ScheduleRecord {
   readonly filter?: { readonly type?: string; readonly storyId?: string };
   /** 1..12 columns. */
   readonly columns: readonly ScheduleColumn[];
+  /** CAD-PARITY-015: 1..3 sort rules; each key must be one of this
+   *  schedule's column keys. Stable sort — ties keep document order. */
+  readonly sort?: readonly { readonly key: string; readonly direction: "asc" | "desc" }[];
+  /** CAD-PARITY-015: 1..3 group-by column keys (each must be one of this
+   *  schedule's column keys). */
+  readonly grouping?: readonly string[];
+  /** CAD-PARITY-015: 1..4 property-driven conditions (elements/components
+   *  sources only — the same filter-source rule as `filter`). */
+  readonly conditions?: readonly ScheduleCondition[];
+}
+
+/** A saved property DEFINITION (CAD-PARITY-015, Issue #110). Canonical
+ *  identity `prd-NNNNNN` is minted by the document (monotonic, never
+ *  reused); the NAME is unique among property definitions, and the
+ *  (set, key) ADDRESS is unique among definitions.
+ *
+ *  A definition is a DOCUMENT-OWNED DECLARATION ONLY (label, declared
+ *  type, unit, applicable element types) — the VALUES are never stored
+ *  here. Property-driven fields resolve their values from the canonical
+ *  element property-set overlay (bim/meta.ts) exactly as the P013
+ *  `ps:<set>.<key>` columns do: there is NO parallel source of truth. A
+ *  value observed on an element whose type does not match the declared
+ *  type is reported as a live type-mismatch statistic (properties.list),
+ *  never silently coerced. */
+export interface PropertyDefRecord {
+  readonly id: string;
+  /** Trimmed non-empty, max 60 chars, UNIQUE among property definitions. */
+  readonly name: string;
+  /** The canonical property-set name the definition addresses (the
+   *  `ps:<set>…` grammar — max 64 chars). */
+  readonly set: string;
+  /** The canonical property key the definition addresses (the BIM
+   *  property key pattern — letters/digits/underscores). */
+  readonly key: string;
+  /** The declared value type. */
+  readonly type: "text" | "number" | "boolean";
+  /** NUMBER definitions only: a unit suffix (trimmed non-empty, max 16
+   *  chars, e.g. "mm", "m2", "kg"); absent on text/boolean (typed
+   *  rejection). */
+  readonly unit?: string;
+  /** The closed set of BIM element types the property is declared for
+   *  (each a canonical BimElementType; 1..12 entries, unique). Values on
+   *  other element types still resolve through the overlay (the schedule
+   *  pd: column renders them) — appliesTo is the declared scope, not a
+   *  value gate. */
+  readonly appliesTo?: readonly string[];
 }
 
 /** A document revision record (CAD-PARITY-013). Canonical identity
@@ -968,6 +1081,13 @@ export interface CADDocumentSnapshot {
    *  setScheduleRecord/removeSchedule command model — rows are ALWAYS
    *  derived fresh, never stored). */
   readonly schedules?: readonly ScheduleRecord[];
+  /** CAD-PARITY-015 (Issue #110): the document-owned property DEFINITIONS
+   *  (absent while empty so legacy snapshots and the pinned
+   *  CAD-PARITY-002..014 fixtures stay byte-identical; versioned through
+   *  the addPropertyDef/updatePropertyDef/setPropertyDefRecord/
+   *  removePropertyDef command model). Declarations only — property VALUES
+   *  live on the canonical element property-set overlay, never here. */
+  readonly propertyDefs?: readonly PropertyDefRecord[];
   /** CAD-PARITY-013: the document revision records (absent while empty;
    *  versioned through the addRevision/updateRevision/setRevisionRecord/
    *  removeRevision command model). */
@@ -1668,6 +1788,51 @@ export type DocumentEdit =
       readonly element?: undefined;
       readonly patch?: undefined;
       readonly scheduleId: string;
+    }
+  // CAD-PARITY-015 (additive, Issue #110): the property-definition registry
+  // command model — add/update/setRecord/remove over `propertyDefs`
+  // (document-owned declarations only; values live on the canonical element
+  // property-set overlay, never here).
+  | {
+      /** Add a property definition. A missing/empty id mints a canonical
+       *  `prd-NNNNNN` identity; duplicate ids, duplicate NAMES and duplicate
+       *  (set, key) addresses are rejected. */
+      readonly type: "addPropertyDef";
+      readonly elementId?: undefined;
+      readonly element?: undefined;
+      readonly patch?: undefined;
+      readonly propertyDef: PropertyDefRecord;
+    }
+  | {
+      /** Patch a property definition (name — kept unique — set/key — the
+       *  (set, key) address kept unique — type/unit/appliesTo; id is
+       *  immutable). The merged record re-validates as a whole. */
+      readonly type: "updatePropertyDef";
+      readonly elementId?: undefined;
+      readonly element?: undefined;
+      readonly patch: Readonly<Record<string, unknown>>;
+      readonly propertyDefId: string;
+    }
+  | {
+      /** Full-record property-definition restore (setLayoutRecord
+       *  semantics). */
+      readonly type: "setPropertyDefRecord";
+      readonly elementId?: undefined;
+      readonly element?: undefined;
+      readonly patch?: undefined;
+      readonly propertyDefId: string;
+      readonly propertyDef: PropertyDefRecord;
+    }
+  | {
+      /** Remove a property definition. Schedule columns referencing the
+       *  definition through `pd:<id>` render the deterministic missing cell
+       *  "-" afterwards (the rows are derived fresh; nothing is stored
+       *  stale) — removal needs no gate. */
+      readonly type: "removePropertyDef";
+      readonly elementId?: undefined;
+      readonly element?: undefined;
+      readonly patch?: undefined;
+      readonly propertyDefId: string;
     }
   | {
       /** Add a revision record. A missing/empty id mints a canonical

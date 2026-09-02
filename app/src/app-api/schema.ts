@@ -1768,12 +1768,85 @@ export const COMMAND_PAYLOAD_SCHEMAS: Readonly<Record<CommandName, object>> = {
           properties: {
             key: { type: "string", minLength: 1 },
             label: { type: "string", minLength: 1, maxLength: 40 },
+            // CAD-PARITY-015 (additive, Issue #110): the calculated-field
+            // formula (calc:<name> columns only) + the deterministic
+            // presentation format (any column).
+            formula: {
+              type: "object",
+              properties: {
+                op: { type: "string", enum: ["add", "sub", "mul", "div"] },
+                left: { $ref: "#/$defs/scheduleOperand" },
+                right: { $ref: "#/$defs/scheduleOperand" },
+              },
+              required: ["op", "left", "right"],
+            },
+            format: {
+              type: "object",
+              properties: {
+                unit: { type: "string", minLength: 1, maxLength: 8 },
+                align: { type: "string", enum: ["left", "right"] },
+              },
+            },
           },
           required: ["key", "label"],
         },
       },
+      // CAD-PARITY-015 (additive, Issue #110): the optional deterministic
+      // sort rules, grouping keys and property-driven filter conditions.
+      sort: {
+        type: "array",
+        minItems: 1,
+        maxItems: 3,
+        items: {
+          type: "object",
+          properties: {
+            key: { type: "string", minLength: 1 },
+            direction: { type: "string", enum: ["asc", "desc"] },
+          },
+          required: ["key", "direction"],
+        },
+      },
+      grouping: {
+        type: "array",
+        minItems: 1,
+        maxItems: 3,
+        items: { type: "string", minLength: 1 },
+      },
+      conditions: {
+        type: "array",
+        minItems: 1,
+        maxItems: 4,
+        items: {
+          type: "object",
+          properties: {
+            set: { type: "string", minLength: 1, maxLength: 64 },
+            key: { type: "string", minLength: 1 },
+            op: { type: "string", enum: ["eq", "ne", "gt", "lt", "contains"] },
+            value: { type: ["string", "number", "boolean"] },
+          },
+          required: ["set", "key", "op", "value"],
+        },
+      },
     },
     required: ["name", "source", "columns"],
+    $defs: {
+      scheduleOperand: {
+        oneOf: [
+          {
+            type: "object",
+            properties: { column: { type: "string", minLength: 1 } },
+            required: ["column"],
+            additionalProperties: false,
+          },
+          {
+            type: "object",
+            properties: { value: { type: "number" } },
+            required: ["value"],
+            additionalProperties: false,
+          },
+        ],
+      },
+    },
   },
   "schedule.update": {
     type: "object",
@@ -1804,16 +1877,118 @@ export const COMMAND_PAYLOAD_SCHEMAS: Readonly<Record<CommandName, object>> = {
               properties: {
                 key: { type: "string", minLength: 1 },
                 label: { type: "string", minLength: 1, maxLength: 40 },
+                formula: {
+                  type: "object",
+                  properties: {
+                    op: { type: "string", enum: ["add", "sub", "mul", "div"] },
+                    left: { $ref: "#/$defs/scheduleOperand" },
+                    right: { $ref: "#/$defs/scheduleOperand" },
+                  },
+                  required: ["op", "left", "right"],
+                },
+                format: {
+                  type: "object",
+                  properties: {
+                    unit: { type: "string", minLength: 1, maxLength: 8 },
+                    align: { type: "string", enum: ["left", "right"] },
+                  },
+                },
               },
               required: ["key", "label"],
+            },
+          },
+          // CAD-PARITY-015 (additive, Issue #110).
+          sort: {
+            type: ["array", "null"],
+            minItems: 1,
+            maxItems: 3,
+            items: {
+              type: "object",
+              properties: {
+                key: { type: "string", minLength: 1 },
+                direction: { type: "string", enum: ["asc", "desc"] },
+              },
+              required: ["key", "direction"],
+            },
+          },
+          grouping: { type: ["array", "null"], minItems: 1, maxItems: 3, items: { type: "string", minLength: 1 } },
+          conditions: {
+            type: ["array", "null"],
+            minItems: 1,
+            maxItems: 4,
+            items: {
+              type: "object",
+              properties: {
+                set: { type: "string", minLength: 1, maxLength: 64 },
+                key: { type: "string", minLength: 1 },
+                op: { type: "string", enum: ["eq", "ne", "gt", "lt", "contains"] },
+                value: { type: ["string", "number", "boolean"] },
+              },
+              required: ["set", "key", "op", "value"],
             },
           },
         },
       },
     },
+    $defs: {
+      scheduleOperand: {
+        oneOf: [
+          {
+            type: "object",
+            properties: { column: { type: "string", minLength: 1 } },
+            required: ["column"],
+            additionalProperties: false,
+          },
+          {
+            type: "object",
+            properties: { value: { type: "number" } },
+            required: ["value"],
+            additionalProperties: false,
+          },
+        ],
+      },
+    },
     required: ["id", "patch"],
   },
   "schedule.remove": {
+    type: "object",
+    properties: { id: { type: "string", minLength: 1 } },
+    required: ["id"],
+  },
+  // --- CAD-PARITY-015 (additive, Issue #110): the property-definition
+  // registry command payloads. ---
+  "property.create": {
+    type: "object",
+    properties: {
+      name: { type: "string", minLength: 1, maxLength: 60 },
+      set: { type: "string", minLength: 1, maxLength: 64 },
+      key: { type: "string", minLength: 1 },
+      type: { type: "string", enum: ["text", "number", "boolean"] },
+      unit: { type: "string", minLength: 1, maxLength: 16 },
+      appliesTo: { type: "array", minItems: 1, maxItems: 12, items: { type: "string", minLength: 1 } },
+    },
+    required: ["name", "set", "key", "type"],
+  },
+  "property.update": {
+    type: "object",
+    properties: {
+      id: { type: "string", minLength: 1 },
+      patch: {
+        type: "object",
+        minProperties: 1,
+        properties: {
+          name: { type: "string", minLength: 1, maxLength: 60 },
+          set: { type: "string", minLength: 1, maxLength: 64 },
+          key: { type: "string", minLength: 1 },
+          type: { type: "string", enum: ["text", "number", "boolean"] },
+          unit: { type: ["string", "null"], minLength: 1, maxLength: 16 },
+          appliesTo: { type: ["array", "null"], minItems: 1, maxItems: 12, items: { type: "string", minLength: 1 } },
+        },
+      },
+    },
+    required: ["id", "patch"],
+  },
+  "property.remove": {
     type: "object",
     properties: { id: { type: "string", minLength: 1 } },
     required: ["id"],
@@ -2192,6 +2367,25 @@ export const QUERY_PAYLOAD_SCHEMAS: Readonly<Record<QueryName, object>> = {
   // read surfaces (non-mutating, computed fresh). ---
   "navigator.tree": { type: "object", properties: {} },
   "schedules.list": { type: "object", properties: {} },
+  // --- CAD-PARITY-015 (additive, Issue #110): the properties/quantities
+  // query payloads. ---
+  "properties.list": { type: "object", properties: {} },
+  "quantities.run": {
+    type: "object",
+    properties: {
+      source: { type: "string", enum: ["elements", "components", "materials"] },
+      groupBy: { type: "string", enum: ["none", "type", "story", "material"] },
+      filter: {
+        type: "object",
+        properties: {
+          type: { type: "string", minLength: 1 },
+          storyId: { type: "string", minLength: 1 },
+        },
+      },
+    },
+    required: ["source"],
+  },
+  "quantities.rules": { type: "object", properties: {} },
   "schedules.run": {
     type: "object",
     properties: { id: { type: "string", minLength: 1 } },
