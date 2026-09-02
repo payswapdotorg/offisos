@@ -44,6 +44,18 @@ import {
   quantitiesRun,
   unwrapPropertiesList,
   unwrapQuantityReport,
+  // CAD-PARITY-016 (Issue #112): the collaboration/recovery/scale surfaces
+  // (the report.recovery/report.collab/report.xrefs/report.budgets actions).
+  recoveryList,
+  collabState,
+  collabTransactions,
+  xrefsStatus,
+  perfBudgets,
+  unwrapRecoveryList,
+  unwrapCollabState,
+  unwrapCollabTransactions,
+  unwrapXrefsStatus,
+  unwrapPerfBudgets,
   send,
   setSelection as setDocumentSelection,
   unwrapCoordinationClash,
@@ -88,6 +100,8 @@ import { IfcWorkbench } from "@/cad/ifc/workbench";
 import { ComponentsWorkbench } from "@/cad/components/workbench";
 // CAD-PARITY-015 (Issue #110): the Schedules/Properties/Quantities workbench.
 import { SchedulesWorkbench } from "@/cad/schedules/workbench";
+// CAD-PARITY-016 (Issue #112): the Collaboration/Recovery/Scale workbench.
+import { CollabWorkbench } from "@/cad/collab/workbench";
 // CAD-PARITY-012 (Issue #102): the shared material display helpers — the
 // SAME resolution the canvas paint loop and the Coordination palette run;
 // materialViewsOf derives the id-sorted table rows from the snapshot (the
@@ -113,6 +127,8 @@ const VIEW_TABS: readonly { id: WorkspaceView; label: string }[] = [
   // CAD-PARITY-015 (Issue #110): the schedules/indexes/properties/quantity
   // workflows surface.
   { id: "schedules", label: "Schedules" },
+  // CAD-PARITY-016 (Issue #112): the collaboration/recovery/scale surface.
+  { id: "collab", label: "Collab" },
 ];
 
 export function WorkspaceShell(): React.JSX.Element {
@@ -427,6 +443,13 @@ export function WorkspaceShell(): React.JSX.Element {
               // P013 SCHLIST instant command emits palette "schedules" — it
               // now maps onto the dedicated workbench view.
               setView("schedules");
+            } else if (palette === "collab") {
+              // CAD-PARITY-016 (Issue #112): CKPTLIST/COLLABSTATE/TXNLIST/
+              // XREFSTATUS/BUDGETS — the Collaboration/Recovery/Scale
+              // workbench (members/presence, comments, transactions +
+              // conflicts + merge lineage, checkpoints + recovery, jobs,
+              // streaming + budgets).
+              setView("collab");
             } else if (palette === "workspace") {
               setPreset((p) => (p === "compact" ? "drafting" : "compact"));
             }
@@ -616,6 +639,110 @@ export function WorkspaceShell(): React.JSX.Element {
               setHistoryLines((h) => [...h, ...lines]);
             } catch {
               setHistoryLines((h) => [...h, "*ERROR* report.schedule: the query failed."]);
+            }
+            break;
+          }
+          // CAD-PARITY-016 (Issue #112): the collaboration/recovery/scale
+          // report surfaces (the report.properties precedent — the host
+          // renders the REAL query results to the command-line history;
+          // failures print a typed *ERROR* history line, never crash).
+          case "report.recovery": {
+            try {
+              const res = await recoveryList();
+              const view = unwrapRecoveryList(res);
+              if (view === null) {
+                setHistoryLines((h) => [
+                  ...h,
+                  `*ERROR* report.recovery: ${res.ok ? "unexpected response shape" : `${res.code} — ${res.message}`}`,
+                ]);
+                break;
+              }
+              const lines = [
+                `RECOVERY: ${view.checkpoints.length} checkpoint(s) retained (policy: autosave every ${view.policy.autosaveEvery}, keep ${view.policy.keep}; autosaves ${view.counters.autosaves}, restores ${view.counters.restores}, since-autosave ${view.counters.mutationsSinceAutosave}).`,
+              ];
+              for (const c of [...view.checkpoints].reverse()) {
+                lines.push(
+                  `RECOVERY: ${c.id} ${c.cause} v${c.documentVersionNumber} r${c.modelRevisionNumber} sha ${c.contentHash.slice(0, 12)}… ${c.elementCount} el(s) t=${c.at}.`,
+                );
+              }
+              setHistoryLines((h) => [...h, ...lines]);
+            } catch {
+              setHistoryLines((h) => [...h, "*ERROR* report.recovery: the query failed."]);
+            }
+            break;
+          }
+          case "report.collab": {
+            try {
+              const [stateRes, txnRes] = await Promise.all([collabState(), collabTransactions()]);
+              const state = unwrapCollabState(stateRes);
+              const txns = unwrapCollabTransactions(txnRes);
+              if (state === null || txns === null) {
+                setHistoryLines((h) => [
+                  ...h,
+                  `*ERROR* report.collab: ${stateRes.ok ? "unexpected state shape" : `${stateRes.code} — ${stateRes.message}`}`,
+                ]);
+                break;
+              }
+              const lines = [
+                `COLLAB: ${state.members.length} member(s), ${state.members.filter((m) => m.active).length} active (TTL ${state.presenceTtl}, clock t=${state.sessionClock}, doc v${state.documentVersion}).`,
+              ];
+              for (const m of state.members) {
+                lines.push(
+                  `COLLAB: ${m.userId} ${m.role} joined t=${m.joinedAt} last-seen ${m.lastSeenAt !== null ? `t=${m.lastSeenAt}` : "—"} viewing v${m.lastSeenVersion ?? "—"} ${m.active ? "ACTIVE" : "STALE"}.`,
+                );
+              }
+              lines.push(`COLLAB: ${txns.length} transaction(s).`);
+              for (const t of txns) {
+                lines.push(
+                  `COLLAB: ${t.id} ${t.status} v${t.baseVersion}→${t.resultingVersion ?? "—"} by ${t.author}${t.conflict !== null ? ` (conflict head v${t.conflict.currentVersion}, overlap ${t.conflict.overlappingElementIds.length})` : ""}${t.merge !== null ? ` [merge ${t.merge.mergeId} ${t.merge.strategy} (${t.merge.parents.join("+")})]` : ""}.`,
+                );
+              }
+              setHistoryLines((h) => [...h, ...lines]);
+            } catch {
+              setHistoryLines((h) => [...h, "*ERROR* report.collab: the query failed."]);
+            }
+            break;
+          }
+          case "report.xrefs": {
+            try {
+              const res = await xrefsStatus();
+              const rows = unwrapXrefsStatus(res);
+              if (rows === null) {
+                setHistoryLines((h) => [
+                  ...h,
+                  `*ERROR* report.xrefs: ${res.ok ? "unexpected response shape" : `${res.code} — ${res.message}`}`,
+                ]);
+                break;
+              }
+              const lines = [`XREFS: ${rows.length} external reference(s) (fresh outcomes at v${rows[0]?.revisionBinding.documentVersionNumber ?? "—"}).`];
+              for (const x of rows) {
+                lines.push(`XREFS: ${x.name} ${x.outcome} — ${x.detail}`);
+              }
+              setHistoryLines((h) => [...h, ...lines]);
+            } catch {
+              setHistoryLines((h) => [...h, "*ERROR* report.xrefs: the query failed."]);
+            }
+            break;
+          }
+          case "report.budgets": {
+            try {
+              const res = await perfBudgets();
+              const view = unwrapPerfBudgets(res);
+              if (view === null) {
+                setHistoryLines((h) => [
+                  ...h,
+                  `*ERROR* report.budgets: ${res.ok ? "unexpected response shape" : `${res.code} — ${res.message}`}`,
+                ]);
+                break;
+              }
+              const lines = [
+                `BUDGETS: revision-bound v${view.revision.documentVersionNumber} r${view.revision.modelRevisionNumber} sha ${view.revision.contentHash.slice(0, 12)}… (${view.revision.elementCount} elements).`,
+                `BUDGETS: ${Object.entries(view.counters).map(([k, v]) => `${k}=${v}`).join(" ")}.`,
+                ...view.budgets.map((b) => `BUDGETS: ${b.workflow} <= ${b.thresholdMs} ${b.unit} (${b.measuredBy}).`),
+              ];
+              setHistoryLines((h) => [...h, ...lines]);
+            } catch {
+              setHistoryLines((h) => [...h, "*ERROR* report.budgets: the query failed."]);
             }
             break;
           }
@@ -1138,6 +1265,7 @@ export function WorkspaceShell(): React.JSX.Element {
             {view === "ifc" && <IfcWorkbench />}
             {view === "components" && <ComponentsWorkbench />}
             {view === "schedules" && <SchedulesWorkbench />}
+            {view === "collab" && <CollabWorkbench />}
             {view === "layout" && (
               <LayoutCanvas
                 snapshot={snapshot}
