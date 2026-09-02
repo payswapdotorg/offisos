@@ -2934,7 +2934,16 @@ export interface CollabMemberRow {
 export interface CollabStateView {
   readonly members: readonly CollabMemberRow[];
   readonly presenceTtl: number;
-  readonly sessionClock: number;
+  /** The shared deterministic project clock (the persisted event count) —
+   *  CAD-PARITY-016 remediation: renamed from the per-session sessionClock. */
+  readonly clock: number;
+  /** The persistence identity view (the honest backend identity for the
+   *  shared-state evidence: memory | file | postgres | blob). */
+  readonly persistence: {
+    readonly backend: "memory" | "file" | "postgres" | "blob";
+    readonly projectKey: string;
+    readonly eventCount: number;
+  };
   readonly commands: number;
   readonly documentVersion: number;
 }

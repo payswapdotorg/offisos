@@ -684,7 +684,7 @@ export function WorkspaceShell(): React.JSX.Element {
                 break;
               }
               const lines = [
-                `COLLAB: ${state.members.length} member(s), ${state.members.filter((m) => m.active).length} active (TTL ${state.presenceTtl}, clock t=${state.sessionClock}, doc v${state.documentVersion}).`,
+                `COLLAB: ${state.members.length} member(s), ${state.members.filter((m) => m.active).length} active (TTL ${state.presenceTtl}, clock t=${state.clock}, doc v${state.documentVersion}, store ${state.persistence.backend}).`,
               ];
               for (const m of state.members) {
                 lines.push(

@@ -118,7 +118,12 @@ export function CollabWorkbench(): React.JSX.Element {
 
   // --- members & presence ------------------------------------------------------
   const [members, setMembers] = React.useState<readonly CollabMemberRow[] | null>(null);
-  const [presenceMeta, setPresenceMeta] = React.useState<{ presenceTtl: number; sessionClock: number; documentVersion: number } | null>(null);
+  const [presenceMeta, setPresenceMeta] = React.useState<{
+    presenceTtl: number;
+    clock: number;
+    documentVersion: number;
+    backend: string;
+  } | null>(null);
   const [joinForm, setJoinForm] = React.useState({ userId: "", role: "editor" });
   const [memberError, setMemberError] = React.useState<string | null>(null);
   const [memberBusy, setMemberBusy] = React.useState(false);
@@ -175,7 +180,12 @@ export function CollabWorkbench(): React.JSX.Element {
     const state = unwrapCollabState(stateRes);
     if (state !== null) {
       setMembers(state.members);
-      setPresenceMeta({ presenceTtl: state.presenceTtl, sessionClock: state.sessionClock, documentVersion: state.documentVersion });
+      setPresenceMeta({
+        presenceTtl: state.presenceTtl,
+        clock: state.clock,
+        documentVersion: state.documentVersion,
+        backend: state.persistence.backend,
+      });
     }
     setComments(unwrapCollabComments(commentsRes));
     setActivity(unwrapCollabActivity(activityRes));
@@ -397,7 +407,12 @@ export function CollabWorkbench(): React.JSX.Element {
             <Badge variant="outline" className="font-mono text-[10px]">CAD-PARITY-016</Badge>
             {presenceMeta !== null && (
               <Badge variant="outline" className="font-mono text-[10px]">
-                v{presenceMeta.documentVersion} · clock {presenceMeta.sessionClock} · TTL {presenceMeta.presenceTtl}
+                v{presenceMeta.documentVersion} · clock {presenceMeta.clock} · TTL {presenceMeta.presenceTtl}
+              </Badge>
+            )}
+            {presenceMeta !== null && (
+              <Badge variant="outline" className="font-mono text-[10px]" aria-label={`P016 persistence backend ${presenceMeta.backend}`}>
+                store: {presenceMeta.backend}
               </Badge>
             )}
             <span className="ml-auto flex items-center gap-1">

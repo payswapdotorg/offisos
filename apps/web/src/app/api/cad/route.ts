@@ -34,9 +34,13 @@
  */
 
 import { AppApiHandler } from "@offisos/cad-app-shell/app-api";
+import type { P016Persist } from "@offisos/cad-app-shell/persist";
+import { FailClosedP016Persist, MemoryP016Persist } from "@offisos/cad-app-shell/persist";
 import { createOcctAdapterBundle, probeOcctEngine } from "@offisos/cad-app-shell/adapters/occt";
 import { createReferenceAdapterBundle } from "@offisos/cad-app-shell/adapters/reference";
 import { createIfcInteropAdapter } from "@offisos/cad-app-shell/adapters/ifc";
+import { BlobP016Persist } from "@/server/p016-blob";
+import { PostgresP016Persist } from "@/server/p016-postgres";
 import type {
   CommandQueryRequest,
   CommandQueryResponse,
@@ -104,7 +108,46 @@ async function createHandler(): Promise<AppApiHandler> {
     format: "offisos-occt",
     formatVersion: "1",
     createdBy: "web-workspace",
+    // CAD-PARITY-016 remediation (the Architect CHANGES REQUESTED): the
+    // durable/shared project persistence boundary — the P016
+    // collaboration/recovery/jobs state (members/presence/comments/
+    // activity/transactions/checkpoints/jobs) is shared and durable across
+    // every session/handler/instance. The backend selection follows the
+    // documented ENGINE-AVAILABILITY pattern at the wiring point (LOCK-003
+    // discipline — the boundary is the only thing that changes):
+    //   DATABASE_URL            → the PostgreSQL adapter (Architecture v1.1
+    //                             §6 authoritative structured state; the
+    //                             CI web job runs a real postgres service).
+    //   BLOB_READ_WRITE_TOKEN   → the Vercel Blob adapter (the linked blob
+    //                             store; object-storage event-log semantics
+    //                             — the serverless deployment backend).
+    //   OFFISOS_P016_PERSIST=memory → the explicit local-dev opt-in
+    //                             (non-shared, honestly reported as
+    //                             "memory" through collab.state).
+    //   otherwise               → FAIL-CLOSED: P016 commands decline with
+    //                             the typed p016_persistence_unconfigured
+    //                             error — the shared-state contract is
+    //                             never silently degraded to per-handler
+    //                             memory (the honest fail-closed default).
+    p016Persist: await createP016Persist(),
   });
+}
+
+/** The P016 persistence backend selection (the wiring-point boundary). */
+async function createP016Persist(): Promise<P016Persist> {
+  const explicit = process.env.OFFISOS_P016_PERSIST;
+  if (typeof explicit === "string" && explicit === "memory") {
+    return new MemoryP016Persist();
+  }
+  const databaseUrl = process.env.DATABASE_URL;
+  if (typeof databaseUrl === "string" && databaseUrl.length > 0) {
+    return new PostgresP016Persist(databaseUrl);
+  }
+  const blobToken = process.env.BLOB_READ_WRITE_TOKEN;
+  if (typeof blobToken === "string" && blobToken.length > 0) {
+    return new BlobP016Persist(blobToken);
+  }
+  return new FailClosedP016Persist();
 }
 
 const handlerPromise: Promise<AppApiHandler> = createHandler();

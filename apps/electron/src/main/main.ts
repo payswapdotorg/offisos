@@ -59,6 +59,7 @@ import { createIfcInteropAdapter } from "@offisos/cad-app-shell/adapters/ifc";
 import { createReferenceAdapterBundle } from "@offisos/cad-app-shell/adapters/reference";
 import { ElectronHost, IpcTransport } from "@offisos/cad-app-shell/host-electron";
 import { createRenderer } from "@offisos/cad-app-shell/renderer";
+import { FileP016Persist } from "@offisos/cad-app-shell/persist/file";
 import type { CommandQueryRequest, CommandQueryResponse } from "@offisos/cad-app-shell/contracts/app-api";
 import type { CADDocumentSnapshot } from "@offisos/cad-app-shell/contracts/caddocument";
 import type { EngineAdapterBundle } from "@offisos/cad-app-shell/contracts/adapter";
@@ -125,9 +126,20 @@ function createWindow(): BrowserWindow {
 /** Wire the native IPC handlers to the shared host + renderer core. The
  *  bundle is injectable: the impact smoke (RESEARCH-CAD-007) binds the
  *  engine-free REFERENCE adapter — the second engine running inside the
- *  Electron host behind the same frozen boundary (LOCK-003). */
-function registerIpc(bundle: EngineAdapterBundle = CONFIG.adapterBundle): { handler: AppApiHandler; host: ElectronHost } {
-  const handler = AppApiHandler.create({ ...CONFIG, adapterBundle: bundle });
+ *  Electron host behind the same frozen boundary (LOCK-003).
+ *
+ *  CAD-PARITY-016 remediation: the persistence boundary is equally
+ *  injectable (the LOCK-003 wiring-point discipline applied to persistence).
+ *  The production wiring is the host-filesystem store (durable across app
+ *  restarts — the desktop crash-recovery boundary); callers may pass the
+ *  per-handler default (deterministic in-process memory) instead. */
+function registerIpc(
+  bundle: EngineAdapterBundle = CONFIG.adapterBundle,
+  p016Persist: Parameters<typeof AppApiHandler.create>[0]["p016Persist"] = new FileP016Persist(
+    join(app.getPath("userData"), "p016-projects"),
+  ),
+): { handler: AppApiHandler; host: ElectronHost } {
+  const handler = AppApiHandler.create({ ...CONFIG, adapterBundle: bundle, p016Persist });
   const host = new ElectronHost(new IpcTransport(handler));
   const renderer = createRenderer(host);
 
