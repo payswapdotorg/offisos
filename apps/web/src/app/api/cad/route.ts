@@ -124,11 +124,16 @@ async function createHandler(): Promise<AppApiHandler> {
     //   OFFISOS_P016_PERSIST=memory → the explicit local-dev opt-in
     //                             (non-shared, honestly reported as
     //                             "memory" through collab.state).
-    //   otherwise               → FAIL-CLOSED: P016 commands decline with
+    //   OFFISOS_P016_PERSIST=fail-closed → the explicit fail-closed opt-in.
+    //   NODE_ENV=development with nothing configured → the documented
+    //                             local-dev memory default (the dev-server
+    //                             smokes across the workflow matrix).
+    //   otherwise (production)  → FAIL-CLOSED: P016 commands decline with
     //                             the typed p016_persistence_unconfigured
     //                             error — the shared-state contract is
-    //                             never silently degraded to per-handler
-    //                             memory (the honest fail-closed default).
+    //                             never silently degraded in a deployment
+    //                             (real deployments carry the env-injected
+    //                             store).
     p016Persist: await createP016Persist(),
   });
 }
@@ -139,6 +144,9 @@ async function createP016Persist(): Promise<P016Persist> {
   if (typeof explicit === "string" && explicit === "memory") {
     return new MemoryP016Persist();
   }
+  if (typeof explicit === "string" && explicit === "fail-closed") {
+    return new FailClosedP016Persist();
+  }
   const databaseUrl = process.env.DATABASE_URL;
   if (typeof databaseUrl === "string" && databaseUrl.length > 0) {
     return new PostgresP016Persist(databaseUrl);
@@ -146,6 +154,17 @@ async function createP016Persist(): Promise<P016Persist> {
   const blobToken = process.env.BLOB_READ_WRITE_TOKEN;
   if (typeof blobToken === "string" && blobToken.length > 0) {
     return new BlobP016Persist(blobToken);
+  }
+  // The DEVELOPMENT-mode default (next dev): the documented local-dev
+  // memory opt-in — per-handler, honestly reported as "memory" through
+  // collab.state (the dev-server smokes across the workflow matrix). A
+  // PRODUCTION host without a configured store FAILS CLOSED — the typed
+  // p016_persistence_unconfigured decline: the shared-state contract is
+  // never silently degraded in a deployment (real deployments carry the
+  // env-injected store: the linked blob store on Vercel, DATABASE_URL
+  // elsewhere).
+  if (process.env.NODE_ENV === "development") {
+    return new MemoryP016Persist();
   }
   return new FailClosedP016Persist();
 }
