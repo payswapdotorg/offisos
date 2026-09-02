@@ -2280,6 +2280,222 @@ export const COMMAND_PAYLOAD_SCHEMAS: Readonly<Record<CommandName, object>> = {
     },
     required: ["principalId", "extension"],
   },
+  // --- CAD-PARITY-018 (additive, Issue #118): the specialized-toolsets
+  // API command payloads (coarse wire shapes; the handlers + the toolsets
+  // core validate strictly with typed declines). ---
+  "toolset.archWallRun": {
+    type: "object",
+    properties: {
+      storyId: { type: "string", minLength: 1 },
+      polyline: {
+        type: "array",
+        minItems: 2,
+        maxItems: 64,
+        items: {
+          type: "object",
+          properties: { x: { type: "number" }, y: { type: "number" } },
+          required: ["x", "y"],
+        },
+      },
+      widthMm: { type: "number", exclusiveMinimum: 0 },
+      heightMm: { type: "number", exclusiveMinimum: 0 },
+      name: { type: "string", minLength: 1, maxLength: 48 },
+      junctions: { type: "string", enum: ["none", "openings"] },
+    },
+    required: ["storyId", "polyline", "widthMm", "heightMm"],
+  },
+  "toolset.archHostedOpening": {
+    type: "object",
+    properties: {
+      wallId: { type: "string", minLength: 1 },
+      kind: { type: "string", enum: ["door", "window"] },
+      tAlongWall: { type: "number", minimum: 0 },
+      widthMm: { type: "number", exclusiveMinimum: 0 },
+      heightMm: { type: "number", exclusiveMinimum: 0 },
+      sillMm: { type: "number", minimum: 0 },
+      swing: { type: "string", enum: ["left", "right"] },
+      name: { type: "string", minLength: 1, maxLength: 48 },
+    },
+    required: ["wallId", "kind", "tAlongWall", "widthMm", "heightMm"],
+  },
+  "toolset.archRoof": {
+    type: "object",
+    properties: {
+      storyId: { type: "string", minLength: 1 },
+      corner1: { type: "object" },
+      corner2: { type: "object" },
+      ridgeAxis: { type: "string", enum: ["x", "y"] },
+      heightMm: { type: "number", exclusiveMinimum: 0 },
+      baseOffsetMm: { type: "number", minimum: 0 },
+      topStoryId: { type: "string", minLength: 1 },
+      name: { type: "string", minLength: 1, maxLength: 48 },
+    },
+    required: ["storyId", "corner1", "corner2", "heightMm"],
+  },
+  "toolset.archStairRun": {
+    type: "object",
+    properties: {
+      storyId: { type: "string", minLength: 1 },
+      topStoryId: { type: "string", minLength: 1 },
+      start: { type: "object" },
+      directionDeg: { type: "number", minimum: 0 },
+      widthMm: { type: "number", exclusiveMinimum: 0 },
+      stepCount: { type: "integer", minimum: 2, maximum: 24 },
+      treadMm: { type: "number", exclusiveMinimum: 0 },
+      baseOffsetMm: { type: "number", minimum: 0 },
+      landingLengthMm: { type: "number", minimum: 0 },
+      railings: { type: "string", enum: ["none", "left", "right", "both"] },
+      handrailHeightMm: { type: "number", exclusiveMinimum: 0 },
+      name: { type: "string", minLength: 1, maxLength: 48 },
+    },
+    required: ["storyId", "topStoryId", "start", "widthMm", "stepCount", "treadMm"],
+  },
+  "toolset.archSpaceGrid": {
+    type: "object",
+    properties: {
+      storyId: { type: "string", minLength: 1 },
+      origin: { type: "object" },
+      cols: { type: "integer", minimum: 1, maximum: 32 },
+      rows: { type: "integer", minimum: 1, maximum: 32 },
+      cellWidthMm: { type: "number", exclusiveMinimum: 0 },
+      cellHeightMm: { type: "number", exclusiveMinimum: 0 },
+      prefix: { type: "string", minLength: 1, maxLength: 32 },
+      heightMm: { type: "number", exclusiveMinimum: 0 },
+      baseOffsetMm: { type: "number", minimum: 0 },
+    },
+    required: ["storyId", "origin", "cols", "rows", "cellWidthMm", "cellHeightMm"],
+  },
+  "toolset.archDimChain": {
+    type: "object",
+    properties: {
+      points: {
+        type: "array",
+        minItems: 2,
+        maxItems: 128,
+        items: { type: "object" },
+      },
+      offsetMm: { type: "number" },
+      layer: { type: "string", minLength: 1, maxLength: 32 },
+    },
+    required: ["points"],
+  },
+  "toolset.archComponentArray": {
+    type: "object",
+    properties: {
+      definitionId: { type: "string", minLength: 1 },
+      storyId: { type: "string", minLength: 1 },
+      origin: { type: "object" },
+      cols: { type: "integer", minimum: 1, maximum: 32 },
+      rows: { type: "integer", minimum: 1, maximum: 32 },
+      dxMm: { type: "number", minimum: 0 },
+      dyMm: { type: "number", minimum: 0 },
+      rotation: { type: "number", minimum: 0 },
+      baseOffsetMm: { type: "number", minimum: 0 },
+      namePrefix: { type: "string", minLength: 1, maxLength: 32 },
+    },
+    required: ["definitionId", "storyId", "origin", "cols", "rows", "dxMm", "dyMm"],
+  },
+  "toolset.mepAddRun": {
+    type: "object",
+    properties: {
+      run: { type: "object" },
+    },
+    required: ["run"],
+  },
+  "toolset.mepSetRun": {
+    type: "object",
+    properties: {
+      id: { type: "string", minLength: 1 },
+      run: { type: "object" },
+    },
+    required: ["id", "run"],
+  },
+  "toolset.mepRemoveRun": {
+    type: "object",
+    properties: {
+      id: { type: "string", minLength: 1 },
+    },
+    required: ["id"],
+  },
+  "toolset.mepConnect": {
+    type: "object",
+    properties: {
+      runId: { type: "string", minLength: 1 },
+      at: { type: "string", enum: ["start", "end"] },
+      target: { type: "object" },
+    },
+    required: ["runId", "at", "target"],
+  },
+  "toolset.mechAddEquipment": {
+    type: "object",
+    properties: {
+      equipment: { type: "object" },
+    },
+    required: ["equipment"],
+  },
+  "toolset.mechSetEquipment": {
+    type: "object",
+    properties: {
+      id: { type: "string", minLength: 1 },
+      equipment: { type: "object" },
+    },
+    required: ["id", "equipment"],
+  },
+  "toolset.mechRemoveEquipment": {
+    type: "object",
+    properties: {
+      id: { type: "string", minLength: 1 },
+    },
+    required: ["id"],
+  },
+  "toolset.mechArray": {
+    type: "object",
+    properties: {
+      equipmentId: { type: "string", minLength: 1 },
+      cols: { type: "integer", minimum: 1, maximum: 32 },
+      rows: { type: "integer", minimum: 1, maximum: 32 },
+      dxMm: { type: "number" },
+      dyMm: { type: "number" },
+    },
+    required: ["equipmentId", "cols", "rows", "dxMm", "dyMm"],
+  },
+  "toolset.rasterAddSource": {
+    type: "object",
+    properties: {
+      source: { type: "object" },
+    },
+    required: ["source"],
+  },
+  "toolset.rasterAttach": {
+    type: "object",
+    properties: {
+      reference: { type: "object" },
+    },
+    required: ["reference"],
+  },
+  "toolset.rasterSetReference": {
+    type: "object",
+    properties: {
+      id: { type: "string", minLength: 1 },
+      reference: { type: "object" },
+    },
+    required: ["id", "reference"],
+  },
+  "toolset.rasterRemoveReference": {
+    type: "object",
+    properties: {
+      id: { type: "string", minLength: 1 },
+    },
+    required: ["id"],
+  },
+  "toolset.rasterCommitTrace": {
+    type: "object",
+    properties: {
+      referenceId: { type: "string", minLength: 1 },
+      vectorIndices: { type: "array", minItems: 1, items: { type: "integer", minimum: 0 } },
+    },
+    required: ["referenceId"],
+  },
 };
 
 export const QUERY_PAYLOAD_SCHEMAS: Readonly<Record<QueryName, object>> = {
@@ -2621,6 +2837,37 @@ export const QUERY_PAYLOAD_SCHEMAS: Readonly<Record<QueryName, object>> = {
     required: ["principalId"],
   },
   "automation.extensions": { type: "object", properties: {} },
+  // --- CAD-PARITY-018 (additive, Issue #118): the specialized-toolsets
+  // API query payloads. ---
+  "toolset.capabilities": { type: "object", properties: {} },
+  "toolset.listRecords": {
+    type: "object",
+    properties: {
+      toolset: { type: "string", enum: ["mep", "mechanical", "raster"] },
+      kind: { type: "string", enum: ["mep.run", "mech.equipment", "raster.source", "raster.reference"] },
+    },
+  },
+  "toolset.mepValidateRoute": {
+    type: "object",
+    properties: {
+      id: { type: "string", minLength: 1 },
+    },
+    required: ["id"],
+  },
+  "toolset.mepClashReport": {
+    type: "object",
+    properties: {
+      clearanceMm: { type: "number", minimum: 0 },
+    },
+  },
+  "toolset.rasterStatus": { type: "object", properties: {} },
+  "toolset.rasterTrace": {
+    type: "object",
+    properties: {
+      referenceId: { type: "string", minLength: 1 },
+    },
+    required: ["referenceId"],
+  },
 };
 
 export const WIRE_ENVELOPE_SCHEMA = {

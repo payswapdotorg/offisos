@@ -56,7 +56,9 @@ const FORBIDDEN_SPECIFIERS = [
 // capability registry references App API request names ONLY; there is no
 // code path from a manifest to an engine/renderer/domain boundary,
 // LOCK-018 by construction).
-const PROTECTED_DIRS = ["src/contracts", "src/renderer", "src/app-api", "src/caddocument", "src/graph", "src/impact", "src/drafting", "src/bim", "src/docs", "src/ifc", "src/workspace", "src/interop", "src/quantities", "src/recovery", "src/collab", "src/jobs", "src/modelstream", "src/persist", "src/automation"];
+// src/toolsets joined the protected set with CAD-PARITY-018 (Issue #118):
+// the specialized-toolsets semantic core is platform-independent.
+const PROTECTED_DIRS = ["src/contracts", "src/renderer", "src/app-api", "src/caddocument", "src/graph", "src/impact", "src/drafting", "src/bim", "src/docs", "src/ifc", "src/workspace", "src/interop", "src/quantities", "src/recovery", "src/collab", "src/jobs", "src/modelstream", "src/persist", "src/automation", "src/toolsets"];
 
 function* walk(dir: string): Generator<string> {
   for (const entry of readdirSync(dir)) {

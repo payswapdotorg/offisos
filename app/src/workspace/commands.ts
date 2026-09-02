@@ -33,6 +33,7 @@ import { COMMANDS_COORDINATION } from "./commands-coordination.js";
 import { COMMANDS_DOCUMENTATION } from "./commands-documentation.js";
 import { COMMANDS_COLLAB } from "./commands-collab.js";
 import { COMMANDS_AUTOMATION } from "./commands-automation.js";
+import { COMMANDS_TOOLSETS } from "./commands-toolsets.js";
 import type {
   AppApiCommandPlanEntry,
   CommandCategory,
@@ -1324,6 +1325,7 @@ export const WORKSPACE_COMMANDS: readonly WorkspaceCommand[] = [
   // bounded scoped event subscriptions and the automation report surfaces
   // (ribbonTab "Automation") ---
   ...COMMANDS_AUTOMATION,
+  ...COMMANDS_TOOLSETS,
 ];
 
 function normalize(a: number): number {

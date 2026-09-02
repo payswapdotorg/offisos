@@ -154,6 +154,10 @@ export interface RecordRevisionInput {
    *  this revision (never-reused `prd-NNNNNN` identities; canonical-minimal
    *  like every counter). */
   readonly nextPropertyDefSequence?: number;
+  /** CAD-PARITY-018 (Issue #118): the specialized-record mint counter after
+   *  this revision (never-reused `tls-NNNNNN` identities; canonical-minimal
+   *  like every counter). */
+  readonly nextSpecializedSequence?: number;
   /** CAD-PARITY-013: the revision-record mint counter after this revision. */
   readonly nextRevisionSequence?: number;
   /** CAD-PARITY-013: the publisher-set mint counter after this revision. */
@@ -197,6 +201,7 @@ export function appendRevision(input: RecordRevisionInput): ModelHistory {
   const nextTitleBlock = Math.max(history.next_title_block_sequence ?? 1, input.nextTitleBlockSequence ?? 1);
   const nextSchedule = Math.max(history.next_schedule_sequence ?? 1, input.nextScheduleSequence ?? 1);
   const nextPropertyDef = Math.max(history.next_property_def_sequence ?? 1, input.nextPropertyDefSequence ?? 1);
+  const nextSpecialized = Math.max(history.next_specialized_sequence ?? 1, input.nextSpecializedSequence ?? 1);
   const nextRevision = Math.max(history.next_revision_sequence ?? 1, input.nextRevisionSequence ?? 1);
   const nextPublisherSet = Math.max(history.next_publisher_set_sequence ?? 1, input.nextPublisherSetSequence ?? 1);
   return deepFreeze({
@@ -220,6 +225,7 @@ export function appendRevision(input: RecordRevisionInput): ModelHistory {
     ...(nextTitleBlock > 1 ? { next_title_block_sequence: nextTitleBlock } : {}),
     ...(nextSchedule > 1 ? { next_schedule_sequence: nextSchedule } : {}),
     ...(nextPropertyDef > 1 ? { next_property_def_sequence: nextPropertyDef } : {}),
+    ...(nextSpecialized > 1 ? { next_specialized_sequence: nextSpecialized } : {}),
     ...(nextRevision > 1 ? { next_revision_sequence: nextRevision } : {}),
     ...(nextPublisherSet > 1 ? { next_publisher_set_sequence: nextPublisherSet } : {}),
     revisions: deepFreeze([...history.revisions, revision]),
@@ -672,6 +678,21 @@ export function applyEditToElements(map: Map<string, Element>, edit: DocumentEdi
       if (edit.propertyDefId === undefined) throw new Error("replay: removePropertyDef requires propertyDefId");
       break;
     }
+    // CAD-PARITY-018 (Issue #118): the specialized-toolsets record edits
+    // (table-replay is verified through the CADDocument.open path; here
+    // the structural replay gate mirrors the propertyDef precedent).
+    case "addSpecialized": {
+      if (edit.record === undefined) throw new Error("replay: addSpecialized requires record");
+      break;
+    }
+    case "setSpecializedRecord": {
+      if (edit.id === undefined || edit.record === undefined) throw new Error("replay: setSpecializedRecord requires id + record");
+      break;
+    }
+    case "removeSpecialized": {
+      if (edit.id === undefined) throw new Error("replay: removeSpecialized requires id");
+      break;
+    }
     default: {
       const _exhaustive = edit satisfies never;
       throw new Error(`replay: unreachable edit type: ${JSON.stringify(_exhaustive)}`);
@@ -792,7 +813,11 @@ function isValidDocumentEdit(v: unknown): boolean {
     // CAD-PARITY-015 additive edit types (Issue #110: the property-definition
     // registry).
     v.type !== "addPropertyDef" && v.type !== "updatePropertyDef" && v.type !== "removePropertyDef" &&
-    v.type !== "setPropertyDefRecord"
+    v.type !== "setPropertyDefRecord" &&
+    // CAD-PARITY-018 additive edit types (Issue #118: the
+    // specialized-toolsets record table).
+    v.type !== "addSpecialized" && v.type !== "setSpecializedRecord" &&
+    v.type !== "removeSpecialized"
   ) {
     return false;
   }
@@ -858,6 +883,22 @@ function isValidDocumentEdit(v: unknown): boolean {
   }
   if (v.type === "updatePropertyDef" || v.type === "removePropertyDef") {
     return typeof v.propertyDefId === "string" && v.propertyDefId.length > 0;
+  }
+  // CAD-PARITY-018 (Issue #118): the specialized-record shapes (structural —
+  // semantic validation runs at the document boundary through the toolsets
+  // core's single grammar).
+  if (v.type === "addSpecialized" || v.type === "setSpecializedRecord") {
+    if (!isPlainObject(v.record)) return false;
+    const rec = v.record as Record<string, unknown>;
+    return (
+      typeof rec.id === "string" && rec.id.length > 0 &&
+      (rec.toolset === "mep" || rec.toolset === "mechanical" || rec.toolset === "raster") &&
+      (rec.kind === "mep.run" || rec.kind === "mech.equipment" || rec.kind === "raster.source" || rec.kind === "raster.reference") &&
+      isPlainObject(rec.data)
+    );
+  }
+  if (v.type === "removeSpecialized") {
+    return typeof v.id === "string" && v.id.length > 0;
   }
   if (v.type === "addRevision" || v.type === "setRevisionRecord") {
     if (!isPlainObject(v.revision)) return false;
@@ -1102,6 +1143,7 @@ export function validateModelHistory(history: unknown): asserts history is Model
     "next_title_block_sequence",
     "next_schedule_sequence",
     "next_property_def_sequence",
+    "next_specialized_sequence",
     "next_revision_sequence",
     "next_publisher_set_sequence",
   ] as const) {
