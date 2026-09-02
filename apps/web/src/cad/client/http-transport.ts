@@ -2748,3 +2748,389 @@ export function unwrapQuantityRules(res: CommandQueryResponse): QuantityRulesRep
   }
   return v as QuantityRulesReport;
 }
+
+// ---------------------------------------------------------------------------
+// CAD-PARITY-016 (additive, Issue #112): the collaboration/recovery/scale
+// transport mirrors — the typed client surface of the Collab workbench.
+// The CADDocument stays the canonical system of record; the collab/
+// recovery/job stores are session-side support mechanisms (LOCK-019).
+// ---------------------------------------------------------------------------
+
+/** `recovery.checkpoint` (command) — capture a durable versioned checkpoint
+ *  of the current canonical revision (manual cause). */
+export async function recoveryCheckpoint(): Promise<CommandQueryResponse> {
+  return command("recovery.checkpoint", {});
+}
+
+/** `recovery.restore` (command) — deterministic crash/session recovery
+ *  (checkpointId omitted = the latest valid; corrupt candidates are skipped
+ *  typed, never silently repaired). */
+export async function recoveryRestore(checkpointId?: string): Promise<CommandQueryResponse> {
+  return command("recovery.restore", checkpointId !== undefined ? { checkpointId } : {});
+}
+
+/** `recovery.autosave` (command) — force an autosave-cause checkpoint. */
+export async function recoveryAutosave(): Promise<CommandQueryResponse> {
+  return command("recovery.autosave", {});
+}
+
+/** `recovery.list` (query) — the retained checkpoint inventory + policy. */
+export async function recoveryList(): Promise<CommandQueryResponse> {
+  return query("recovery.list", {});
+}
+
+/** `collab.join` (command) — register a project-scoped member. */
+export async function collabJoin(userId: string, role: "viewer" | "commenter" | "editor"): Promise<CommandQueryResponse> {
+  return command("collab.join", { userId, role });
+}
+
+/** `collab.presence` (command) — the member heartbeat. */
+export async function collabPresence(userId: string): Promise<CommandQueryResponse> {
+  return command("collab.presence", { userId });
+}
+
+/** `collab.comment` (command) — add a comment linked to a canonical target. */
+export async function collabComment(input: {
+  userId: string;
+  body: string;
+  target?: { kind: "document" | "element" | "revision"; id?: string; revisionRef?: string };
+}): Promise<CommandQueryResponse> {
+  return command("collab.comment", input);
+}
+
+/** `collab.resolveComment` (command) — mark a comment resolved. */
+export async function collabResolveComment(commentId: string, userId: string): Promise<CommandQueryResponse> {
+  return command("collab.resolveComment", { commentId, userId });
+}
+
+/** `collab.commit` (command) — the versioned transactional change. */
+export async function collabCommit(input: {
+  userId: string;
+  baseVersion: number;
+  edits: readonly {
+    type: "addElement" | "removeElement" | "updateElement" | "setProps";
+    elementId?: string;
+    element?: Record<string, unknown>;
+    patch?: Record<string, unknown>;
+  }[];
+}): Promise<CommandQueryResponse> {
+  return command("collab.commit", input);
+}
+
+/** `collab.merge` (command) — resolve an open conflict (rebase|discard). */
+export async function collabMerge(
+  transactionId: string,
+  userId: string,
+  strategy: "rebase" | "discard",
+): Promise<CommandQueryResponse> {
+  return command("collab.merge", { transactionId, userId, strategy });
+}
+
+/** `collab.state` (query) — the member roster with computed presence. */
+export async function collabState(): Promise<CommandQueryResponse> {
+  return query("collab.state", {});
+}
+
+/** `collab.comments` (query) — the comment list. */
+export async function collabComments(): Promise<CommandQueryResponse> {
+  return query("collab.comments", {});
+}
+
+/** `collab.activity` (query) — the bounded activity stream. */
+export async function collabActivity(): Promise<CommandQueryResponse> {
+  return query("collab.activity", {});
+}
+
+/** `collab.transactions` (query) — the transaction/conflict/merge lineage. */
+export async function collabTransactions(): Promise<CommandQueryResponse> {
+  return query("collab.transactions", {});
+}
+
+/** `jobs.create` (command) — queue a durable regeneration job. */
+export async function jobsCreate(
+  kind: "docs.regenerate" | "quantity.recalculate" | "model.stream.warm",
+  params?: Record<string, unknown>,
+): Promise<CommandQueryResponse> {
+  return command("jobs.create", { kind, ...(params !== undefined ? { params } : {}) });
+}
+
+/** `jobs.tick` (command) — advance ONE deterministic step. */
+export async function jobsTick(jobId: string): Promise<CommandQueryResponse> {
+  return command("jobs.tick", { jobId });
+}
+
+/** `jobs.list` (query) — the durable job states. */
+export async function jobsList(): Promise<CommandQueryResponse> {
+  return query("jobs.list", {});
+}
+
+/** `jobs.get` (query) — one durable job state. */
+export async function jobsGet(jobId: string): Promise<CommandQueryResponse> {
+  return query("jobs.get", { jobId });
+}
+
+/** `model.stream` (query) — one canonical id-sorted element page. */
+export async function modelStream(pageIndex: number, pageSize?: number): Promise<CommandQueryResponse> {
+  return query("model.stream", { pageIndex, ...(pageSize !== undefined ? { pageSize } : {}) });
+}
+
+/** `model.streamStats` (query) — the bounded stream cache counters. */
+export async function modelStreamStats(): Promise<CommandQueryResponse> {
+  return query("model.streamStats", {});
+}
+
+/** `xrefs.status` (query) — the fresh external-reference outcomes. */
+export async function xrefsStatus(): Promise<CommandQueryResponse> {
+  return query("xrefs.status", {});
+}
+
+/** `xrefs.probe` (query) — the client-side source-hash probe (stale). */
+export async function xrefsProbe(name: string, sourceHash: string): Promise<CommandQueryResponse> {
+  return query("xrefs.probe", { name, sourceHash });
+}
+
+/** `perf.budgets` (query) — the observable budgets + deterministic counters. */
+export async function perfBudgets(): Promise<CommandQueryResponse> {
+  return query("perf.budgets", {});
+}
+
+// --- The P016 view types the workbench renders --------------------------------
+
+export interface CheckpointRow {
+  readonly id: string;
+  readonly seq: number;
+  readonly cause: "manual" | "autosave" | "pre-restore";
+  readonly entityId: string;
+  readonly documentVersionId: string;
+  readonly documentVersionNumber: number;
+  readonly contentHash: string;
+  readonly modelRevisionNumber: number;
+  readonly modelRevisionId: string;
+  readonly elementCount: number;
+  readonly at: number;
+}
+
+export interface RecoveryListView {
+  readonly checkpoints: readonly CheckpointRow[];
+  readonly policy: { readonly autosaveEvery: number; readonly keep: number };
+  readonly counters: {
+    readonly commands: number;
+    readonly mutationsSinceAutosave: number;
+    readonly autosaves: number;
+    readonly restores: number;
+    readonly retained: number;
+  };
+}
+
+export interface CollabMemberRow {
+  readonly userId: string;
+  readonly role: "viewer" | "commenter" | "editor";
+  readonly joinedAt: number;
+  readonly lastSeenAt: number | null;
+  readonly active: boolean;
+  readonly lastSeenVersion: number | null;
+}
+
+export interface CollabStateView {
+  readonly members: readonly CollabMemberRow[];
+  readonly presenceTtl: number;
+  /** The shared deterministic project clock (the persisted event count) —
+   *  CAD-PARITY-016 remediation: renamed from the per-session sessionClock. */
+  readonly clock: number;
+  /** The persistence identity view (the honest backend identity for the
+   *  shared-state evidence: memory | file | postgres | blob). */
+  readonly persistence: {
+    readonly backend: "memory" | "file" | "postgres" | "blob";
+    readonly projectKey: string;
+    readonly eventCount: number;
+  };
+  readonly commands: number;
+  readonly documentVersion: number;
+}
+
+export interface CommentRow {
+  readonly id: string;
+  readonly userId: string;
+  readonly body: string;
+  readonly target: { readonly kind: string; readonly id?: string; readonly revisionRef?: string };
+  readonly resolved: boolean;
+  readonly resolvedBy: string | null;
+  readonly createdAt: number;
+  readonly documentVersion: number;
+}
+
+export interface ActivityRow {
+  readonly seq: number;
+  readonly at: number;
+  readonly actor: string;
+  readonly kind: string;
+  readonly detail: string;
+}
+
+export interface TransactionRow {
+  readonly id: string;
+  readonly author: string;
+  readonly baseVersion: number;
+  readonly touchedElementIds: readonly string[];
+  readonly editCount: number;
+  readonly status: "applied" | "conflict" | "merged" | "discarded";
+  readonly recordedAt: number;
+  readonly resultingVersion: number | null;
+  readonly conflict: {
+    readonly transactionId: string;
+    readonly baseVersion: number;
+    readonly currentVersion: number;
+    readonly interveningTransactions: readonly string[];
+    readonly overlappingElementIds: readonly string[];
+    readonly status: "open" | "resolved";
+  } | null;
+  readonly merge: {
+    readonly mergeId: string;
+    readonly transactionId: string;
+    readonly strategy: "rebase" | "discard";
+    readonly parents: readonly number[];
+    readonly resultingVersion: number | null;
+    readonly at: number;
+    readonly rebasedEditCount: number;
+  } | null;
+}
+
+export interface JobRow {
+  readonly id: string;
+  readonly kind: "docs.regenerate" | "quantity.recalculate" | "model.stream.warm";
+  readonly status: "queued" | "running" | "succeeded" | "failed";
+  readonly step: number;
+  readonly totalSteps: number;
+  readonly createdAt: number;
+  readonly finishedAt: number | null;
+  readonly result: { readonly kind: string; readonly summary: Record<string, unknown> } | null;
+  readonly failure: { readonly code: string; readonly message: string } | null;
+  readonly persistHint: string;
+}
+
+export interface StreamPageRow {
+  readonly pageIndex: number;
+  readonly pageSize: number;
+  readonly totalElements: number;
+  readonly totalPages: number;
+  readonly documentVersionId: string;
+  readonly documentVersionNumber: number;
+  readonly contentHash: string;
+  readonly elements: readonly { readonly id: string; readonly kind: string }[];
+  readonly cacheHit: boolean;
+}
+
+export interface StreamStatsRow {
+  readonly entries: number;
+  readonly maxEntries: number;
+  readonly hits: number;
+  readonly misses: number;
+  readonly staleEvictions: number;
+  readonly authoritative: false;
+  readonly bounded: true;
+}
+
+export interface XrefStatusRow {
+  readonly id: string;
+  readonly name: string;
+  readonly path: string;
+  readonly recordStatus: "loaded" | "unresolved";
+  readonly sourceHash: string | null;
+  readonly entityCount: number;
+  readonly instances: number;
+  readonly outcome: "available" | "unavailable" | "stale" | "unsupported";
+  readonly detail: string;
+  readonly revisionBinding: { readonly documentVersionNumber: number; readonly contentHash: string };
+}
+
+export interface BudgetsView {
+  readonly revision: {
+    readonly documentVersionId: string;
+    readonly documentVersionNumber: number;
+    readonly contentHash: string;
+    readonly modelRevisionNumber: number;
+    readonly modelRevisionId: string;
+    readonly elementCount: number;
+  };
+  readonly budgets: readonly { readonly workflow: string; readonly thresholdMs: number; readonly unit: string; readonly measuredBy: string }[];
+  readonly counters: Record<string, number>;
+}
+
+// --- The unwraps --------------------------------------------------------------
+
+export function unwrapRecoveryList(res: CommandQueryResponse): RecoveryListView | null {
+  if (!res.ok) return null;
+  const v = res.value as RecoveryListView | null;
+  if (typeof v !== "object" || v === null || !Array.isArray(v.checkpoints)) return null;
+  return v;
+}
+
+export function unwrapCollabState(res: CommandQueryResponse): CollabStateView | null {
+  if (!res.ok) return null;
+  const v = res.value as CollabStateView | null;
+  if (typeof v !== "object" || v === null || !Array.isArray(v.members)) return null;
+  return v;
+}
+
+export function unwrapCollabComments(res: CommandQueryResponse): CommentRow[] | null {
+  if (!res.ok) return null;
+  const v = res.value as { comments?: unknown } | null;
+  if (typeof v !== "object" || v === null || !Array.isArray(v.comments)) return null;
+  return v.comments as CommentRow[];
+}
+
+export function unwrapCollabActivity(res: CommandQueryResponse): ActivityRow[] | null {
+  if (!res.ok) return null;
+  const v = res.value as { activity?: unknown } | null;
+  if (typeof v !== "object" || v === null || !Array.isArray(v.activity)) return null;
+  return v.activity as ActivityRow[];
+}
+
+export function unwrapCollabTransactions(res: CommandQueryResponse): TransactionRow[] | null {
+  if (!res.ok) return null;
+  const v = res.value as { transactions?: unknown } | null;
+  if (typeof v !== "object" || v === null || !Array.isArray(v.transactions)) return null;
+  return v.transactions as TransactionRow[];
+}
+
+export function unwrapJobsList(res: CommandQueryResponse): JobRow[] | null {
+  if (!res.ok) return null;
+  const v = res.value as { jobs?: unknown } | null;
+  if (typeof v !== "object" || v === null || !Array.isArray(v.jobs)) return null;
+  return v.jobs as JobRow[];
+}
+
+export function unwrapJob(res: CommandQueryResponse): JobRow | null {
+  if (!res.ok) return null;
+  const v = res.value as { job?: unknown } | null;
+  if (typeof v !== "object" || v === null || typeof v.job !== "object") return null;
+  return v.job as JobRow;
+}
+
+export function unwrapStreamPage(res: CommandQueryResponse): StreamPageRow | null {
+  if (!res.ok) return null;
+  const v = res.value as { page?: unknown } | null;
+  if (typeof v !== "object" || v === null || typeof v.page !== "object") return null;
+  return v.page as StreamPageRow;
+}
+
+export function unwrapStreamStats(res: CommandQueryResponse): StreamStatsRow | null {
+  if (!res.ok) return null;
+  const v = res.value as { stats?: unknown } | null;
+  if (typeof v !== "object" || v === null || typeof v.stats !== "object") return null;
+  return v.stats as StreamStatsRow;
+}
+
+export function unwrapXrefsStatus(res: CommandQueryResponse): XrefStatusRow[] | null {
+  if (!res.ok) return null;
+  const v = res.value as { xrefs?: unknown } | null;
+  if (typeof v !== "object" || v === null || !Array.isArray(v.xrefs)) return null;
+  return v.xrefs as XrefStatusRow[];
+}
+
+export function unwrapPerfBudgets(res: CommandQueryResponse): BudgetsView | null {
+  if (!res.ok) return null;
+  const v = res.value as BudgetsView | null;
+  if (typeof v !== "object" || v === null || !Array.isArray(v.budgets)) return null;
+  return v;
+}

@@ -31,6 +31,7 @@ import { COMMANDS_LAYOUTS } from "./commands-layouts.js";
 import { COMMANDS_MODEL3D } from "./commands-model3d.js";
 import { COMMANDS_COORDINATION } from "./commands-coordination.js";
 import { COMMANDS_DOCUMENTATION } from "./commands-documentation.js";
+import { COMMANDS_COLLAB } from "./commands-collab.js";
 import type {
   AppApiCommandPlanEntry,
   CommandCategory,
@@ -1307,6 +1308,14 @@ export const WORKSPACE_COMMANDS: readonly WorkspaceCommand[] = [
   // layout-book assignment, master layouts, title blocks, revisions,
   // schedules/indexes and publisher sets (ribbonTab "Documentation") ---
   ...COMMANDS_DOCUMENTATION,
+  // --- CAD-PARITY-016 (Issue #112): the collaboration/recovery/scale
+  // vocabulary — durable versioned recovery checkpoints + deterministic
+  // crash/session recovery, project-scoped members/presence/comments/
+  // activity, versioned transactions with explicit conflict + merge
+  // lineage, the durable background-regeneration jobs, the fresh
+  // external-reference status surfaces and the observable performance
+  // budgets (ribbonTab "Collab") ---
+  ...COMMANDS_COLLAB,
 ];
 
 function normalize(a: number): number {

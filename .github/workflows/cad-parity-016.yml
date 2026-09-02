@@ -1,0 +1,467 @@
+name: cad-parity-016
+
+on:
+  # CAD-PARITY-016: manual dispatch (the P015 precedent — the dispatch arm
+  # runs the SAME three jobs on the exact head so the CI evidence is
+  # producible even when the pull_request event pipeline does not deliver).
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - "app/**"
+      - "apps/web/**"
+      - "apps/electron/**"
+      - ".github/workflows/cad-parity-016.yml"
+  pull_request:
+    paths:
+      - "app/**"
+      - "apps/web/**"
+      - "apps/electron/**"
+      - ".github/workflows/cad-parity-016.yml"
+
+# CAD-PARITY-016: the collaboration, recovery and scale
+# slice (Issue #112, Architecture v1.1 FROZEN - the Construction Graph stays
+# the canonical system of record; the CADDocument remains the single source
+# of truth): durable versioned recovery checkpoints traceable to canonical
+# revisions (documentVersionId + version_number + the content-only hash +
+# the model revision head) with the bounded autosave policy + the
+# deterministic crash/session recovery (hash-exact integrity, typed skips,
+# never a silent repair, a pre-restore safety checkpoint, the restored
+# document rebuilt through the canonical open path); the project-scoped
+# collaboration surface (members with the closed role vocabulary +
+# server-side permission checks, presence with the deterministic
+# session-clock TTL, comments linked to canonical targets, the bounded
+# activity stream); versioned transactional changes with the explicit
+# reproducible conflict records (intervening transactions + the overlapping
+# canonical element ids) and the rebase/discard merge/resolution lineage
+# (parents = base + head, the overlapping rebase refused typed - never a
+# silent overwrite); the controlled external-reference lifecycle with the
+# fresh explicit available/unavailable/unsupported outcomes + the
+# probe-based stale outcome; the bounded large-model streaming with the
+# explicit cache non-authority (revalidated against the CURRENT canonical
+# version on every request, stale entries evicted with exact accounting -
+# never served); the durable stepwise background-regeneration jobs (ONE
+# deterministic step per tick - the serverless-honest durable execution
+# model, worker output never authority); and the observable
+# revision-bound performance budgets (wall-clock thresholds asserted per
+# call in the smoke, only deterministic counters pinned). The three-job
+# pattern (workspace-shell + web-host + electron-host):
+#   - the FULL app suite now covers the P016 surface: the four new cores
+#     (app/src/recovery, app/src/collab, app/src/jobs, app/src/modelstream -
+#     engine-free, LOCK-018-scanned) + the four P016 test files (recovery /
+#     collab / jobs+stream / host-parity - the WebHost and ElectronHost
+#     streams converge to identical session clocks, minted ids, checkpoint
+#     hashes, transaction lineage, stream pages and budget counters)
+#   - the web host runs the FOURTEEN parity smokes (the thirteen regression
+#     fixtures byte-identical + the NEW pinned CAD-PARITY-016 fixture -
+#     collab-p016-smoke.mjs drives the App API collaboration/recovery/scale
+#     surface (recovery.checkpoint/autosave/restore + recovery.list,
+#     collab.join/presence/comment/resolveComment/commit/merge + the
+#     collab.state/comments/activity/transactions queries, jobs.create/
+#     tick + jobs.list/get, model.stream + model.streamStats,
+#     xrefs.status + xrefs.probe, perf.budgets, the COLLABJOIN/PRESENCE/
+#     COMMENT/TXN/MERGE/JOB/CKPT/RECOVER prompt-engine registry stream, the
+#     permission coverage, the save/open round-trip with the honest
+#     session-store reset) against /api/cad in REFERENCE mode + the
+#     observable performance-budget wall-clock assertions (reported, never
+#     pinned)
+#   - the electron host runs the EIGHTEEN existing smokes unchanged - the
+#     honest no-new-electron-surface decision for this slice: P016 adds no
+#     new Electron-only UI surface (the Collab workbench is the web host's
+#     React surface; the collaboration/recovery/scale app-api surface is
+#     host-agnostic shared core); Web/Electron semantic parity is proven by
+#     the app-suite collab-p016-host-parity test in the workspace-shell
+#     job (the same P016 stream through WebHost/WebSocketTransport AND
+#     ElectronHost/IpcTransport - identical clocks, ids, hashes, lineage,
+#     pages and counters) + the unchanged smoke:docs regression above
+#
+# Engine isolation (LOCK-003/018): no engine import leaks into the renderer,
+# CADDocument, App API or the workspace cores (enforced by the LOCK-018 scan,
+# which now also guards src/interop). The DXF/PDF/SVG writers and the
+# exchange/archival/roundtrip surfaces are pure engine-free TypeScript; the
+# IFC/IDS/BCF toolchain (ifcopenshell 0.8.5 + IfcTester 0.8.5, which provides
+# bcf-client transitively) stays behind the pinned worker boundary; the
+# parity fixture is REFERENCE-adapter basis + the additive ifc binding.
+
+jobs:
+  workspace-shell:
+    name: Workspace deterministic suite (OCCT 7.8.1.1 + ifcopenshell 0.8.5 toolchains + the P016 collaboration/recovery/scale suites)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Set up Python (pinned toolchain)
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install the pinned OCCT engine (cadquery-ocp)
+        run: pip install cadquery-ocp==7.8.1.1.post1
+
+      - name: Install the pinned IFC toolchain (ifcopenshell + IfcTester)
+        run: pip install ifcopenshell==0.8.5 IfcTester==0.8.5 numpy==2.1.3
+
+      - name: Install root toolchain (tsx + typescript + ajv)
+        run: npm install
+
+      - name: Typecheck app shell (incl. the CAD-PARITY-016 collaboration/recovery/scale core)
+        run: node_modules/.bin/tsc --noEmit -p app/tsconfig.json
+
+      - name: "Full app test suite with both real engines (the pre-existing suite + the CAD-PARITY-016 tests (recovery/collab/jobs+stream/host-parity))"
+        working-directory: app
+        run: node --import tsx --test test/*.test.ts
+
+      - name: "CAD-PARITY-009/010/011 deterministic suite (the model3d core + the 010 booleans/section-exact/topology/mesh-cache + the 011 elements/geometry/workflow/lifecycle + the 003..008 kernels)"
+        working-directory: app
+        run: node --import tsx --test test/workspace-2d-*.test.ts test/model3d-*.test.ts test/bim-p011-*.test.ts
+
+      - name: Forbidden-import static check (LOCK-018 incl. src/workspace + src/bim + annotation/ + blocks/ + constraints/ + layouts/ + model3d/ + src/ifc + src/interop + src/quantities + src/recovery + src/collab + src/jobs + src/modelstream (the P016 collaboration/recovery/scale cores) + commands-parametrics + commands-layouts + commands-model3d + commands-documentation + commands-collab)
+        working-directory: app
+        run: node --import tsx --test test/no-forbidden-imports.test.ts
+
+      - name: IFC worker availability probe (pin check)
+        working-directory: app
+        run: |
+          echo '{"op":"ping"}' | python3 src/adapters/ifc/worker/ifc-worker.py
+          echo '{"op":"ping"}' | python3 src/adapters/ifc/worker/ifc-worker.py | grep -q '"engineVersion":"0.8.5"'
+
+      - name: Upload test evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cad-parity-016-shell-evidence
+          path: app/src
+          if-no-files-found: warn
+
+  web-host-workspace:
+    name: Web host (Next.js 16 + ALL FOURTEEN workspace smokes + ALL FOURTEEN parity fixtures + the P016 durable/shared persistence on a REAL postgres service)
+    runs-on: ubuntu-latest
+    # CAD-PARITY-016 remediation (the Architect CHANGES REQUESTED): a REAL
+    # PostgreSQL service — the authoritative structured-state backend
+    # (Architecture v1.1 §6). The web host selects it through DATABASE_URL
+    # at the wiring point (the LOCK-003 discipline applied to persistence):
+    # the collab smoke's multi-session shared-state + durable-reopen proofs
+    # run against the real transactional backend, and the RESTART-PROOF
+    # script kills + restarts the dev server mid-flow to prove the process
+    # -death durability boundary (the crash-recovery blocker).
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/web/package.json
+
+      - name: Set up Python (pinned toolchain)
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install the pinned engines (OCCT + ifcopenshell)
+        run: pip install cadquery-ocp==7.8.1.1.post1 ifcopenshell==0.8.5 IfcTester==0.8.5 numpy==2.1.3
+
+      - name: Install root toolchain (tsx for the shared-engine smoke)
+        run: npm install
+
+      - name: Install Web host deps
+        working-directory: apps/web
+        run: npm install
+
+      - name: Web host lint (ESLint)
+        working-directory: apps/web
+        run: npm run lint
+
+      - name: Web host typecheck (tsc --noEmit)
+        working-directory: apps/web
+        run: npx tsc --noEmit
+
+      - name: Web host build (next build --webpack)
+        working-directory: apps/web
+        run: npm run build
+
+      - name: Web host workspace workflow smokes (dev server + shared prompt engine + ALL FOURTEEN parity fixtures)
+        working-directory: apps/web
+        env:
+          OFFISOS_OCCT_WORKER: ${{ github.workspace }}/app/src/adapters/occt/worker/occt-worker.py
+          OFFISOS_IFC_WORKER: ${{ github.workspace }}/app/src/adapters/ifc/worker/ifc-worker.py
+          OFFISOS_WEB_URL: http://localhost:3100
+          # CAD-PARITY-016 remediation: the P016 persistence backend for the
+          # dev server is the REAL postgres service (DATABASE_URL above) —
+          # the collab smoke's shared-state/durability proofs run against
+          # the authoritative transactional backend; the other thirteen
+          # smokes touch no P016 command (their surfaces are unchanged).
+          OFFISOS_P016_PERSIST: postgres
+          # CAD-PARITY-009: the parity-fixture basis — the deterministic
+          # reference adapter (the work item's engine-availability pattern;
+          # real-OCCT coverage runs in the workspace-shell app tests).
+          OFFISOS_GEOMETRY_ENGINE: reference
+        run: |
+          # setsid: the dev server runs in its own process group so the
+          # teardown below kills the WHOLE tree (npm wrapper + next-server
+          # grandchild). Killing only the npm wrapper leaves the grandchild
+          # alive — and Next 16's per-directory dev-instance lock then
+          # BLOCKS the restart-proof's server on its own port with "Another
+          # next dev server is already running" (observed on the first
+          # CI run of the restart proof).
+          setsid npm run dev -- --webpack -p 3100 &
+          DEV_PID=$!
+          for i in $(seq 1 60); do
+            if curl -sS -o /dev/null http://localhost:3100/ 2>/dev/null; then break; fi
+            sleep 2
+          done
+          sleep 3
+          cd ../..
+          node --import tsx apps/web/test/workspace-smoke.mjs
+          SMOKE_STATUS=$?
+          if [ $SMOKE_STATUS -eq 0 ]; then
+            node --import tsx apps/web/test/layers-styles-smoke.mjs
+            SMOKE_STATUS=$?
+          fi
+          if [ $SMOKE_STATUS -eq 0 ]; then
+            node --import tsx apps/web/test/annotation-smoke.mjs
+            SMOKE_STATUS=$?
+          fi
+          if [ $SMOKE_STATUS -eq 0 ]; then
+            node --import tsx apps/web/test/blocks-smoke.mjs
+            SMOKE_STATUS=$?
+          fi
+          if [ $SMOKE_STATUS -eq 0 ]; then
+            node --import tsx apps/web/test/constraints-smoke.mjs
+            SMOKE_STATUS=$?
+          fi
+          if [ $SMOKE_STATUS -eq 0 ]; then
+            node --import tsx apps/web/test/layouts-smoke.mjs
+            SMOKE_STATUS=$?
+          fi
+          if [ $SMOKE_STATUS -eq 0 ]; then
+            node --import tsx apps/web/test/model3d-smoke.mjs
+            SMOKE_STATUS=$?
+          fi
+          if [ $SMOKE_STATUS -eq 0 ]; then
+            node --import tsx apps/web/test/model3d-p010-smoke.mjs
+            SMOKE_STATUS=$?
+          fi
+          if [ $SMOKE_STATUS -eq 0 ]; then
+            node --import tsx apps/web/test/bim-p011-smoke.mjs
+            SMOKE_STATUS=$?
+          fi
+          if [ $SMOKE_STATUS -eq 0 ]; then
+            node --import tsx apps/web/test/bim-p012-smoke.mjs
+            SMOKE_STATUS=$?
+          fi
+          if [ $SMOKE_STATUS -eq 0 ]; then
+            node --import tsx apps/web/test/docs-p013-smoke.mjs
+            SMOKE_STATUS=$?
+          fi
+          if [ $SMOKE_STATUS -eq 0 ]; then
+            node --import tsx apps/web/test/interop-p014-smoke.mjs
+            SMOKE_STATUS=$?
+          fi
+          if [ $SMOKE_STATUS -eq 0 ]; then
+            node --import tsx apps/web/test/schedules-p015-smoke.mjs
+            SMOKE_STATUS=$?
+          fi
+          if [ $SMOKE_STATUS -eq 0 ]; then
+            node --import tsx apps/web/test/collab-p016-smoke.mjs
+            SMOKE_STATUS=$?
+          fi
+          # Reap the whole dev-server process group (the restart-proof step
+          # below starts its own dev server from the same directory — a
+          # surviving grandchild would hold Next's dev-instance lock).
+          kill -- -"$DEV_PID" 2>/dev/null || kill "$DEV_PID" 2>/dev/null || true
+          pkill -f "next dev" 2>/dev/null || true
+          sleep 2
+          exit $SMOKE_STATUS
+
+      - name: "CAD-PARITY-016 remediation: the PROCESS-RESTART durability proof (SIGKILL the dev server mid-flow; a fresh postgres-backed process recovers the durable project record)"
+        working-directory: apps/web
+        run: node --import tsx test/collab-p016-restart-proof.mjs
+
+      - name: Upload workspace smoke evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cad-parity-016-web-evidence
+          path: |
+            app/test/fixtures/cad-parity-002-parity.json
+            app/test/fixtures/cad-parity-004-layers.json
+            app/test/fixtures/cad-parity-006-annotation.json
+            app/test/fixtures/cad-parity-009-model3d.json
+            app/test/fixtures/cad-parity-010-model3d.json
+            app/test/fixtures/cad-parity-011-bim.json
+            app/test/fixtures/cad-parity-012-coordination.json
+            app/test/fixtures/cad-parity-013-documentation.json
+            app/test/fixtures/cad-parity-014-interop.json
+            app/test/fixtures/cad-parity-015-schedules.json
+            app/test/fixtures/cad-parity-016-collab.json
+          if-no-files-found: warn
+
+  electron-host-workspace:
+    name: Electron host (build + 18 smokes incl. the workspace + layers + annotation + blocks + constraints + layouts + model3d + model3d-P010 + BIM-P011 real-UI parity smokes - unchanged, the P016 honest-surface decision)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/electron/package.json
+
+      - name: Set up Python (pinned toolchain)
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install the pinned engines (OCCT + ifcopenshell)
+        run: pip install cadquery-ocp==7.8.1.1.post1 ifcopenshell==0.8.5 IfcTester==0.8.5 numpy==2.1.3
+
+      - name: Install Xvfb (headless display)
+        run: sudo apt-get update && sudo apt-get install -y xvfb
+
+      - name: Install Electron host deps
+        working-directory: apps/electron
+        run: npm install
+
+      - name: Electron host typecheck
+        working-directory: apps/electron
+        run: npm run typecheck
+
+      - name: Electron host build
+        working-directory: apps/electron
+        run: npm run build
+
+      - name: Electron regression smokes (engine-free, geometry, model, impact, drafting, BIM, documentation, IFC, components)
+        working-directory: apps/electron
+        env:
+          OFFISOS_OCCT_WORKER: ${{ github.workspace }}/app/src/adapters/occt/worker/occt-worker.py
+          OFFISOS_IFC_WORKER: ${{ github.workspace }}/app/src/adapters/ifc/worker/ifc-worker.py
+        run: |
+          npm run smoke
+          npm run smoke:geometry
+          npm run smoke:model
+          npm run smoke:impact
+          npm run smoke:drafting
+          npm run smoke:bim
+          npm run smoke:docs
+          npm run smoke:ifc
+          npm run smoke:components
+
+      - name: "Electron workspace smoke (real-UI parity: 19 steps incl. 5 CAD-PARITY-003 golden paths)"
+        working-directory: apps/electron
+        env:
+          OFFISOS_OCCT_WORKER: ${{ github.workspace }}/app/src/adapters/occt/worker/occt-worker.py
+          OFFISOS_IFC_WORKER: ${{ github.workspace }}/app/src/adapters/ifc/worker/ifc-worker.py
+        run: npm run smoke:workspace
+
+      - name: "Electron layers/styles/properties smoke (real-UI CAD-PARITY-004 golden paths + Web parity fixture)"
+        working-directory: apps/electron
+        env:
+          OFFISOS_OCCT_WORKER: ${{ github.workspace }}/app/src/adapters/occt/worker/occt-worker.py
+          OFFISOS_IFC_WORKER: ${{ github.workspace }}/app/src/adapters/ifc/worker/ifc-worker.py
+        run: node test/smoke-layers.mjs
+
+      - name: "Electron annotation smoke (real-UI CAD-PARITY-005 golden paths: canvas entity/entityPoint picks + the Web parity fixture + stream)"
+        working-directory: apps/electron
+        env:
+          OFFISOS_OCCT_WORKER: ${{ github.workspace }}/app/src/adapters/occt/worker/occt-worker.py
+          OFFISOS_IFC_WORKER: ${{ github.workspace }}/app/src/adapters/ifc/worker/ifc-worker.py
+        run: node test/smoke-annotation.mjs
+
+      - name: "Electron blocks smoke (real-UI CAD-PARITY-006 golden paths: canvas block source/instance picks + the Web parity fixture + stream)"
+        working-directory: apps/electron
+        env:
+          OFFISOS_OCCT_WORKER: ${{ github.workspace }}/app/src/adapters/occt/worker/occt-worker.py
+          OFFISOS_IFC_WORKER: ${{ github.workspace }}/app/src/adapters/ifc/worker/ifc-worker.py
+        run: node test/smoke-blocks.mjs
+
+      - name: "Electron constraints smoke (real-UI CAD-PARITY-007 golden paths: canvas entity/entityPoint constraint-target picks + the Web parity fixture + stream)"
+        working-directory: apps/electron
+        env:
+          OFFISOS_OCCT_WORKER: ${{ github.workspace }}/app/src/adapters/occt/worker/occt-worker.py
+          OFFISOS_IFC_WORKER: ${{ github.workspace }}/app/src/adapters/ifc/worker/ifc-worker.py
+        run: node test/smoke-constraints.mjs
+
+      - name: "Electron layouts smoke (real-UI CAD-PARITY-008 golden paths: layout tabs + the painted paper canvas + the plot preview overlay + deterministic artifact exports; the Web parity fixture + stream + artifact hashes)"
+        working-directory: apps/electron
+        env:
+          OFFISOS_OCCT_WORKER: ${{ github.workspace }}/app/src/adapters/occt/worker/occt-worker.py
+          OFFISOS_IFC_WORKER: ${{ github.workspace }}/app/src/adapters/ifc/worker/ifc-worker.py
+        run: node test/smoke-layouts.mjs
+
+      - name: "Electron model3d smoke (real-UI CAD-PARITY-009 golden paths: the shared camera/projection 3D viewport + UCS/workplane switching + solid creation/3D transforms + the deterministic ordered-hit pick + the section preview; the Web parity fixture + stream)"
+        working-directory: apps/electron
+        env:
+          OFFISOS_OCCT_WORKER: ${{ github.workspace }}/app/src/adapters/occt/worker/occt-worker.py
+          OFFISOS_IFC_WORKER: ${{ github.workspace }}/app/src/adapters/ifc/worker/ifc-worker.py
+        run: node test/smoke-model3d.mjs
+
+      - name: "Electron model3d P010 smoke (real-UI CAD-PARITY-010 golden paths: the boolean triad through the command line + the exact adapter-backed section + topology-aware sub-entity picking + the bounded mesh entity/LOD cache + the exact-section overlay; the Web parity fixture + stream)"
+        working-directory: apps/electron
+        env:
+          OFFISOS_OCCT_WORKER: ${{ github.workspace }}/app/src/adapters/occt/worker/occt-worker.py
+          OFFISOS_IFC_WORKER: ${{ github.workspace }}/app/src/adapters/ifc/worker/ifc-worker.py
+        run: node test/smoke-model3d-p010.mjs
+
+      - name: "Electron BIM P011 smoke (real-UI CAD-PARITY-011 golden paths: the Archicad-class authoring command line (STORY/WALL/ROOF/STAIR/RAILING/ZONE/OPTION/RENOVATE) + the lifecycle/classification API surface + the deterministic ACTIVE-OPTION build behavior + undo/redo + the save/open round-trip; the Web parity fixture + stream + echo digests)"
+        working-directory: apps/electron
+        env:
+          OFFISOS_OCCT_WORKER: ${{ github.workspace }}/app/src/adapters/occt/worker/occt-worker.py
+          OFFISOS_IFC_WORKER: ${{ github.workspace }}/app/src/adapters/ifc/worker/ifc-worker.py
+        run: node test/smoke-bim-p011.mjs
+
+      - name: "Electron host honest-surface note (CAD-PARITY-016: no new Electron UI smoke this slice)"
+        working-directory: apps/electron
+        run: |
+          echo "CAD-PARITY-016 adds no new Electron-host UI surface: the Collab"
+          echo "workbench (the member roster with presence, the comments with"
+          echo "canonical targets, the versioned transactions with conflict +"
+          echo "merge lineage, the recovery checkpoints with deterministic"
+          echo "crash recovery, the durable background-regeneration jobs, the"
+          echo "bounded large-model streaming, the fresh external-reference"
+          echo "outcomes and the performance budgets) is the web host's React"
+          echo "surface; the collab.*/recovery.*/jobs.*/model.stream/xrefs.*/"
+          echo "perf.* app-api surface is host-agnostic shared core."
+          echo "Web/Electron semantic parity is proven by the app-suite"
+          echo "collab-p016-host-parity test in the workspace-shell job (the same"
+          echo "P016 stream through WebHost/WebSocketTransport AND"
+          echo "ElectronHost/IpcTransport - identical session clocks, minted ids,"
+          echo "checkpoint hashes, transaction lineage, stream pages and budget"
+          echo "counters) + the unchanged smoke:docs regression above."
+
+      - name: Upload workspace smoke evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cad-parity-016-electron-evidence
+          path: apps/electron/dist/smoke-workspace-result.json
+          if-no-files-found: warn

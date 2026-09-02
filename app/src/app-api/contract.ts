@@ -368,6 +368,61 @@ import type {
   PropertyDefRecord,
 } from "../contracts/caddocument.js";
 import type { IfcFieldClassification } from "../ifc/report.js";
+// CAD-PARITY-016 (additive, Issue #112): the collaboration/recovery/scale
+// cores — the durable versioned recovery checkpoints + the deterministic
+// crash/session recovery (recovery), the project-scoped members/presence/
+// comments/activity + the versioned transactions with explicit conflict
+// and merge/resolution lineage (collab), the durable stepwise
+// background-regeneration job engine (jobs) and the bounded large-model
+// stream cache with explicit non-authority (modelstream). All engine-free
+// shared core (LOCK-018); the CADDocument remains the single canonical
+// system of record (LOCK-019).
+// CAD-PARITY-016 REMEDIATION (the Architect CHANGES REQUESTED): the
+// collaboration/recovery/jobs state now lives behind the durable/shared
+// P016Persist port (app/src/persist) — one authoritative project record
+// per canonical document entity id, versioned through append-only events
+// with content-addressed checkpoint snapshot blobs. The per-handler
+// in-memory stores are GONE: independent sessions/handlers/instances
+// append to and read the SAME durable project record (Architecture v1.1
+// §6: PostgreSQL/object-storage authority semantics), while the document
+// stays canonical and the stream cache stays a session-side support
+// mechanism.
+import { CheckpointStore, checkpointIdOf, headRevisionIdOf } from "../recovery/index.js";
+import { CollabStore, CollabError } from "../collab/index.js";
+import { JobStore, JobError } from "../jobs/index.js";
+import {
+  ModelStreamCache,
+  StreamError,
+  STREAM_PAGE_SIZE_DEFAULT,
+  STREAM_PAGE_SIZE_MAX,
+  STREAM_PAGE_SIZE_MIN,
+} from "../modelstream/index.js";
+import {
+  MemoryP016Persist,
+  P016PersistError,
+  validatePersistedP016State,
+  type P016BlobWrite,
+  type P016Persist,
+  type P016Transition,
+} from "../persist/index.js";
+import type {
+  JobsPersistedState,
+  P016PersistenceView,
+  PersistedP016State,
+} from "../contracts/collab.js";
+import {
+  DEFAULT_RECOVERY_POLICY,
+  PRESENCE_TTL,
+  type CheckpointView,
+  type CollabMemberView,
+  type CommentTarget,
+  type JobKind,
+  type PerfBudgetsView,
+  type RecoveryReport,
+  type SessionClock,
+  type XrefOutcome,
+  type XrefStatusView,
+} from "../contracts/collab.js";
 
 export interface AppApiHandlerOptions {
   readonly adapterBundle: EngineAdapterBundle;
@@ -375,6 +430,45 @@ export interface AppApiHandlerOptions {
   readonly format: string;
   readonly formatVersion: string;
   readonly createdBy: string;
+  /** CAD-PARITY-016 remediation: the durable/shared project persistence
+   *  boundary (app/src/persist). Default: a per-handler in-process memory
+   *  store (the deterministic app-suite basis). Hosts wire the real
+   *  backends at their boundary — the web host selects postgres (DATABASE_URL)
+   *  or blob (BLOB_READ_WRITE_TOKEN) with an explicit memory opt-in for
+   *  local development and a fail-closed default otherwise; the Electron
+   *  host wires the filesystem store (durable across app restarts). The
+   *  project key is the canonical document entity id. */
+  readonly p016Persist?: P016Persist | undefined;
+}
+
+/** CAD-PARITY-016 (Issue #112): the lowercase path extension of an
+ *  external-reference path ("" when none) — the deterministic basis of the
+ *  unsupported-format outcome. */
+function pathExtensionOf(path: string): string {
+  const slash = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"));
+  const base = slash >= 0 ? path.slice(slash + 1) : path;
+  const dot = base.lastIndexOf(".");
+  if (dot <= 0) return "";
+  return base.slice(dot).toLowerCase();
+}
+
+/** CAD-PARITY-016 remediation: the context a persisted-event transition
+ *  operates on — the ticked project clock, the hydrated stores and the
+ *  pre-transition state (the session's canonical document is read directly
+ *  through the handler). */
+interface P016EventContext {
+  clock: SessionClock;
+  collab: CollabStore;
+  checkpoints: CheckpointStore;
+  jobs: JobStore;
+  state: PersistedP016State | null;
+}
+
+/** The pure result a persisted-event transition returns (blobs + the
+ *  command's result value; the state is dehydrated from the context). */
+interface P016EventResult<T> {
+  blobs?: readonly P016BlobWrite[] | undefined;
+  result: T;
 }
 
 export class AppApiHandler {
@@ -388,11 +482,38 @@ export class AppApiHandler {
    *  invalidates its entries; dual budgets; exact counters for the
    *  performance-budget evidence). */
   private readonly tessellationCache = new TessellationCache();
+  // --- CAD-PARITY-016 (additive, Issue #112): the durable/shared
+  // collaboration/recovery/scale state. The REMEDIATION moves the
+  // authoritative state behind the P016Persist port: ONE durable project
+  // record per canonical document entity id, versioned through
+  // append-only events (the serialization point), with content-addressed
+  // checkpoint snapshot blobs. The deterministic project clock ticks
+  // EXACTLY once per persisted project event — every P016 output is a pure
+  // function of the persisted event sequence (fixture-pinnable across
+  // hosts, backends and the wire). The counters below are SESSION-side
+  // observability only (the persisted record is the authority); the stream
+  // cache stays a session-side non-authoritative support mechanism
+  // (LOCK-019: the CADDocument above remains the canonical system of
+  // record). ---
+  private readonly p016Persist: P016Persist;
+  private commandCount = 0;
+  /** Bumped whenever the session's DOCUMENT is replaced (create/open/
+   *  deserialize/restore) — a document swap is not a modeling mutation, so
+   *  the autosave version-compare must not tick for it. */
+  private docEpoch = 0;
+  private mutationsSinceAutosave = 0;
+  private autosaveCount = 0;
+  private restoreCount = 0;
+  private stream = new ModelStreamCache();
 
   private constructor(options: AppApiHandlerOptions, doc: CADDocument, adapters: EngineAdapterBundle) {
     this.options = options;
     this.doc = doc;
     this.adapters = adapters;
+    // CAD-PARITY-016 remediation: the durable/shared persistence boundary.
+    // Default: a per-handler in-process memory store (deterministic app
+    // suite / host parity). Hosts inject the real backends.
+    this.p016Persist = options.p016Persist ?? new MemoryP016Persist();
   }
 
   /** Create a handler with an empty document (root version). */
@@ -414,12 +535,200 @@ export class AppApiHandler {
       const cached = this.idempotency.get(request.idempotencyKey);
       if (cached !== undefined) return cached;
     }
+    // CAD-PARITY-016 (Issue #112): the session command counter (per-session
+    // observability). The DETERMINISTIC TIMELINE lives in the durable
+    // project record: the persisted project clock ticks exactly once per
+    // persisted project event (the store's serialization point — see
+    // p016Event below). Idempotent replays return the cached response and
+    // append nothing; queries are free. The command's session records
+    // carry the persisted clock, so every P016 output is a pure function of
+    // the persisted event sequence.
+    let versionBefore = 0;
+    let epochBefore = 0;
+    if (request.type === "command") {
+      this.commandCount += 1;
+      versionBefore = this.doc.snapshot().version.version_number;
+      epochBefore = this.docEpoch;
+    }
     const response =
       request.type === "command" ? await this.handleCommand(request) : await this.handleQuery(request);
-    if (request.type === "command" && request.idempotencyKey !== undefined) {
-      this.idempotency.set(request.idempotencyKey, response);
+    if (request.type === "command") {
+      // CAD-PARITY-016: the bounded autosave policy — a durable versioned
+      // checkpoint is minted automatically every N document-mutating
+      // commands (transparent: the command's response is untouched, so
+      // every pre-P016 surface stays byte-identical). A document SWAP
+      // (create/open/deserialize/restore — the epoch guard) is not a
+      // modeling mutation and never ticks the policy. The mint is a
+      // durable append through the persistence port — a failed append
+      // fails this request visibly (durability is never silently skipped).
+      if (
+        response.ok &&
+        this.docEpoch === epochBefore &&
+        this.doc.snapshot().version.version_number !== versionBefore
+      ) {
+        await this.maybeAutosave();
+      }
+      if (request.idempotencyKey !== undefined) {
+        this.idempotency.set(request.idempotencyKey, response);
+      }
     }
     return response;
+  }
+
+  /** CAD-PARITY-016: the bounded autosave tick (called after a successful
+   *  version-changing command; deterministic — a pure function of the
+   *  command sequence). The mint is a DURABLE append. */
+  private async maybeAutosave(): Promise<void> {
+    this.mutationsSinceAutosave += 1;
+    if (this.mutationsSinceAutosave >= this.p016RecoveryPolicy().autosaveEvery) {
+      this.mutationsSinceAutosave = 0;
+      this.autosaveCount += 1;
+      await this.mintCheckpoint("autosave");
+    }
+  }
+
+  /** CAD-PARITY-016 remediation: reset the SESSION-side observability when
+   * a NEW document becomes the session's document (create/open/deserialize)
+   * — the doc epoch guard advances and the session counters re-arm. The
+   * DURABLE project records are NOT destroyed: the persisted state lives
+   * per canonical document entity id, so a document swap re-binds the
+   * session to the new document's project (a fresh record for a fresh
+   * document; the EXISTING durable state for a reopened document — the
+   * crash/session recovery boundary). The session stream cache (a
+   * non-authoritative, version-keyed support mechanism) re-arms with the
+   * new document. */
+  private resetP016Session(): void {
+    this.docEpoch += 1;
+    this.commandCount = 0;
+    this.mutationsSinceAutosave = 0;
+    this.autosaveCount = 0;
+    this.restoreCount = 0;
+    this.stream = new ModelStreamCache();
+  }
+
+  // --- CAD-PARITY-016 remediation: the durable/shared project access -----
+
+  /** The project scope: the canonical document entity id of the session's
+   *  CURRENT document (stable across save/open round-trips — the identity
+   * the saved artifact carries; fresh per document.create). */
+  private p016ProjectKey(): string {
+    return this.doc.snapshot().version.entity_id;
+  }
+
+  /** The recovery policy (the DEFAULT_RECOVERY_POLICY constant — the same
+   *  policy every rehydrated checkpoint store carries). */
+  private p016RecoveryPolicy() {
+    return DEFAULT_RECOVERY_POLICY;
+  }
+
+  /** The validated current persisted state (null when the project has no
+   *  events). LOCK-007: a malformed persisted record is rejected typed,
+   *  never guessed or silently repaired. */
+  private async p016Read(): Promise<PersistedP016State | null> {
+    const raw = await this.p016Persist.read(this.p016ProjectKey());
+    return raw === null ? null : validatePersistedP016State(raw);
+  }
+
+  /** The shared deterministic project clock (the persisted event count). */
+  private async p016Clock(): Promise<SessionClock> {
+    const state = await this.p016Read();
+    return state?.clock ?? 0;
+  }
+
+  /** CAD-PARITY-016 remediation: THE persisted-event engine. Runs the pure
+   *  transition inside the durable append: the store loads the project's
+   *  current record, the transition ticks the clock exactly once (the
+   *  project timeline), operates on the hydrated stores and returns its
+   *  result; the adapter durably records the dehydrated state as the
+   *  project's next event (re-running the transition under store-level
+   *  contention — the transition MUST be pure: no session mutation inside;
+   *  document reads are fine, document WRITES happen after the append).
+   *  Every P016 command goes through here — one serialized durable event
+   *  per command, shared across every session/handler/instance. */
+  private async p016Event<T>(
+    fn: (ctx: P016EventContext) => P016EventResult<T> | Promise<P016EventResult<T>>,
+  ): Promise<T> {
+    const projectKey = this.p016ProjectKey();
+    // Typed errors flow unchanged: the domain cores throw their own typed
+    // errors (CollabError/JobError/recovery scan failures), and the
+    // persistence adapters wrap their backend I/O failures into
+    // P016PersistError themselves — no error rewriting here.
+    const outcome = await this.p016Persist.append<T>(projectKey, async (state): Promise<P016Transition<T>> => {
+      const clock = (state?.clock ?? 0) + 1;
+      const ctx: P016EventContext = {
+        clock,
+        collab: state === null ? new CollabStore() : CollabStore.rehydrate(state.collab),
+        checkpoints: state === null ? new CheckpointStore() : CheckpointStore.rehydrate(state.recovery),
+        jobs: state === null ? new JobStore() : JobStore.rehydrate(state.jobs),
+        state,
+      };
+      const t = await fn(ctx);
+      return {
+        state: {
+          clock,
+          collab: ctx.collab.dehydrate(),
+          recovery: ctx.checkpoints.dehydrate(),
+          jobs: ctx.jobs.dehydrate(),
+        },
+        blobs: t.blobs,
+        result: t.result,
+      };
+    });
+    return outcome.result;
+  }
+
+  /** CAD-PARITY-016 remediation: the staged atomic edit executor. The
+   *  versioned transaction/merge paths need the resulting document version
+   *  INSIDE the pure transition — but the transition may be re-run under
+   *  store contention, and the session document may only mutate ONCE, after
+   *  the append wins. The staged executor applies the batch to a THROWAWAY
+   *  canonical rebuild of the CURRENT session document (CADDocument.open of
+   *  the current snapshot — the deterministic same-version path) and returns
+   *  the resulting version; the handler replays the batch on the real
+   *  document exactly once after a successful append. */
+  private stagedExecuteAtomic(edits: readonly unknown[]): number {
+    const staged = CADDocument.open(this.doc.snapshot(), this.options.createdBy);
+    staged.execute({ type: "applyEdits", edits: edits as DocumentEdit[] });
+    return staged.snapshot().version.version_number;
+  }
+
+  /** Replay a won transaction/merge batch on the real session document
+   *  (after the durable append — exactly once; deterministic: the same
+   *  snapshot + the same batch = the same version the staged executor
+   *  reported). */
+  private replayAtomic(edits: readonly unknown[]): number {
+    this.doc.execute({ type: "applyEdits", edits: edits as DocumentEdit[] });
+    return this.doc.snapshot().version.version_number;
+  }
+
+  /** The shared-effective current version for the transaction/merge
+   *  conflict semantics: the session document version AND the durable
+   *  project's transaction lineage head (a second participant's committed
+   *  transaction advances the shared head beyond the local editor copy —
+   *  the stale-base conflict is detected against the SHARED lineage, not
+   *  just the local view). */
+  private sharedCurrentVersion(state: PersistedP016State | null): number {
+    let head = this.doc.snapshot().version.version_number;
+    for (const t of state?.collab.transactions ?? []) {
+      if ((t.status === "applied" || t.status === "merged") && t.resultingVersion !== null) {
+        if (t.resultingVersion > head) head = t.resultingVersion;
+      }
+    }
+    return head;
+  }
+
+  /** CAD-PARITY-016: the shared checkpoint mint — a durable append (the
+   *  view + the content-addressed snapshot blob + the activity entry). */
+  private async mintCheckpoint(cause: "manual" | "autosave" | "pre-restore"): Promise<CheckpointView> {
+    return this.p016Event((ctx) => {
+      const { view, blob } = ctx.checkpoints.create(this.doc, cause, ctx.clock, checkpointIdOf);
+      ctx.collab.noteSystemEvent(
+        "checkpoint.saved",
+        `checkpoint ${view.id} saved (${cause}, v${view.documentVersionNumber}, sha ${view.contentHash.slice(0, 12)}…, ${view.elementCount} element(s))`,
+        ctx.clock,
+      );
+      return { blobs: [blob], result: view };
+    });
   }
 
   /** Current document content hash (for parity assertions across hosts). */
@@ -730,6 +1039,30 @@ export class AppApiHandler {
       // --- CAD-PARITY-014 (additive, Issue #107): file interoperability ---
       case "dxf.import":
         return this.cmdDxfImport(command.payload);
+      // --- CAD-PARITY-016 (additive, Issue #112): the collaboration/
+      // recovery/scale command surface. ---
+      case "recovery.checkpoint":
+        return this.cmdRecoveryCheckpoint();
+      case "recovery.restore":
+        return this.cmdRecoveryRestore(command.payload);
+      case "recovery.autosave":
+        return this.cmdRecoveryAutosave();
+      case "collab.join":
+        return this.cmdCollabJoin(command.payload);
+      case "collab.presence":
+        return this.cmdCollabPresence(command.payload);
+      case "collab.comment":
+        return this.cmdCollabComment(command.payload);
+      case "collab.resolveComment":
+        return this.cmdCollabResolveComment(command.payload);
+      case "collab.commit":
+        return this.cmdCollabCommit(command.payload);
+      case "collab.merge":
+        return this.cmdCollabMerge(command.payload);
+      case "jobs.create":
+        return this.cmdJobsCreate(command.payload);
+      case "jobs.tick":
+        return this.cmdJobsTick(command.payload);
       default: {
         const _exhaustive: never = command.name;
         return err("unknown_command", `unknown command: ${JSON.stringify(_exhaustive)}`);
@@ -752,6 +1085,7 @@ export class AppApiHandler {
     const formatVersion = typeof p.formatVersion === "string" ? p.formatVersion : this.options.formatVersion;
     const createdBy = typeof p.createdBy === "string" ? p.createdBy : this.options.createdBy;
     this.doc = CADDocument.empty(entityId, format, formatVersion, createdBy);
+    this.resetP016Session();
     return ok(this.doc.snapshot());
   }
 
@@ -779,6 +1113,7 @@ export class AppApiHandler {
       // revision history carried by the snapshot (LOCK-007: malformed
       // history is rejected, never guessed or silently repaired).
       this.doc = CADDocument.open(snapshot, this.options.createdBy);
+      this.resetP016Session();
     } catch (e) {
       return err("open_failed", `open rejected the snapshot: ${(e as Error).message}`, false);
     }
@@ -822,6 +1157,7 @@ export class AppApiHandler {
     try {
       const snapshot = deserialize(p.text);
       this.doc = CADDocument.open(snapshot, this.options.createdBy);
+      this.resetP016Session();
     } catch (e) {
       return err("deserialize_failed", (e as Error).message, false);
     }
@@ -1131,6 +1467,33 @@ export class AppApiHandler {
         return this.qInteropArchivalList();
       case "interop.roundtripReport":
         return await this.qInteropRoundtripReport(query.payload);
+      // --- CAD-PARITY-016 (additive, Issue #112): the collaboration/
+      // recovery/scale query surfaces (non-mutating, computed fresh every
+      // call, never persisted stale). ---
+      case "recovery.list":
+        return this.qRecoveryList();
+      case "collab.state":
+        return this.qCollabState();
+      case "collab.comments":
+        return this.qCollabComments();
+      case "collab.activity":
+        return this.qCollabActivity();
+      case "collab.transactions":
+        return this.qCollabTransactions();
+      case "jobs.list":
+        return this.qJobsList();
+      case "jobs.get":
+        return this.qJobsGet(query.payload);
+      case "model.stream":
+        return this.qModelStream(query.payload);
+      case "model.streamStats":
+        return this.qModelStreamStats();
+      case "xrefs.status":
+        return this.qXrefsStatus();
+      case "xrefs.probe":
+        return this.qXrefsProbe(query.payload);
+      case "perf.budgets":
+        return this.qPerfBudgets();
       default: {
         const _exhaustive: never = query.name;
         return err("unknown_query", `unknown query: ${JSON.stringify(_exhaustive)}`);
@@ -8455,6 +8818,740 @@ export class AppApiHandler {
         navigatorNodes: this.doc.navigatorNodeTable.length,
       },
     });
+  }
+
+  // ===========================================================================
+  // CAD-PARITY-016 (additive, Issue #112): the collaboration/recovery/scale
+  // command + query surface. The CADDocument remains the single canonical
+  // system of record (LOCK-019); every store below is a session-side
+  // support mechanism bound to canonical revisions/objects.
+  // ===========================================================================
+
+  /** The shared typed-error mapping for the P016 support cores. */
+  private p016Err(e: unknown): CommandQueryResponse {
+    if (e instanceof CollabError) return err(e.code, e.message, false);
+    if (e instanceof JobError) return err(e.code, e.message, false);
+    if (e instanceof StreamError) return err(e.code, e.message, false);
+    if (e instanceof P016PersistError) return err(e.code, e.message, false);
+    return err("p016_failed", (e as Error).message, false);
+  }
+
+  // --- recovery -------------------------------------------------------------
+
+  /** recovery.checkpoint — capture a durable versioned checkpoint of the
+   *  CURRENT canonical revision (manual cause; the autosave policy runs in
+   *  the background on every version-changing command). The checkpoint and
+   *  its content-addressed snapshot blob are DURABLY persisted through the
+   *  project record — they survive handler restarts, process death and
+   *  document replacement. */
+  private async cmdRecoveryCheckpoint(): Promise<CommandQueryResponse> {
+    try {
+      const view = await this.mintCheckpoint("manual");
+      const state = await this.p016Read();
+      return ok({
+        checkpoint: view,
+        policy: this.p016RecoveryPolicy(),
+        retained: state?.recovery.checkpoints.length ?? 0,
+        snapshot: this.doc.snapshot(),
+      });
+    } catch (e) {
+      return this.p016Err(e);
+    }
+  }
+
+  /** recovery.autosave — force an autosave-cause checkpoint through the SAME
+   *  durable store path the automatic policy takes (the policy escape
+   *  hatch). */
+  private async cmdRecoveryAutosave(): Promise<CommandQueryResponse> {
+    this.autosaveCount += 1;
+    this.mutationsSinceAutosave = 0;
+    try {
+      const view = await this.mintCheckpoint("autosave");
+      const state = await this.p016Read();
+      return ok({
+        checkpoint: view,
+        policy: this.p016RecoveryPolicy(),
+        retained: state?.recovery.checkpoints.length ?? 0,
+        snapshot: this.doc.snapshot(),
+      });
+    } catch (e) {
+      return this.p016Err(e);
+    }
+  }
+
+  /** recovery.restore — deterministic crash/session recovery. A pre-restore
+   *  safety checkpoint of the CURRENT state is minted first (nothing is
+   *  lost); the requested checkpoint (default: the latest VALID one) is
+   *  fetched from the DURABLE content-addressed snapshot blobs, rebuilt
+   *  through the canonical CADDocument.open path and integrity-validated
+   *  hash-exactly; corrupt/missing candidates are skipped with typed
+   *  reasons — never a silent repair. The restored document IS the
+   *  canonical document. The whole scan+restore runs inside the durable
+   *  append (one serialized project event); the session document swaps
+   *  only after the append wins. Because the checkpoints and blobs are
+   *  persisted, recovery works identically from a FRESH handler/instance —
+   *  the crash-recovery boundary the remediation closes. */
+  private async cmdRecoveryRestore(payload: unknown): Promise<CommandQueryResponse> {
+    const p = payload as { checkpointId?: unknown } | null;
+    if (p !== null && typeof p === "object" && p.checkpointId !== undefined &&
+        (typeof p.checkpointId !== "string" || p.checkpointId.length === 0)) {
+      return err("bad_payload", "recovery.restore checkpointId must be a non-empty string when present", true);
+    }
+    const requestedId =
+      p !== null && typeof p === "object" && typeof p.checkpointId === "string" && p.checkpointId.length > 0
+        ? p.checkpointId
+        : null;
+    try {
+      const outcome = await this.p016Event(async (ctx) => {
+        const { view: pre, blob } = ctx.checkpoints.create(this.doc, "pre-restore", ctx.clock, checkpointIdOf);
+        const { doc: restored, report } = await ctx.checkpoints.scanAndRestore(
+          requestedId,
+          (sha) => this.p016Persist.fetchBlob(sha),
+          (snapshot) => CADDocument.open(snapshot as CADDocumentSnapshot, this.options.createdBy),
+          (d) => d.currentContentHash(),
+          (d) => this.freshXrefStatuses(d),
+          ctx.clock,
+        );
+        ctx.collab.noteSystemEvent(
+          "recovery.restored",
+          `recovery restored ${report.chosen.id} (cause ${report.chosen.cause}, v${report.restoredVersionNumber}, ${report.skipped.length} skipped) — pre-restore ${pre.id} retained`,
+          ctx.clock,
+        );
+        return { blobs: [blob], result: { restored, report, pre } };
+      });
+      this.doc = outcome.restored;
+      this.docEpoch += 1;
+      this.restoreCount += 1;
+      this.mutationsSinceAutosave = 0;
+      return ok({
+        report: outcome.report,
+        preRestoreCheckpoint: outcome.pre,
+        snapshot: this.doc.snapshot(),
+      });
+    } catch (e) {
+      if (e instanceof P016PersistError) return this.p016Err(e);
+      // The recovery scan failures keep their typed recovery_failed mapping.
+      return err("recovery_failed", (e as Error).message, false);
+    }
+  }
+
+  /** recovery.list — the retained checkpoint inventory (read from the
+   *  durable project record) + the policy + the session recovery counters
+   *  (fresh, never persisted stale). */
+  private async qRecoveryList(): Promise<CommandQueryResponse> {
+    try {
+      const state = await this.p016Read();
+      const checkpoints = state === null ? new CheckpointStore() : CheckpointStore.rehydrate(state.recovery);
+      return ok({
+        checkpoints: checkpoints.list(),
+        policy: this.p016RecoveryPolicy(),
+        counters: {
+          commands: this.commandCount,
+          mutationsSinceAutosave: this.mutationsSinceAutosave,
+          autosaves: this.autosaveCount,
+          restores: this.restoreCount,
+          retained: checkpoints.checkpointCount,
+        },
+      });
+    } catch (e) {
+      return this.p016Err(e);
+    }
+  }
+
+  // --- collaboration ----------------------------------------------------------
+
+  /** collab.join — register a project-scoped member with a closed role (a
+   *  durable append: the member roster is shared across every
+   *  participant/session/handler/instance). */
+  private async cmdCollabJoin(payload: unknown): Promise<CommandQueryResponse> {
+    const p = payload as { userId?: unknown; role?: unknown } | null;
+    if (p === null || typeof p !== "object" || typeof p.userId !== "string" || typeof p.role !== "string") {
+      return err("bad_payload", "collab.join requires { userId, role }", true);
+    }
+    try {
+      const userId: string = p.userId;
+      const role: string = p.role;
+      const member = await this.p016Event((ctx) => {
+        const member = ctx.collab.join(userId, role as CollabMemberView["role"], ctx.clock);
+        return { result: member };
+      });
+      return ok({ member, documentVersion: this.doc.snapshot().version.version_number });
+    } catch (e) {
+      return this.p016Err(e);
+    }
+  }
+
+  /** collab.presence — the heartbeat (liveness + the revision the member is
+   *  viewing; deterministic project-clock semantics — a durable append, so
+   *  every participant sees the same liveness). */
+  private async cmdCollabPresence(payload: unknown): Promise<CommandQueryResponse> {
+    const p = payload as { userId?: unknown } | null;
+    if (p === null || typeof p !== "object" || typeof p.userId !== "string") {
+      return err("bad_payload", "collab.presence requires { userId }", true);
+    }
+    try {
+      const userId: string = p.userId;
+      const member = await this.p016Event((ctx) => {
+        const member = ctx.collab.presence(
+          userId,
+          ctx.clock,
+          this.doc.snapshot().version.version_number,
+        );
+        return { result: member };
+      });
+      return ok({ member, presenceTtl: PRESENCE_TTL });
+    } catch (e) {
+      return this.p016Err(e);
+    }
+  }
+
+  /** collab.comment — add a permission-checked comment linked to a canonical
+   *  target (document / element id / model revision), bound to the document
+   *  version at creation. A durable append — the comment is visible to every
+   *  participant/session. */
+  private async cmdCollabComment(payload: unknown): Promise<CommandQueryResponse> {
+    const p = payload as { userId?: unknown; body?: unknown; target?: unknown } | null;
+    if (p === null || typeof p !== "object" || typeof p.userId !== "string" || typeof p.body !== "string") {
+      return err("bad_payload", "collab.comment requires { userId, body, target? }", true);
+    }
+    let target: CommentTarget = { kind: "document" };
+    if (p.target !== undefined && p.target !== null) {
+      const t = p.target as { kind?: unknown; id?: unknown; revisionRef?: unknown };
+      if (typeof t !== "object" || typeof t.kind !== "string") {
+        return err("bad_payload", "comment target must be { kind, id?, revisionRef? }", true);
+      }
+      if (t.kind !== "document" && t.kind !== "element" && t.kind !== "revision") {
+        return err("bad_payload", "comment target kind must be document|element|revision", true);
+      }
+      target = {
+        kind: t.kind,
+        ...(typeof t.id === "string" ? { id: t.id } : {}),
+        ...(typeof t.revisionRef === "string" ? { revisionRef: t.revisionRef } : {}),
+      };
+    }
+    // The canonical-target validation (a comment must link a REAL canonical
+    // object/revision — never a dangling reference).
+    if (target.kind === "element") {
+      if (typeof target.id !== "string" || this.doc.elementById(target.id) === undefined) {
+        return err(
+          "collab_bad_target",
+          `comment target element '${String(target.id)}' does not exist in the canonical document`,
+          false,
+        );
+      }
+    } else if (target.kind === "revision") {
+      if (typeof target.revisionRef !== "string") {
+        return err("collab_bad_target", "revision comment target requires a revisionRef", true);
+      }
+      const known = new Set<string>(this.doc.history.revisions.map((r) => r.revision_id));
+      known.add(headRevisionIdOf(this.doc.history).id);
+      if (!known.has(target.revisionRef)) {
+        return err(
+          "collab_bad_target",
+          `comment target revision '${target.revisionRef}' is not a canonical model revision of this document`,
+          false,
+        );
+      }
+    }
+    try {
+      const userId: string = p.userId;
+      const body: string = p.body;
+      const comment = await this.p016Event((ctx) => {
+        const comment = ctx.collab.addComment(
+          userId,
+          body,
+          target,
+          ctx.clock,
+          this.doc.snapshot().version.version_number,
+        );
+        return { result: comment };
+      });
+      return ok({ comment });
+    } catch (e) {
+      return this.p016Err(e);
+    }
+  }
+
+  /** collab.resolveComment — record the resolving member. */
+  private async cmdCollabResolveComment(payload: unknown): Promise<CommandQueryResponse> {
+    const p = payload as { commentId?: unknown; userId?: unknown } | null;
+    if (p === null || typeof p !== "object" || typeof p.commentId !== "string" || typeof p.userId !== "string") {
+      return err("bad_payload", "collab.resolveComment requires { commentId, userId }", true);
+    }
+    try {
+      const commentId: string = p.commentId;
+      const userId: string = p.userId;
+      const comment = await this.p016Event((ctx) => {
+        const comment = ctx.collab.resolveComment(commentId, userId, ctx.clock);
+        return { result: comment };
+      });
+      return ok({ comment });
+    } catch (e) {
+      return this.p016Err(e);
+    }
+  }
+
+  /** collab.commit — the versioned transactional change. ONE atomic
+   *  versioned revision per applied transaction (the applyEdits batch —
+   *  the same atomicity the professional batch commands use); a moved head
+   *  produces the explicit reproducible conflict record. The record is a
+   *  durable append (the shared lineage — a second participant's stale base
+   *  conflicts against the SHARED head); the edit batch is STAGED on a
+   *  throwaway canonical rebuild inside the pure transition and replayed on
+   *  the session document exactly once after the append wins. */
+  private async cmdCollabCommit(payload: unknown): Promise<CommandQueryResponse> {
+    const p = payload as { userId?: unknown; baseVersion?: unknown; edits?: unknown } | null;
+    if (
+      p === null || typeof p !== "object" ||
+      typeof p.userId !== "string" ||
+      typeof p.baseVersion !== "number" || !Number.isInteger(p.baseVersion) ||
+      !Array.isArray(p.edits) || p.edits.length === 0
+    ) {
+      return err("bad_payload", "collab.commit requires { userId, baseVersion, edits }", true);
+    }
+    if (p.edits.length > 200) {
+      return err("bad_payload", "collab.commit edits are bounded to 200 per transaction", true);
+    }
+    for (const edit of p.edits) {
+      const e = edit as { type?: unknown; elementId?: unknown; element?: unknown };
+      if (typeof e?.type !== "string") {
+        return err("bad_payload", "each collab edit requires a type", true);
+      }
+      if (e.type === "addElement") {
+        if (typeof e.element !== "object" || e.element === null) {
+          return err("bad_payload", "addElement requires element", true);
+        }
+      } else if (e.type === "removeElement" || e.type === "updateElement" || e.type === "setProps") {
+        if (typeof e.elementId !== "string" || e.elementId.length === 0) {
+          return err("bad_payload", `${e.type} requires elementId`, true);
+        }
+      } else {
+        return err(
+          "bad_payload",
+          `collab edit type must be addElement|removeElement|updateElement|setProps (got '${e.type}')`,
+          true,
+        );
+      }
+    }
+    const edits = p.edits as DocumentEdit[];
+    try {
+      const userId: string = p.userId;
+      const baseVersion: number = p.baseVersion;
+      const outcome = await this.p016Event((ctx) => {
+        const currentVersion = this.sharedCurrentVersion(ctx.state);
+        const outcome = ctx.collab.commit(
+          userId,
+          baseVersion,
+          edits,
+          ctx.clock,
+          currentVersion,
+          (batch) => this.stagedExecuteAtomic(batch),
+        );
+        return { result: outcome };
+      });
+      if (outcome.applied) {
+        // The append won — replay the staged batch on the real session
+        // document exactly once (deterministic: same snapshot + same batch).
+        this.replayAtomic(edits);
+      }
+      return ok({
+        applied: outcome.applied,
+        transaction: outcome.view,
+        ...(outcome.applied ? { snapshot: this.doc.snapshot() } : {}),
+      });
+    } catch (e) {
+      return this.p016Err(e);
+    }
+  }
+
+  /** collab.merge — resolve an open conflict through the closed
+   *  rebase/discard vocabulary with recorded merge/resolution lineage (a
+   *  durable append; the rebase batch is staged/replayed like a commit). */
+  private async cmdCollabMerge(payload: unknown): Promise<CommandQueryResponse> {
+    const p = payload as { transactionId?: unknown; userId?: unknown; strategy?: unknown } | null;
+    if (
+      p === null || typeof p !== "object" ||
+      typeof p.transactionId !== "string" ||
+      typeof p.userId !== "string" ||
+      typeof p.strategy !== "string"
+    ) {
+      return err("bad_payload", "collab.merge requires { transactionId, userId, strategy }", true);
+    }
+    if (p.strategy !== "rebase" && p.strategy !== "discard") {
+      return err("bad_payload", "collab.merge strategy must be rebase|discard", true);
+    }
+    try {
+      const transactionId: string = p.transactionId;
+      const userId: string = p.userId;
+      const strategy: "rebase" | "discard" = p.strategy;
+      let replayedBatch: readonly unknown[] | null = null;
+      const outcome = await this.p016Event((ctx) => {
+        const currentVersion = this.sharedCurrentVersion(ctx.state);
+        const outcome = ctx.collab.merge(
+          transactionId,
+          userId,
+          strategy,
+          ctx.clock,
+          currentVersion,
+          (batch) => this.stagedExecuteAtomic(batch),
+        );
+        if (outcome.merge.strategy === "rebase" && outcome.merge.resultingVersion !== null) {
+          replayedBatch = ctx.collab.replayableEditsOf(transactionId);
+        }
+        return { result: outcome };
+      });
+      if (replayedBatch !== null && outcome.merge.resultingVersion !== null) {
+        // The rebase won — replay the staged batch on the real session
+        // document exactly once.
+        this.replayAtomic(replayedBatch);
+      }
+      return ok({
+        transaction: outcome.view,
+        merge: outcome.merge,
+        ...(outcome.merge.resultingVersion !== null ? { snapshot: this.doc.snapshot() } : {}),
+      });
+    } catch (e) {
+      return this.p016Err(e);
+    }
+  }
+
+  /** collab.state — the member roster with computed presence liveness (a
+   *  fresh fold of the durable project record — the SAME roster every
+   *  participant/session/instance sees) + the persistence identity view. */
+  private async qCollabState(): Promise<CommandQueryResponse> {
+    try {
+      const state = await this.p016Read();
+      const clock = state?.clock ?? 0;
+      const collab = state === null ? new CollabStore() : CollabStore.rehydrate(state.collab);
+      const persistence: P016PersistenceView = await this.p016Persist.status(this.p016ProjectKey());
+      return ok({
+        members: collab.memberList(clock),
+        presenceTtl: PRESENCE_TTL,
+        clock,
+        persistence,
+        commands: this.commandCount,
+        documentVersion: this.doc.snapshot().version.version_number,
+      });
+    } catch (e) {
+      return this.p016Err(e);
+    }
+  }
+
+  /** collab.comments — the comment list (canonical targets + revision
+   *  bindings) — the durable project record, shared across participants. */
+  private async qCollabComments(): Promise<CommandQueryResponse> {
+    try {
+      const state = await this.p016Read();
+      const collab = state === null ? new CollabStore() : CollabStore.rehydrate(state.collab);
+      return ok({ comments: collab.commentList() });
+    } catch (e) {
+      return this.p016Err(e);
+    }
+  }
+
+  /** collab.activity — the bounded append-only activity stream (the durable
+   *  project record — the shared timeline). */
+  private async qCollabActivity(): Promise<CommandQueryResponse> {
+    try {
+      const state = await this.p016Read();
+      const collab = state === null ? new CollabStore() : CollabStore.rehydrate(state.collab);
+      return ok({ activity: collab.activityList() });
+    } catch (e) {
+      return this.p016Err(e);
+    }
+  }
+
+  /** collab.transactions — the versioned transaction inventory with the
+   *  conflict and merge/resolution lineage (the durable shared lineage). */
+  private async qCollabTransactions(): Promise<CommandQueryResponse> {
+    try {
+      const state = await this.p016Read();
+      const collab = state === null ? new CollabStore() : CollabStore.rehydrate(state.collab);
+      return ok({ transactions: collab.transactionList() });
+    } catch (e) {
+      return this.p016Err(e);
+    }
+  }
+
+  // --- background regeneration (durable jobs) --------------------------------
+
+  /** jobs.create — queue a durable background-regeneration job (closed kind
+   *  vocabulary; read-only document work; never authority). The job record
+   *  is a durable append — the lifecycle is shared and survives restarts. */
+  private async cmdJobsCreate(payload: unknown): Promise<CommandQueryResponse> {
+    const p = payload as { kind?: unknown; params?: unknown } | null;
+    if (p === null || typeof p !== "object" || typeof p.kind !== "string") {
+      return err("bad_payload", "jobs.create requires { kind, params? }", true);
+    }
+    try {
+      const kind: string = p.kind;
+      const params = p.params === undefined || p.params === null ? {} : p.params;
+      const job = await this.p016Event((ctx) => {
+        const job = ctx.jobs.create(kind as JobKind, params, ctx.clock, this.doc);
+        ctx.collab.noteSystemEvent(
+          "job.created",
+          `job ${job.id} queued (${job.kind}, ${job.totalSteps} step(s))`,
+          ctx.clock,
+        );
+        return { result: job };
+      });
+      return ok({ job });
+    } catch (e) {
+      return this.p016Err(e);
+    }
+  }
+
+  /** jobs.tick — advance ONE job by ONE deterministic step (the
+   *  serverless-honest durable execution model — no hidden background
+   *  thread; the step lands in the durable project record). */
+  private async cmdJobsTick(payload: unknown): Promise<CommandQueryResponse> {
+    const p = payload as { jobId?: unknown } | null;
+    if (p === null || typeof p !== "object" || typeof p.jobId !== "string" || p.jobId.length === 0) {
+      return err("bad_payload", "jobs.tick requires { jobId }", true);
+    }
+    try {
+      const jobId: string = p.jobId;
+      const job = await this.p016Event((ctx) => {
+        const job = ctx.jobs.tick(jobId, ctx.clock, {
+          doc: this.doc,
+          streamPage: (doc, pageIndex, pageSize) => this.stream.page(doc, pageIndex, pageSize),
+        });
+        if (job.status === "succeeded") {
+          ctx.collab.noteSystemEvent(
+            "job.succeeded",
+            `job ${job.id} succeeded (${job.kind}, ${job.step}/${job.totalSteps} steps)`,
+            ctx.clock,
+          );
+        } else if (job.status === "failed") {
+          ctx.collab.noteSystemEvent(
+            "job.failed",
+            `job ${job.id} failed (${job.kind}: ${job.failure?.code ?? "job_failed"})`,
+            ctx.clock,
+          );
+        }
+        return { result: job };
+      });
+      return ok({ job });
+    } catch (e) {
+      return this.p016Err(e);
+    }
+  }
+
+  /** jobs.list / jobs.get — the durable job states (read-only folds). */
+  private async qJobsList(): Promise<CommandQueryResponse> {
+    try {
+      const state = await this.p016Read();
+      const jobs = state === null ? new JobStore() : JobStore.rehydrate(state.jobs);
+      return ok({ jobs: jobs.list() });
+    } catch (e) {
+      return this.p016Err(e);
+    }
+  }
+
+  private async qJobsGet(payload: unknown): Promise<CommandQueryResponse> {
+    const p = payload as { jobId?: unknown } | null;
+    if (p === null || typeof p !== "object" || typeof p.jobId !== "string" || p.jobId.length === 0) {
+      return err("bad_payload", "jobs.get requires { jobId }", true);
+    }
+    try {
+      const state = await this.p016Read();
+      const jobs = state === null ? new JobStore() : JobStore.rehydrate(state.jobs);
+      const job = jobs.byId(p.jobId);
+      if (job === null) {
+        return err("job_not_found", `job '${p.jobId}' does not exist`, false);
+      }
+      return ok({ job });
+    } catch (e) {
+      return this.p016Err(e);
+    }
+  }
+
+  // --- large-model streaming (bounded, cache non-authority) -------------------
+
+  /** model.stream — ONE canonical id-sorted element page (version +
+   *  content-hash bound; the bounded page-size grammar). */
+  private qModelStream(payload: unknown): CommandQueryResponse {
+    const p = payload as { pageIndex?: unknown; pageSize?: unknown } | null;
+    if (p === null || typeof p !== "object" || typeof p.pageIndex !== "number" || !Number.isInteger(p.pageIndex) || p.pageIndex < 0) {
+      return err("bad_payload", "model.stream requires { pageIndex, pageSize? }", true);
+    }
+    const pageSize =
+      p.pageSize === undefined
+        ? STREAM_PAGE_SIZE_DEFAULT
+        : typeof p.pageSize === "number" && Number.isInteger(p.pageSize)
+          ? p.pageSize
+          : -1;
+    try {
+      const page = this.stream.page(this.doc, p.pageIndex, pageSize);
+      return ok({ page });
+    } catch (e) {
+      return this.p016Err(e);
+    }
+  }
+
+  /** model.streamStats — the bounded stream cache's exact counters (the
+   *  explicit non-authority + performance-budget evidence). */
+  private qModelStreamStats(): CommandQueryResponse {
+    return ok({ stats: this.stream.stats() });
+  }
+
+  // --- external references (fresh status + explicit outcomes) ------------------
+
+  /** The fresh external-reference status computation (the P016 outcome
+   *  table — computed against the supplied document, never persisted
+   *  stale). */
+  private freshXrefStatuses(doc: CADDocument): readonly XrefStatusView[] {
+    const elements = doc.allElements();
+    const binding = {
+      documentVersionNumber: doc.snapshot().version.version_number,
+      contentHash: doc.currentContentHash(),
+    };
+    return doc.xrefTable.map((rec) => {
+      let instances = 0;
+      for (const el of elements) {
+        const props = el.props as Record<string, unknown>;
+        if (props.drafting === true && props.type === "xref-ref" && props.xrefId === rec.id) instances++;
+      }
+      const ext = pathExtensionOf(rec.path);
+      let outcome: XrefOutcome;
+      let detail: string;
+      if (rec.status === "unresolved") {
+        outcome = "unavailable";
+        detail = "external source not supplied (unresolved record — content required at attach/reload)";
+      } else if (ext === ".dwg" || ext === ".rvt" || ext === ".dgn") {
+        outcome = "unsupported";
+        detail = `declared source format '${ext}' is outside the bounded external-reference support (the dwg_unsupported-class decline)`;
+      } else {
+        outcome = "available";
+        detail = `loaded (sha ${rec.sourceHash?.slice(0, 12) ?? ""}…, ${rec.entities.length} entit${rec.entities.length === 1 ? "y" : "ies"}, ${instances} instance${instances === 1 ? "" : "s"})`;
+      }
+      return {
+        id: rec.id,
+        name: rec.name,
+        path: rec.path,
+        recordStatus: rec.status,
+        sourceHash: rec.sourceHash,
+        entityCount: rec.entities.length,
+        instances,
+        outcome,
+        detail,
+        revisionBinding: binding,
+      };
+    });
+  }
+
+  /** xrefs.status — the fresh external-reference status with the explicit
+   *  available/unavailable/unsupported outcomes + the canonical revision
+   *  binding. */
+  private qXrefsStatus(): CommandQueryResponse {
+    return ok({ xrefs: this.freshXrefStatuses(this.doc) });
+  }
+
+  /** xrefs.probe — the client-supplied source-hash probe (the explicit
+   *  STALE outcome: the record's attach/reload-time hash vs the current
+   *  external source hash; the record is never mutated by a probe). */
+  private qXrefsProbe(payload: unknown): CommandQueryResponse {
+    const p = payload as { name?: unknown; sourceHash?: unknown } | null;
+    if (p === null || typeof p !== "object" || typeof p.name !== "string" || typeof p.sourceHash !== "string" || p.sourceHash.length === 0) {
+      return err("bad_payload", "xrefs.probe requires { name, sourceHash }", true);
+    }
+    const rec = this.doc.xrefByName(p.name);
+    if (rec === undefined) {
+      return err("xref_not_found", `external reference '${p.name}' does not exist`, false);
+    }
+    if (rec.status === "unresolved" || rec.sourceHash === null) {
+      return ok({
+        probe: {
+          id: rec.id,
+          name: rec.name,
+          recordSourceHash: null,
+          probedSourceHash: p.sourceHash,
+          outcome: "unavailable" as XrefOutcome,
+          detail: "record is unresolved — no recorded source hash to compare against",
+        },
+      });
+    }
+    const outcome: XrefOutcome = rec.sourceHash === p.sourceHash ? "available" : "stale";
+    const detail =
+      outcome === "available"
+        ? "record and probed source hashes match — the external source is current"
+        : `record sha ${rec.sourceHash.slice(0, 12)}… vs probed ${p.sourceHash.slice(0, 12)}… — the external source moved (reload to adopt)`;
+    return ok({
+      probe: {
+        id: rec.id,
+        name: rec.name,
+        recordSourceHash: rec.sourceHash,
+        probedSourceHash: p.sourceHash,
+        outcome,
+        detail,
+      },
+    });
+  }
+
+  // --- observable performance budgets (revision-bound) -------------------------
+
+  /** The declared observable performance-budget thresholds (the smoke
+   *  measures wall-clock per call and asserts these; only deterministic
+   *  counters are pinned — never the wall-clock values). */
+  private static readonly P016_PERF_BUDGETS: readonly {
+    workflow: string;
+    thresholdMs: number;
+  }[] = [
+    { workflow: "recovery.checkpoint (per call)", thresholdMs: 2000 },
+    { workflow: "recovery.restore (per call)", thresholdMs: 5000 },
+    { workflow: "collab.comment (per call)", thresholdMs: 1000 },
+    { workflow: "collab.commit (per call)", thresholdMs: 2000 },
+    { workflow: "model.stream page (cache miss, 500+ elements)", thresholdMs: 3000 },
+    { workflow: "jobs.tick (per step)", thresholdMs: 2000 },
+  ];
+
+  /** perf.budgets — the declared thresholds + the P016 counters (the
+   *  session-side observability + the durable project record's store
+   *  counters), bound to the current canonical revision. */
+  private async qPerfBudgets(): Promise<CommandQueryResponse> {
+    try {
+      const state = await this.p016Read();
+      const collab = state === null ? new CollabStore() : CollabStore.rehydrate(state.collab);
+      const checkpoints = state === null ? new CheckpointStore() : CheckpointStore.rehydrate(state.recovery);
+      const jobs = state === null ? new JobStore() : JobStore.rehydrate(state.jobs);
+      const snapshot = this.doc.snapshot();
+      const head = headRevisionIdOf(this.doc.history);
+      const view: PerfBudgetsView = {
+        revision: {
+          documentVersionId: snapshot.version.version_id,
+          documentVersionNumber: snapshot.version.version_number,
+          contentHash: this.doc.currentContentHash(),
+          modelRevisionNumber: head.number,
+          modelRevisionId: head.id,
+          elementCount: snapshot.elements.length,
+        },
+        budgets: AppApiHandler.P016_PERF_BUDGETS.map((b) => ({
+          workflow: b.workflow,
+          thresholdMs: b.thresholdMs,
+          unit: "ms" as const,
+          measuredBy: "smoke-observed" as const,
+        })),
+        counters: {
+          commands: this.commandCount,
+          checkpoints: checkpoints.checkpointCount + this.autosaveCount + this.restoreCount,
+          autosaves: this.autosaveCount,
+          restores: this.restoreCount,
+          comments: collab.commentCount,
+          presenceBeats: collab.presenceBeatCount,
+          transactions: collab.transactionCount,
+          conflicts: collab.conflictCount,
+          merges: collab.mergeCount,
+          streamPages: this.stream.servedPageCount,
+          cacheHits: this.stream.hitCount,
+          cacheMisses: this.stream.missCount,
+          cacheStaleEvictions: this.stream.staleEvictionCount,
+          jobTicks: jobs.jobTickCount,
+        },
+      };
+      return ok(view);
+    } catch (e) {
+      return this.p016Err(e);
+    }
   }
 
 }

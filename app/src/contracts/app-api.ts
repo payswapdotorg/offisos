@@ -284,7 +284,44 @@ export type CommandName =
   | "publisher.update"
   | "publisher.remove"
   | "publisher.run"
-  | "layout.update";
+  | "layout.update"
+  // --- CAD-PARITY-016 (additive, Issue #112): the collaboration/recovery/
+  // scale command surface. recovery.checkpoint captures a durable versioned
+  // checkpoint of the CURRENT canonical revision (cause manual; autosave
+  // checkpoints are minted automatically by the bounded autosave policy and
+  // recovery.autosave forces one); recovery.restore deterministically
+  // restores a checkpoint (default: the latest VALID one — corrupt
+  // candidates are skipped with typed reasons, never silently repaired)
+  // through the canonical CADDocument.open path after capturing a
+  // pre-restore safety checkpoint; collab.join registers a project-scoped
+  // member with a closed role vocabulary (viewer/commenter/editor —
+  // server-side permission checks, typed collab_forbidden on violation);
+  // collab.presence is the heartbeat (liveness + the revision the member is
+  // viewing, deterministic session-clock semantics); collab.comment adds a
+  // comment linked to a canonical target (document/element id/revision,
+  // bound to the document version at creation); collab.resolveComment
+  // records the resolving member; collab.commit applies a versioned
+  // transactional change authored against a declared baseVersion (ONE
+  // atomic versioned revision — a moved head produces an explicit
+  // reproducible conflict record with the intervening transactions and the
+  // overlapping canonical element ids); collab.merge resolves an open
+  // conflict through the closed rebase/discard vocabulary with recorded
+  // merge/resolution lineage (parents = [baseVersion, headVersion]);
+  // jobs.create queues a durable background-regeneration job (closed kind
+  // vocabulary, read-only document work, never authority); jobs.tick
+  // advances ONE deterministic step per call (the serverless-honest
+  // durable execution model — no hidden background thread). ---
+  | "recovery.checkpoint"
+  | "recovery.restore"
+  | "recovery.autosave"
+  | "collab.join"
+  | "collab.presence"
+  | "collab.comment"
+  | "collab.resolveComment"
+  | "collab.commit"
+  | "collab.merge"
+  | "jobs.create"
+  | "jobs.tick";
 
 // --- Query names (non-mutating) ---
 // `document.getSelection` returns the ephemeral editor selection (orthogonal
@@ -441,7 +478,39 @@ export type QueryName =
   | "dxf.export"
   | "interop.exchangeReport"
   | "interop.archivalList"
-  | "interop.roundtripReport";
+  | "interop.roundtripReport"
+  // --- CAD-PARITY-016 (additive, Issue #112): the collaboration/recovery/
+  // scale query surfaces (non-mutating, computed fresh every call, never
+  // persisted stale). recovery.list = the retained checkpoint inventory +
+  // the autosave policy + the recovery counters; collab.state = the
+  // project-scoped member roster with computed presence liveness;
+  // collab.comments = the comment list (canonical targets + revision
+  // bindings); collab.activity = the bounded append-only activity stream;
+  // collab.transactions = the versioned transaction inventory with the
+  // conflict and merge/resolution lineage; jobs.list/jobs.get = the durable
+  // job states (read-only); model.stream = ONE canonical id-sorted element
+  // page (bounded pageSize grammar, version+contentHash-bound — the
+  // large-model access surface); model.streamStats = the bounded stream
+  // cache's exact counters (the explicit non-authority + performance-budget
+  // evidence); xrefs.status = the fresh external-reference status with the
+  // explicit available/unavailable/unsupported outcomes + the canonical
+  // revision binding; xrefs.probe = the client-supplied source-hash probe
+  // (the explicit stale outcome — record hash vs the current external
+  // source hash, never mutating the record); perf.budgets = the declared
+  // observable performance-budget thresholds + the deterministic P016
+  // counters, bound to the current canonical revision. ---
+  | "recovery.list"
+  | "collab.state"
+  | "collab.comments"
+  | "collab.activity"
+  | "collab.transactions"
+  | "jobs.list"
+  | "jobs.get"
+  | "model.stream"
+  | "model.streamStats"
+  | "xrefs.status"
+  | "xrefs.probe"
+  | "perf.budgets";
 
 export interface Command {
   readonly type: "command";

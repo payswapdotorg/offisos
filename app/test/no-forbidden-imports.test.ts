@@ -47,7 +47,11 @@ const FORBIDDEN_SPECIFIERS = [
 // CAD-PARITY-015 (Issue #110): src/quantities joins the scanned core (the
 // canonical quantity rules + the revision-bound takeoff are engine-free
 // shared core, LOCK-018).
-const PROTECTED_DIRS = ["src/contracts", "src/renderer", "src/app-api", "src/caddocument", "src/graph", "src/impact", "src/drafting", "src/bim", "src/docs", "src/ifc", "src/workspace", "src/interop", "src/quantities"];
+// CAD-PARITY-016 (Issue #112): src/recovery, src/collab, src/jobs,
+// src/modelstream and src/persist join the scanned core (the
+// collaboration/recovery/scale + the durable/shared persistence boundary.
+// session-side support stores are engine-free shared core, LOCK-018).
+const PROTECTED_DIRS = ["src/contracts", "src/renderer", "src/app-api", "src/caddocument", "src/graph", "src/impact", "src/drafting", "src/bim", "src/docs", "src/ifc", "src/workspace", "src/interop", "src/quantities", "src/recovery", "src/collab", "src/jobs", "src/modelstream", "src/persist"];
 
 function* walk(dir: string): Generator<string> {
   for (const entry of readdirSync(dir)) {

@@ -1,0 +1,113 @@
+{
+ "elementCount": 15,
+ "checkpointCount": 4,
+ "checkpointIds": [
+  "ckpt-000001:manual:v4",
+  "ckpt-000002:autosave:v6",
+  "ckpt-000003:pre-restore:v6",
+  "ckpt-000004:pre-restore:v6"
+ ],
+ "autosaves": 1,
+ "restores": 2,
+ "memberRoster": [
+  "ekon:editor:active",
+  "reviewer:viewer:stale",
+  "com:commenter:stale"
+ ],
+ "presenceTtl": 30,
+ "commentsSha256": "636b49ce9bfa39060ad601b136441b638b9a86d00b79cb638c8c27074ea532ab",
+ "transactionLineage": [
+  "txn-000001:applied:v2->3:-",
+  "txn-000002:discarded:v2->x:mrg-000001/discard[2+3]",
+  "txn-000003:merged:v2->4:mrg-000002/rebase[2+3]"
+ ],
+ "activityKinds": [
+  "member.joined",
+  "member.joined",
+  "member.joined",
+  "comment.added",
+  "comment.added",
+  "comment.resolved",
+  "transaction.committed",
+  "transaction.conflict",
+  "transaction.discarded",
+  "transaction.conflict",
+  "transaction.merged",
+  "checkpoint.saved",
+  "checkpoint.saved",
+  "recovery.restored",
+  "recovery.restored",
+  "job.created",
+  "job.succeeded",
+  "job.created",
+  "job.failed"
+ ],
+ "activityDigest": "c8ab16b6d938adb1c7efc2acfe9eba122842be192710d33f96a78ebed89c2151",
+ "jobLifecycle": [
+  "job-000001:quantity.recalculate:succeeded:3/3",
+  "job-000002:docs.regenerate:failed:1/3"
+ ],
+ "jobReportSha256": "d80c8a232b5df668942e11eda182c8297d1f92ea9b389cc37b265e64c4296495",
+ "streamStats": {
+  "hits": 1,
+  "misses": 2,
+  "staleEvictions": 1,
+  "entries": 1
+ },
+ "xrefOutcomes": [
+  "site-plan:available",
+  "survey:unsupported",
+  "legacy-grid:unavailable"
+ ],
+ "budgetCounters": {
+  "commands": 31,
+  "checkpoints": 7,
+  "autosaves": 1,
+  "restores": 2,
+  "comments": 2,
+  "presenceBeats": 1,
+  "transactions": 3,
+  "conflicts": 2,
+  "merges": 2,
+  "streamPages": 3,
+  "cacheHits": 1,
+  "cacheMisses": 2,
+  "cacheStaleEvictions": 1,
+  "jobTicks": 4
+ },
+ "echoDigest": "ca23be7bff9192722addce76671f166da1147ac70cb18946e9e486697760f252",
+ "commandStream": [
+  "document.create",
+  "bim.createElements",
+  "collab.join",
+  "collab.presence",
+  "collab.join",
+  "collab.join",
+  "collab.comment",
+  "collab.comment",
+  "collab.comment",
+  "collab.resolveComment",
+  "collab.commit",
+  "collab.commit",
+  "collab.merge",
+  "collab.merge",
+  "collab.commit",
+  "collab.merge",
+  "recovery.checkpoint",
+  "bim.move",
+  "bim.move",
+  "recovery.restore",
+  "recovery.restore",
+  "xref.attach",
+  "xref.attach",
+  "xref.attach",
+  "jobs.create",
+  "jobs.tick",
+  "jobs.tick",
+  "jobs.tick",
+  "jobs.tick",
+  "jobs.create",
+  "jobs.tick",
+  "bim.move"
+ ]
+}

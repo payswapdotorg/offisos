@@ -19,6 +19,10 @@ const nextConfig: NextConfig = {
     ignoreBuildErrors: true,
   },
   reactStrictMode: false,
+  // CAD-PARITY-016 remediation: node-postgres uses dynamic requires — keep
+  // it external to the server bundle (the persistence adapter is server-
+  // side only; the route runs on the Node.js runtime).
+  serverExternalPackages: ["pg"],
   // Resolve `.js` specifiers to `.ts` for the canonical app/src/ contracts
   // (Node ESM `.js`-strip convention; moduleResolution: bundler).
   webpack: (config) => {
