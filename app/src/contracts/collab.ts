@@ -466,4 +466,12 @@ export interface PersistedP016State {
   readonly collab: CollabPersistedState;
   readonly recovery: RecoveryPersistedState;
   readonly jobs: JobsPersistedState;
+  /** CAD-PARITY-017 (additive, Issue #116): the durable automation section
+   *  (principals/scripts/runs/subscriptions/extensions). OPTIONAL for
+   *  backward compatibility with every pre-P017 project record — absence
+   *  rehydrates to the empty automation store; presence is structurally
+   *  validated (LOCK-007). The section rides the SAME append-only event
+   *  versioning (ONE record per project, content-addressed blobs
+   *  unchanged), so pre-P017 flows and fixtures stay byte-identical. */
+  readonly automation?: import("./automation.js").AutomationPersistedState;
 }

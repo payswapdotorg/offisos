@@ -2220,6 +2220,66 @@ export const COMMAND_PAYLOAD_SCHEMAS: Readonly<Record<CommandName, object>> = {
     },
     required: ["jobId"],
   },
+  // --- CAD-PARITY-017 (additive, Issue #116): the automation/extension
+  // API command payloads (coarse wire shapes; the handlers + the
+  // automation core validate strictly with typed declines). ---
+  "automation.authenticate": {
+    type: "object",
+    properties: {
+      principalId: { type: "string", minLength: 1, maxLength: 64 },
+      role: { type: "string", enum: ["viewer", "commenter", "editor"] },
+    },
+    required: ["principalId", "role"],
+  },
+  "automation.registerScript": {
+    type: "object",
+    properties: {
+      principalId: { type: "string", minLength: 1, maxLength: 64 },
+      script: { type: "object" },
+    },
+    required: ["principalId", "script"],
+  },
+  "automation.runScript": {
+    type: "object",
+    properties: {
+      principalId: { type: "string", minLength: 1, maxLength: 64 },
+      scriptId: { type: "string", minLength: 1 },
+    },
+    required: ["principalId", "scriptId"],
+  },
+  "automation.deleteScript": {
+    type: "object",
+    properties: {
+      principalId: { type: "string", minLength: 1, maxLength: 64 },
+      scriptId: { type: "string", minLength: 1 },
+    },
+    required: ["principalId", "scriptId"],
+  },
+  "automation.subscribe": {
+    type: "object",
+    properties: {
+      principalId: { type: "string", minLength: 1, maxLength: 64 },
+      scope: { type: "string", enum: ["document", "project", "jobs"] },
+      kinds: { type: "array", minItems: 1, items: { type: "string" } },
+    },
+    required: ["principalId", "scope"],
+  },
+  "automation.unsubscribe": {
+    type: "object",
+    properties: {
+      principalId: { type: "string", minLength: 1, maxLength: 64 },
+      subscriptionId: { type: "string", minLength: 1 },
+    },
+    required: ["principalId", "subscriptionId"],
+  },
+  "automation.registerExtension": {
+    type: "object",
+    properties: {
+      principalId: { type: "string", minLength: 1, maxLength: 64 },
+      extension: { type: "object" },
+    },
+    required: ["principalId", "extension"],
+  },
 };
 
 export const QUERY_PAYLOAD_SCHEMAS: Readonly<Record<QueryName, object>> = {
@@ -2547,6 +2607,20 @@ export const QUERY_PAYLOAD_SCHEMAS: Readonly<Record<QueryName, object>> = {
     required: ["name", "sourceHash"],
   },
   "perf.budgets": { type: "object", properties: {} },
+  // --- CAD-PARITY-017 (additive, Issue #116): the automation/extension
+  // API query payloads. ---
+  "automation.capabilities": { type: "object", properties: {} },
+  "automation.principals": { type: "object", properties: {} },
+  "automation.scripts": { type: "object", properties: {} },
+  "automation.runs": { type: "object", properties: {} },
+  "automation.events": {
+    type: "object",
+    properties: {
+      principalId: { type: "string", minLength: 1, maxLength: 64 },
+    },
+    required: ["principalId"],
+  },
+  "automation.extensions": { type: "object", properties: {} },
 };
 
 export const WIRE_ENVELOPE_SCHEMA = {

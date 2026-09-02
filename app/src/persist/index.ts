@@ -56,6 +56,11 @@ import type {
   P016PersistenceView,
   PersistedP016State,
 } from "../contracts/collab.js";
+import {
+  emptyAutomationPersistedState,
+  type AutomationPersistedState,
+} from "../contracts/automation.js";
+import { AutomationError } from "../automation/index.js";
 
 /** The typed persistence failure (surfaces as an app-api typed err). */
 export class P016PersistError extends Error {
@@ -137,6 +142,9 @@ export function emptyPersistedP016State(): PersistedP016State {
     },
     recovery: { checkpoints: [], nextSeq: 0 },
     jobs: { jobs: [], seq: 0, tickCount: 0 },
+    // CAD-PARITY-017 (additive, Issue #116): the empty automation section —
+    // pre-P017 records simply lack the key (rehydration defaults to empty).
+    automation: emptyAutomationPersistedState(),
   };
 }
 
@@ -177,11 +185,55 @@ export function validatePersistedP016State(value: unknown): PersistedP016State {
       problems.push("jobs section malformed");
     }
   }
+  // CAD-PARITY-017 (additive, Issue #116): the automation section is
+  // OPTIONAL (every pre-P017 record lacks it — absence rehydrates to the
+  // empty automation store); presence is structurally validated (LOCK-007).
+  if (has(state, "automation")) {
+    try {
+      validateAutomationPersistedStateSection(state.automation);
+    } catch (e) {
+      if (e instanceof AutomationError) {
+        problems.push(`automation section: ${e.message}`);
+      } else {
+        problems.push("automation section malformed");
+      }
+    }
+  }
   if (problems.length > 0) {
     throw new P016PersistError(
       "p016_persist_corrupt",
       `persisted project state failed validation: ${problems.join("; ")}`,
     );
+  }
+  return state;
+}
+
+/** The CAD-PARITY-017 automation-section structural check (LOCK-007: a
+ *  malformed section is rejected, never guessed or silently repaired). */
+function validateAutomationPersistedStateSection(value: unknown): AutomationPersistedState {
+  const state = value as AutomationPersistedState;
+  if (typeof state !== "object" || state === null) {
+    throw new AutomationError("automation_bad_payload", "automation section is not an object");
+  }
+  const problems: string[] = [];
+  if (
+    !Array.isArray(state.principals) || !Array.isArray(state.scripts) ||
+    !Array.isArray(state.runs) || !Array.isArray(state.subscriptions) ||
+    !Array.isArray(state.extensions)
+  ) {
+    problems.push("principals/scripts/runs/subscriptions/extensions arrays are all required");
+  }
+  const seq = state.seq as Record<string, unknown> | undefined;
+  if (
+    seq === undefined || typeof seq !== "object" ||
+    typeof seq.principal !== "number" || typeof seq.script !== "number" ||
+    typeof seq.run !== "number" || typeof seq.subscription !== "number" ||
+    typeof seq.extension !== "number"
+  ) {
+    problems.push("seq counters malformed");
+  }
+  if (problems.length > 0) {
+    throw new AutomationError("automation_bad_payload", `automation section failed validation: ${problems.join("; ")}`);
   }
   return state;
 }

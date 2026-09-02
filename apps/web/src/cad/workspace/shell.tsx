@@ -56,6 +56,20 @@ import {
   unwrapCollabTransactions,
   unwrapXrefsStatus,
   unwrapPerfBudgets,
+  // CAD-PARITY-017 (Issue #116): the automation/extension surfaces (the
+  // report.automation action).
+  automationCapabilities,
+  automationPrincipals,
+  automationScripts,
+  automationRuns,
+  automationExtensions,
+  automationEvents,
+  unwrapAutomationCapabilities,
+  unwrapAutomationPrincipals,
+  unwrapAutomationScripts,
+  unwrapAutomationRuns,
+  unwrapAutomationExtensions,
+  unwrapAutomationEvents,
   send,
   setSelection as setDocumentSelection,
   unwrapCoordinationClash,
@@ -102,6 +116,9 @@ import { ComponentsWorkbench } from "@/cad/components/workbench";
 import { SchedulesWorkbench } from "@/cad/schedules/workbench";
 // CAD-PARITY-016 (Issue #112): the Collaboration/Recovery/Scale workbench.
 import { CollabWorkbench } from "@/cad/collab/workbench";
+// CAD-PARITY-017 (Issue #116): the automation/extension/API workbench (the
+// capability discovery, principals, scripts, runs, events, extensions).
+import { AutomationWorkbench } from "@/cad/automation/workbench";
 // CAD-PARITY-012 (Issue #102): the shared material display helpers — the
 // SAME resolution the canvas paint loop and the Coordination palette run;
 // materialViewsOf derives the id-sorted table rows from the snapshot (the
@@ -129,6 +146,8 @@ const VIEW_TABS: readonly { id: WorkspaceView; label: string }[] = [
   { id: "schedules", label: "Schedules" },
   // CAD-PARITY-016 (Issue #112): the collaboration/recovery/scale surface.
   { id: "collab", label: "Collab" },
+  // CAD-PARITY-017 (Issue #116): the automation/extension/API surface.
+  { id: "automation", label: "Automation" },
 ];
 
 export function WorkspaceShell(): React.JSX.Element {
@@ -450,6 +469,12 @@ export function WorkspaceShell(): React.JSX.Element {
               // conflicts + merge lineage, checkpoints + recovery, jobs,
               // streaming + budgets).
               setView("collab");
+            } else if (palette === "automation") {
+              // CAD-PARITY-017 (Issue #116): AUTOCAPS/AUTOLIST/AUTOEVENTS —
+              // the Automation/Extension/API workbench (capability
+              // discovery, principals, scripts, deterministic runs, the
+              // scoped event feeds, extension manifests).
+              setView("automation");
             } else if (palette === "workspace") {
               setPreset((p) => (p === "compact" ? "drafting" : "compact"));
             }
@@ -743,6 +768,80 @@ export function WorkspaceShell(): React.JSX.Element {
               setHistoryLines((h) => [...h, ...lines]);
             } catch {
               setHistoryLines((h) => [...h, "*ERROR* report.budgets: the query failed."]);
+            }
+            break;
+          }
+          case "report.automation": {
+            // CAD-PARITY-017 (Issue #116): AUTOCAPS/AUTOLIST/AUTOEVENTS — the
+            // host renders the REAL automation query results (the capability
+            // discovery + the inventory; the scoped event feed when the
+            // action carries a principalId).
+            try {
+              const principalId = (action.payload as { principalId?: unknown } | undefined)?.principalId;
+              const [capsRes, principalsRes, scriptsRes, runsRes, extRes] = await Promise.all([
+                automationCapabilities(),
+                automationPrincipals(),
+                automationScripts(),
+                automationRuns(),
+                automationExtensions(),
+              ]);
+              const caps = unwrapAutomationCapabilities(capsRes);
+              const principalRows = unwrapAutomationPrincipals(principalsRes);
+              const scriptRows = unwrapAutomationScripts(scriptsRes);
+              const runRows = unwrapAutomationRuns(runsRes);
+              const extRows = unwrapAutomationExtensions(extRes);
+              if (caps === null || principalRows === null || scriptRows === null || runRows === null || extRows === null) {
+                const failed = [capsRes, principalsRes, scriptsRes, runsRes, extRes].find((r) => !r.ok) ?? capsRes;
+                setHistoryLines((h) => [
+                  ...h,
+                  `*ERROR* report.automation: ${failed.ok ? "unexpected response shape" : `${failed.code} — ${failed.message}`}`,
+                ]);
+                break;
+              }
+              const mutating = caps.capabilities.filter((c) => c.mutating).length;
+              const lines = [
+                `AUTOMATION: api v${caps.apiVersion} profile ${caps.profile.profileId} — ${caps.capabilities.length} capabilities (${mutating} mutating), bound to doc v${caps.documentVersion} sha ${caps.contentHash.slice(0, 12)}….`,
+                `AUTOMATION: ${principalRows.length} principal(s), ${scriptRows.length} script(s), ${runRows.length} run(s), ${extRows.length} extension(s).`,
+              ];
+              for (const p of principalRows) {
+                lines.push(`AUTOMATION: principal ${p.principalId} ${p.role} registered t=${p.registeredAt}${p.lastRunAt !== null ? `, last run t=${p.lastRunAt}` : ""}.`);
+              }
+              for (const s of scriptRows) {
+                lines.push(
+                  `AUTOMATION: script ${s.id} '${s.name}' by ${s.principalId}${s.extensionId !== null ? ` (ext ${s.extensionId})` : ""} — ${s.stepCount} step(s): ${s.stepSummary.join(" -> ")}.`,
+                );
+              }
+              for (const r of runRows.slice(-5)) {
+                lines.push(
+                  `AUTOMATION: run ${r.id} '${r.scriptName}' by ${r.principalId} ${r.status} v${r.startVersion}->v${r.endVersion} digest ${r.outcomeDigest.slice(0, 12)}… (reproducible).`,
+                );
+              }
+              for (const x of extRows) {
+                lines.push(
+                  `AUTOMATION: extension ${x.extensionId} '${x.name}' v${x.version} — ${x.capabilities.length} declared capabilit${x.capabilities.length === 1 ? "y" : "ies"}, ${x.scriptIds.length} script(s), by ${x.registeredBy}.`,
+                );
+              }
+              if (typeof principalId === "string" && principalId.length > 0) {
+                const evRes = await automationEvents(principalId);
+                const feed = unwrapAutomationEvents(evRes);
+                if (feed === null) {
+                  lines.push(
+                    `*ERROR* report.automation: events for '${principalId}' — ${evRes.ok ? "unexpected response shape" : `${evRes.code} — ${evRes.message}`}`,
+                  );
+                } else {
+                  lines.push(
+                    `AUTOMATION: events for '${principalId}' — ${feed.subscriptions} subscription(s), ${feed.events.length} delivered (bounded, authoritative:false, clock t=${feed.clock}).`,
+                  );
+                  for (const e of feed.events.slice(-5)) {
+                    lines.push(
+                      `AUTOMATION: event t=${e.clock} ${e.scope} ${e.kind} — ${e.revisionBinding.recordKind}:${e.revisionBinding.recordId} — ${e.detail}`,
+                    );
+                  }
+                }
+              }
+              setHistoryLines((h) => [...h, ...lines]);
+            } catch {
+              setHistoryLines((h) => [...h, "*ERROR* report.automation: the query failed."]);
             }
             break;
           }
@@ -1266,6 +1365,7 @@ export function WorkspaceShell(): React.JSX.Element {
             {view === "components" && <ComponentsWorkbench />}
             {view === "schedules" && <SchedulesWorkbench />}
             {view === "collab" && <CollabWorkbench />}
+            {view === "automation" && <AutomationWorkbench />}
             {view === "layout" && (
               <LayoutCanvas
                 snapshot={snapshot}

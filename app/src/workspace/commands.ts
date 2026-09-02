@@ -32,6 +32,7 @@ import { COMMANDS_MODEL3D } from "./commands-model3d.js";
 import { COMMANDS_COORDINATION } from "./commands-coordination.js";
 import { COMMANDS_DOCUMENTATION } from "./commands-documentation.js";
 import { COMMANDS_COLLAB } from "./commands-collab.js";
+import { COMMANDS_AUTOMATION } from "./commands-automation.js";
 import type {
   AppApiCommandPlanEntry,
   CommandCategory,
@@ -1316,6 +1317,13 @@ export const WORKSPACE_COMMANDS: readonly WorkspaceCommand[] = [
   // external-reference status surfaces and the observable performance
   // budgets (ribbonTab "Collab") ---
   ...COMMANDS_COLLAB,
+  // --- CAD-PARITY-017 (Issue #116): the automation/extension/API
+  // vocabulary — the versioned typed capability discovery surface, the
+  // automation principal registration (the authorization hook reusing the
+  // P016 role table), the deterministic governed script execution, the
+  // bounded scoped event subscriptions and the automation report surfaces
+  // (ribbonTab "Automation") ---
+  ...COMMANDS_AUTOMATION,
 ];
 
 function normalize(a: number): number {

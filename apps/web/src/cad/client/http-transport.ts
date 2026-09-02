@@ -3134,3 +3134,252 @@ export function unwrapPerfBudgets(res: CommandQueryResponse): BudgetsView | null
   if (typeof v !== "object" || v === null || !Array.isArray(v.budgets)) return null;
   return v;
 }
+
+// ---------------------------------------------------------------------------
+// CAD-PARITY-017 (additive, Issue #116): the automation/extension transport
+// mirrors — the typed client surface of the Automation workbench. Automation
+// is a CLIENT of the governed semantic App API (every mutating step
+// dispatches through the same command path); extensions are
+// capability-scoped DATA manifests (LOCK-019).
+// ---------------------------------------------------------------------------
+
+/** `automation.authenticate` (command) — register a project-scoped
+ *  automation principal with a closed role (the P016 vocabulary). */
+export async function automationAuthenticate(
+  principalId: string,
+  role: "viewer" | "commenter" | "editor",
+): Promise<CommandQueryResponse> {
+  return command("automation.authenticate", { principalId, role });
+}
+
+/** `automation.registerScript` (command) — validate + register a bounded
+ *  typed script manifest. */
+export async function automationRegisterScript(
+  principalId: string,
+  script: Record<string, unknown>,
+): Promise<CommandQueryResponse> {
+  return command("automation.registerScript", { principalId, script });
+}
+
+/** `automation.runScript` (command) — execute a registered script
+ *  deterministically (every step through the governed App API). */
+export async function automationRunScript(principalId: string, scriptId: string): Promise<CommandQueryResponse> {
+  return command("automation.runScript", { principalId, scriptId });
+}
+
+/** `automation.deleteScript` (command) — remove a registered script. */
+export async function automationDeleteScript(principalId: string, scriptId: string): Promise<CommandQueryResponse> {
+  return command("automation.deleteScript", { principalId, scriptId });
+}
+
+/** `automation.subscribe` (command) — register a bounded scoped event
+ *  subscription. */
+export async function automationSubscribe(
+  principalId: string,
+  scope: "document" | "project" | "jobs",
+  kinds?: readonly string[],
+): Promise<CommandQueryResponse> {
+  return command("automation.subscribe", kinds !== undefined ? { principalId, scope, kinds } : { principalId, scope });
+}
+
+/** `automation.unsubscribe` (command) — remove one subscription. */
+export async function automationUnsubscribe(principalId: string, subscriptionId: string): Promise<CommandQueryResponse> {
+  return command("automation.unsubscribe", { principalId, subscriptionId });
+}
+
+/** `automation.registerExtension` (command) — register a capability-scoped
+ *  extension MANIFEST (DATA only) and install its scripts. */
+export async function automationRegisterExtension(
+  principalId: string,
+  extension: Record<string, unknown>,
+): Promise<CommandQueryResponse> {
+  return command("automation.registerExtension", { principalId, extension });
+}
+
+/** `automation.capabilities` (query) — the versioned typed capability
+ *  discovery table. */
+export async function automationCapabilities(): Promise<CommandQueryResponse> {
+  return query("automation.capabilities", {});
+}
+
+/** `automation.principals` (query) — the registered principal roster. */
+export async function automationPrincipals(): Promise<CommandQueryResponse> {
+  return query("automation.principals", {});
+}
+
+/** `automation.scripts` (query) — the registered script inventory. */
+export async function automationScripts(): Promise<CommandQueryResponse> {
+  return query("automation.scripts", {});
+}
+
+/** `automation.runs` (query) — the bounded run history. */
+export async function automationRuns(): Promise<CommandQueryResponse> {
+  return query("automation.runs", {});
+}
+
+/** `automation.events` (query) — the derived scoped event feed. */
+export async function automationEvents(principalId: string): Promise<CommandQueryResponse> {
+  return query("automation.events", { principalId });
+}
+
+/** `automation.extensions` (query) — the registered extension manifests. */
+export async function automationExtensions(): Promise<CommandQueryResponse> {
+  return query("automation.extensions", {});
+}
+
+// --- The P017 view types the workbench renders --------------------------------
+
+export interface AutomationCapabilityRow {
+  readonly capabilityId: string;
+  readonly requestType: "command" | "query";
+  readonly mutating: boolean;
+  readonly requiredAbility: "read" | "presence" | "comment" | "transact" | "jobs";
+  readonly description: string;
+}
+
+export interface AutomationCapabilitiesView {
+  readonly apiVersion: string;
+  readonly profile: { readonly profileId: string; readonly apiVersion: string; readonly description: string };
+  readonly capabilities: readonly AutomationCapabilityRow[];
+  readonly bounds: Record<string, number>;
+  readonly documentVersion: number;
+  readonly contentHash: string;
+}
+
+export interface AutomationPrincipalRow {
+  readonly principalId: string;
+  readonly role: "viewer" | "commenter" | "editor";
+  readonly registeredAt: number;
+  readonly lastRunAt: number | null;
+}
+
+export interface AutomationScriptRow {
+  readonly id: string;
+  readonly name: string;
+  readonly description: string | null;
+  readonly profileId: string;
+  readonly apiVersion: string;
+  readonly principalId: string;
+  readonly extensionId: string | null;
+  readonly stepCount: number;
+  readonly stepSummary: readonly string[];
+  readonly registeredAt: number;
+}
+
+export interface AutomationStepOutcomeRow {
+  readonly stepId: string;
+  readonly requestName: string;
+  readonly ok: boolean;
+  readonly code?: string;
+  readonly message?: string;
+  readonly documentVersion: number;
+  readonly contentHash: string;
+}
+
+export interface AutomationRunRow {
+  readonly id: string;
+  readonly scriptId: string;
+  readonly scriptName: string;
+  readonly principalId: string;
+  readonly status: "completed" | "failed";
+  readonly steps: readonly AutomationStepOutcomeRow[];
+  readonly startedAt: number;
+  readonly finishedAt: number;
+  readonly startVersion: number;
+  readonly endVersion: number;
+  readonly outcomeDigest: string;
+  readonly reproducible: true;
+}
+
+export interface AutomationSubscriptionRow {
+  readonly id: string;
+  readonly principalId: string;
+  readonly scope: "document" | "project" | "jobs";
+  readonly kinds: readonly string[] | null;
+  readonly createdAt: number;
+}
+
+export interface AutomationEventRow {
+  readonly eventId: string;
+  readonly kind: string;
+  readonly scope: "document" | "project" | "jobs";
+  readonly clock: number;
+  readonly detail: string;
+  readonly revisionBinding: {
+    readonly recordKind: "transaction" | "checkpoint" | "job" | "activity";
+    readonly recordId: string;
+    readonly documentVersion: number | null;
+  };
+}
+
+export interface AutomationEventsView {
+  readonly principalId: string;
+  readonly events: readonly AutomationEventRow[];
+  readonly authoritative: false;
+  readonly bounded: true;
+  readonly subscriptions: number;
+  readonly clock: number;
+}
+
+export interface AutomationExtensionRow {
+  readonly extensionId: string;
+  readonly name: string;
+  readonly version: string;
+  readonly profileId: string;
+  readonly apiVersion: string;
+  readonly capabilities: readonly string[];
+  readonly scriptIds: readonly string[];
+  readonly registeredAt: number;
+  readonly registeredBy: string;
+}
+
+// --- The unwraps --------------------------------------------------------------
+
+export function unwrapAutomationCapabilities(res: CommandQueryResponse): AutomationCapabilitiesView | null {
+  if (!res.ok) return null;
+  const v = res.value as AutomationCapabilitiesView | null;
+  if (typeof v !== "object" || v === null || !Array.isArray(v.capabilities)) return null;
+  return v;
+}
+
+export function unwrapAutomationPrincipals(res: CommandQueryResponse): AutomationPrincipalRow[] | null {
+  if (!res.ok) return null;
+  const v = res.value as { principals?: unknown } | null;
+  if (typeof v !== "object" || v === null || !Array.isArray(v.principals)) return null;
+  return v.principals as AutomationPrincipalRow[];
+}
+
+export function unwrapAutomationScripts(res: CommandQueryResponse): AutomationScriptRow[] | null {
+  if (!res.ok) return null;
+  const v = res.value as { scripts?: unknown } | null;
+  if (typeof v !== "object" || v === null || !Array.isArray(v.scripts)) return null;
+  return v.scripts as AutomationScriptRow[];
+}
+
+export function unwrapAutomationRuns(res: CommandQueryResponse): AutomationRunRow[] | null {
+  if (!res.ok) return null;
+  const v = res.value as { runs?: unknown } | null;
+  if (typeof v !== "object" || v === null || !Array.isArray(v.runs)) return null;
+  return v.runs as AutomationRunRow[];
+}
+
+export function unwrapAutomationEvents(res: CommandQueryResponse): AutomationEventsView | null {
+  if (!res.ok) return null;
+  const v = res.value as { events?: unknown } | null;
+  if (typeof v !== "object" || v === null || typeof v.events !== "object") return null;
+  return v.events as AutomationEventsView;
+}
+
+export function unwrapAutomationExtensions(res: CommandQueryResponse): AutomationExtensionRow[] | null {
+  if (!res.ok) return null;
+  const v = res.value as { extensions?: unknown } | null;
+  if (typeof v !== "object" || v === null || !Array.isArray(v.extensions)) return null;
+  return v.extensions as AutomationExtensionRow[];
+}
+
+export function unwrapAutomationRun(res: CommandQueryResponse): AutomationRunRow | null {
+  if (!res.ok) return null;
+  const v = res.value as { run?: unknown } | null;
+  if (typeof v !== "object" || v === null || typeof v.run !== "object") return null;
+  return v.run as AutomationRunRow;
+}
