@@ -63,7 +63,11 @@ const val = (r) => {
 };
 
 /** Start a FRESH dev-server process on the dedicated port (postgres-backed)
- * and wait until it answers. Returns the child handle. */
+ * and wait until it answers. The child is spawned DETACHED (its own process
+ * group) so the crash simulation and the teardown kill the WHOLE server
+ * tree — SIGKILLing only the npm wrapper leaves the next-server grandchild
+ * alive, which would hold the port (and this script's stdio pipes → the
+ * process would never exit; the CI step would hang). */
 async function startServer() {
   const child = spawn("npm", ["run", "dev", "--", "--webpack", "-p", String(PORT)], {
     cwd: WEB_DIR,
@@ -74,6 +78,7 @@ async function startServer() {
       DATABASE_URL,
     },
     stdio: ["ignore", "pipe", "pipe"],
+    detached: true,
   });
   const logs = [];
   child.stdout.on("data", (d) => logs.push(String(d)));
@@ -91,8 +96,22 @@ async function startServer() {
     }
     await new Promise((r) => setTimeout(r, 2000));
   }
-  child.kill("SIGKILL");
+  killTree(child);
   throw new Error(`the dev server did not become ready; logs:\n${logs.join("").slice(-2000)}`);
+}
+
+/** Kill the child's whole process group (npm wrapper + next-server
+ *  grandchild). */
+function killTree(child) {
+  try {
+    process.kill(-child.pid, "SIGKILL");
+  } catch {
+    try {
+      child.kill("SIGKILL");
+    } catch {
+      // already gone
+    }
+  }
 }
 
 const RUN_KEY = `p016-restart-proof-${randomUUID().slice(0, 8)}`;
@@ -121,14 +140,38 @@ try {
   );
   const { checkpoint } = val(await cmd("recovery.checkpoint", {}));
   const state = val(await q("document.getState", {}));
-  const hashAtCheckpoint = sha(JSON.stringify(state));
+  // The CANONICAL projection is what must survive the process boundary
+  // byte-exactly: version, format, elements, modelHistory, layers,
+  // selection, drafting/bim settings, sourceArtifactLineage — compared
+  // under the project's canonical JSON form (recursively sorted keys — the
+  // same form every pinned fixture and content hash uses; the live editing
+  // session's in-memory key order is an implementation detail, while the
+  // restored document's history is rebuilt through the canonical clone
+  // CADDocument.open → cloneHistory → canonicalStringify). The
+  // `editorState` section (the session-local undo history + the in-flight
+  // command depth) is PROCESS-SCOPED BY DESIGN — a fresh process starts with
+  // an empty undo stack (it cannot undo a dead process's commands), so
+  // `canUndo`/`commandDepth` legitimately differ across the restart. The
+  // canonical content identity is separately proven by the restored
+  // content hash below.
+  const canonicalOf = (s) => {
+    const { editorState, ...canonical } = s;
+    return canonical;
+  };
+  const canonicalJson = (value) => {
+    if (value === null || typeof value !== "object") return JSON.stringify(value);
+    if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
+    const keys = Object.keys(value).sort();
+    return `{${keys.map((k) => `${JSON.stringify(k)}:${canonicalJson(value[k])}`).join(",")}}`;
+  };
+  const hashAtCheckpoint = canonicalJson(canonicalOf(state));
   const saved = val(await cmd("document.save", {}));
   const persistence = val(await q("collab.state", {}));
 
   // --- Phase 2: the CRASH (SIGKILL — the in-memory session state is gone) --
 
-  console.log("COLLAB P016 RESTART-PROOF: phase 2 — SIGKILL (the simulated crash)");
-  first.child.kill("SIGKILL");
+  console.log("COLLAB P016 RESTART-PROOF: phase 2 — SIGKILL (the simulated crash — the whole server process tree)");
+  killTree(first.child);
   await new Promise((r) => setTimeout(r, 3000));
 
   // --- Phase 3: a FRESH server process over the SAME backend --------------
@@ -171,15 +214,19 @@ try {
     );
     const stateAfter = val(await q("document.getState", {}));
     assert(
-      sha(JSON.stringify(stateAfter)) === hashAtCheckpoint,
-      "the restored document is hash-identical to the pre-crash checkpoint state",
+      canonicalJson(canonicalOf(stateAfter)) === hashAtCheckpoint,
+      "the restored CANONICAL document state is identical to the pre-crash checkpoint state under the project's canonical JSON form (the process-scoped session editorState — undo history, command depth — is excluded by design)",
     );
     console.log(
       "COLLAB P016 RESTART-PROOF: PASS (the process death boundary — the checkpoints, blobs, members and comments are durable; the restore is hash-exact)",
     );
   } finally {
-    second.child.kill("SIGKILL");
+    if (second.child) killTree(second.child);
   }
 } finally {
-  first.child.kill("SIGKILL");
+  killTree(first.child);
 }
+
+// The spawned trees are killed; exit explicitly (the stdio pipes of a
+// SIGKILLed detached child can otherwise hold the event loop open).
+process.exit(0);

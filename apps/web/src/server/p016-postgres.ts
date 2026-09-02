@@ -12,8 +12,26 @@
  *    checkpoint snapshot blobs (object-storage semantics inside the
  *    authoritative store; insert-if-absent is an idempotent dedup).
  *
- * The DDL is idempotent (CREATE TABLE IF NOT EXISTS at connect). Engine
- * isolation (LOCK-018) is untouched — this is host wiring, not core.
+ * THE COLUMN TYPE IS `json`, NOT `jsonb` — a determinism requirement, not a
+ * style choice. PostgreSQL `jsonb` NORMALIZES its input (object keys are
+ * reordered, duplicates dropped) on write; the P016 byte-identity contract
+ * requires every persistence adapter to round-trip the persisted state
+ * EXACTLY as `dehydrate()` serialized it, so a state loaded from ANY backend
+ * rehydrates into the SAME key order the pure transitions produce (memory,
+ * file and blob adapters round-trip the serialization text verbatim). With
+ * `jsonb`, a postgres round-trip reorders the stored objects' keys and the
+ * rehydrated views serialize differently than the code-created ones — the
+ * pinned-fixture byte-identity across backends breaks (observed as the
+ * CI web-job fixture mismatch: `commentsSha256`). `json` validates JSON
+ * syntax on write and preserves the exact text — PostgreSQL authority with
+ * adapter-neutral determinism. Nothing here queries INTO the state (the
+ * head read is by the `(project_key, n)` primary key), so jsonb's indexing
+ * is not needed.
+ *
+ * The DDL is idempotent (CREATE TABLE IF NOT EXISTS at connect) and migrates
+ * a pre-`json` table's columns (a database created by an earlier revision
+ * of this adapter, e.g. a local dev database) in place. Engine isolation
+ * (LOCK-018) is untouched — this is host wiring, not core.
  */
 
 import { Pool, type PoolClient } from "pg";
@@ -72,22 +90,50 @@ export class PostgresP016Persist implements P016Persist {
     this.ready = this.migrate();
   }
 
-  /** The idempotent DDL (CREATE TABLE IF NOT EXISTS). */
+  /** The idempotent DDL (CREATE TABLE IF NOT EXISTS) + the in-place column
+   *  migration for tables created by an earlier revision of this adapter
+   *  (jsonb columns — see the file header: the byte-identity contract
+   *  requires the text-preserving `json` type). */
   private async migrate(): Promise<void> {
     try {
       await this.pool.query(`
         CREATE TABLE IF NOT EXISTS p016_events (
           project_key TEXT NOT NULL,
           n BIGINT NOT NULL,
-          state JSONB NOT NULL,
+          state JSON NOT NULL,
           created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
           PRIMARY KEY (project_key, n)
         );
         CREATE TABLE IF NOT EXISTS p016_blobs (
           sha TEXT PRIMARY KEY,
-          content JSONB NOT NULL,
+          content JSON NOT NULL,
           created_at TIMESTAMPTZ NOT NULL DEFAULT now()
         );
+      `);
+      // A best-effort in-place migration for pre-existing jsonb columns (a
+      // database written by the first revision of this adapter). The USING
+      // cast re-serializes through jsonb's normalized text once; no schema
+      // created after this revision ever takes this branch (data_type=json
+      // → the check is a no-op).
+      await this.pool.query(`
+        DO $migrate$
+        BEGIN
+          IF EXISTS (
+            SELECT 1 FROM information_schema.columns
+            WHERE table_name = 'p016_events' AND column_name = 'state'
+              AND data_type = 'jsonb'
+          ) THEN
+            ALTER TABLE p016_events ALTER COLUMN state TYPE json USING state::text::json;
+          END IF;
+          IF EXISTS (
+            SELECT 1 FROM information_schema.columns
+            WHERE table_name = 'p016_blobs' AND column_name = 'content'
+              AND data_type = 'jsonb'
+          ) THEN
+            ALTER TABLE p016_blobs ALTER COLUMN content TYPE json USING content::text::json;
+          END IF;
+        END
+        $migrate$;
       `);
     } catch (e) {
       throw new P016PersistError(
@@ -161,7 +207,7 @@ export class PostgresP016Persist implements P016Persist {
         // idempotent dedup).
         for (const blob of t.blobs ?? []) {
           await client.query(
-            "INSERT INTO p016_blobs (sha, content) VALUES ($1, $2::jsonb) ON CONFLICT (sha) DO NOTHING",
+            "INSERT INTO p016_blobs (sha, content) VALUES ($1, $2::json) ON CONFLICT (sha) DO NOTHING",
             [blob.sha, JSON.stringify(blob.content)],
           );
         }
@@ -173,7 +219,7 @@ export class PostgresP016Persist implements P016Persist {
         const max = maxRes.rows[0]?.max;
         const eventCount = (max === null || max === undefined ? 0 : Number(max)) + 1;
         await client.query(
-          "INSERT INTO p016_events (project_key, n, state) VALUES ($1, $2, $3::jsonb)",
+          "INSERT INTO p016_events (project_key, n, state) VALUES ($1, $2, $3::json)",
           [projectKey, eventCount, JSON.stringify(t.state)],
         );
         await client.query("COMMIT");
