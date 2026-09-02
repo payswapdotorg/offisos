@@ -15,11 +15,11 @@
   "com:commenter:stale"
  ],
  "presenceTtl": 30,
- "commentsSha256": "4cda535a45542bde22c09b732ae6d64501e11a6a5a4d075709333c25447cfb96",
+ "commentsSha256": "636b49ce9bfa39060ad601b136441b638b9a86d00b79cb638c8c27074ea532ab",
  "transactionLineage": [
   "txn-000001:applied:v2->3:-",
-  "txn-000002:discarded:v2->x:mrg-000002/discard[2+3]",
-  "txn-000003:merged:v2->4:mrg-000003/rebase[2+3]"
+  "txn-000002:discarded:v2->x:mrg-000001/discard[2+3]",
+  "txn-000003:merged:v2->4:mrg-000002/rebase[2+3]"
  ],
  "activityKinds": [
   "member.joined",
@@ -35,21 +35,19 @@
   "transaction.merged",
   "checkpoint.saved",
   "checkpoint.saved",
-  "checkpoint.saved",
   "recovery.restored",
-  "checkpoint.saved",
   "recovery.restored",
   "job.created",
   "job.succeeded",
   "job.created",
   "job.failed"
  ],
- "activityDigest": "3aa05d20f29f163c390f12550fcc8b1721e8d58dc980d0899d9aa99523d2aa8a",
+ "activityDigest": "c8ab16b6d938adb1c7efc2acfe9eba122842be192710d33f96a78ebed89c2151",
  "jobLifecycle": [
   "job-000001:quantity.recalculate:succeeded:3/3",
   "job-000002:docs.regenerate:failed:1/3"
  ],
- "jobReportSha256": "bd12e88d5c4f1fa76dc90c53630a44236babe8f660e867d52d7c0eb22011b053",
+ "jobReportSha256": "d80c8a232b5df668942e11eda182c8297d1f92ea9b389cc37b265e64c4296495",
  "streamStats": {
   "hits": 1,
   "misses": 2,

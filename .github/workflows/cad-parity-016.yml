@@ -142,8 +142,32 @@ jobs:
           if-no-files-found: warn
 
   web-host-workspace:
-    name: Web host (Next.js 16 + ALL FOURTEEN workspace smokes + ALL FOURTEEN parity fixtures)
+    name: Web host (Next.js 16 + ALL FOURTEEN workspace smokes + ALL FOURTEEN parity fixtures + the P016 durable/shared persistence on a REAL postgres service)
     runs-on: ubuntu-latest
+    # CAD-PARITY-016 remediation (the Architect CHANGES REQUESTED): a REAL
+    # PostgreSQL service — the authoritative structured-state backend
+    # (Architecture v1.1 §6). The web host selects it through DATABASE_URL
+    # at the wiring point (the LOCK-003 discipline applied to persistence):
+    # the collab smoke's multi-session shared-state + durable-reopen proofs
+    # run against the real transactional backend, and the RESTART-PROOF
+    # script kills + restarts the dev server mid-flow to prove the process
+    # -death durability boundary (the crash-recovery blocker).
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -188,6 +212,12 @@ jobs:
           OFFISOS_OCCT_WORKER: ${{ github.workspace }}/app/src/adapters/occt/worker/occt-worker.py
           OFFISOS_IFC_WORKER: ${{ github.workspace }}/app/src/adapters/ifc/worker/ifc-worker.py
           OFFISOS_WEB_URL: http://localhost:3100
+          # CAD-PARITY-016 remediation: the P016 persistence backend for the
+          # dev server is the REAL postgres service (DATABASE_URL above) —
+          # the collab smoke's shared-state/durability proofs run against
+          # the authoritative transactional backend; the other thirteen
+          # smokes touch no P016 command (their surfaces are unchanged).
+          OFFISOS_P016_PERSIST: postgres
           # CAD-PARITY-009: the parity-fixture basis — the deterministic
           # reference adapter (the work item's engine-availability pattern;
           # real-OCCT coverage runs in the workspace-shell app tests).
@@ -257,6 +287,10 @@ jobs:
           fi
           kill $DEV_PID 2>/dev/null || true
           exit $SMOKE_STATUS
+
+      - name: "CAD-PARITY-016 remediation: the PROCESS-RESTART durability proof (SIGKILL the dev server mid-flow; a fresh postgres-backed process recovers the durable project record)"
+        working-directory: apps/web
+        run: node --import tsx test/collab-p016-restart-proof.mjs
 
       - name: Upload workspace smoke evidence
         if: always()

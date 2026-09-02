@@ -33,7 +33,7 @@
 // Engine-free semantics (LOCK-018): no engine call is made.
 
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 
@@ -41,6 +41,12 @@ const HERE = fileURLToPath(new URL(".", import.meta.url));
 const REPO_ROOT = join(HERE, "..", "..", "..");
 const FIXTURE_PATH = join(REPO_ROOT, "app", "test", "fixtures", "cad-parity-016-collab.json");
 const WRITE_FIXTURE = process.argv.includes("--write-fixture");
+
+// CAD-PARITY-016 remediation: the project key is run-unique — the smoke's
+// project state lives in the DURABLE/SHARED persistence backend (memory |
+// postgres | blob), so every run must start from a FRESH project record
+// (the pinned fixture pins the run's own lineage, not any residue).
+const RUN_KEY = `cad-parity-016-smoke-${randomUUID().slice(0, 8)}`;
 
 const BASE = process.env.OFFISOS_WEB_URL ?? "http://localhost:3100";
 
@@ -73,6 +79,18 @@ const assert = (cond, message) => {
   if (!cond) throw new Error(`ASSERTION FAILED: ${message}`);
 };
 const sha = (s) => createHash("sha256").update(s).digest("hex");
+// CAD-PARITY-016 remediation: the pinned digests normalize the run-unique
+// project identity and the content-addressed hashes (both are functions of
+// the run-unique canonical entity id — the project key). Every SEMANTIC
+// field (ids, seqs, clocks, actors, kinds, detail structure, lifecycles,
+// statuses, counters) is pinned verbatim; only the run-identity-derived
+// hex is tokenized (documented — never a silent masking of semantics).
+const normalizePinned = (s) =>
+  s
+    .split(RUN_KEY)
+    .join("«project»")
+    .replace(/[0-9a-f]{64}/g, "«sha256»")
+    .replace(/[0-9a-f]{12}…/g, "«sha12»");
 
 // The observable performance budgets: the thresholds come from
 // perf.budgets; the wall-clock measurements are asserted per call and
@@ -95,7 +113,7 @@ async function timed(label, thresholdMs, fn) {
 step("document.create + the bim seed (the large-model page spread)");
 val(
   await cmd("document.create", {
-    entityId: "cad-parity-016-smoke",
+    entityId: RUN_KEY,
     format: "offisos-reference",
     formatVersion: "1",
     createdBy: "cad-parity-016-smoke",
@@ -205,6 +223,20 @@ assert(resolved.comment.resolved === true && resolved.comment.resolvedBy === "co
 // Presence liveness + the revision being viewed.
 const presenceState = val(await q("collab.state", {}));
 assert(presenceState.presenceTtl === 30, "the presence TTL");
+// CAD-PARITY-016 remediation: the persistence identity — the honest backend
+// the shared/durable state lives in (memory | postgres | blob). The
+// backend identity is asserted + PRINTED for the evidence log; the shared
+// project key is the run's canonical document entity id.
+assert(
+  ["memory", "postgres", "blob"].includes(presenceState.persistence.backend),
+  `the P016 persistence backend is a real store (got ${JSON.stringify(presenceState.persistence)})`,
+);
+assert(
+  presenceState.persistence.projectKey === RUN_KEY,
+  `the shared project key is the canonical document entity id (got ${presenceState.persistence.projectKey})`,
+);
+console.log(`COLLAB P016 SMOKE: P016 PERSISTENCE BACKEND: ${presenceState.persistence.backend} (project ${RUN_KEY})`);
+const BACKEND = presenceState.persistence.backend;
 const ekon = presenceState.members.find((m) => m.userId === "ekon");
 assert(ekon.active === true && ekon.lastSeenVersion === 2, "ekon is active at v2");
 
@@ -510,9 +542,9 @@ assert(kinds.includes("transaction.committed") && kinds.includes("transaction.co
 assert(kinds.includes("checkpoint.saved") && kinds.includes("recovery.restored"), "the recovery events");
 assert(kinds.includes("job.created") && kinds.includes("job.succeeded") && kinds.includes("job.failed"), "the job events");
 
-// --- 9. the pinned fixture (captured BEFORE the round-trip: the session-
-// side stores honestly reset when a new document becomes the session's
-// document — the fixture pins the FULL session lineage) ------------------
+// --- 9. the pinned fixture (captured BEFORE the round-trip: the run's own
+// deterministic project lineage — the persisted event sequence — pinned;
+// the remediation clock convention: one tick per persisted project event)
 
 step("fixture");
 
@@ -540,9 +572,9 @@ const fixture = {
     (t) => `${t.id}:${t.status}:v${t.baseVersion}->${t.resultingVersion ?? "x"}:${t.merge !== null ? `${t.merge.mergeId}/${t.merge.strategy}[${t.merge.parents.join("+")}]` : "-"}`,
   ),
   activityKinds: finalActivity.activity.map((a) => a.kind),
-  activityDigest: sha(JSON.stringify(finalActivity.activity.map((a) => `${a.seq}:${a.at}:${a.actor}:${a.kind}:${a.detail}`))),
+  activityDigest: sha(normalizePinned(JSON.stringify(finalActivity.activity.map((a) => `${a.seq}:${a.at}:${a.actor}:${a.kind}:${a.detail}`)))),
   jobLifecycle: finalJobs.jobs.map((j) => `${j.id}:${j.kind}:${j.status}:${j.step}/${j.totalSteps}`),
-  jobReportSha256: sha(JSON.stringify(finalJobs.jobs.map((j) => j.result ?? j.failure))),
+  jobReportSha256: sha(normalizePinned(JSON.stringify(finalJobs.jobs.map((j) => j.result ?? j.failure)))),
   streamStats: {
     hits: finalStreamStats.stats.hits,
     misses: finalStreamStats.stats.misses,
@@ -575,21 +607,112 @@ if (WRITE_FIXTURE || !existsSync(FIXTURE_PATH)) {
   console.log(`COLLAB P016 SMOKE: fixture match (${pinned.budgetCounters.commands} commands)`);
 }
 
-// --- 10. the save/open round-trip (the session stores honestly reset on
-// open — the new session's budgets re-bind to the same canonical content) ----
+// --- 10. the save/open round-trip (the DURABLE project record survives the
+// reopen — the crash/session boundary; the remediation closes blocker #1) --
 
-step("save/open round-trip");
+step("save/open round-trip — the durable project record survives the reopen");
 const saved = val(await cmd("document.save", {}));
 const sA = val(await cmd("document.serialize", {}));
 const sB = val(await cmd("document.serialize", {}));
 assert(sha(JSON.stringify(sA)) === sha(JSON.stringify(sB.text ?? sA)), "double-serialize is deterministic");
-val(await cmd("document.open", { source: saved.bytes, entityId: "cad-parity-016-smoke-reopened" }));
+// Reopen the SAME document: the save/open round-trip preserves the canonical
+// entity id (the project key) — the durable project record SURVIVES.
+val(await cmd("document.open", { source: saved.bytes }));
 snap = val(await q("document.getState", {}));
 assert(snap.elements.length === 15, "the elements survive the round-trip");
 const budgetsAfter = val(await q("perf.budgets", {}));
 assert(budgetsAfter.revision.elementCount === 15, "the budgets re-bind to the reopened document");
 assert(budgetsAfter.counters.commands === 0, "the session-side counters reset with the new document session");
+// BLOCKER #1 CLOSED: the checkpoints are DURABLE across the reopen boundary
+// (the project record is keyed by the canonical document entity id — a
+// reopened document recovers them; a fresh document gets a fresh project).
 const recoveryAfterOpen = val(await q("recovery.list", {}));
-assert(recoveryAfterOpen.checkpoints.length === 0, "the session-side checkpoint store resets (no parallel truth across documents)");
+assert(
+  recoveryAfterOpen.checkpoints.length > 0,
+  `the durable checkpoints survive the reopen (got ${recoveryAfterOpen.checkpoints.length})`,
+);
+assert(
+  recoveryAfterOpen.checkpoints.some((c) => c.cause === "manual" || c.cause === "autosave"),
+  "the retained durable checkpoints are real (non pre-restore causes)",
+);
+// The recovery.restore works from the reopened session through the durable
+// content-addressed snapshot blobs (the same path a fresh instance takes).
+const restoreAfterOpen = await timed("recovery.restore (post-reopen)", 5000, () => cmd("recovery.restore", {}));
+const rao = val(restoreAfterOpen);
+assert(rao.report.skipped.length === 0, "the post-reopen restore has no skipped candidates");
+assert(
+  rao.report.restoredContentHash === rao.report.chosen.contentHash,
+  "the post-reopen restore is hash-exact (the durable blob integrity)",
+);
 
-console.log(`COLLAB P016 SMOKE: PASS (${executed.length} commands, ${echoLines.length} echo lines, ${perf.length} perf assertions)`);
+// --- 11. the multi-session SHARED project state (the remediation closes
+// blocker #2): a second participant/session over the SAME project ------
+
+step("the multi-session shared project state (members/comments/transactions converge)");
+// The reopened session sees the SHARED roster (the first session's members
+// are durable project state — visible to every session/handler/instance).
+const sharedState = val(await q("collab.state", {}));
+assert(
+  sharedState.members.length === 3,
+  `the shared roster survives the reopen (ekon/reviewer/com — got ${sharedState.members.map((m) => m.userId).join(",")})`,
+);
+assert(sharedState.persistence.backend === BACKEND, "the same persistence backend serves the reopened session");
+// A SECOND participant joins — the join lands in the SHARED roster.
+val(await cmd("collab.join", { userId: "site-b", role: "editor" }));
+val(await cmd("collab.presence", { userId: "site-b" }));
+const stateB = val(await q("collab.state", {}));
+assert(stateB.members.length === 4, "the second session's join lands in the SHARED roster");
+assert(
+  stateB.members.some((m) => m.userId === "site-b" && m.active === true),
+  "the second participant is live in the shared roster",
+);
+// B comments — the comment is visible as shared project state.
+val(
+  await cmd("collab.comment", {
+    userId: "site-b",
+    body: "Second-session coordination note.",
+    target: { kind: "document" },
+  }),
+);
+const sharedComments = val(await q("collab.comments", {}));
+assert(
+  sharedComments.comments.some((c) => c.userId === "site-b" && c.body === "Second-session coordination note."),
+  "the second session's comment is shared project state",
+);
+// The CROSS-SESSION stale-base conflict: the shared transaction lineage head
+// is beyond this session's local document version — the commit with the
+// pre-collab base conflicts against the SHARED lineage (the second
+// participant's stale-base detection, exactly like a second editor who has
+// not pulled the latest transactions).
+const staleCommit = await cmd("collab.commit", {
+  userId: "site-b",
+  baseVersion: 2,
+  edits: [{ type: "updateElement", elementId: "slab-g", patch: { FireRating: 60 } }],
+});
+const sc = val(staleCommit);
+assert(sc.applied === false, "the cross-session stale-base commit conflicts (against the SHARED lineage head)");
+assert(sc.transaction.status === "conflict", "the conflict status");
+assert(
+  sc.transaction.conflict.interveningTransactions.length >= 1,
+  "the conflict names the intervening SHARED transactions",
+);
+// The shared activity stream records both sessions' events.
+const sharedActivity = val(await q("collab.activity", {}));
+assert(
+  sharedActivity.activity.some((a) => a.actor === "site-b" && a.kind === "member.joined"),
+  "the shared activity records the second session's join",
+);
+
+// --- 12. a FRESH document starts a FRESH project (the scoping proof) -------
+
+step("a fresh document starts a fresh project (no cross-project state leakage)");
+val(await cmd("document.create", { entityId: `${RUN_KEY}-other` }));
+const freshState = val(await q("collab.state", {}));
+assert(freshState.members.length === 0, "a new document = a new project (fresh scope)");
+assert(freshState.persistence.projectKey === `${RUN_KEY}-other`, "the fresh project key re-binds");
+const freshRecovery = val(await q("recovery.list", {}));
+assert(freshRecovery.checkpoints.length === 0, "no cross-project checkpoint leakage");
+const freshTxns = val(await q("collab.transactions", {}));
+assert(freshTxns.transactions.length === 0, "no cross-project transaction leakage");
+
+console.log(`COLLAB P016 SMOKE: PASS (${executed.length} commands, ${echoLines.length} echo lines, ${perf.length} perf assertions, backend ${BACKEND})`);
