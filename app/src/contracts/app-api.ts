@@ -321,7 +321,39 @@ export type CommandName =
   | "collab.commit"
   | "collab.merge"
   | "jobs.create"
-  | "jobs.tick";
+  | "jobs.tick"
+  // --- CAD-PARITY-017 (additive, Issue #116): the automation/extension
+  // API command surface (API-001 — versioned typed automation contracts
+  // over the governed App API). automation.authenticate registers a
+  // project-scoped automation principal with a closed role drawn from the
+  // SAME P016 collaboration vocabulary (the authorization hook at the API
+  // boundary — server-side ability checks on every mutating request, typed
+  // automation_forbidden on violation; no parallel identity subsystem);
+  // automation.registerScript validates + registers a bounded typed script
+  // MANIFEST (steps reference governed App API capabilities ONLY — the
+  // closed registry is discovered through automation.capabilities; any
+  // other capability, kind or version is the typed unsupported decline,
+  // never a fabricated semantic); automation.runScript executes a script
+  // DETERMINISTICALLY (each step dispatches through the SAME handle()
+  // path every direct caller uses — the governed mutation route is the
+  // ONLY mutation route; the run outcome digest is reproducible for
+  // identical canonical inputs + the declared profile);
+  // automation.deleteScript removes a registered script (owner or
+  // transact-ability); automation.subscribe/unsubscribe manage the
+  // bounded scoped event-subscription declarations (the derived feed is
+  // automation.events — a pure fold over the durable canonical records,
+  // never authority); automation.registerExtension registers a
+  // capability-scoped extension MANIFEST (DATA ONLY — manifests carrying
+  // code/entry/url fields are rejected typed, so extension code cannot
+  // import or bypass protected engine/renderer/domain boundaries by
+  // construction) and installs its declared scripts. ---
+  | "automation.authenticate"
+  | "automation.registerScript"
+  | "automation.runScript"
+  | "automation.deleteScript"
+  | "automation.subscribe"
+  | "automation.unsubscribe"
+  | "automation.registerExtension";
 
 // --- Query names (non-mutating) ---
 // `document.getSelection` returns the ephemeral editor selection (orthogonal
@@ -510,7 +542,26 @@ export type QueryName =
   | "model.streamStats"
   | "xrefs.status"
   | "xrefs.probe"
-  | "perf.budgets";
+  | "perf.budgets"
+  // --- CAD-PARITY-017 (additive, Issue #116): the automation/extension
+  // API query surfaces (non-mutating, computed fresh every call, never
+  // persisted stale). automation.capabilities = the versioned typed
+  // capability discovery table (the closed registry + the profile + the
+  // bounds, bound to the current canonical revision);
+  // automation.principals = the registered principal roster;
+  // automation.scripts = the registered script inventory (manifest step
+  // summaries); automation.runs = the bounded run history (revision-bound
+  // outcomes + the reproducible outcome digests); automation.events = the
+  // bounded, ordered, explicitly scoped derived event feed for a
+  // principal's subscriptions (authoritative:false — a pure fold over the
+  // durable canonical records); automation.extensions = the registered
+  // extension manifests. ---
+  | "automation.capabilities"
+  | "automation.principals"
+  | "automation.scripts"
+  | "automation.runs"
+  | "automation.events"
+  | "automation.extensions";
 
 export interface Command {
   readonly type: "command";

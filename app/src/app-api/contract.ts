@@ -410,6 +410,32 @@ import type {
   P016PersistenceView,
   PersistedP016State,
 } from "../contracts/collab.js";
+// CAD-PARITY-017 (additive, Issue #116): the bounded automation/extension
+// core — the versioned typed capability registry over the governed App API
+// (API-001), the manifest-based scripts/extensions (DATA ONLY — steps
+// reference governed App API requests and are dispatched through the SAME
+// handle() path every direct caller uses), the principal/subscription
+// records reusing the P016 role/ability table, the deterministic run
+// bookkeeping and the derived scoped event feed (a pure fold over the
+// durable canonical records — never authority). Engine-free shared core
+// (LOCK-018); the CADDocument remains the single canonical system of
+// record (LOCK-019).
+import {
+  AutomationError,
+  AutomationStore,
+  automationCapabilityViews,
+  deriveAutomationEvents,
+} from "../automation/index.js";
+import {
+  AUTOMATION_API_VERSION,
+  AUTOMATION_BOUNDS,
+  AUTOMATION_MESSAGE_MAX,
+  AUTOMATION_PROFILE,
+  type AutomationEventScope,
+  type AutomationPrincipalView,
+  type AutomationRole,
+  type AutomationStepOutcome,
+} from "../contracts/automation.js";
 import {
   DEFAULT_RECOVERY_POLICY,
   PRESENCE_TTL,
@@ -461,6 +487,9 @@ interface P016EventContext {
   collab: CollabStore;
   checkpoints: CheckpointStore;
   jobs: JobStore;
+  /** CAD-PARITY-017 (additive, Issue #116): the hydrated automation store
+   *  (absent in every pre-P017 record — rehydrates to the empty store). */
+  automation: AutomationStore;
   state: PersistedP016State | null;
 }
 
@@ -563,6 +592,13 @@ export class AppApiHandler {
       // fails this request visibly (durability is never silently skipped).
       if (
         response.ok &&
+        // CAD-PARITY-017 (Issue #116): automation.runScript is a WRAPPER
+        // command — its version changes come from the governed inner step
+        // commands, each of which already ticked the autosave policy through
+        // its own handle() pass. The wrapper itself never adds a second
+        // tick (the cadence stays a pure function of the dispatched step
+        // sequence).
+        request.name !== "automation.runScript" &&
         this.docEpoch === epochBefore &&
         this.doc.snapshot().version.version_number !== versionBefore
       ) {
@@ -660,6 +696,9 @@ export class AppApiHandler {
         collab: state === null ? new CollabStore() : CollabStore.rehydrate(state.collab),
         checkpoints: state === null ? new CheckpointStore() : CheckpointStore.rehydrate(state.recovery),
         jobs: state === null ? new JobStore() : JobStore.rehydrate(state.jobs),
+        // CAD-PARITY-017 (additive, Issue #116): the automation store — the
+        // optional section (absence = the pre-P017 empty state).
+        automation: AutomationStore.rehydrate(state?.automation),
         state,
       };
       const t = await fn(ctx);
@@ -669,6 +708,7 @@ export class AppApiHandler {
           collab: ctx.collab.dehydrate(),
           recovery: ctx.checkpoints.dehydrate(),
           jobs: ctx.jobs.dehydrate(),
+          automation: ctx.automation.dehydrate(),
         },
         blobs: t.blobs,
         result: t.result,
@@ -1063,6 +1103,22 @@ export class AppApiHandler {
         return this.cmdJobsCreate(command.payload);
       case "jobs.tick":
         return this.cmdJobsTick(command.payload);
+      // --- CAD-PARITY-017 (additive, Issue #116): the automation/extension
+      // API command surface. ---
+      case "automation.authenticate":
+        return this.cmdAutomationAuthenticate(command.payload);
+      case "automation.registerScript":
+        return this.cmdAutomationRegisterScript(command.payload);
+      case "automation.runScript":
+        return this.cmdAutomationRunScript(command.payload);
+      case "automation.deleteScript":
+        return this.cmdAutomationDeleteScript(command.payload);
+      case "automation.subscribe":
+        return this.cmdAutomationSubscribe(command.payload);
+      case "automation.unsubscribe":
+        return this.cmdAutomationUnsubscribe(command.payload);
+      case "automation.registerExtension":
+        return this.cmdAutomationRegisterExtension(command.payload);
       default: {
         const _exhaustive: never = command.name;
         return err("unknown_command", `unknown command: ${JSON.stringify(_exhaustive)}`);
@@ -1494,6 +1550,21 @@ export class AppApiHandler {
         return this.qXrefsProbe(query.payload);
       case "perf.budgets":
         return this.qPerfBudgets();
+      // --- CAD-PARITY-017 (additive, Issue #116): the automation/extension
+      // API query surfaces (non-mutating, computed fresh every call, never
+      // persisted stale). ---
+      case "automation.capabilities":
+        return this.qAutomationCapabilities();
+      case "automation.principals":
+        return this.qAutomationPrincipals();
+      case "automation.scripts":
+        return this.qAutomationScripts();
+      case "automation.runs":
+        return this.qAutomationRuns();
+      case "automation.events":
+        return this.qAutomationEvents(query.payload);
+      case "automation.extensions":
+        return this.qAutomationExtensions();
       default: {
         const _exhaustive: never = query.name;
         return err("unknown_query", `unknown query: ${JSON.stringify(_exhaustive)}`);
@@ -8827,11 +8898,12 @@ export class AppApiHandler {
   // support mechanism bound to canonical revisions/objects.
   // ===========================================================================
 
-  /** The shared typed-error mapping for the P016 support cores. */
+  /** The shared typed-error mapping for the P016/P017 support cores. */
   private p016Err(e: unknown): CommandQueryResponse {
     if (e instanceof CollabError) return err(e.code, e.message, false);
     if (e instanceof JobError) return err(e.code, e.message, false);
     if (e instanceof StreamError) return err(e.code, e.message, false);
+    if (e instanceof AutomationError) return err(e.code, e.message, false);
     if (e instanceof P016PersistError) return err(e.code, e.message, false);
     return err("p016_failed", (e as Error).message, false);
   }
@@ -9549,6 +9621,397 @@ export class AppApiHandler {
         },
       };
       return ok(view);
+    } catch (e) {
+      return this.p016Err(e);
+    }
+  }
+
+  // ===========================================================================
+  // CAD-PARITY-017 (additive, Issue #116): the automation/extension API
+  // surface. The CADDocument remains the single canonical system of record
+  // (LOCK-019): script steps dispatch through the SAME handle() path every
+  // direct caller uses (the governed mutation route is the ONLY mutation
+  // route); extensions are capability-scoped manifests (DATA ONLY); the
+  // event feed is a pure fold over the durable canonical records (never
+  // authority); the principal role vocabulary is the P016 table (no
+  // parallel identity subsystem).
+  // ===========================================================================
+
+  // --- principals (the authorization hook at the API boundary) ----------------
+
+  /** automation.authenticate — register a project-scoped automation
+   *  principal with a closed role (the P016 collab vocabulary — the only
+   *  permission table). A durable append: the principal roster is shared
+   *  across every participant/session/handler/instance. */
+  private async cmdAutomationAuthenticate(payload: unknown): Promise<CommandQueryResponse> {
+    const p = payload as { principalId?: unknown; role?: unknown } | null;
+    if (p === null || typeof p !== "object" || typeof p.principalId !== "string" || typeof p.role !== "string") {
+      return err("bad_payload", "automation.authenticate requires { principalId, role }", true);
+    }
+    try {
+      const principalId: string = p.principalId;
+      const role: string = p.role;
+      const principal = await this.p016Event((ctx) => {
+        const principal = ctx.automation.authenticate(principalId, role as AutomationRole, ctx.clock);
+        return { result: principal };
+      });
+      return ok({ principal, documentVersion: this.doc.snapshot().version.version_number });
+    } catch (e) {
+      return this.p016Err(e);
+    }
+  }
+
+  /** automation.registerScript — validate + register a bounded typed script
+   *  manifest (steps reference governed App API capabilities ONLY; the
+   *  principal's role must carry every step's required ability — typed
+   *  declines name the offending step). A durable append. */
+  private async cmdAutomationRegisterScript(payload: unknown): Promise<CommandQueryResponse> {
+    const p = payload as { principalId?: unknown; script?: unknown } | null;
+    if (
+      p === null || typeof p !== "object" ||
+      typeof p.principalId !== "string" || p.principalId.length === 0 ||
+      typeof p.script !== "object" || p.script === null
+    ) {
+      return err("bad_payload", "automation.registerScript requires { principalId, script }", true);
+    }
+    try {
+      const principalId: string = p.principalId;
+      const script = await this.p016Event((ctx) => {
+        const script = ctx.automation.registerScript(principalId, p.script, ctx.clock);
+        return { result: script };
+      });
+      return ok({ script });
+    } catch (e) {
+      return this.p016Err(e);
+    }
+  }
+
+  /** automation.runScript — the deterministic script executor. Every step
+   *  dispatches through this.handle() — the SAME governed path (payload
+   *  validation, idempotency, durable appends, the autosave policy) every
+   *  direct caller uses; a per-step capability+ability re-check runs BEFORE
+   *  the dispatch (defense in depth). The run outcome digest is a pure
+   *  function of (canonical document state, manifest, profile) — identical
+   *  inputs re-run identically (the reproducibility contract). The run
+   *  record is ONE durable append after the steps. */
+  private async cmdAutomationRunScript(payload: unknown): Promise<CommandQueryResponse> {
+    const p = payload as { principalId?: unknown; scriptId?: unknown } | null;
+    if (
+      p === null || typeof p !== "object" ||
+      typeof p.principalId !== "string" || p.principalId.length === 0 ||
+      typeof p.scriptId !== "string" || p.scriptId.length === 0
+    ) {
+      return err("bad_payload", "automation.runScript requires { principalId, scriptId }", true);
+    }
+    try {
+      const principalId: string = p.principalId;
+      const scriptId: string = p.scriptId;
+      // Phase 1 — resolve the principal + the script against the durable
+      // record (typed declines for unknown ids; the principal is checked
+      // FIRST — authorization precedes resource lookup, so an unknown
+      // principal never learns whether a script id exists).
+      const stateBefore = await this.p016Read();
+      const automation = AutomationStore.rehydrate(stateBefore?.automation);
+      automation.requireAbility(principalId, "read");
+      const script = automation.scriptById(scriptId);
+      const startedClock = stateBefore?.clock ?? 0;
+      const startVersion = this.doc.snapshot().version.version_number;
+      // Phase 2 — execute the steps through the governed App API.
+      const outcomes: AutomationStepOutcome[] = [];
+      let status: "completed" | "failed" = "completed";
+      for (const step of script.steps) {
+        // The authorization hook (re-checked per step — registration
+        // pre-validated the same constraint; the run enforces it again).
+        const cap = automation.requireStepAbility(principalId, step);
+        const response = await this.handle({
+          type: cap.requestType,
+          name: cap.requestName as never,
+          payload: step.request.payload,
+        });
+        const failed = !response.ok;
+        const failure = failed ? (response as { code: string; message: string }) : null;
+        outcomes.push({
+          stepId: step.stepId,
+          requestName: step.request.name,
+          ok: !failed,
+          ...(failure !== null
+            ? {
+                code: failure.code,
+                message:
+                  failure.message.length > AUTOMATION_MESSAGE_MAX
+                    ? failure.message.slice(0, AUTOMATION_MESSAGE_MAX)
+                    : failure.message,
+              }
+            : {}),
+          documentVersion: this.doc.snapshot().version.version_number,
+          contentHash: this.doc.currentContentHash(),
+        });
+        if (failed && step.onError === "abort") {
+          status = "failed";
+          break;
+        }
+      }
+      const endVersion = this.doc.snapshot().version.version_number;
+      // Phase 3 — the reproducible outcome digest (the deterministic
+      // projection: minted ids/clock excluded, canonical content hashes and
+      // versions included).
+      const outcomeDigest = createHash("sha256")
+        .update(
+          canonicalStringify({
+            scriptName: script.name,
+            profileId: script.profileId,
+            apiVersion: script.apiVersion,
+            startVersion,
+            endVersion,
+            steps: outcomes.map((o) => ({
+              stepId: o.stepId,
+              requestName: o.requestName,
+              ok: o.ok,
+              ...(o.code !== undefined ? { code: o.code } : {}),
+              documentVersion: o.documentVersion,
+              contentHash: o.contentHash,
+            })),
+          }),
+        )
+        .digest("hex");
+      // Phase 4 — record the run (ONE durable append).
+      const run = await this.p016Event((ctx) => {
+        return {
+          result: ctx.automation.recordRun(
+            {
+              scriptId: script.id,
+              scriptName: script.name,
+              principalId,
+              status,
+              steps: outcomes,
+              startedAt: startedClock,
+              startVersion,
+              endVersion,
+              outcomeDigest,
+            },
+            ctx.clock,
+          ),
+        };
+      });
+      return ok({
+        run,
+        documentVersion: endVersion,
+        contentHash: this.doc.currentContentHash(),
+      });
+    } catch (e) {
+      return this.p016Err(e);
+    }
+  }
+
+  /** automation.deleteScript — remove a registered script (the owner or a
+   *  transact-ability principal; typed decline otherwise). A durable
+   *  append. */
+  private async cmdAutomationDeleteScript(payload: unknown): Promise<CommandQueryResponse> {
+    const p = payload as { principalId?: unknown; scriptId?: unknown } | null;
+    if (
+      p === null || typeof p !== "object" ||
+      typeof p.principalId !== "string" || p.principalId.length === 0 ||
+      typeof p.scriptId !== "string" || p.scriptId.length === 0
+    ) {
+      return err("bad_payload", "automation.deleteScript requires { principalId, scriptId }", true);
+    }
+    try {
+      const principalId: string = p.principalId;
+      const scriptId: string = p.scriptId;
+      const script = await this.p016Event((ctx) => {
+        return { result: ctx.automation.deleteScript(principalId, scriptId) };
+      });
+      return ok({ script });
+    } catch (e) {
+      return this.p016Err(e);
+    }
+  }
+
+  // --- subscriptions (the scoped event delivery declarations) -------------------
+
+  /** automation.subscribe — register a bounded scoped subscription (closed
+   *  scope vocabulary; optional kind filter from the activity vocabulary). */
+  private async cmdAutomationSubscribe(payload: unknown): Promise<CommandQueryResponse> {
+    const p = payload as { principalId?: unknown; scope?: unknown; kinds?: unknown } | null;
+    if (
+      p === null || typeof p !== "object" ||
+      typeof p.principalId !== "string" || p.principalId.length === 0 ||
+      typeof p.scope !== "string"
+    ) {
+      return err("bad_payload", "automation.subscribe requires { principalId, scope, kinds? }", true);
+    }
+    if (p.kinds !== undefined && p.kinds !== null && !Array.isArray(p.kinds)) {
+      return err("bad_payload", "automation.subscribe kinds must be an array or null", true);
+    }
+    try {
+      const principalId: string = p.principalId;
+      const scope: string = p.scope;
+      const kinds = p.kinds === undefined || p.kinds === null ? null : (p.kinds as readonly string[]);
+      const subscription = await this.p016Event((ctx) => {
+        const subscription = ctx.automation.subscribe(principalId, scope as AutomationEventScope, kinds, ctx.clock);
+        return { result: subscription };
+      });
+      return ok({ subscription });
+    } catch (e) {
+      return this.p016Err(e);
+    }
+  }
+
+  /** automation.unsubscribe — remove one of the principal's subscriptions. */
+  private async cmdAutomationUnsubscribe(payload: unknown): Promise<CommandQueryResponse> {
+    const p = payload as { principalId?: unknown; subscriptionId?: unknown } | null;
+    if (
+      p === null || typeof p !== "object" ||
+      typeof p.principalId !== "string" || p.principalId.length === 0 ||
+      typeof p.subscriptionId !== "string" || p.subscriptionId.length === 0
+    ) {
+      return err("bad_payload", "automation.unsubscribe requires { principalId, subscriptionId }", true);
+    }
+    try {
+      const principalId: string = p.principalId;
+      const subscriptionId: string = p.subscriptionId;
+      const subscription = await this.p016Event((ctx) => {
+        return { result: ctx.automation.unsubscribe(principalId, subscriptionId) };
+      });
+      return ok({ subscription });
+    } catch (e) {
+      return this.p016Err(e);
+    }
+  }
+
+  // --- extensions (capability-scoped DATA manifests) ---------------------------
+
+  /** automation.registerExtension — register a third-party extension
+   *  MANIFEST (typed declines on unknown capabilities, executable-code
+   *  fields, or scripts escaping the declared capability set) and install
+   *  its declared scripts. Requires the transact ability (the controlled
+   *  third-party surface). A durable append. */
+  private async cmdAutomationRegisterExtension(payload: unknown): Promise<CommandQueryResponse> {
+    const p = payload as { principalId?: unknown; extension?: unknown } | null;
+    if (
+      p === null || typeof p !== "object" ||
+      typeof p.principalId !== "string" || p.principalId.length === 0 ||
+      typeof p.extension !== "object" || p.extension === null
+    ) {
+      return err("bad_payload", "automation.registerExtension requires { principalId, extension }", true);
+    }
+    try {
+      const principalId: string = p.principalId;
+      const outcome = await this.p016Event((ctx) => {
+        return { result: ctx.automation.registerExtension(principalId, p.extension, ctx.clock) };
+      });
+      return ok(outcome);
+    } catch (e) {
+      return this.p016Err(e);
+    }
+  }
+
+  // --- the automation query surfaces ---------------------------------------------
+
+  /** automation.capabilities — the versioned typed capability discovery
+   *  table (the closed registry + the declared profile + the bounds), bound
+   *  to the current canonical revision. Unsupported capabilities are
+   *  discoverable BY ABSENCE — anything not listed is the typed
+   *  automation_capability_unsupported decline, never a fabricated
+   *  semantic. */
+  private qAutomationCapabilities(): CommandQueryResponse {
+    return ok({
+      apiVersion: AUTOMATION_API_VERSION,
+      profile: AUTOMATION_PROFILE,
+      capabilities: automationCapabilityViews(),
+      bounds: AUTOMATION_BOUNDS,
+      documentVersion: this.doc.snapshot().version.version_number,
+      contentHash: this.doc.currentContentHash(),
+    });
+  }
+
+  /** automation.principals — the registered principal roster (the durable
+   *  project record — shared across participants). */
+  private async qAutomationPrincipals(): Promise<CommandQueryResponse> {
+    try {
+      const state = await this.p016Read();
+      const automation = AutomationStore.rehydrate(state?.automation);
+      return ok({ principals: automation.principalList() });
+    } catch (e) {
+      return this.p016Err(e);
+    }
+  }
+
+  /** automation.scripts — the registered script inventory (manifest step
+   *  summaries; the durable project record). */
+  private async qAutomationScripts(): Promise<CommandQueryResponse> {
+    try {
+      const state = await this.p016Read();
+      const automation = AutomationStore.rehydrate(state?.automation);
+      return ok({ scripts: automation.scriptList() });
+    } catch (e) {
+      return this.p016Err(e);
+    }
+  }
+
+  /** automation.runs — the bounded run history (revision-bound outcomes +
+   *  the reproducible outcome digests; the durable project record). */
+  private async qAutomationRuns(): Promise<CommandQueryResponse> {
+    try {
+      const state = await this.p016Read();
+      const automation = AutomationStore.rehydrate(state?.automation);
+      return ok({ runs: automation.runList() });
+    } catch (e) {
+      return this.p016Err(e);
+    }
+  }
+
+  /** automation.events — the bounded, ordered, explicitly scoped derived
+   *  event feed for the principal's subscriptions (a PURE FOLD over the
+   *  durable canonical records — transactions, checkpoints, jobs, the
+   *  activity stream; authoritative:false, never persisted stale, no
+   *  background delivery authority). */
+  private async qAutomationEvents(payload: unknown): Promise<CommandQueryResponse> {
+    const p = payload as { principalId?: unknown } | null;
+    if (p === null || typeof p !== "object" || typeof p.principalId !== "string" || p.principalId.length === 0) {
+      return err("bad_payload", "automation.events requires { principalId }", true);
+    }
+    try {
+      const principalId: string = p.principalId;
+      const state = await this.p016Read();
+      const automation = AutomationStore.rehydrate(state?.automation);
+      if (automation.principalById(principalId) === null) {
+        return err(
+          "automation_not_authenticated",
+          `principal '${principalId}' is not registered for this project (automation.authenticate first)`,
+          false,
+        );
+      }
+      const collab = state === null ? new CollabStore() : CollabStore.rehydrate(state.collab);
+      const checkpoints = state === null ? new CheckpointStore() : CheckpointStore.rehydrate(state.recovery);
+      const jobs = state === null ? new JobStore() : JobStore.rehydrate(state.jobs);
+      const subscriptions = automation
+        .subscriptionList()
+        .filter((s) => s.principalId === principalId);
+      const feed = deriveAutomationEvents(
+        {
+          transactions: collab.transactionList(),
+          checkpoints: checkpoints.list(),
+          jobs: jobs.list(),
+          activity: collab.activityList(),
+        },
+        subscriptions,
+        principalId,
+        state?.clock ?? 0,
+      );
+      return ok({ events: feed });
+    } catch (e) {
+      return this.p016Err(e);
+    }
+  }
+
+  /** automation.extensions — the registered extension manifests (the
+   *  durable project record). */
+  private async qAutomationExtensions(): Promise<CommandQueryResponse> {
+    try {
+      const state = await this.p016Read();
+      const automation = AutomationStore.rehydrate(state?.automation);
+      return ok({ extensions: automation.extensionList() });
     } catch (e) {
       return this.p016Err(e);
     }

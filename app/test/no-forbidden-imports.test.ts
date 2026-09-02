@@ -51,7 +51,12 @@ const FORBIDDEN_SPECIFIERS = [
 // src/modelstream and src/persist join the scanned core (the
 // collaboration/recovery/scale + the durable/shared persistence boundary.
 // session-side support stores are engine-free shared core, LOCK-018).
-const PROTECTED_DIRS = ["src/contracts", "src/renderer", "src/app-api", "src/caddocument", "src/graph", "src/impact", "src/drafting", "src/bim", "src/docs", "src/ifc", "src/workspace", "src/interop", "src/quantities", "src/recovery", "src/collab", "src/jobs", "src/modelstream", "src/persist"];
+// CAD-PARITY-017 (Issue #116): src/automation joins the scanned core (the
+// bounded automation/extension core — pure typed data + a pure fold, the
+// capability registry references App API request names ONLY; there is no
+// code path from a manifest to an engine/renderer/domain boundary,
+// LOCK-018 by construction).
+const PROTECTED_DIRS = ["src/contracts", "src/renderer", "src/app-api", "src/caddocument", "src/graph", "src/impact", "src/drafting", "src/bim", "src/docs", "src/ifc", "src/workspace", "src/interop", "src/quantities", "src/recovery", "src/collab", "src/jobs", "src/modelstream", "src/persist", "src/automation"];
 
 function* walk(dir: string): Generator<string> {
   for (const entry of readdirSync(dir)) {
