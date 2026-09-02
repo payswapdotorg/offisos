@@ -70,6 +70,20 @@ import {
   unwrapAutomationRuns,
   unwrapAutomationExtensions,
   unwrapAutomationEvents,
+  // CAD-PARITY-018 (Issue #118): the specialized-toolsets surfaces (the
+  // report.toolsets action — the capability discovery, the record
+  // inventory, the MEP clash report, the raster status/trace).
+  toolsetCapabilities,
+  toolsetListRecords,
+  toolsetMepValidateRoute,
+  toolsetMepClashReport,
+  toolsetRasterStatus,
+  toolsetRasterTrace,
+  unwrapToolsetCapabilities,
+  unwrapToolsetListRecords,
+  unwrapMepClashReport,
+  unwrapRasterStatus,
+  unwrapRasterTrace,
   send,
   setSelection as setDocumentSelection,
   unwrapCoordinationClash,
@@ -119,6 +133,9 @@ import { CollabWorkbench } from "@/cad/collab/workbench";
 // CAD-PARITY-017 (Issue #116): the automation/extension/API workbench (the
 // capability discovery, principals, scripts, runs, events, extensions).
 import { AutomationWorkbench } from "@/cad/automation/workbench";
+// CAD-PARITY-018 (Issue #118): the specialized-toolsets workbench (the
+// architecture/MEP/mechanical/raster workflows over the governed App API).
+import { ToolsetsWorkbench } from "@/cad/toolsets/workbench";
 // CAD-PARITY-012 (Issue #102): the shared material display helpers — the
 // SAME resolution the canvas paint loop and the Coordination palette run;
 // materialViewsOf derives the id-sorted table rows from the snapshot (the
@@ -148,6 +165,9 @@ const VIEW_TABS: readonly { id: WorkspaceView; label: string }[] = [
   { id: "collab", label: "Collab" },
   // CAD-PARITY-017 (Issue #116): the automation/extension/API surface.
   { id: "automation", label: "Automation" },
+  // CAD-PARITY-018 (Issue #118): the specialized-toolsets surface
+  // (architecture, MEP, mechanical, raster).
+  { id: "toolsets", label: "Toolsets" },
 ];
 
 export function WorkspaceShell(): React.JSX.Element {
@@ -475,6 +495,13 @@ export function WorkspaceShell(): React.JSX.Element {
               // discovery, principals, scripts, deterministic runs, the
               // scoped event feeds, extension manifests).
               setView("automation");
+            } else if (palette === "toolsets") {
+              // CAD-PARITY-018 (Issue #118): WALLRUN/PLACEOPENING/ROOFCREATE/
+              // STAIRRUN/SPACEGRID/DIMCHAIN/COMPARRAY/MEPRUN/MEPCONNECT/
+              // EQUIPADD/EQUIPARRAY/RASTERATTACH + the TOOLSETREPORT/
+              // MEPREPORT/RASTERSTATUS/RASTERTRACE report surfaces — the
+              // Specialized Toolsets workbench.
+              setView("toolsets");
             } else if (palette === "workspace") {
               setPreset((p) => (p === "compact" ? "drafting" : "compact"));
             }
@@ -842,6 +869,73 @@ export function WorkspaceShell(): React.JSX.Element {
               setHistoryLines((h) => [...h, ...lines]);
             } catch {
               setHistoryLines((h) => [...h, "*ERROR* report.automation: the query failed."]);
+            }
+            break;
+          }
+          case "report.toolsets": {
+            // CAD-PARITY-018 (Issue #118): TOOLSETREPORT/MEPREPORT/
+            // RASTERSTATUS/RASTERTRACE — the host renders the REAL
+            // specialized-toolsets query results (the capability discovery +
+            // the specialized-record inventory by default; the report-specific
+            // surface when the action payload carries a report kind).
+            try {
+              const payload = (action.payload as { report?: unknown; clearanceMm?: unknown; referenceId?: unknown } | undefined) ?? {};
+              const report = payload.report;
+              const lines: string[] = [];
+              if (report === "mep-clash") {
+                const clearanceMm = typeof payload.clearanceMm === "number" ? payload.clearanceMm : undefined;
+                const res = await toolsetMepClashReport(clearanceMm);
+                const view = unwrapMepClashReport(res);
+                if (view === null) {
+                  lines.push(`*ERROR* report.toolsets: ${res.ok ? "unexpected response shape" : `${res.code} — ${res.message}`}`);
+                } else {
+                  lines.push(`TOOLSETS: MEP clash report — ${view.runCount} run(s) at ${view.clearanceMm}mm clearance, ${view.diagnostics.length} diagnostic(s).`);
+                  for (const d of view.diagnostics) {
+                    lines.push(`TOOLSETS: clash ${d.runId} seg ${d.segmentIndex} vs ${d.elementId} — ${d.kindOfClash} at ${d.distanceMm.toFixed(1)}mm (required ${d.clearanceMm}mm).`);
+                  }
+                }
+              } else if (report === "raster-status") {
+                const res = await toolsetRasterStatus();
+                const view = unwrapRasterStatus(res);
+                if (view === null) {
+                  lines.push(`*ERROR* report.toolsets: ${res.ok ? "unexpected response shape" : `${res.code} — ${res.message}`}`);
+                } else {
+                  lines.push(`TOOLSETS: raster status — ${view.referenceCount} reference(s).`);
+                  for (const s of view.statuses) {
+                    lines.push(`TOOLSETS: reference ${s.referenceId} '${s.sourceRef}' ${s.status} — ${s.reason}`);
+                  }
+                }
+              } else if (report === "raster-trace") {
+                const referenceId = typeof payload.referenceId === "string" ? payload.referenceId : "";
+                const res = await toolsetRasterTrace(referenceId);
+                const view = unwrapRasterTrace(res);
+                if (view === null) {
+                  lines.push(`*ERROR* report.toolsets: ${res.ok ? "unexpected response shape" : `${res.code} — ${res.message}`}`);
+                } else {
+                  lines.push(`TOOLSETS: trace of ${view.referenceId} ('${view.sourceRef}') — ${view.vectors.length} vector(s), authoritative:${String(view.authoritative)} — ${view.notice}`);
+                  for (const [i, v] of view.vectors.slice(0, 5).entries()) {
+                    lines.push(`TOOLSETS: vector ${i}: (${v.from.x.toFixed(1)}, ${v.from.y.toFixed(1)}) -> (${v.to.x.toFixed(1)}, ${v.to.y.toFixed(1)}).`);
+                  }
+                }
+              } else {
+                const [capsRes, recordsRes] = await Promise.all([toolsetCapabilities(), toolsetListRecords()]);
+                const caps = unwrapToolsetCapabilities(capsRes);
+                const records = unwrapToolsetListRecords(recordsRes);
+                if (caps === null || records === null) {
+                  const failed = !capsRes.ok ? capsRes : recordsRes;
+                  lines.push(`*ERROR* report.toolsets: ${failed.ok ? "unexpected response shape" : `${failed.code} — ${failed.message}`}`);
+                } else {
+                  const commands = caps.capabilities.filter((c) => c.kind === "command").length;
+                  lines.push(`TOOLSETS: api v${caps.apiVersion} — ${caps.capabilities.length} capabilities (${commands} commands, ${caps.capabilities.length - commands} queries), bound to doc v${caps.documentVersion} sha ${caps.contentHash.slice(0, 12)}….`);
+                  lines.push(`TOOLSETS: ${records.count} specialized record(s).`);
+                  for (const r of records.records) {
+                    lines.push(`TOOLSETS: record ${r.id} ${r.toolset} ${r.kind}.`);
+                  }
+                }
+              }
+              setHistoryLines((h) => [...h, ...lines]);
+            } catch {
+              setHistoryLines((h) => [...h, "*ERROR* report.toolsets: the query failed."]);
             }
             break;
           }
@@ -1366,6 +1460,10 @@ export function WorkspaceShell(): React.JSX.Element {
             {view === "schedules" && <SchedulesWorkbench />}
             {view === "collab" && <CollabWorkbench />}
             {view === "automation" && <AutomationWorkbench />}
+            {/* CAD-PARITY-018 (Issue #118): the specialized-toolsets
+                workbench (the architecture/MEP/mechanical/raster workflows
+                over the governed App API). */}
+            {view === "toolsets" && <ToolsetsWorkbench />}
             {view === "layout" && (
               <LayoutCanvas
                 snapshot={snapshot}
