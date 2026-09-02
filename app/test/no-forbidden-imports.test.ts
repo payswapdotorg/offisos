@@ -85,7 +85,7 @@ test("no forbidden imports in platform-independent core", () => {
       for (const [i, line] of lines.entries()) {
         if (!/^\s*(import|export)\b/.test(line)) continue;
         for (const forbidden of FORBIDDEN_SPECIFIERS) {
-          const re = new RegExp(`[\"']${forbidden.replace("/", "/")}`);
+          const re = new RegExp(`["']${forbidden.replace("/", "/")}`);
           if (re.test(line)) {
             violations.push(`${relative(APP_ROOT, file)}:${i + 1}: ${line.trim()}`);
           }
@@ -123,7 +123,7 @@ test("reference adapter is engine-free (no occt/worker/host imports)", () => {
     for (const [i, line] of lines.entries()) {
       if (!/^\s*(import|export)\b/.test(line)) continue;
       for (const forbidden of [...FORBIDDEN_SPECIFIERS, "host-web", "host-electron"]) {
-        const re = new RegExp(`[\"']${forbidden}`);
+        const re = new RegExp(`["']${forbidden}`);
         if (re.test(line)) {
           violations.push(`${relative(APP_ROOT, file)}:${i + 1}: ${line.trim()}`);
         }
