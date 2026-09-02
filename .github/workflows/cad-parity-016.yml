@@ -223,7 +223,14 @@ jobs:
           # real-OCCT coverage runs in the workspace-shell app tests).
           OFFISOS_GEOMETRY_ENGINE: reference
         run: |
-          npm run dev -- --webpack -p 3100 &
+          # setsid: the dev server runs in its own process group so the
+          # teardown below kills the WHOLE tree (npm wrapper + next-server
+          # grandchild). Killing only the npm wrapper leaves the grandchild
+          # alive — and Next 16's per-directory dev-instance lock then
+          # BLOCKS the restart-proof's server on its own port with "Another
+          # next dev server is already running" (observed on the first
+          # CI run of the restart proof).
+          setsid npm run dev -- --webpack -p 3100 &
           DEV_PID=$!
           for i in $(seq 1 60); do
             if curl -sS -o /dev/null http://localhost:3100/ 2>/dev/null; then break; fi
@@ -285,7 +292,12 @@ jobs:
             node --import tsx apps/web/test/collab-p016-smoke.mjs
             SMOKE_STATUS=$?
           fi
-          kill $DEV_PID 2>/dev/null || true
+          # Reap the whole dev-server process group (the restart-proof step
+          # below starts its own dev server from the same directory — a
+          # surviving grandchild would hold Next's dev-instance lock).
+          kill -- -"$DEV_PID" 2>/dev/null || kill "$DEV_PID" 2>/dev/null || true
+          pkill -f "next dev" 2>/dev/null || true
+          sleep 2
           exit $SMOKE_STATUS
 
       - name: "CAD-PARITY-016 remediation: the PROCESS-RESTART durability proof (SIGKILL the dev server mid-flow; a fresh postgres-backed process recovers the durable project record)"
