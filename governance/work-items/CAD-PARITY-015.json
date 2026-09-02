@@ -1,8 +1,8 @@
 {
   "id": "CAD-PARITY-015",
   "title": "Schedules, indexes, properties and quantity workflows",
-  "issue": 110,
   "architecture_version": "1.1",
+  "issue": 110,
   "requirements": ["IFC-001"],
   "dependencies": ["CAD-PARITY-014", "COMPAT-BIM-003", "COMPAT-CAD-003", "COMPAT-IFC-001"],
   "objective": "Extend the verified CAD/BIM product with deterministic schedules, indexes, property-driven reporting and quantity workflows, using the Construction Graph as the authoritative information source and preserving frozen ConstructionOS Architecture v1.1.",
@@ -43,8 +43,8 @@
   "transitions": [
     {"from":"DRAFT","to":"READY","at":"2026-09-01T11:37:00Z","actor":"pectoraux","role":"architect","reason":"Release CAD-PARITY-015 as the next bounded schedules, indexes, properties and quantity slice following verified interoperability.","references":{"issue":110}},
     {"from":"READY","to":"ASSIGNED","at":"2026-09-01T11:37:15Z","actor":"pectoraux","role":"architect","reason":"All declared P015 dependencies are verified on main. Assign implementation to the logical implementation agent and require stopping at PR_OPEN/VERIFYING for Architect review.","references":{"issue":110,"assignee":"z-ai-implementation-agent"}},
-    {"from":"ASSIGNED","to":"IMPLEMENTING","at":"2026-09-01T11:45:00Z","actor":"z-ai-implementation-agent","role":"implementer","reason":"Implementation begins for CAD-PARITY-015 from the verified CAD-PARITY-014 mainline baseline. Scope is the bounded deterministic schedules, indexes, property-driven reporting and quantity workflows defined by Issue #110, preserving Construction Graph authority, shared Web/Electron semantics, adapter/worker boundaries and the PR_OPEN/VERIFYING stop gate.","references":{"issue":110,"commit":"32a70aa111d85cfe59378ce28ccd5c1a2723adf8"}},
-    {"from":"IMPLEMENTING","to":"PR_OPEN","at":"2026-09-01T15:10:00Z","actor":"z-ai-implementation-agent","role":"implementer","reason":"Implementation complete and submitted as PR #111 with deterministic schedules/indexes/properties/quantities, Web surface, evidence layer and baseline regressions covered.","references":{"issue":110,"pr":111,"evidence":["EV-001","EV-002","EV-003"]}},
+    {"from":"ASSIGNED","to":"IMPLEMENTING","at":"2026-09-01T11:45:00Z","actor":"z-ai-implementation-agent","role":"implementer","reason":"Implementation begins for CAD-PARITY-015 from the verified CAD-PARITY-014 mainline baseline.","references":{"issue":110,"commit":"32a70aa111d85cfe59378ce28ccd5c1a2723adf8"}},
+    {"from":"IMPLEMENTING","to":"PR_OPEN","at":"2026-09-01T15:10:00Z","actor":"z-ai-implementation-agent","role":"implementer","reason":"Implementation complete and submitted as PR #111 with deterministic schedules/indexes/properties/quantities and evidence coverage.","references":{"issue":110,"pr":111,"evidence":["EV-001","EV-002","EV-003"]}},
     {"from":"PR_OPEN","to":"VERIFYING","at":"2026-09-01T15:59:00Z","actor":"z-ai-implementation-agent","role":"implementer","reason":"Submitted PR #111 for Architect review with exact-head CI evidence and the full regression matrix.","references":{"issue":110,"pr":111,"evidence":["EV-004"]}},
     {"from":"VERIFYING","to":"IMPLEMENTING","at":"2026-09-01T22:30:00Z","actor":"pectoraux","role":"architect","reason":"CHANGES REQUESTED because the exact-head Vercel deployment and revision-bound real-browser evidence were not yet present.","references":{"issue":110,"pr":111}},
     {"from":"IMPLEMENTING","to":"PR_OPEN","at":"2026-09-02T01:10:00Z","actor":"z-ai-implementation-agent","role":"implementer","reason":"Remediation complete: exact-head Vercel deployment, deployed smoke and revision-bound browser evidence recorded as EV-006.","references":{"issue":110,"pr":111,"evidence":["EV-006"]}},
@@ -65,6 +65,6 @@
   ],
   "decisions": [
     {"id":"DEC-002","type":"architect","status":"APPROVED","description":"CAD-PARITY-015 was approved after EV-006 completed the exact-head Vercel deployment/browser evidence and the terminal exact-head CI matrix was green.","references":{"pr":111,"commit":"e2d186a1e57cea08552c2ab3dd69068d4baf1f9f","evidence":["EV-006"]}},
-    {"id":"DEC-003","type":"architect","status":"VERIFIED","description":"CAD-PARITY-015 is VERIFIED after successful post-merge verification on actual mainline merge commit 8d9b172f8a6f0973477f7627e7bbd5c1a90cf9a6: 23/23 workflow runs terminal with zero failures.","references":{"issue":110,"pr":111,"commit":"8d9b172f8a6f0973477f7627e7bbd5c1a90cf9a6,"evidence":["EV-007"]}}
+    {"id":"DEC-003","type":"architect","status":"VERIFIED","description":"CAD-PARITY-015 is VERIFIED after successful post-merge verification on actual mainline merge commit 8d9b172f8a6f0973477f7627e7bbd5c1a90cf9a6: 23/23 workflow runs terminal with zero failures.","references":{"issue":110,"pr":111,"commit":"8d9b172f8a6f0973477f7627e7bbd5c1a90cf9a6","evidence":["EV-007"]}}
   ]
 }
