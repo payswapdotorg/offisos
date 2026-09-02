@@ -116,6 +116,49 @@
           "EV-004"
         ]
       }
+    },
+    {
+      "from": "VERIFYING",
+      "to": "IMPLEMENTING",
+      "at": "2026-09-01T22:30:00Z",
+      "actor": "pectoraux",
+      "role": "architect",
+      "reason": "CHANGES REQUESTED on CAD-PARITY-015 (PR #111) \u2014 the Architect decision relayed through the operator session: the repository-side evidence is strong (the exact head fc8ea4c is covered by the full 24-workflow matrix including the dedicated P015 workspace/Web/Electron jobs; the governance, protected-path and verified-revision gates pass; the P015 smoke and fixture are deterministic; the deployed standalone build was browser-tested through the sandbox gateway), but the same blocking requirement remains unmet \u2014 the exact-head VERCEL deployment with revision-bound real-browser evidence. The sandbox gateway/standalone deployment (EV-005) is not equivalent to the Vercel evidence standard established for P012-P014: a browser session against a locally controlled production server, even exposed through Caddy, does not prove the exact GitHub revision was built and served by the production Vercel project. The inherited P014 production-build 1-ULP issue does not by itself block P015 approval (isolated to an untouched P014 file, honestly disclosed). No merge, no VERIFIED, no P016 release until the remediation lands.",
+      "failure_reason": "Missing the exact-head Vercel deployment + revision-bound deployed-browser evidence: EV-005 substituted the sandbox gateway/standalone deployment (no Vercel credential existed in that reset operator environment) \u2014 not equivalent to the P012-P014 Vercel evidence standard.",
+      "references": {
+        "issue": 110,
+        "pr": 111
+      }
+    },
+    {
+      "from": "IMPLEMENTING",
+      "to": "PR_OPEN",
+      "at": "2026-09-02T01:10:00Z",
+      "actor": "z-ai-implementation-agent",
+      "role": "implementer",
+      "reason": "The CHANGES REQUESTED remediation is complete on PR #111 with EV-006: the exact implementation head fc8ea4c deployed to the Offisos Vercel project (dpl_5maGHoBLi2yWcRdhrRQu6wfAtjbh at https://offisos-24h4ahubg-ekonplacidegmailcoms-projects.vercel.app, READY, meta.gitsha byte-exact + the CLI's independent githubCommitSha, REST-verified), the deployed P015 smoke byte-identical against the deployment (25 commands, the pinned fixture sha eaf6dd4b\u2026), the honest serverless boundary asserted (ifc.probe typed-unavailable), and the revision-bound real-browser evidence \u2014 zero console messages, zero page errors, the full P015 workflow through the real UI both directly against the deployment URL and through the instance-pinning serializing relay onto the same SHA-bound deployment.",
+      "references": {
+        "issue": 110,
+        "pr": 111,
+        "evidence": [
+          "EV-006"
+        ]
+      }
+    },
+    {
+      "from": "PR_OPEN",
+      "to": "VERIFYING",
+      "at": "2026-09-02T01:10:00Z",
+      "actor": "z-ai-implementation-agent",
+      "role": "implementer",
+      "reason": "Re-submit CAD-PARITY-015 (PR #111) for Architect review with EV-006 (the exact-head Vercel deployment + revision-bound deployed smoke/browser evidence closing the CHANGES REQUESTED gap, including the final-record-head CP7 deployment binding documented in the PR evidence comment). The prior CI evidence (EV-004: the 24-workflow matrix green on the exact head) remains valid \u2014 no rerun required by the decision. Stops at VERIFYING per the workflow lock \u2014 no merge, no VERIFIED claim; the Architect re-review decides.",
+      "references": {
+        "issue": 110,
+        "pr": 111,
+        "evidence": [
+          "EV-006"
+        ]
+      }
     }
   ],
   "evidence": [
@@ -184,6 +227,19 @@
         "workflow_run": "33528385005",
         "path": "/home/z/p015-browser/smoke-p015-via-gateway.log",
         "artifact_path": "/home/z/p015-browser/final-post-smoke.png"
+      }
+    },
+    {
+      "id": "EV-006",
+      "type": "reproducible-script",
+      "description": "The exact-head VERCEL deployment + revision-bound deployed-browser remediation evidence (the Architect's CHANGES REQUESTED decision on the gateway-based EV-005: a browser session against a locally controlled production server behind the sandbox gateway is NOT the Vercel evidence standard of P012-P014 \u2014 it does not prove the exact GitHub revision was built and served by the production Vercel project). DEPLOYMENT IDENTITY: the exact implementation head fc8ea4c743c9b7673a9797c989698eea7f808a1 deployed from a clean git checkout (detached at the exact SHA, porcelain-clean) to the Offisos Vercel project (team ekonplacidegmailcoms-projects, project offisos prj_p4IGIM5pBpL8pgVdfJhczR789BFL, Root Directory apps/web, sourceFilesOutsideRootDirectory enabled, Bun install + the repo's own next build --webpack) as deployment dpl_5maGHoBLi2yWcRdhrRQu6wfAtjbh at https://offisos-24h4ahubg-ekonplacidegmailcoms-projects.vercel.app (READY, preview target \u2014 the production alias untouched, offisos.vercel.app still serves main), sha-bound via REST GET /v6/deployments (proof timestamp 2026-09-02T00:45:30Z): meta.gitsha=fc8ea4c743c9b7673a9797c989698eea7f808a1 (byte-exact), meta.pr=111, meta.workitem=CAD-PARITY-015, PLUS the CLI's independent git detection githubCommitSha=fc8ea4c743c9b7673a9797c989698eea7f808a1d recorded from the detached checkout (a second, independent SHA binding). DEPLOYED SMOKE: the repo's own apps/web/test/schedules-p015-smoke.mjs driven DIRECTLY against the deployment URL (OFFISOS_WEB_URL, serialized keep-alive \u2014 one warm instance) \u2014 the pinned fixture cad-parity-015-schedules.json byte-identical against the deployment (save sha eaf6dd4b\u2026, 25 commands, 16 echo lines, every pinned sha256 matching), the P015 wire surface preflighted live (properties.list + quantities.rules serving on the deployment), and the honest serverless boundary asserted: ifc.probe reports the toolchain unavailable (typed) on serverless; the P015 surface is engine-free per LOCK-018 and the smoke passing on serverless is that proof. DEPLOYED BROWSER: a real Chromium session against the deployment \u2014 the workspace shell hydrates with ZERO console messages and ZERO page errors (both the initial load and a reload), the full P015 workflow exercised through the real UI: the grouped schedule run with group segments + subtotals + grand totals over the deployed document (Grand total 11), the revision-bound quantity takeoff with the closed rule table + the material BOM (the Concrete C30 group with \u03a3 subtotals + totals) + the honest skipped list at the deployed revision (rev 18), and the PROPLIST/QTO command-registry stream rendering real report lines (rows, totals, sha256) into the command history. Because the stateful serverless surface has no session affinity (instance flapping between browser connections was honestly observed and surfaced as typed query results from a cold instance), the SAME full workflow was re-run through the instance-pinning serializing relay (a transparent local proxy that forwards every /api/cad request through ONE persistent keep-alive socket onto the SAME SHA-bound deployment \u2014 94 serialized API requests, heartbeat-warmed): File New \u2192 the demo seed (13 elements in one atomic batch) \u2192 the property-definition creation (prd-000001 with live lineage statistics \u2014 0 values, honestly counted from the canonical element property-set overlay, no parallel source of truth) \u2192 the schedule create with the pd: property column + the calc:score calculated column \u2192 the run (sha de1a24ba5a32\u2026, Subtotal/Grand total 13) \u2192 the quantity takeoff (bim.wall \u00d74 / bim.slab / bim.space groups with \u03a3 subtotals, Grand total 6, the RevisionRef at rev 3, 7 honestly skipped) \u2192 PROPLIST (1 definition, values/match/mismatch from the overlay) and QTO EL MAT (rev 3, 6 rows, 7 skipped, totals, sha256 7341e79aaf69) \u2014 with the typed failure codes surfacing through the real UI (property_exists on a duplicate definition, schedule_not_found on a stale id) and ZERO console messages and ZERO page errors across the entire session. FINAL-HEAD BINDING (the CP7 discipline, P014 EV-004/005 shape): the terminal evidence head (this record's tree = the implementation head fc8ea4c plus the governance record arc) is deployed with meta gitsha bound to that exact head, REST-verified, the deployed smoke re-run byte-identical and a real-browser spot-check with zero console messages and zero page errors; the deployment ids + URLs + REST identity proofs for BOTH heads are documented in the PR #111 evidence comment (the record cannot self-reference its own commit sha; the binding is the deployment metadata, verified through the Vercel REST API).",
+      "produced_at": "2026-09-02T01:10:00Z",
+      "reproducible": true,
+      "reproduction": "git clone https://github.com/pectoraux/offisos.git && git checkout --detach fc8ea4c743c9b7673a9797c989698eea7f808a1 && vercel link --project offisos && vercel deploy --token \"$VERCEL_TOKEN\" --meta gitsha=fc8ea4c743c9b7673a9797c989698eea7f808a1 --meta pr=111 --meta workitem=CAD-PARITY-015 && curl -H \"Authorization: Bearer $VERCEL_TOKEN\" \"https://api.vercel.com/v6/deployments/dpl_5maGHoBLi2yWcRdhrRQu6wfAtjbh?teamId=ekonplacidegmailcoms-projects\" && npm ci && OFFISOS_WEB_URL=https://offisos-24h4ahubg-ekonplacidegmailcoms-projects.vercel.app node --import tsx apps/web/test/schedules-p015-smoke.mjs && (a real Chromium session against https://offisos-24h4ahubg-ekonplacidegmailcoms-projects.vercel.app \u2014 zero console messages, zero page errors, the P015 workflow through the real UI, repeated through the instance-pinning serializing relay onto the same deployment)",
+      "references": {
+        "commit": "fc8ea4c743c9b7673a9797c989698eea7f808a1",
+        "pr": 111,
+        "path": "apps/web/test/schedules-p015-smoke.mjs"
       }
     }
   ],
