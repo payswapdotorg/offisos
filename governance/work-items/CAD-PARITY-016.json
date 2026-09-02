@@ -1,0 +1,74 @@
+{
+  "id": "CAD-PARITY-016",
+  "title": "Collaboration, recovery and scale",
+  "issue": 112,
+  "architecture_version": "1.1",
+  "requirements": [
+    "PLAT-003",
+    "PLAT-004",
+    "DATA-004",
+    "COLLAB-001",
+    "COLLAB-002",
+    "COLLAB-003",
+    "COLLAB-004"
+  ],
+  "dependencies": [
+    "CAD-PARITY-015"
+  ],
+  "objective": "Extend the verified CAD/BIM product with bounded collaboration, recovery and scale capabilities while preserving ConstructionOS Architecture v1.1, Construction Graph authority, existing CAD/BIM semantics and Web/Electron parity.",
+  "acceptance_criteria": [
+    "Recovery checkpoints are durable, versioned and traceable to canonical project/document revisions.",
+    "Crash/session recovery restores the latest valid recoverable state deterministically without creating a parallel canonical source of truth.",
+    "Comments, presence and activity are project-scoped, permission-aware and linked to canonical objects or revisions where applicable.",
+    "Collaborative BIM/document changes use versioned transactional semantics; conflicts and merge/resolution lineage are explicit and reproducible.",
+    "External references retain source lineage, revision identity and explicit unavailable/stale/unsupported outcomes; cache contents are never authoritative.",
+    "Large-model streaming and caching improve bounded access patterns without changing canonical Construction Graph semantics.",
+    "Background regeneration uses the existing worker/adapter boundaries, exposes durable job state, and never promotes transient worker output to authority without canonical persistence.",
+    "Web and Electron share the same collaboration, recovery, reference, job and performance semantics.",
+    "Existing CAD-PARITY-002..015 and compatibility baselines remain green and byte-identical unless an explicitly reviewed migration is required.",
+    "Performance budgets are stated as observable thresholds for representative recovery, collaboration and large-model workflows and are revision-bound by evidence.",
+    "The exact final implementation head is CI-verified, deployment/browser/Electron verified where applicable, and revision-bound before merge.",
+    "No protected architecture paths are modified; architecture changes require an ACR."
+  ],
+  "non_goals": [
+    "Unbounded real-time co-authoring of every CAD/BIM operation.",
+    "Replacing Construction Graph, PostgreSQL or object storage with collaboration caches or client-local stores.",
+    "Replacing the renderer or geometry engine.",
+    "General automation/API expansion (P017).",
+    "Architecture changes without an ACR."
+  ],
+  "risk_assumptions": [
+    "CAD-PARITY-015 is VERIFIED and is the current CAD/BIM workflow baseline.",
+    "Platform observability and durable worker execution remain available through PLAT-003 and PLAT-004.",
+    "Canonical versioning remains governed by DATA-004 and the Construction Graph remains authoritative.",
+    "COLLAB-001..004 are the applicable collaboration requirements for this phase.",
+    "Architecture v1.1 remains frozen throughout P016."
+  ],
+  "evidence_requirements": [
+    "Deterministic autosave, recovery and crash-recovery tests.",
+    "Multi-user comments, presence and conflict-lineage tests with authorization coverage.",
+    "External-reference lineage and stale/unavailable outcome fixtures.",
+    "Large-model streaming/cache and background-regeneration tests with worker-boundary proof.",
+    "Web/Electron semantic parity fixtures.",
+    "Regression proof that CAD-PARITY-002..015 and compatibility baselines remain green and byte-identical.",
+    "Observable performance-budget benchmark artifacts bound to the exact implementation revision.",
+    "Exact-head deployment plus real-browser/Electron evidence where applicable.",
+    "Revision-bound governance evidence covering implementation, merge and post-merge verification."
+  ],
+  "state": "READY",
+  "transitions": [
+    {
+      "from": "DRAFT",
+      "to": "READY",
+      "at": "2026-09-02T02:51:00Z",
+      "actor": "pectoraux",
+      "role": "architect",
+      "reason": "Release CAD-PARITY-016 as the bounded Phase 8 collaboration, recovery and scale slice after CAD-PARITY-015 reached verified mainline closure and governance re-validation succeeded.",
+      "references": {
+        "issue": 112,
+        "commit": "7f087496f52a2312c9aff2b4b0577e9f88f5cd6e",
+        "evidence": ["P015 governance run 33584474268"]
+      }
+    }
+  ]
+}
