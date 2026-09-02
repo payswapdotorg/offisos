@@ -55,7 +55,7 @@
     "Exact-head deployment plus real-browser/Electron evidence where applicable.",
     "Revision-bound governance evidence covering implementation, merge and post-merge verification."
   ],
-  "state": "READY",
+  "state": "ASSIGNED",
   "transitions": [
     {
       "from": "DRAFT",
@@ -67,6 +67,18 @@
       "references": {
         "issue": 112,
         "commit": "7f087496f52a2312c9aff2b4b0577e9f88f5cd6e"
+      }
+    },
+    {
+      "from": "READY",
+      "to": "ASSIGNED",
+      "at": "2026-09-02T02:51:01Z",
+      "actor": "pectoraux",
+      "role": "architect",
+      "reason": "Assign CAD-PARITY-016 implementation to the logical implementation agent after the P015 dependency and P016 registration governance gates passed; implementation must stop at PR_OPEN/VERIFYING for Architect review.",
+      "references": {
+        "issue": 112,
+        "assignee": "z-ai-implementation-agent"
       }
     }
   ]
