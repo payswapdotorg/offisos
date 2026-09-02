@@ -66,8 +66,7 @@
       "reason": "Release CAD-PARITY-016 as the bounded Phase 8 collaboration, recovery and scale slice after CAD-PARITY-015 reached verified mainline closure and governance re-validation succeeded.",
       "references": {
         "issue": 112,
-        "commit": "7f087496f52a2312c9aff2b4b0577e9f88f5cd6e",
-        "evidence": ["P015 governance run 33584474268"]
+        "commit": "7f087496f52a2312c9aff2b4b0577e9f88f5cd6e"
       }
     }
   ]
