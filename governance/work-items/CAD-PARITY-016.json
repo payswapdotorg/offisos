@@ -55,7 +55,7 @@
     "Exact-head deployment plus real-browser/Electron evidence where applicable.",
     "Revision-bound governance evidence covering implementation, merge and post-merge verification."
   ],
-  "state": "IMPLEMENTING",
+  "state": "VERIFYING",
   "transitions": [
     {
       "from": "DRAFT",
@@ -91,6 +91,81 @@
       "references": {
         "issue": 112,
         "commit": "30f3e4a3910466ea99fb6783dbb91cf307f66368"
+      }
+    },
+    {
+      "from": "IMPLEMENTING",
+      "to": "PR_OPEN",
+      "at": "2026-09-02T05:15:00Z",
+      "actor": "z-ai-implementation-agent",
+      "role": "implementer",
+      "reason": "Implementation complete and submitted as PR #115 with deterministic collaboration/recovery/scale semantics (durable versioned checkpoints + deterministic crash recovery, project-scoped permission-aware comments/presence/activity, versioned transactions with explicit conflict + merge lineage, the controlled external-reference lifecycle, bounded non-authoritative large-model streaming, durable stepwise background-regeneration jobs, observable revision-bound performance budgets, Web/Electron parity) and evidence coverage.",
+      "references": {
+        "issue": 112,
+        "pr": 115,
+        "evidence": [
+          "EV-001",
+          "EV-002",
+          "EV-003"
+        ]
+      }
+    },
+    {
+      "from": "PR_OPEN",
+      "to": "VERIFYING",
+      "at": "2026-09-02T05:16:00Z",
+      "actor": "z-ai-implementation-agent",
+      "role": "implementer",
+      "reason": "Submitted PR #115 for Architect review: the exact-head CI binding, the exact-head deployment plus real-browser evidence and the regression matrix will be recorded as additional evidence per the P015 discipline.",
+      "references": {
+        "issue": 112,
+        "pr": 115,
+        "evidence": [
+          "EV-001",
+          "EV-002",
+          "EV-003"
+        ]
+      }
+    }
+  ],
+  "evidence": [
+    {
+      "id": "EV-001",
+      "type": "automated-test-suite",
+      "description": "Full P016 deterministic implementation suite: 1238/1238 tests pass, 0 fail, 41 engine-dependent skips (unchanged baseline); 23 new P016 tests (recovery 7, collab 8, jobs+stream 7, host-parity 1) on top of the pre-existing 1215 baseline; tsc app-shell typecheck green.",
+      "produced_at": "2026-09-02T05:20:00Z",
+      "reproducible": true,
+      "reproduction": "cd app && node --import tsx --test test/*.test.ts",
+      "references": {
+        "commit": "179a87c33405ca4e68e3a7120090f4067b251955",
+        "pr": 115,
+        "path": "app/test"
+      }
+    },
+    {
+      "id": "EV-002",
+      "type": "reproducible-script",
+      "description": "The CAD-PARITY-016 web-host parity smoke (36 commands, 46 echo lines, 7 observable performance-budget wall-clock assertions reported to the run log and never pinned) passes against the live /api/cad in REFERENCE mode; the pinned fixture cad-parity-016-collab.json is byte-identical across repeat fresh-session runs (verified 3x: the checkpoint lineage, the member roster, the transaction/merge lineage, the activity stream, the job lifecycle, the stream cache stats, the xref outcome table and the deterministic budget counters).",
+      "produced_at": "2026-09-02T05:20:00Z",
+      "reproducible": true,
+      "reproduction": "cd apps/web && OFFISOS_GEOMETRY_ENGINE=reference OFFISOS_WEB_URL=http://localhost:3100 node --import tsx test/collab-p016-smoke.mjs",
+      "references": {
+        "commit": "179a87c33405ca4e68e3a7120090f4067b251955",
+        "pr": 115,
+        "path": "apps/web/test/collab-p016-smoke.mjs"
+      }
+    },
+    {
+      "id": "EV-003",
+      "type": "automated-test-suite",
+      "description": "Web/Electron semantic parity: the identical P016 command/query sequence through WebHost/WebSocketTransport AND ElectronHost/IpcTransport converges to identical semantic results — the session clocks, the minted checkpoint/comment/transaction ids, the checkpoint content hashes, the conflict + merge/resolution lineage, the stream page shapes, the cache counters and the perf-budget counters; the canonical documents converge to the same content hash.",
+      "produced_at": "2026-09-02T05:20:00Z",
+      "reproducible": true,
+      "reproduction": "cd app && node --import tsx --test test/collab-p016-host-parity.test.ts",
+      "references": {
+        "commit": "179a87c33405ca4e68e3a7120090f4067b251955",
+        "pr": 115,
+        "path": "app/test/collab-p016-host-parity.test.ts"
       }
     }
   ]
