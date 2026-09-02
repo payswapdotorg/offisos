@@ -55,7 +55,7 @@
     "Exact-head deployment plus real-browser/Electron evidence where applicable.",
     "Revision-bound governance evidence covering implementation, merge and post-merge verification."
   ],
-  "state": "VERIFYING",
+  "state": "IMPLEMENTING",
   "transitions": [
     {
       "from": "DRAFT",
@@ -125,6 +125,20 @@
           "EV-002",
           "EV-003"
         ]
+      }
+    },
+    {
+      "from": "VERIFYING",
+      "to": "IMPLEMENTING",
+      "at": "2026-09-02T06:00:00Z",
+      "actor": "pectoraux",
+      "role": "architect",
+      "reason": "Architect review found acceptance-critical gaps: recovery checkpoints are retained only in the AppApiHandler's in-memory CheckpointStore and are explicitly discarded by resetP016Session on document replacement, so durable recovery across the relevant process/session boundary is not proven; collaboration members, presence, comments, activity, transactions and merge lineage are likewise held only in a per-handler in-memory CollabStore, while the Web deployment has no session affinity, so project-wide multi-user shared state and cross-participant convergence are not proven. The existing deterministic semantics and evidence are strong, but they do not close the durability/shared-state requirements as written.",
+      "failure_reason": "P016 must provide a real durable recovery boundary and a real shared project collaboration boundary without weakening the acceptance contract. The Construction Graph/CADDocument must remain canonical; caches and worker outputs remain support mechanisms; Architecture v1.1 remains frozen.",
+      "references": {
+        "issue": 112,
+        "pr": 115,
+        "commit": "1fc3d4f49a6fcc0841243b968b07192fdd4e8c01"
       }
     }
   ],
