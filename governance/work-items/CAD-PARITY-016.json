@@ -178,6 +178,54 @@
           "EV-008"
         ]
       }
+    },
+    {
+      "from": "VERIFYING",
+      "to": "IMPLEMENTING",
+      "at": "2026-09-02T09:52:00Z",
+      "actor": "z-ai-implementation-agent",
+      "role": "implementer",
+      "reason": "The exact-head CI on the submitted remediation head 04d289a FAILED: the cad-parity-016 web job (the real postgres service; run 33611947362, https://github.com/pectoraux/offisos/actions/runs/33611947362) failed at the collab-p016 smoke fixture comparison — commentsSha256 pinned ≠ actual. Root cause: the postgres adapter's JSONB columns normalize the persisted state (object keys reordered on write), so the rehydrated views serialize differently than the code-created ones — the cross-backend pinned-fixture byte-identity claim (EV-002) did not hold on postgres. The restart proof (EV-007) had also never completed a successful run anywhere (the CI step was skipped after the smoke failure; no local postgres existed in the prior operator session). Both must be fixed before the submission can be verified.",
+      "failure_reason": "The verification evidence is not yet sound: the postgres-backed CI is red on the exact head and the restart-proof evidence was recorded without a successful execution. Fix the determinism defect and the proof, re-verify all backends, then re-submit.",
+      "references": {
+        "pr": 115,
+        "commit": "04d289a5d4db2d2d68a04b31765434e3bdd2d339"
+      }
+    },
+    {
+      "from": "IMPLEMENTING",
+      "to": "PR_OPEN",
+      "at": "2026-09-02T10:44:30Z",
+      "actor": "z-ai-implementation-agent",
+      "role": "implementer",
+      "reason": "The CI-fix is implemented at 9aa1824: the postgres adapter's state and blob columns switched from the normalizing jsonb to the text-preserving json type (byte-exact state round-trips — the same property the memory/file/blob adapters already guarantee; an idempotent in-place migration for earlier jsonb tables), and the restart-proof repaired (the canonical-JSON-form comparison with the process-scoped editorState excluded; the detached process-group teardown so the CI step cannot hang). Re-verified from the operator environment against a REAL local PostgreSQL 18.4: the full collab smoke matches the pinned fixture byte-identically with backend postgres, the restart proof PASSES, the full app suite is 1207 pass / 0 fail / 41 engine skips, and the four governance gates are green (438/438, protected, verified-revisions, 199/199).",
+      "references": {
+        "pr": 115,
+        "commit": "9aa1824c1580f1ad6bd6e363a68c63af4d3b9ebb",
+        "evidence": [
+          "EV-009",
+          "EV-002",
+          "EV-007"
+        ]
+      }
+    },
+    {
+      "from": "PR_OPEN",
+      "to": "VERIFYING",
+      "at": "2026-09-02T10:52:00Z",
+      "actor": "z-ai-implementation-agent",
+      "role": "implementer",
+      "reason": "Re-submitted the remediated PR #115 for Architect re-review at the new head: the exact-head CI binding (the postgres-service web job + the restart proof + the full regression matrix), the exact-head deployment on the linked blob store + the deployed multi-session/durability smoke + the real-browser evidence will be recorded per the P015 out-of-band discipline in the PR evidence comment.",
+      "references": {
+        "issue": 112,
+        "pr": 115,
+        "evidence": [
+          "EV-009",
+          "EV-002",
+          "EV-007",
+          "EV-008"
+        ]
+      }
     }
   ],
   "evidence": [
@@ -197,12 +245,12 @@
     {
       "id": "EV-002",
       "type": "reproducible-script",
-      "description": "The CAD-PARITY-016 web-host parity smoke (remediated, 42 commands, 46 echo lines, 8 observable performance-budget wall-clock assertions reported to the run log and never pinned) proves the durable/shared contracts through the live /api/cad: the persistence backend identity (memory | postgres | blob) asserted and printed, the shared project key = the canonical document entity id (run-unique), the DURABLE reopen (the checkpoints survive the save/open round-trip; recovery.restore rebuilds hash-exactly from the durable content-addressed blobs), the multi-session SHARED state (the reopened session sees the first session's roster; a second participant joins/comments into the shared project; a cross-session stale-base commit conflicts against the SHARED transaction lineage), and the fresh-document project scoping. The pinned fixture cad-parity-016-collab.json is byte-identical across repeat runs AND across backends (verified: 1 write + 2 match runs on the memory backend, and a full match against the REAL Vercel Blob store from the operator environment).",
-      "produced_at": "2026-09-02T09:45:00Z",
+      "description": "The CAD-PARITY-016 web-host parity smoke (remediated, 42 commands, 46 echo lines, 8 observable performance-budget wall-clock assertions reported to the run log and never pinned) proves the durable/shared contracts through the live /api/cad: the persistence backend identity (memory | postgres | blob) asserted and printed, the shared project key = the canonical document entity id (run-unique), the DURABLE reopen (the checkpoints survive the save/open round-trip; recovery.restore rebuilds hash-exactly from the durable content-addressed blobs), the multi-session SHARED state (the reopened session sees the first session's roster; a second participant joins/comments into the shared project; a cross-session stale-base commit conflicts against the SHARED transaction lineage), and the fresh-document project scoping. The pinned fixture cad-parity-016-collab.json is byte-identical across repeat runs AND across backends (verified: match runs on the memory backend; a full match against the REAL Vercel Blob store from the operator environment; and — after the 9aa1824 fix — a full match against a REAL local PostgreSQL 18.4 service with backend postgres). Integrity disclosure: the first submission's postgres backend DIVERGED — the CI web job on 04d289a failed at commentsSha256 (the adapter's jsonb columns normalized/reordered the persisted state's object keys, so the rehydrated views serialized differently than the code-created ones; the 9aa1824 fix switched the columns to the text-preserving json type — see EV-009).",
+      "produced_at": "2026-09-02T10:36:00Z",
       "reproducible": true,
       "reproduction": "cd apps/web && OFFISOS_GEOMETRY_ENGINE=reference OFFISOS_P016_PERSIST=memory OFFISOS_WEB_URL=http://localhost:3100 node --import tsx test/collab-p016-smoke.mjs",
       "references": {
-        "commit": "1c556f8c8475f6c7842ca916d27974fdbe3b1edc",
+        "commit": "9aa1824c1580f1ad6bd6e363a68c63af4d3b9ebb",
         "pr": 115,
         "path": "apps/web/test/collab-p016-smoke.mjs"
       }
@@ -263,12 +311,12 @@
     {
       "id": "EV-007",
       "type": "reproducible-script",
-      "description": "The process-RESTART durability proof (the crash boundary): the collab-p016-restart-proof script drives a checkpoint + member + comment through the real HTTP App API on a postgres-backed dev server, SIGKILLs the server process (all in-memory session state gone), restarts a FRESH process over the same backend and asserts the durable recovery — the member roster, the comment, the checkpoint inventory intact and the hash-exact restore from the durable content-addressed blobs. Runs in the CI web job against the real postgres service; skips typed-honestly when DATABASE_URL is unset. The deployed equivalent boundary (serverless instance rotation) is proven by the deployed smoke against the linked blob store.",
-      "produced_at": "2026-09-02T09:45:00Z",
+      "description": "The process-RESTART durability proof (the crash boundary): the collab-p016-restart-proof script drives a checkpoint + member + comment through the real HTTP App API on a postgres-backed dev server, SIGKILLs the whole server process tree (all in-memory session state gone), restarts a FRESH process over the same backend and asserts the durable recovery — the member roster, the comment and the checkpoint inventory intact; the hash-exact restore from the durable content-addressed blobs (the restored content hash equals the checkpoint's recorded hash); and the restored CANONICAL document state identical to the pre-crash state under the project's canonical JSON form (recursively sorted keys — the same form every pinned fixture and content hash uses; the session-local editorState — undo history, command depth — is process-scoped by design and excluded). Integrity disclosure: as first committed (1c556f8) this script had never completed a successful run anywhere — the CI web job failed at the collab-smoke step BEFORE the restart proof executed, and no local postgres service existed in the prior operator session. Its first full execution (against a real local PostgreSQL 18.4, after the 9aa1824 fix) exposed and fixed two defects: the final assertion compared the RAW document.getState serialization (the restored document's modelHistory is canonically sorted through CADDocument.open → cloneHistory → canonicalStringify while the live session serializes code-order keys — now compared under the canonical form with the process-scoped editorState excluded), and SIGKILLing only the npm wrapper left the next-server grandchild holding the port and the script's stdio pipes (the CI step would hang — now a detached process-group kill with an explicit exit). Observed PASS locally against the real postgres service; the CI web job runs it against its postgres service on every push.",
+      "produced_at": "2026-09-02T10:38:00Z",
       "reproducible": true,
       "reproduction": "cd apps/web && node --import tsx test/collab-p016-restart-proof.mjs (requires DATABASE_URL — the CI web job's postgres service)",
       "references": {
-        "commit": "1c556f8c8475f6c7842ca916d27974fdbe3b1edc",
+        "commit": "9aa1824c1580f1ad6bd6e363a68c63af4d3b9ebb",
         "pr": 115,
         "path": "apps/web/test/collab-p016-restart-proof.mjs"
       }
@@ -284,6 +332,19 @@
         "commit": "1c556f8c8475f6c7842ca916d27974fdbe3b1edc",
         "pr": 115,
         "path": "apps/web/src/server/p016-blob.ts"
+      }
+    },
+    {
+      "id": "EV-009",
+      "type": "reproducible-script",
+      "description": "The postgres byte-identity fix (the CI-exposed determinism defect, 9aa1824): the first submission's postgres adapter stored the persisted project state and the content-addressed snapshot blobs as JSONB — PostgreSQL jsonb NORMALIZES JSON on write (object keys reordered; verified directly against a real PostgreSQL 18: a {\"kind\",\"id\"} object round-trips with sorted keys) — so a state loaded from the event log rehydrated into a different key order than the pure transitions produce. The memory/file/blob adapters round-trip the serialization text verbatim, so the pinned fixture's raw-serialization digest (commentsSha256) diverged ONLY on postgres — the exact-head CI web job failure on 04d289a. The fix at the storage boundary: the p016_events.state and p016_blobs.content columns are json — text-preserving with JSON syntax validated on write — plus an idempotent in-place column migration for any table created by the earlier jsonb revision; the head read stays by the (project_key, n) primary key (nothing queries into the state, so jsonb's indexing is not needed); PostgreSQL authority semantics (advisory-lock serialization, the append-only event log, the immutable content-addressed blobs) are unchanged. Proven from the operator environment against a REAL local PostgreSQL 18.4 (an embedded server): the full collab-p016 smoke matches the pinned fixture byte-identically with backend postgres — the SAME fixture as the memory backend — and the process-restart proof passes (EV-007).",
+      "produced_at": "2026-09-02T10:38:00Z",
+      "reproducible": true,
+      "reproduction": "with a local postgres (DATABASE_URL=postgres://…, OFFISOS_P016_PERSIST=postgres, a dev server on :3100): OFFISOS_WEB_URL=http://localhost:3100 node --import tsx apps/web/test/collab-p016-smoke.mjs (the fixture match, backend postgres) and cd apps/web && DATABASE_URL=… node --import tsx test/collab-p016-restart-proof.mjs (the process-restart proof)",
+      "references": {
+        "commit": "9aa1824c1580f1ad6bd6e363a68c63af4d3b9ebb",
+        "pr": 115,
+        "path": "apps/web/src/server/p016-postgres.ts"
       }
     }
   ]
