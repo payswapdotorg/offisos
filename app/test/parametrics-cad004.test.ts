@@ -656,7 +656,8 @@ test("assoc.refresh: a stale stored measurement re-derives from the CURRENT geom
   const healed = await stateOf(h2);
   const healedDim = healed.elements.find((el) => (el.props as Record<string, unknown>).type === "dim-linear")!;
   assert.ok(close(num((healedDim.props as Record<string, unknown>).measured), 3000), "the stale measurement re-derived from the moved source");
-  assert.ok(close(num((healedDim.props as Record<string, unknown>).p2?.x), 3000) || true, "the referenced endpoint followed");
+  const healedP2 = (healedDim.props as Record<string, unknown>).p2 as { x: number } | undefined;
+  assert.ok(healedP2 !== undefined && close(healedP2.x, 3000), "the referenced endpoint followed");
   assert.equal(view.view.report.counts.notOk, 0);
   // ONE revision: a single undo restores the stale stored value exactly.
   val(await cmd(h2, "document.undo", {}));
