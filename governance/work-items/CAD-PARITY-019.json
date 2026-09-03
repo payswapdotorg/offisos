@@ -51,7 +51,7 @@
     "Exact-head CI verification and deployment/browser evidence where applicable.",
     "Revision-bound governance evidence covering certification implementation, review and final verification."
   ],
-  "state": "IMPLEMENTING",
+  "state": "VERIFYING",
   "transitions": [
     {
       "from": "DRAFT",
@@ -87,8 +87,57 @@
         "issue": 122,
         "commit": "dc1a9a44403114cbe6a85a28b1da07f0c48a2143"
       }
+    },
+    {
+      "from": "IMPLEMENTING",
+      "to": "PR_OPEN",
+      "at": "2026-09-03T14:07:30Z",
+      "actor": "z-ai-implementation-agent",
+      "role": "implementer",
+      "reason": "The certification implementation is complete at the PR head: the version-pinned corpus (the first deliverable), the deterministic certification engine, the app-suite certification test with the pinned fixture, the Web/Electron host-parity convergence, the NINETEENTH web certification smoke and the Certification workbench. The governance gates at the record tree are green (validate 503/503, check-protected PASS, check-verified-revisions PASS, the root suite 199/199, the full app suite 1330 pass / 0 fail).",
+      "references": {
+        "pr": 125
+      }
+    },
+    {
+      "from": "PR_OPEN",
+      "to": "VERIFYING",
+      "at": "2026-09-03T14:07:30Z",
+      "actor": "z-ai-implementation-agent",
+      "role": "implementer",
+      "reason": "Submit CAD-PARITY-019 for verification: EV-001 (the full app suite incl. the three CAD-PARITY-019 certification tests) and EV-002 (the pinned certification fixture + the byte-identical cross-host parity through the in-process basis, both host transports and the real web app) are recorded; the exact-head CI matrix + the dispatch run and the exact-head deployment + the deployed certification smoke + the browser verification follow per the P016/P017/P018 discipline and will be bound in the PR evidence comments. The hard implementation-side stop gate: no self-approval, no self-verification \u2014 ARCHITECT_REVIEW \u2192 APPROVED \u2192 VERIFIED belong to the Architect.",
+      "references": {
+        "pr": 125
+      }
     }
   ],
-  "evidence": [],
+  "evidence": [
+    {
+      "id": "EV-001",
+      "type": "automated-test-suite",
+      "description": "The full deterministic app suite at the implementation head: 1375 tests, 1330 pass, 0 fail, 45 skipped (the OCCT-gated suites run in CI with the pinned toolchains \u2014 the dedicated cad-parity-019 workflow installs OCCT 7.8.1.1 + ifcopenshell 0.8.5 + IfcTester 0.8.5). The +3 CAD-PARITY-019 tests: the app-suite AutoCAD parity certification (the version-pinned corpus autocad-p019-corpus/1 through the REAL App API handler + the shared prompt-engine command registry \u2014 8/8 workflows, 100 declared reference expectations with the honest outcome spread 96 exact / 4 typed-unsupported, 13 live interop probes 6 exact / 1 lossy / 6 unsupported, zero failures, verdict CERTIFIED), the Web/Electron host-parity convergence (the same corpus through both hosts' REAL transports \u2014 byte-identical certification verdicts), and the corpus invariant test (the first-deliverable version pin is well-formed and deterministic).",
+      "produced_at": "2026-09-03T14:07:30Z",
+      "reproducible": true,
+      "reproduction": "cd app && OFFISOS_PYTHON=<python with ifcopenshell 0.8.5 + IfcTester 0.8.5> node --import tsx --test 'test/*.test.ts'",
+      "references": {
+        "commit": "59822861d93bdcb9ef7fd63310b1e7146f329054",
+        "path": "app/test/autocad-p019-certification.test.ts",
+        "pr": 125
+      }
+    },
+    {
+      "id": "EV-002",
+      "type": "reproducible-script",
+      "description": "The pinned certification fixture (app/test/fixtures/cad-parity-019-certification.json, the basis-excluded deterministic verdict projection sha256 db8d304ed251d210051a68a2b002f8261d9360db5759db19348ac07899d69c92) + the cross-host parity proof: the SAME version-pinned corpus produces the byte-identical verdict projection through (a) the in-process App API handler (the app-suite test), (b) the Web host's WebSocketTransport and the Electron host's IpcTransport (the autocad-p019-host-parity test), and (c) the REAL web app over HTTP (the NINETEENTH smoke, apps/web/test/certification-p019-smoke.mjs, run against the running dev server with the reference adapter + the pinned IfcOpenShell interop adapter \u2014 the wall-clock perf budgets asserted per workflow and never pinned).",
+      "produced_at": "2026-09-03T14:07:30Z",
+      "reproducible": true,
+      "reproduction": "cd apps/web && OFFISOS_GEOMETRY_ENGINE=reference OFFISOS_IFC_WORKER=../../app/src/adapters/ifc/worker/ifc-worker.py OFFISOS_P016_PERSIST=memory setsid npm run dev -- --webpack -p 3100 & then OFFISOS_WEB_URL=http://localhost:3100 node --import tsx test/certification-p019-smoke.mjs (from the repo root)",
+      "references": {
+        "commit": "59822861d93bdcb9ef7fd63310b1e7146f329054",
+        "pr": 125,
+        "path": "app/test/fixtures/cad-parity-019-certification.json"
+      }
+    }
+  ],
   "decisions": []
 }
