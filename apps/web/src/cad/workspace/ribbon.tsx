@@ -105,7 +105,7 @@ import { Button } from "@/components/ui/button";
 import { WORKSPACE_COMMANDS, commandById, type WorkspaceCommand } from "@offisos/cad-app-shell/workspace/commands";
 import type { DockTab } from "@/cad/workspace/palettes";
 
-export type WorkspaceView = "model" | "model3d" | "layout" | "bim3d" | "docs" | "ifc" | "components" | "schedules" | "collab" | "automation" | "toolsets" | "parametrics";
+export type WorkspaceView = "model" | "model3d" | "layout" | "bim3d" | "docs" | "ifc" | "components" | "schedules" | "collab" | "automation" | "toolsets" | "parametrics" | "certification";
 export type WorkspacePreset = "drafting" | "bim" | "documentation" | "compact";
 
 // ---------------------------------------------------------------------------
