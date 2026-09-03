@@ -518,6 +518,14 @@ export const ARCHICAD_COMMAND_ANALOGS: readonly ArchicadCommandAnalog[] = [
       "The Offisos MATERIAL creates a building material (category, density) — the analog of the Archicad building-material attribute (a project-level definition with measurable properties, assigned to structures). MATERIAL is not an Archicad command name.",
   },
   {
+    offisosSurface: "LAYOUTNEW",
+    surface: "command-line",
+    archicadReference: "Working with Layouts (the Layout Book) — Archicad 27",
+    source: "archicad-27-layout-book",
+    scope:
+      "The Offisos LAYOUTNEW creates a paper-space layout with the canonical default page setup (A3 landscape) and activates it — the analog of the Archicad Layout Book's new-layout creation. LAYOUTNEW is not an Archicad command name.",
+  },
+  {
     offisosSurface: "SUBSET",
     surface: "command-line",
     archicadReference: "Navigator - Layout Book (Subsets) — Archicad 27",

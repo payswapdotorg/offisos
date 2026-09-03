@@ -1,0 +1,807 @@
+{
+  "reportSha256": "d246a6b0c39b3feebf76017e1a0af17b831bb14587e42f6653c775e4a452fee4",
+  "normalized": {
+    "contract": "offisos-p020-certification/1",
+    "corpus": {
+      "id": "archicad-p020-corpus",
+      "sha256": "«sha256»",
+      "version": "1",
+      "workflowCount": 8
+    },
+    "summary": {
+      "expectations": {
+        "exact": 50,
+        "failed": 0,
+        "lossy": 0,
+        "total": 52,
+        "unsupported": 2
+      },
+      "interop": {
+        "exact": 9,
+        "failed": 0,
+        "lossy": 1,
+        "total": 14,
+        "unsupported": 4
+      },
+      "verdict": "CERTIFIED",
+      "workflows": 8,
+      "workflowsPassed": 8
+    },
+    "workflows": [
+      {
+        "discipline": "bim",
+        "expectations": [
+          {
+            "id": "exp-stories",
+            "outcome": "exact",
+            "status": "pass"
+          },
+          {
+            "id": "exp-story-levels",
+            "outcome": "exact",
+            "status": "pass"
+          },
+          {
+            "id": "exp-wall-count",
+            "outcome": "exact",
+            "status": "pass"
+          },
+          {
+            "id": "exp-slab",
+            "outcome": "exact",
+            "status": "pass"
+          },
+          {
+            "id": "exp-roof",
+            "outcome": "exact",
+            "status": "pass"
+          },
+          {
+            "id": "exp-stair",
+            "outcome": "exact",
+            "status": "pass"
+          },
+          {
+            "id": "exp-railings",
+            "outcome": "exact",
+            "status": "pass"
+          }
+        ],
+        "finalDigest": "«sha256»",
+        "id": "wf-vb-authoring",
+        "interop": [
+          {
+            "expected": "exact",
+            "id": "io-vb-ifc",
+            "observed": "exact",
+            "status": "pass",
+            "surface": "ifc"
+          },
+          {
+            "expected": "unsupported",
+            "id": "io-vb-dxf-boundary",
+            "observed": "unsupported",
+            "status": "pass",
+            "surface": "dxf"
+          }
+        ],
+        "perf": [],
+        "phases": [
+          {
+            "commandCount": 1,
+            "commandNames": [],
+            "id": "stories",
+            "revisionDelta": 1,
+            "status": "pass"
+          },
+          {
+            "commandCount": 2,
+            "commandNames": [
+              "WALL",
+              "DOOR"
+            ],
+            "id": "walls-openings",
+            "revisionDelta": 2,
+            "status": "pass"
+          },
+          {
+            "commandCount": 2,
+            "commandNames": [
+              "SLAB",
+              "ROOF"
+            ],
+            "id": "slab-roof",
+            "revisionDelta": 2,
+            "status": "pass"
+          },
+          {
+            "commandCount": 3,
+            "commandNames": [
+              "STAIR",
+              "RAILING"
+            ],
+            "id": "stair-railings",
+            "revisionDelta": 3,
+            "status": "pass"
+          }
+        ],
+        "robustness": {
+          "replayStable": "pass",
+          "roundTrip": "pass",
+          "undoRedo": "pass"
+        },
+        "status": "pass",
+        "title": "Virtual-building model composition (stories, walls, hosted openings, slabs, roofs, stairs, railings)"
+      },
+      {
+        "discipline": "bim",
+        "expectations": [
+          {
+            "id": "exp-zone-context",
+            "outcome": "exact",
+            "status": "pass"
+          },
+          {
+            "id": "exp-spaces",
+            "outcome": "exact",
+            "status": "pass"
+          },
+          {
+            "id": "exp-space-names",
+            "outcome": "exact",
+            "status": "pass"
+          },
+          {
+            "id": "exp-zone",
+            "outcome": "exact",
+            "status": "pass"
+          },
+          {
+            "id": "exp-renovation-status",
+            "outcome": "exact",
+            "status": "pass"
+          },
+          {
+            "id": "exp-option-group",
+            "outcome": "exact",
+            "status": "pass"
+          },
+          {
+            "id": "exp-option-active",
+            "outcome": "exact",
+            "status": "pass"
+          }
+        ],
+        "finalDigest": "«sha256»",
+        "id": "wf-zone-program",
+        "interop": [
+          {
+            "expected": "exact",
+            "id": "io-zone-ifc",
+            "observed": "exact",
+            "status": "pass",
+            "surface": "ifc"
+          }
+        ],
+        "perf": [],
+        "phases": [
+          {
+            "commandCount": 1,
+            "commandNames": [],
+            "id": "story-seed",
+            "revisionDelta": 1,
+            "status": "pass"
+          },
+          {
+            "commandCount": 1,
+            "commandNames": [
+              "SPACEGRID"
+            ],
+            "id": "spaces",
+            "revisionDelta": 1,
+            "status": "pass"
+          },
+          {
+            "commandCount": 1,
+            "commandNames": [
+              "ZONE"
+            ],
+            "id": "zone-grouping",
+            "revisionDelta": 1,
+            "status": "pass"
+          },
+          {
+            "commandCount": 1,
+            "commandNames": [
+              "RENOVATE"
+            ],
+            "id": "renovation",
+            "revisionDelta": 0,
+            "status": "pass"
+          },
+          {
+            "commandCount": 1,
+            "commandNames": [
+              "OPTION"
+            ],
+            "id": "design-options",
+            "revisionDelta": 1,
+            "status": "pass"
+          }
+        ],
+        "robustness": {
+          "replayStable": "pass",
+          "roundTrip": "pass",
+          "undoRedo": "pass"
+        },
+        "status": "pass",
+        "title": "Zone program with renovation statuses and design options"
+      },
+      {
+        "discipline": "documentation",
+        "expectations": [
+          {
+            "id": "exp-views-model",
+            "outcome": "exact",
+            "status": "pass"
+          },
+          {
+            "id": "exp-views-created",
+            "outcome": "exact",
+            "status": "pass"
+          },
+          {
+            "id": "exp-view-kinds",
+            "outcome": "exact",
+            "status": "pass"
+          },
+          {
+            "id": "exp-detail-source",
+            "outcome": "exact",
+            "status": "pass"
+          },
+          {
+            "id": "exp-view-story-refusal",
+            "outcome": "unsupported",
+            "status": "pass"
+          },
+          {
+            "id": "exp-section-geometry",
+            "outcome": "exact",
+            "status": "pass"
+          },
+          {
+            "id": "exp-plan-geometry",
+            "outcome": "exact",
+            "status": "pass"
+          }
+        ],
+        "finalDigest": "«sha256»",
+        "id": "wf-model-views",
+        "interop": [
+          {
+            "expected": "unsupported",
+            "id": "io-views-dxf",
+            "observed": "unsupported",
+            "status": "pass",
+            "surface": "dxf"
+          },
+          {
+            "expected": "exact",
+            "id": "io-views-ifc",
+            "observed": "exact",
+            "status": "pass",
+            "surface": "ifc"
+          }
+        ],
+        "perf": [],
+        "phases": [
+          {
+            "commandCount": 1,
+            "commandNames": [],
+            "id": "model-seed",
+            "revisionDelta": 1,
+            "status": "pass"
+          },
+          {
+            "commandCount": 2,
+            "commandNames": [],
+            "id": "views-create",
+            "revisionDelta": 2,
+            "status": "pass"
+          },
+          {
+            "commandCount": 0,
+            "commandNames": [],
+            "id": "view-refusal",
+            "revisionDelta": 0,
+            "status": "pass"
+          },
+          {
+            "commandCount": 0,
+            "commandNames": [],
+            "id": "view-geometry",
+            "revisionDelta": 0,
+            "status": "pass"
+          }
+        ],
+        "robustness": {
+          "replayStable": "pass",
+          "roundTrip": "pass",
+          "undoRedo": "pass"
+        },
+        "status": "pass",
+        "title": "Documentation model views (plan, section, elevation, detail)"
+      },
+      {
+        "discipline": "documentation",
+        "expectations": [
+          {
+            "id": "exp-book-views",
+            "outcome": "exact",
+            "status": "pass"
+          },
+          {
+            "id": "exp-layout-created",
+            "outcome": "exact",
+            "status": "pass"
+          },
+          {
+            "id": "exp-layout-pagesetup",
+            "outcome": "exact",
+            "status": "pass"
+          },
+          {
+            "id": "exp-titleblock-placed",
+            "outcome": "exact",
+            "status": "pass"
+          },
+          {
+            "id": "exp-sheets",
+            "outcome": "exact",
+            "status": "pass"
+          },
+          {
+            "id": "exp-sheet-placements",
+            "outcome": "exact",
+            "status": "pass"
+          },
+          {
+            "id": "exp-subset",
+            "outcome": "exact",
+            "status": "pass"
+          },
+          {
+            "id": "exp-subset-filing",
+            "outcome": "exact",
+            "status": "pass"
+          }
+        ],
+        "finalDigest": "«sha256»",
+        "id": "wf-layout-book",
+        "interop": [
+          {
+            "expected": "exact",
+            "id": "io-book-sheet-pdf",
+            "observed": "exact",
+            "status": "pass",
+            "surface": "sheet"
+          },
+          {
+            "expected": "unsupported",
+            "id": "io-book-sheet-dwg",
+            "observed": "unsupported",
+            "status": "pass",
+            "surface": "sheet"
+          }
+        ],
+        "perf": [],
+        "phases": [
+          {
+            "commandCount": 2,
+            "commandNames": [],
+            "id": "story-views",
+            "revisionDelta": 2,
+            "status": "pass"
+          },
+          {
+            "commandCount": 4,
+            "commandNames": [
+              "LAYOUTNEW",
+              "TITLEBLOCK",
+              "TITLEPLACE"
+            ],
+            "id": "layouts",
+            "revisionDelta": 3,
+            "status": "pass"
+          },
+          {
+            "commandCount": 1,
+            "commandNames": [],
+            "id": "documentation-sheets",
+            "revisionDelta": 1,
+            "status": "pass"
+          },
+          {
+            "commandCount": 2,
+            "commandNames": [
+              "SUBSET",
+              "NAVASSIGN"
+            ],
+            "id": "book-organization",
+            "revisionDelta": 2,
+            "status": "pass"
+          }
+        ],
+        "robustness": {
+          "replayStable": "pass",
+          "roundTrip": "pass",
+          "undoRedo": "pass"
+        },
+        "status": "pass",
+        "title": "Layout Book assembly (layouts, subsets, master title blocks, documentation sheets)"
+      },
+      {
+        "discipline": "documentation",
+        "expectations": [
+          {
+            "id": "exp-pub-layouts",
+            "outcome": "exact",
+            "status": "pass"
+          },
+          {
+            "id": "exp-revision",
+            "outcome": "exact",
+            "status": "pass"
+          },
+          {
+            "id": "exp-revision-record",
+            "outcome": "exact",
+            "status": "pass"
+          },
+          {
+            "id": "exp-pubset",
+            "outcome": "exact",
+            "status": "pass"
+          },
+          {
+            "id": "exp-publishbook",
+            "outcome": "exact",
+            "status": "pass"
+          },
+          {
+            "id": "exp-publish",
+            "outcome": "exact",
+            "status": "pass"
+          }
+        ],
+        "finalDigest": "«sha256»",
+        "id": "wf-publisher-revisions",
+        "interop": [
+          {
+            "expected": "exact",
+            "id": "io-pub-pdf",
+            "observed": "exact",
+            "status": "pass",
+            "surface": "sheet"
+          }
+        ],
+        "perf": [],
+        "phases": [
+          {
+            "commandCount": 4,
+            "commandNames": [
+              "LAYOUTNEW"
+            ],
+            "id": "layouts-seed",
+            "revisionDelta": 2,
+            "status": "pass"
+          },
+          {
+            "commandCount": 1,
+            "commandNames": [
+              "REVISION",
+              "REVLIST"
+            ],
+            "id": "revision",
+            "revisionDelta": 1,
+            "status": "pass"
+          },
+          {
+            "commandCount": 2,
+            "commandNames": [
+              "PUBSET",
+              "PUBLISHBOOK"
+            ],
+            "id": "publisher",
+            "revisionDelta": 1,
+            "status": "pass"
+          },
+          {
+            "commandCount": 1,
+            "commandNames": [],
+            "id": "publication",
+            "revisionDelta": 0,
+            "status": "pass"
+          }
+        ],
+        "robustness": {
+          "replayStable": "pass",
+          "roundTrip": "pass",
+          "undoRedo": "pass"
+        },
+        "status": "pass",
+        "title": "Publisher sets, revisions and the deterministic issue set"
+      },
+      {
+        "discipline": "bim",
+        "expectations": [
+          {
+            "id": "exp-schedule-model",
+            "outcome": "exact",
+            "status": "pass"
+          },
+          {
+            "id": "exp-propdef",
+            "outcome": "exact",
+            "status": "pass"
+          },
+          {
+            "id": "exp-material-attribute",
+            "outcome": "exact",
+            "status": "pass"
+          },
+          {
+            "id": "exp-schedule-scheme",
+            "outcome": "exact",
+            "status": "pass"
+          },
+          {
+            "id": "exp-qto-rows",
+            "outcome": "exact",
+            "status": "pass"
+          },
+          {
+            "id": "exp-qto-totals",
+            "outcome": "exact",
+            "status": "pass"
+          },
+          {
+            "id": "exp-material-assign-refusal",
+            "outcome": "unsupported",
+            "status": "pass"
+          }
+        ],
+        "finalDigest": "«sha256»",
+        "id": "wf-schedules-quantities",
+        "interop": [
+          {
+            "expected": "exact",
+            "id": "io-schedules-ifc",
+            "observed": "tolerance",
+            "status": "pass",
+            "surface": "ifc"
+          }
+        ],
+        "perf": [],
+        "phases": [
+          {
+            "commandCount": 1,
+            "commandNames": [],
+            "id": "model-seed",
+            "revisionDelta": 1,
+            "status": "pass"
+          },
+          {
+            "commandCount": 3,
+            "commandNames": [
+              "PROPDEF",
+              "PROPLIST"
+            ],
+            "id": "properties-materials",
+            "revisionDelta": 3,
+            "status": "pass"
+          },
+          {
+            "commandCount": 1,
+            "commandNames": [
+              "SCHEDULE",
+              "SCHLIST",
+              "QTO"
+            ],
+            "id": "schedule-qto",
+            "revisionDelta": 1,
+            "status": "pass"
+          },
+          {
+            "commandCount": 0,
+            "commandNames": [],
+            "id": "material-refusal",
+            "revisionDelta": 0,
+            "status": "pass"
+          }
+        ],
+        "robustness": {
+          "replayStable": "pass",
+          "roundTrip": "pass",
+          "undoRedo": "pass"
+        },
+        "status": "pass",
+        "title": "Interactive schedules, properties and quantity takeoff"
+      },
+      {
+        "discipline": "interop",
+        "expectations": [
+          {
+            "id": "exp-ifc-model",
+            "outcome": "exact",
+            "status": "pass"
+          },
+          {
+            "id": "exp-classification-vocabulary",
+            "outcome": "exact",
+            "status": "pass"
+          },
+          {
+            "id": "exp-classification",
+            "outcome": "exact",
+            "status": "pass"
+          },
+          {
+            "id": "exp-ifc-schema",
+            "outcome": "exact",
+            "status": "pass"
+          },
+          {
+            "id": "exp-ifc-counts",
+            "outcome": "exact",
+            "status": "pass"
+          }
+        ],
+        "finalDigest": "«sha256»",
+        "id": "wf-ifc-exchange",
+        "interop": [
+          {
+            "expected": "exact",
+            "id": "io-ifc-model",
+            "observed": "tolerance",
+            "status": "pass",
+            "surface": "ifc"
+          },
+          {
+            "expected": "exact",
+            "id": "io-ifc-toolsets-identity",
+            "observed": "exact",
+            "status": "pass",
+            "surface": "ifc"
+          },
+          {
+            "expected": "lossy",
+            "id": "io-ifc-toolsets-arrays",
+            "observed": "lossy",
+            "status": "pass",
+            "surface": "ifc"
+          },
+          {
+            "expected": "unsupported",
+            "id": "io-dxf-2d-carrier",
+            "observed": "unsupported",
+            "status": "pass",
+            "surface": "dxf"
+          }
+        ],
+        "perf": [],
+        "phases": [
+          {
+            "commandCount": 1,
+            "commandNames": [],
+            "id": "model-seed",
+            "revisionDelta": 1,
+            "status": "pass"
+          },
+          {
+            "commandCount": 1,
+            "commandNames": [],
+            "id": "classification",
+            "revisionDelta": 1,
+            "status": "pass"
+          },
+          {
+            "commandCount": 1,
+            "commandNames": [],
+            "id": "export",
+            "revisionDelta": 0,
+            "status": "pass"
+          }
+        ],
+        "robustness": {
+          "replayStable": "pass",
+          "roundTrip": "pass",
+          "undoRedo": "pass"
+        },
+        "status": "pass",
+        "title": "The IFC exchange workflow (export, import, the classification basis)"
+      },
+      {
+        "discipline": "collab",
+        "expectations": [
+          {
+            "id": "exp-join",
+            "outcome": "exact",
+            "status": "pass"
+          },
+          {
+            "id": "exp-presence",
+            "outcome": "exact",
+            "status": "pass"
+          },
+          {
+            "id": "exp-comment",
+            "outcome": "exact",
+            "status": "pass"
+          },
+          {
+            "id": "exp-member-roster",
+            "outcome": "exact",
+            "status": "pass"
+          },
+          {
+            "id": "exp-checkpoint",
+            "outcome": "exact",
+            "status": "pass"
+          }
+        ],
+        "finalDigest": "«sha256»",
+        "id": "wf-teamwork-changes",
+        "interop": [
+          {
+            "expected": "exact",
+            "id": "io-bcf-references",
+            "observed": "exact",
+            "status": "pass",
+            "surface": "bcf"
+          }
+        ],
+        "perf": [],
+        "phases": [
+          {
+            "commandCount": 1,
+            "commandNames": [
+              "COLLABJOIN"
+            ],
+            "id": "join",
+            "revisionDelta": 0,
+            "status": "pass"
+          },
+          {
+            "commandCount": 2,
+            "commandNames": [
+              "PRESENCE",
+              "COMMENT"
+            ],
+            "id": "presence-comment",
+            "revisionDelta": 0,
+            "status": "pass"
+          },
+          {
+            "commandCount": 2,
+            "commandNames": [
+              "CKPT",
+              "RECOVER"
+            ],
+            "id": "checkpoint-recover",
+            "revisionDelta": 0,
+            "status": "pass"
+          }
+        ],
+        "robustness": {
+          "replayStable": "pass",
+          "roundTrip": "pass",
+          "undoRedo": "pass"
+        },
+        "status": "pass",
+        "title": "Teamwork: the shared model with presence, comments, transactions and recovery"
+      }
+    ]
+  }
+}
