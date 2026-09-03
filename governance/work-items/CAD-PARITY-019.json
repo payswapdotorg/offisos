@@ -3,8 +3,17 @@
   "title": "AutoCAD parity certification",
   "issue": 122,
   "architecture_version": "1.1",
-  "requirements": ["CAD-001", "CAD-002", "BIM-001", "IFC-002", "API-001"],
-  "dependencies": ["CAD-PARITY-018", "COMPAT-CAD-004"],
+  "requirements": [
+    "CAD-001",
+    "CAD-002",
+    "BIM-001",
+    "IFC-002",
+    "API-001"
+  ],
+  "dependencies": [
+    "CAD-PARITY-018",
+    "COMPAT-CAD-004"
+  ],
   "objective": "Certify integrated AutoCAD-class professional workflows against a representative workflow corpus without changing ConstructionOS Architecture v1.1.",
   "acceptance_criteria": [
     "A representative professional workflow corpus is defined and version-pinned before certification evidence is produced.",
@@ -42,7 +51,7 @@
     "Exact-head CI verification and deployment/browser evidence where applicable.",
     "Revision-bound governance evidence covering certification implementation, review and final verification."
   ],
-  "state": "ASSIGNED",
+  "state": "IMPLEMENTING",
   "transitions": [
     {
       "from": "DRAFT",
@@ -51,7 +60,9 @@
       "actor": "pectoraux",
       "role": "architect",
       "reason": "P019 is fully specified as the next certification milestone on the authoritative roadmap. Its dependencies P018 and COMPAT-CAD-004 are VERIFIED, Architecture v1.1 is frozen, the certification acceptance/evidence contract is explicit, and the corpus-first certification boundary is preserved.",
-      "references": {"issue": 122}
+      "references": {
+        "issue": 122
+      }
     },
     {
       "from": "READY",
@@ -60,7 +71,22 @@
       "actor": "pectoraux",
       "role": "architect",
       "reason": "The Product Owner's 'next' authorization advances P019 into execution. Assign the certification work to the logical implementation agent with the implementation-side stop gate at PR_OPEN/VERIFYING. The agent must first establish and version-pin the representative corpus and its reference expectations before certification claims are made.",
-      "references": {"issue": 122, "assignee": "z-ai-implementation-agent"}
+      "references": {
+        "issue": 122,
+        "assignee": "z-ai-implementation-agent"
+      }
+    },
+    {
+      "from": "ASSIGNED",
+      "to": "IMPLEMENTING",
+      "at": "2026-09-03T13:42:00Z",
+      "actor": "z-ai-implementation-agent",
+      "role": "implementer",
+      "reason": "Begin the CAD-PARITY-019 AutoCAD parity certification implementation on the released baseline: the certification-first execution rule applies \u2014 the version-pinned representative AutoCAD professional workflow corpus and its reference expectations are defined and pinned BEFORE any certification evidence is produced; then the deterministic certification engine (semantics, persistence round-trip, real-UI command-stream completion, explicit EXACT/LOSSY/UNSUPPORTED interop, performance/robustness) is implemented against that corpus, with the app-suite certification test, the Web/Electron host-parity convergence, the web-host certification smoke and the Certification workbench. Architecture v1.1 stays frozen (the Construction Graph, CADDocument, App API, command registry and engine/worker boundaries unchanged); the implementation-side stop gate remains PR_OPEN/VERIFYING.",
+      "references": {
+        "issue": 122,
+        "commit": "dc1a9a44403114cbe6a85a28b1da07f0c48a2143"
+      }
     }
   ],
   "evidence": [],
