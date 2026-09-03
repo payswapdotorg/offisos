@@ -63,7 +63,7 @@
     "Exact-head deployment and browser verification where applicable.",
     "Revision-bound governance evidence covering implementation, merge and post-merge verification."
   ],
-  "state": "VERIFYING",
+  "state": "APPROVED",
   "transitions": [
     {
       "from": "DRAFT",
@@ -131,6 +131,40 @@
           "EV-002"
         ]
       }
+    },
+    {
+      "from": "VERIFYING",
+      "to": "ARCHITECT_REVIEW",
+      "at": "2026-09-03T03:54:00Z",
+      "actor": "pectoraux",
+      "role": "architect",
+      "reason": "Architect re-review of the corrective head 5fceaccd53a07cd7b106a6ac4809b0f72b410fb6 completed: the substantive interoperability blocker of review 5096872026 is resolved (PR #120 carries the dedicated P018 IFC/BCF/IDS implementation and tests — app/src/ifc/toolsetmap.ts, app/src/interop/toolsets.ts, toolsets-p018-interop.test.ts, its pinned fixture and the corrective smoke; the exact-head workflow matrix is terminal and green including cad-parity-018 and its three jobs; EV-003 binds the corrective interoperability evidence). The remaining governance evidence gap is closed by EV-004, which binds the exact-head Vercel deployment dpl_3LX4hRbnS7Erx5mEGMi3hihChA8W, the deployed smoke, the blob-backend observation, the deployment-bound browser verification with zero console/page errors, and the PR binding comment 5519939086 as a revision-bound governance evidence entry. The evidence package (EV-001..EV-004) is complete. This transition, the approval transition and DEC-001 were recorded by the implementation agent at the Architect's explicit direction in the re-review instruction; the review verdict and the decision belong to the Architect.",
+      "references": {
+        "issue": 118,
+        "pr": 120,
+        "commit": "5fceaccd53a07cd7b106a6ac4809b0f72b410fb6",
+        "evidence": [
+          "EV-001",
+          "EV-002",
+          "EV-003",
+          "EV-004"
+        ],
+        "decision": "DEC-001"
+      }
+    },
+    {
+      "from": "ARCHITECT_REVIEW",
+      "to": "APPROVED",
+      "at": "2026-09-03T03:54:01Z",
+      "actor": "pectoraux",
+      "role": "architect",
+      "reason": "Architect decision APPROVED (DEC-001) recorded after the exact-head re-review of 5fceaccd53a07cd7b106a6ac4809b0f72b410fb6: the implementation passed the substantive technical re-review and the governance evidence binding (EV-004) completes the evidence package. VERIFIED remains a separate post-merge Architect gate. Merge of PR #120 is NOT yet authorized by this decision — the physical merge stays held pending the Architect's explicit go-ahead, and the PR remains open at the reviewed implementation head plus this record-only governance arc.",
+      "references": {
+        "issue": 118,
+        "pr": 120,
+        "commit": "5fceaccd53a07cd7b106a6ac4809b0f72b410fb6",
+        "decision": "DEC-001"
+      }
     }
   ],
   "evidence": [
@@ -172,7 +206,35 @@
         "pr": 120,
         "path": "app/test/fixtures/cad-parity-018-toolsets-interop.json"
       }
+    },
+    {
+      "id": "EV-004",
+      "type": "reproducible-script",
+      "description": "The exact-head Vercel deployment, deployed smoke and deployment-bound browser verification for the corrective head 5fceaccd53a07cd7b106a6ac4809b0f72b410fb6 (PR #120): deployment dpl_3LX4hRbnS7Erx5mEGMi3hihChA8W at https://offisos-k7esdrqkf-ekonplacidegmailcoms-projects.vercel.app (READY, preview target — the production alias untouched; created 2026-09-03T03:29:33Z), REST-proven through the Vercel API: meta.gitsha = 5fceaccd53a07cd7b106a6ac4809b0f72b410fb6 byte-exact AND meta.githubCommitSha identical, meta.workitem = CAD-PARITY-018, meta.pr = 120 (the same offisos deployment channel as P016/P017). The deployed smoke: toolsets-p018-smoke.mjs against the deployment PASS — 37 commands, 101 echo lines, 10 perf assertions within the serverless budget, the pinned fixture cad-parity-018-toolsets.json match (10 records): the reviewed P018 surface unregressed on the deployed corrective head. The deployed runtime's persistence backend is the linked Vercel Blob store, whose live identity was observed (not assumed) by the same-channel deployed backend probe at the P2 submission head deployment dpl_HxJB5VMaR9ndUf5DFduTHeEkJp31 (PR #120 comment 5518785741: 'P016 PERSISTENCE BACKEND: blob' — BACKEND PROBE PASS; the pinned fixture byte-identity across the three backends: memory, the CI postgres service, and blob). The deployed interop probes: interop.toolsetsReport answers LIVE on the deployment (the pure typed-outcome surface — 12 matrix rows) and ifc.export declines typed ifc_unavailable (the honest serverless boundary: no Python worker in Vercel functions — the worker-bound interop coverage is proven locally and in CI per EV-003). The deployment-bound browser verification (real Chromium, direct navigation): the shell renders, the Toolsets workbench renders (26 capabilities, the discovery table), toolset.mepAddRun through the deployed API creates tls-000001, interop.toolsetsReport through the deployed page context classifies the record (Segments = lossy, 12 rows, the deterministic hash), the typed ifc_unavailable decline renders from the page context, the reload and workbench re-open are stable, and ZERO console messages / ZERO page errors at every checkpoint. The out-of-band PR binding comment 5519939086 (2026-09-03T03:34:54Z) carries the full corrective-submission binding: the terminal exact-head CI 28/28 runs and 82/82 check-runs success (including the dispatched cad-parity-018 run 33708740092, 3/3 jobs and 62/62 steps), the deployment, the deployed smoke, the interop probes, and the browser evidence with its four screenshots.",
+      "produced_at": "2026-09-03T03:34:54Z",
+      "reproducible": true,
+      "reproduction": "cd apps/web && OFFISOS_WEB_URL=https://offisos-k7esdrqkf-ekonplacidegmailcoms-projects.vercel.app node --import tsx test/toolsets-p018-smoke.mjs; verify the deployment identity via the Vercel REST API GET /v13/deployments/dpl_3LX4hRbnS7Erx5mEGMi3hihChA8W (meta.gitsha = 5fceaccd…, meta.workitem = CAD-PARITY-018, meta.pr = 120, state READY); the browser verification is reproducible by direct navigation to the deployment URL in a real Chromium with the console/page-error checkpoints per PR #120 comment 5519939086",
+      "references": {
+        "commit": "5fceaccd53a07cd7b106a6ac4809b0f72b410fb6",
+        "pr": 120,
+        "path": "apps/web/test/toolsets-p018-smoke.mjs"
+      }
     }
   ],
-  "decisions": []
+  "decisions": [
+    {
+      "id": "DEC-001",
+      "status": "approved",
+      "decided_at": "2026-09-03T03:54:00Z",
+      "decided_by": "pectoraux",
+      "role": "architect",
+      "rationale": "CAD-PARITY-018 implementation approved on exact-head Architect re-review. The substantive interoperability blocker of review 5096872026 is resolved at the corrective head 5fceaccd53a07cd7b106a6ac4809b0f72b410fb6: PR #120 carries the dedicated P018 IFC/BCF/IDS implementation and tests (app/src/ifc/toolsetmap.ts, app/src/interop/toolsets.ts, toolsets-p018-interop.test.ts, its pinned fixture and the corrective smoke) through the P014-generic IfcGroup carrier with zero worker/adapter-protocol changes, so frozen Architecture v1.1 and the adapter/worker boundaries are preserved and no ACR is required; the exact-head workflow matrix is terminal and green including cad-parity-018 and its three jobs; EV-003 binds the corrective interoperability evidence and EV-004 binds the exact-head Vercel deployment dpl_3LX4hRbnS7Erx5mEGMi3hihChA8W, the deployed smoke, the blob-backend observation, the deployment-bound browser verification with zero console/page errors, and the PR binding comment 5519939086. The governance evidence package (EV-001..EV-004) is complete. Merge of PR #120 is NOT yet authorized by this decision: the physical merge stays held pending the Architect's explicit go-ahead.",
+      "evidence_refs": [
+        "EV-001",
+        "EV-002",
+        "EV-003",
+        "EV-004"
+      ]
+    }
+  ]
 }
