@@ -55,7 +55,7 @@
     "Exact-head CI verification and deployment/browser evidence where applicable.",
     "Revision-bound governance evidence covering implementation, CI, deployment, merge and post-merge verification."
   ],
-  "state": "VERIFYING",
+  "state": "VERIFIED",
   "transitions": [
     {
       "from": "DRAFT",
@@ -64,9 +64,7 @@
       "actor": "pectoraux",
       "role": "architect",
       "reason": "The work item is fully specified from the frozen Architecture v1.1 roadmap, its immediate dependencies CAD-PARITY-018, COMPAT-CAD-003 and COMPAT-BIM-003 are VERIFIED, and the evidence contract is explicit. This is the planned complete-enough CAD/BIM boundary.",
-      "references": {
-        "issue": 121
-      }
+      "references": {"issue": 121}
     },
     {
       "from": "READY",
@@ -75,10 +73,7 @@
       "actor": "pectoraux",
       "role": "architect",
       "reason": "All declared dependencies are VERIFIED on main and the Product Owner has authorized moving to the next work item. Assign COMPAT-CAD-004 to the logical implementation agent with the implementation-side stop gate at PR_OPEN/VERIFYING.",
-      "references": {
-        "issue": 121,
-        "assignee": "z-ai-implementation-agent"
-      }
+      "references": {"issue": 121, "assignee": "z-ai-implementation-agent"}
     },
     {
       "from": "ASSIGNED",
@@ -87,10 +82,7 @@
       "actor": "z-ai-implementation-agent",
       "role": "implementer",
       "reason": "Implementation begins for COMPAT-CAD-004 from the verified mainline baseline (CAD-PARITY-018 VERIFIED at merge 3edd5506d972dc309b22c21baad7643f021f27d4; baseline 93ccc715126391cdbfe42a56d86e2f1f908519cf). Scope is the bounded complete-enough CAD/BIM hardening slice defined by Issue #121: the consolidated parametrics family (a versioned typed capability registry over the existing verified constraint/block/annotation/docs surfaces), the consolidated associative report with typed dangling/reference-loss outcomes and the one-revision atomic refresh (no silent re-targeting), the bounded pattern operations (mirror including block instances through a deterministic reflected placement, rectangular/polar arrays over entities and symbols with stable ordering), the shared command-registry family and the Parametrics Web workbench exercising the real governed App API paths — preserving Construction Graph authority, frozen Architecture v1.1, the byte-identical CAD-PARITY-002..018 and compatibility/IFC baselines, the existing engine/adapter/worker boundaries, and the PR_OPEN/VERIFYING stop gate.",
-      "references": {
-        "issue": 121,
-        "commit": "93ccc715126391cdbfe42a56d86e2f1f908519cf"
-      }
+      "references": {"issue": 121, "commit": "93ccc715126391cdbfe42a56d86e2f1f908519cf"}
     },
     {
       "from": "IMPLEMENTING",
@@ -99,14 +91,7 @@
       "actor": "z-ai-implementation-agent",
       "role": "implementer",
       "reason": "Implementation complete and submitted as PR #124: the bounded consolidated parametrics slice — the versioned typed capability registry (20 governed requests, API-001, with honest origin provenance), the bounded deterministic pattern mirror (geometry through the verified cascade-aware path, block instances through the reflected placement with the additive mirrored state, ONE atomic revision, exact undo/redo/replay, typed declines), the consolidated typed associative report (ok/dangling/source_loss/missing/stale, fresh derivations, deterministic ordering + digest) and the one-revision atomic refresh (annotation re-measurement + documentation regeneration composed; no silent re-targeting), the shared command registry family (PATTERNMIRROR/ASSOCREFRESH/PARAMETRICS), the Parametrics Web workbench, the app-suite + host-parity tests, the web smoke with the pinned fixture and the CI workflow (the three-job pattern + the dispatch arm).",
-      "references": {
-        "issue": 121,
-        "pr": 124,
-        "evidence": [
-          "EV-001",
-          "EV-002"
-        ]
-      }
+      "references": {"issue": 121, "pr": 124, "evidence": ["EV-001", "EV-002"]}
     },
     {
       "from": "PR_OPEN",
@@ -115,13 +100,50 @@
       "actor": "z-ai-implementation-agent",
       "role": "implementer",
       "reason": "Submitted PR #124 for Architect review: the exact-head CI binding (the dedicated compat-cad-004 dispatch run + the full matrix), the exact-head deployment plus real-browser evidence and the regression matrix will be recorded as additional evidence per the P015-P018 discipline. The stop gate is PR_OPEN/VERIFYING — the Architect owns ARCHITECT_REVIEW, APPROVED and VERIFIED.",
+      "references": {"issue": 121, "pr": 124, "evidence": ["EV-001", "EV-002"]}
+    },
+    {
+      "from": "VERIFYING",
+      "to": "ARCHITECT_REVIEW",
+      "at": "2026-09-03T10:30:30Z",
+      "actor": "pectoraux",
+      "role": "architect",
+      "reason": "Architect review completed against PR #124 and the exact final implementation head d67475f. Acceptance coverage was established before merge; remaining gate was post-merge verification only.",
+      "references": {"issue": 121, "pr": 124, "commit": "d67475f28619297090fc6822798856feeceb39a4", "evidence": ["EV-001", "EV-002"]}
+    },
+    {
+      "from": "ARCHITECT_REVIEW",
+      "to": "APPROVED",
+      "at": "2026-09-03T10:30:45Z",
+      "actor": "pectoraux",
+      "role": "architect",
+      "reason": "Architect approval was granted for the bounded COMPAT-CAD-004 implementation. GitHub's native APPROVE review mechanism was unavailable because the PR author and Architect are the same account; the repository governance record is the authoritative approval record.",
+      "references": {"issue": 121, "pr": 124}
+    },
+    {
+      "from": "APPROVED",
+      "to": "MERGED",
+      "at": "2026-09-03T10:31:09Z",
+      "actor": "pectoraux",
+      "role": "architect",
+      "reason": "PR #124 was merged to main at the exact approved merge commit. The merge commit explicitly retained post-merge verification as a required gate.",
+      "references": {"issue": 121, "pr": 124, "commit": "3844bff4a1141b5536d432e7f4653b78a182d821"}
+    },
+    {
+      "from": "MERGED",
+      "to": "VERIFIED",
+      "at": "2026-09-03T11:44:00Z",
+      "actor": "pectoraux",
+      "role": "architect",
+      "reason": "Post-merge verification is complete on main. The exact merge head 3844bff4a1141b5536d432e7f4653b78a182d821 has 27 completed workflow runs, with zero workflow runs remaining in queued/in-progress/failure/cancelled states. The dedicated COMPAT-CAD-004 post-merge run 33744735415 completed successfully with all three jobs green; the post-merge governance run 33744735354 completed successfully, including deterministic governance validation and VERIFIED-revision drift audit. Pre-merge exact-head deployment/browser evidence remains revision-bound to final implementation head d67475f and is part of the approved merge evidence set.",
       "references": {
         "issue": 121,
         "pr": 124,
-        "evidence": [
-          "EV-001",
-          "EV-002"
-        ]
+        "commit": "3844bff4a1141b5536d432e7f4653b78a182d821",
+        "post_merge_runs": [33744735415, 33744735354],
+        "implementation_head": "d67475f28619297090fc6822798856feeceb39a4",
+        "deployment": "dpl_BGjdkQ8zo51PmaSNhwqfaRmmPEQn",
+        "deployment_browser_evidence": "PR comment 5523128268"
       }
     }
   ],
@@ -133,11 +155,7 @@
       "produced_at": "2026-09-03T07:40:00Z",
       "reproducible": true,
       "reproduction": "cd app && node --import tsx --test test/*.test.ts (working directory app)",
-      "references": {
-        "commit": "e8fd320165493402504975552ed2553eca931d13",
-        "pr": 124,
-        "path": "app/test"
-      }
+      "references": {"commit": "e8fd320165493402504975552ed2553eca931d13", "pr": 124, "path": "app/test"}
     },
     {
       "id": "EV-002",
@@ -146,11 +164,23 @@
       "produced_at": "2026-09-03T07:40:00Z",
       "reproducible": true,
       "reproduction": "cd apps/web && OFFISOS_GEOMETRY_ENGINE=reference OFFISOS_P016_PERSIST=memory npm run dev -- --webpack -p 3100 & then: OFFISOS_WEB_URL=http://localhost:3100 node --import tsx test/parametrics-cad004-smoke.mjs",
-      "references": {
-        "commit": "e8fd320165493402504975552ed2553eca931d13",
-        "pr": 124,
-        "path": "apps/web/test/parametrics-cad004-smoke.mjs"
-      }
+      "references": {"commit": "e8fd320165493402504975552ed2553eca931d13", "pr": 124, "path": "apps/web/test/parametrics-cad004-smoke.mjs"}
+    },
+    {
+      "id": "EV-003",
+      "type": "post-merge-ci",
+      "description": "Revision-bound post-merge verification on main commit 3844bff4a1141b5536d432e7f4653b78a182d821. GitHub reports 27 completed workflow runs for the exact merge head, with zero runs in in-progress, queued, failure, or cancelled states. Dedicated COMPAT-CAD-004 run 33744735415 completed successfully; its Electron, Workspace deterministic suite, and Web host jobs all completed successfully. Governance run 33744735354 completed successfully, including deterministic governance tests, canonical state/work-item validation, and the VERIFIED-revision drift audit.",
+      "produced_at": "2026-09-03T11:44:00Z",
+      "reproducible": true,
+      "references": {"commit": "3844bff4a1141b5536d432e7f4653b78a182d821", "compat_cad_004_run": 33744735415, "governance_run": 33744735354}
+    },
+    {
+      "id": "EV-004",
+      "type": "deployment-browser-verification",
+      "description": "Exact final implementation head d67475f28619297090fc6822798856feeceb39a4 was deployed as dpl_BGjdkQ8zo51PmaSNhwqfaRmmPEQn. The deployment was REST-bound to the implementation git SHA and COMPAT-CAD-004/PR #124, the deployed smoke passed with the pinned fixture byte-identical on the blob backend with backend observation, and the deployment-bound real-browser verification passed across the Parametrics workbench, live mirror, double-mirror canonical return, and AREF/PAR command-line surfaces with zero console/page errors. This evidence is pre-merge exact-head evidence for the code that was subsequently merged as 3844bff4a1141b5536d432e7f4653b78a182d821.",
+      "produced_at": "2026-09-03T08:49:53Z",
+      "reproducible": false,
+      "references": {"commit": "d67475f28619297090fc6822798856feeceb39a4", "deployment": "dpl_BGjdkQ8zo51PmaSNhwqfaRmmPEQn", "pr": 124, "pr_comment": 5523128268}
     }
   ]
 }
