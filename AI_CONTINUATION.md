@@ -18,7 +18,7 @@ This file is the first stop for any new LLM Architect, reviewer, or implementati
 
 ## Milestones
 
-P016 is VERIFIED. P017 is VERIFIED. **P018 is VERIFIED.**
+P016 is VERIFIED. P017 is VERIFIED. **P018 is VERIFIED.** **COMPAT-CAD-004 is VERIFIED.**
 
 P018 GitHub Issue: **#118**
 P018 PR: **#120**
@@ -29,11 +29,28 @@ P018 approval decision: **DEC-001**
 P018 post-merge verification decision: **DEC-002**
 Architect review that triggered the interoperability correction: **5096872026**
 
+COMPAT-CAD-004 GitHub Issue: **#121**
+COMPAT-CAD-004 PR: **#124**
+COMPAT-CAD-004 final implementation head: **d67475f28619297090fc6822798856feeceb39a4**
+COMPAT-CAD-004 merge commit: **3844bff4a1141b5536d432e7f4653b78a182d821**
+COMPAT-CAD-004 post-merge governance run: **33744735354**
+COMPAT-CAD-004 dedicated post-merge run: **33744735415**
+COMPAT-CAD-004 exact-head deployment: **dpl_BGjdkQ8zo51PmaSNhwqfaRmmPEQn**
+COMPAT-CAD-004 governance record: `governance/work-items/COMPAT-CAD-004.json` — **VERIFIED**
+
 ## P018 verification closure
 
 The original substantive P018 blocker was dedicated IFC/BCF/IDS interoperability coverage for the new specialized semantics. The corrective revision added the specialized IFC carrier, typed EXACT/LOSSY/UNSUPPORTED classification, deterministic interop tests and pinned smoke coverage without changing Architecture v1.1 or the engine/worker boundary.
 
 Post-merge verification then bound the actual merge commit to the governance ledger and checked the merge-head Actions matrix. The merge-head matrix was terminal with no failure or cancellation entries; the post-merge governance run succeeded. The final governance transition is `MERGED → VERIFIED` with DEC-002.
+
+## COMPAT-CAD-004 verification closure
+
+COMPAT-CAD-004 completed the bounded pre-certification CAD/BIM hardening slice under frozen Architecture v1.1. The delivered surface includes the versioned typed capability registry, bounded deterministic parametric/associative/pattern semantics, reflected block-instance placement, one-revision associative refresh, shared App API/command registry surfaces, the Parametrics Web workbench, Web/Electron semantic parity, persistence/replay/undo evidence and explicit typed declines outside the supported vocabulary.
+
+The final implementation head `d67475f28619297090fc6822798856feeceb39a4` had the full app suite at **1372/1372 pass, 0 fail, 0 skipped**, exact-head deployment/browser evidence, and dedicated CI evidence. After merge at `3844bff4a1141b5536d432e7f4653b78a182d821`, **27/27 workflow runs completed** with no queued, in-progress, failed, or cancelled workflow runs. The dedicated COMPAT-CAD-004 post-merge workflow and post-merge governance workflow both completed successfully.
+
+The authoritative governance lifecycle for COMPAT-CAD-004 is recorded as `DRAFT → READY → ASSIGNED → IMPLEMENTING → PR_OPEN → VERIFYING → ARCHITECT_REVIEW → APPROVED → MERGED → VERIFIED`. Issue #121 is closed as completed.
 
 ## Verified P018 scope
 
@@ -51,9 +68,9 @@ Interoperability: IFC/BCF/IDS support for the bounded specialized semantics, wit
 
 ## CAD/BIM successor sequence
 
-P018 is the VERIFIED specialized-toolset milestone. The intended successor sequence is:
+P018 is the VERIFIED specialized-toolset milestone and COMPAT-CAD-004 is now the VERIFIED pre-certification hardening milestone. The intended successor sequence is:
 
-1. `COMPAT-CAD-004` — bounded pre-certification product hardening: parametric constraints, associative drafting, reusable 2D symbols/blocks, deterministic mirror/array/pattern operations, shared App API/command registry, and bounded interoperability. It is already **ASSIGNED** under Issue **#121** and depends on the VERIFIED P018 baseline. It must be VERIFIED before P019 can enter execution.
+1. `COMPAT-CAD-004` — **VERIFIED** under Issue **#121**; governance record `governance/work-items/COMPAT-CAD-004.json`. This is the completed bounded pre-certification hardening slice. It must remain verified before P019 execution.
 2. **P019 / CAD-PARITY-019** — **AutoCAD parity certification**. GitHub Issue **#122**; governance record `governance/work-items/CAD-PARITY-019.json`; currently **DRAFT**. This is a certification program, not another feature sprint. It evaluates a representative professional workflow corpus across semantics, persistence, real UI task completion, interoperability, and performance/robustness. Feature checklists alone do not certify parity.
 3. **P020 / CAD-PARITY-020** — **Archicad parity certification**. GitHub Issue **#123**; governance record `governance/work-items/CAD-PARITY-020.json`; currently **DRAFT** and depends on P019 VERIFIED. This uses the same certification principle against Archicad-class BIM/documentation workflows, proving integrated professional workflows rather than merely the existence of individual commands.
 
