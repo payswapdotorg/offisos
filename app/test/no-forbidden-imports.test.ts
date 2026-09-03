@@ -58,7 +58,10 @@ const FORBIDDEN_SPECIFIERS = [
 // LOCK-018 by construction).
 // src/toolsets joined the protected set with CAD-PARITY-018 (Issue #118):
 // the specialized-toolsets semantic core is platform-independent.
-const PROTECTED_DIRS = ["src/contracts", "src/renderer", "src/app-api", "src/caddocument", "src/graph", "src/impact", "src/drafting", "src/bim", "src/docs", "src/ifc", "src/workspace", "src/interop", "src/quantities", "src/recovery", "src/collab", "src/jobs", "src/modelstream", "src/persist", "src/automation", "src/toolsets"];
+// src/parametrics joined the protected set with COMPAT-CAD-004 (Issue #121):
+// the consolidated parametrics/associative/patterns core is
+// platform-independent.
+const PROTECTED_DIRS = ["src/contracts", "src/renderer", "src/app-api", "src/caddocument", "src/graph", "src/impact", "src/drafting", "src/bim", "src/docs", "src/ifc", "src/workspace", "src/interop", "src/quantities", "src/recovery", "src/collab", "src/jobs", "src/modelstream", "src/persist", "src/automation", "src/toolsets", "src/parametrics"];
 
 function* walk(dir: string): Generator<string> {
   for (const entry of readdirSync(dir)) {

@@ -482,6 +482,18 @@ import {
   validateRasterSourceData,
   TOOLSETS_TABLE_BOUNDS,
 } from "../toolsets/records.js";
+import {
+  ParametricsError,
+  assocRefreshViewOf,
+  assocReport,
+  buildMirrorPlan,
+  composeAssocRefresh,
+  mirrorViewOf,
+  parametricCapabilityViews,
+  PARAMETRICS_API_VERSION,
+  type AssocWorld,
+} from "../parametrics/index.js";
+import type { PatternMirrorView, AssocRefreshView, AssocReportView } from "../contracts/parametrics.js";
 import type {
   MechEquipmentData,
   MepConnectionEnd,
@@ -1219,6 +1231,10 @@ export class AppApiHandler {
         return this.cmdToolsetRasterRemoveReference(command.payload);
       case "toolset.rasterCommitTrace":
         return this.cmdToolsetRasterCommitTrace(command.payload);
+      case "pattern.mirror":
+        return this.cmdPatternMirror(command.payload);
+      case "assoc.refresh":
+        return this.cmdAssocRefresh(command.payload);
       default: {
         const _exhaustive: never = command.name;
         return err("unknown_command", `unknown command: ${JSON.stringify(_exhaustive)}`);
@@ -1682,6 +1698,10 @@ export class AppApiHandler {
         return this.qToolsetRasterStatus(query.payload);
       case "toolset.rasterTrace":
         return this.qToolsetRasterTrace(query.payload);
+      case "parametrics.capabilities":
+        return this.qParametricsCapabilities();
+      case "assoc.report":
+        return this.qAssocReport(query.payload);
       default: {
         const _exhaustive: never = query.name;
         return err("unknown_query", `unknown query: ${JSON.stringify(_exhaustive)}`);
@@ -11104,6 +11124,128 @@ export class AppApiHandler {
       return ok(trace({ id: reference.id, data: reference.data as RasterReferenceData }, source));
     } catch (e) {
       return this.toolsetFailure(e);
+    }
+  }
+
+  // --- COMPAT-CAD-004 (Issue #121) -----------------------------------------
+  // The bounded consolidated parametrics/associative/patterns surface.
+
+  /** COMPAT-CAD-004: the shared typed-error mapping for the parametrics
+   *  core — ParametricsError carries the typed code (contracts/
+   *  parametrics.ts documents the closed table); residual failures
+   *  surface as parametrics_bad_payload with the deterministic message
+   *  (never a silent guess). */
+  private parametricsFailure(e: unknown): CommandQueryResponse {
+    if (e instanceof ParametricsError) return err(e.code, e.message, false);
+    return err("parametrics_bad_payload", (e as Error).message, false);
+  }
+
+  /** COMPAT-CAD-004: the pure associative world derived from the CURRENT
+   *  canonical document state (elements + the block/xref tables + the
+   *  P018 raster records + the docs view ids — computed fresh every
+   *  call, never stored). */
+  private assocWorldOf(): AssocWorld {
+    const references = this.specializedRecordsOf("raster.reference");
+    const sources = this.specializedRecordsOf("raster.source");
+    return {
+      elements: this.doc.allElements(),
+      blockDefById: (id) => this.doc.blockDefById(id),
+      xrefById: (id) => this.doc.xrefById(id),
+      rasterReferences: references.map((rec) => ({ id: rec.id, data: rec.data as RasterReferenceData })),
+      rasterSources: sources.map((rec) => ({ data: rec.data as RasterSourceData })),
+      docsViewIds: new Set(this.doc.viewTable.map((v) => v.id)),
+    };
+  }
+
+  /** pattern.mirror — the bounded deterministic mirror over drafting
+   *  geometry AND symbol instances (ONE atomic revision: the geometry
+   *  part through the verified cascade-aware modify path, the block
+   *  instances through the reflected placement; xref/annotation/BIM
+   *  targets decline typed). */
+  private cmdPatternMirror(payload: unknown): CommandQueryResponse {
+    const p = payload as { ids?: unknown; p1?: unknown; p2?: unknown; eraseSource?: unknown } | null;
+    if (p === null || typeof p !== "object" || !Array.isArray(p.ids) || p.p1 === undefined || p.p2 === undefined) {
+      return err("bad_payload", "pattern.mirror requires { ids, p1, p2, eraseSource }", true);
+    }
+    try {
+      const before = new Set(this.doc.allElements().map((el) => el.id));
+      const plan = buildMirrorPlan(
+        this.doc.allElements(),
+        p.ids as readonly string[],
+        p.p1,
+        p.p2,
+        p.eraseSource === true,
+        this.doc.constraintTable,
+      );
+      if (plan.edit === null) {
+        const view: PatternMirrorView = {
+          summary: plan.summary,
+          created: 0,
+          modified: 0,
+          rows: plan.rows.map((r) => ({ id: r.id, kind: r.kind, resultId: r.id, mirrored: r.mirrored })),
+        };
+        return ok({ view, snapshot: this.doc.snapshot() });
+      }
+      this.doc.execute(plan.edit);
+      const newIds = this.doc
+        .allElements()
+        .filter((el) => !before.has(el.id))
+        .map((el) => el.id);
+      const view = mirrorViewOf(plan, newIds);
+      return ok({ view, snapshot: this.doc.snapshot() });
+    } catch (e) {
+      return this.parametricsFailure(e);
+    }
+  }
+
+  /** assoc.refresh — the ONE-revision atomic refresh: every associative
+   *  annotation re-measures AND the documentation values regenerate in
+   *  the SAME atomic batch; dangling references disassociate honestly
+   *  (never a silent re-target) and the typed outcome report is
+   *  returned post-refresh. */
+  private cmdAssocRefresh(_payload: unknown): CommandQueryResponse {
+    void _payload;
+    try {
+      const world = this.assocWorldOf();
+      const outcome = composeAssocRefresh(
+        world,
+        this.doc.viewTable,
+        this.doc.sheetTable,
+        this.doc.history.revisions.length.toString(),
+      );
+      if (outcome.edits.length > 0) {
+        this.doc.execute({ type: "applyEdits", edits: [...outcome.edits] });
+      }
+      const view = assocRefreshViewOf(outcome, this.assocWorldOf());
+      return ok({ view: view as AssocRefreshView, snapshot: this.doc.snapshot() });
+    } catch (e) {
+      return this.parametricsFailure(e);
+    }
+  }
+
+  /** parametrics.capabilities — the versioned typed parametrics
+   *  capability discovery table (the closed registry with honest origin
+   *  provenance; bound to the current revision). */
+  private qParametricsCapabilities(): CommandQueryResponse {
+    return ok({
+      apiVersion: PARAMETRICS_API_VERSION,
+      capabilities: parametricCapabilityViews(),
+      documentVersion: this.doc.snapshot().version.version_number,
+      contentHash: this.doc.currentContentHash(),
+    });
+  }
+
+  /** assoc.report — the consolidated typed associative report
+   *  (annotations, symbol relationships, xrefs, raster references, docs
+   *  annotations — computed fresh from the canonical state, never
+   *  stored; deterministic ordering + digest). */
+  private qAssocReport(_payload: unknown): CommandQueryResponse {
+    void _payload;
+    try {
+      const report = assocReport(this.assocWorldOf());
+      return ok({ report: report as AssocReportView });
+    } catch (e) {
+      return this.parametricsFailure(e);
     }
   }
 

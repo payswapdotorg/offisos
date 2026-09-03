@@ -2496,6 +2496,19 @@ export const COMMAND_PAYLOAD_SCHEMAS: Readonly<Record<CommandName, object>> = {
     },
     required: ["referenceId"],
   },
+  // --- COMPAT-CAD-004 (additive, Issue #121): the bounded consolidated
+  // parametrics/associative/patterns commands. ---
+  "pattern.mirror": {
+    type: "object",
+    properties: {
+      ids: { type: "array", minItems: 1, maxItems: 256, items: { type: "string", minLength: 1 } },
+      p1: { type: "object", properties: { x: { type: "number" }, y: { type: "number" } }, required: ["x", "y"] },
+      p2: { type: "object", properties: { x: { type: "number" }, y: { type: "number" } }, required: ["x", "y"] },
+      eraseSource: { type: "boolean" },
+    },
+    required: ["ids", "p1", "p2", "eraseSource"],
+  },
+  "assoc.refresh": { type: "object", properties: {} },
 };
 
 export const QUERY_PAYLOAD_SCHEMAS: Readonly<Record<QueryName, object>> = {
@@ -2872,6 +2885,10 @@ export const QUERY_PAYLOAD_SCHEMAS: Readonly<Record<QueryName, object>> = {
     },
     required: ["referenceId"],
   },
+  // --- COMPAT-CAD-004 (additive, Issue #121): the bounded consolidated
+  // parametrics/associative/patterns queries. ---
+  "parametrics.capabilities": { type: "object", properties: {} },
+  "assoc.report": { type: "object", properties: {} },
 };
 
 export const WIRE_ENVELOPE_SCHEMA = {

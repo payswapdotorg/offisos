@@ -394,7 +394,18 @@ export type CommandName =
   | "toolset.rasterAttach"
   | "toolset.rasterSetReference"
   | "toolset.rasterRemoveReference"
-  | "toolset.rasterCommitTrace";
+  | "toolset.rasterCommitTrace"
+  // --- COMPAT-CAD-004 (additive, Issue #121): the bounded consolidated
+  // parametrics/associative/patterns commands. pattern.mirror = the
+  // bounded deterministic mirror over drafting geometry AND symbol
+  // instances (geometry through the verified cascade-aware modify path;
+  // block instances through the reflected placement — the additive
+  // `mirrored` state; xref/annotation/BIM targets decline typed);
+  // assoc.refresh = the ONE-revision atomic refresh (annotation
+  // re-measurement + documentation regeneration composed; dangling
+  // references disassociate honestly, never a silent re-target). ---
+  | "pattern.mirror"
+  | "assoc.refresh";
 
 // --- Query names (non-mutating) ---
 // `document.getSelection` returns the ephemeral editor selection (orthogonal
@@ -625,7 +636,17 @@ export type QueryName =
   | "toolset.mepValidateRoute"
   | "toolset.mepClashReport"
   | "toolset.rasterStatus"
-  | "toolset.rasterTrace";
+  | "toolset.rasterTrace"
+  // --- COMPAT-CAD-004 (additive, Issue #121): the bounded consolidated
+  // parametrics/associative/patterns queries (non-mutating, computed
+  // fresh every call, never persisted stale). parametrics.capabilities =
+  // the versioned typed capability discovery table (the closed registry
+  // with honest origin provenance); assoc.report = the consolidated
+  // typed associative report (annotations, symbol relationships, xrefs,
+  // raster references, docs annotations — ok/dangling/source_loss/
+  // missing/stale outcomes, deterministic ordering + digest). ---
+  | "parametrics.capabilities"
+  | "assoc.report";
 
 export interface Command {
   readonly type: "command";

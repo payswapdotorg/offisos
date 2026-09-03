@@ -10,12 +10,15 @@
  * single source of content truth, and a definition edit changes every
  * instance on the next expansion).
  *
- * The transform model is a SIMILARITY (uniform positive scale × rotation ×
- * translation — INSERT validates uniform scale; mirror/non-uniform scales
- * are typed unsupported in this slice). Point mapping for an instance at
- * insertion (ix, iy) with scale s and rotation θ over base point b:
- *
- *   p ↦ (ix, iy) + R(θ)·(s·(p − b))
+ * The transform model is a REFLECTED SIMILARITY (COMPAT-CAD-004: uniform
+ * positive scale × rotation × optional reflection × translation). The
+ * unreflected placement (every pre-COMPAT-CAD-004 instance) is the pure
+ * similarity p ↦ (ix, iy) + R(θ)·(s·(p − base)); a MIRRORED instance
+ * (created by pattern.mirror) renders through p ↦ (ix, iy) +
+ * R(θ)·diag(1, −1)·(s·(p − base)) — the bounded deterministic mirror for
+ * symbol instances (no negative/non-uniform scale fields; non-uniform
+ * scaling remains a typed unsupported case). Mirroring twice returns to
+ * the unreflected form (the placement flips the handedness flag).
  *
  * Geometry is transformed through the verified CAD-PARITY-003 kernel
  * (scaleGeom → rotateGeom → moveGeom about the origin, exact for
@@ -35,7 +38,7 @@
 import type { BlockDefinitionRecord, XrefRecord } from "../../contracts/caddocument.js";
 import type { Geom } from "../geometry/types.js";
 import { propsToGeom } from "../geometry/types.js";
-import { moveGeom, rotateGeom, scaleGeom } from "../geometry/transform.js";
+import { mirrorGeom, moveGeom, rotateGeom, scaleGeom } from "../geometry/transform.js";
 import { bbox, type BBox } from "../geometry/entities.js";
 import { normAngle, Pt, TAU } from "../geometry/math2d.js";
 import {
@@ -51,34 +54,44 @@ import {
 import type { Element } from "../../contracts/caddocument.js";
 
 // ---------------------------------------------------------------------------
-// The similarity transform (uniform scale × rotation × translation).
+// The reflected similarity transform (uniform scale × rotation × optional
+// reflection × translation — COMPAT-CAD-004 extends the pure similarity
+// with the `ref` handedness component; ref = 1 is the exact legacy form).
 // ---------------------------------------------------------------------------
 
 export interface Sim2 {
   /** Uniform positive scale. */
   readonly s: number;
-  /** Rotation in radians (unnormalized — composed additively). */
+  /** Rotation in radians (composed with the reflection law — see
+   *  composeSim). */
   readonly rot: number;
+  /** The handedness: 1 = the unreflected similarity (the exact legacy
+   *  form); −1 = the reflected similarity R(rot)·diag(1, −1)·s. */
+  readonly ref: 1 | -1;
   readonly tx: number;
   readonly ty: number;
 }
 
-export const IDENTITY_SIM: Sim2 = { s: 1, rot: 0, tx: 0, ty: 0 };
+export const IDENTITY_SIM: Sim2 = { s: 1, rot: 0, ref: 1, tx: 0, ty: 0 };
 
-/** The similarity of an instance placement: p ↦ ins + R(rot)·(s·(p − base)). */
+/** The (reflected) similarity of an instance placement:
+ *  p ↦ ins + R(rot)·diag(1, ref)·(s·(p − base)). */
 export function simFromPlacement(
   ins: Pt,
   base: Pt,
   scale: number,
   rotation: number,
+  mirrored?: boolean,
 ): Sim2 {
+  const ref: 1 | -1 = mirrored === true ? -1 : 1;
   const cos = Math.cos(rotation);
   const sin = Math.sin(rotation);
   return {
     s: scale,
     rot: rotation,
-    tx: ins.x - scale * (cos * base.x - sin * base.y),
-    ty: ins.y - scale * (sin * base.x + cos * base.y),
+    ref,
+    tx: ins.x - scale * (cos * base.x - ref * sin * base.y),
+    ty: ins.y - scale * (sin * base.x + ref * cos * base.y),
   };
 }
 
@@ -86,31 +99,44 @@ export function applySim(m: Sim2, p: Pt): Pt {
   const cos = Math.cos(m.rot);
   const sin = Math.sin(m.rot);
   return {
-    x: m.s * (cos * p.x - sin * p.y) + m.tx,
-    y: m.s * (sin * p.x + cos * p.y) + m.ty,
+    x: m.s * (cos * p.x - m.ref * sin * p.y) + m.tx,
+    y: m.s * (sin * p.x + m.ref * cos * p.y) + m.ty,
   };
 }
 
-/** Compose: apply(inner) first, then(outer) — the nested-reference matrix. */
+/** Compose: apply(inner) first, then(outer) — the nested-reference matrix.
+ *  Reflection law (COMPAT-CAD-004): D(f)·R(a) = R(a·f)·D(f), so
+ *  R(b)·D(F)·R(a)·D(f) = R(b + a·F)·D(f·F) — the INNER rotation is
+ *  conjugated by the OUTER reflection and the handedness multiplies. With
+ *  F = 1 this is exactly the legacy additive law (byte-identical behavior
+ *  for every unreflected composition). */
 export function composeSim(outer: Sim2, inner: Sim2): Sim2 {
-  // outer(inner(p)) = s2·R(r2)·(s1·R(r1)·p + t1) + t2
-  //                 = (s1·s2)·R(r1+r2)·p + (s2·R(r2)·t1 + t2)
+  // outer(inner(p)) = s2·R(r2)·D(F2)·(s1·R(r1)·D(F1)·p + t1) + t2
   const lin = applySimLinear(outer, { x: inner.tx, y: inner.ty });
-  return { s: inner.s * outer.s, rot: inner.rot + outer.rot, tx: lin.x + outer.tx, ty: lin.y + outer.ty };
+  return {
+    s: inner.s * outer.s,
+    rot: outer.rot + inner.rot * outer.ref,
+    ref: (inner.ref * outer.ref) as 1 | -1,
+    tx: lin.x + outer.tx,
+    ty: lin.y + outer.ty,
+  };
 }
 
 function applySimLinear(m: Sim2, p: Pt): Pt {
   const cos = Math.cos(m.rot);
   const sin = Math.sin(m.rot);
-  return { x: m.s * (cos * p.x - sin * p.y), y: m.s * (sin * p.x + cos * p.y) };
+  return { x: m.s * (cos * p.x - m.ref * sin * p.y), y: m.s * (sin * p.x + m.ref * cos * p.y) };
 }
 
-/** Transform canonical geometry by a similarity (exact: scale about the
- *  origin → rotation about the origin → translation — the verified
- *  CAD-PARITY-003 kernel operators in composition order). */
+/** Transform canonical geometry by a (reflected) similarity (exact: scale
+ *  about the origin → [reflected: mirror about the X axis] → rotation about
+ *  the origin → translation — the verified CAD-PARITY-003 kernel operators
+ *  in composition order; mirrorGeom is exact for arcs/ellipses/regions
+ *  (sweep/axis angles reflect — never a guessed approximation). */
 export function transformGeomBySim(g: Geom, m: Sim2): Geom {
   let out = g;
   if (m.s !== 1) out = scaleGeom(out, { x: 0, y: 0 }, m.s);
+  if (m.ref === -1) out = mirrorGeom(out, { x: 0, y: 0 }, { x: 1, y: 0 });
   if (m.rot !== 0) out = rotateGeom(out, { x: 0, y: 0 }, m.rot);
   if (m.tx !== 0 || m.ty !== 0) out = moveGeom(out, m.tx, m.ty);
   return out;
@@ -212,7 +238,15 @@ function transformTextLike(
     y: typeof entity.y === "number" ? entity.y : 0,
   });
   const height = (typeof entity.height === "number" ? entity.height : 2.5) * m.s;
-  const rotation = normAngle((typeof entity.rotation === "number" ? entity.rotation : 0) + m.rot);
+  // COMPAT-CAD-004 (MIRRTEXT=0, the drawing-office default): text inside a
+  //  MIRRORED instance stays LEGIBLE — the position transforms with the
+  //  reflected similarity, the rotation follows the unreflected frame
+  //  (local + rot), and when that lands in the upside-down half-plane
+  //  (π/2 .. 3π/2) it flips by π so the text reads left-to-right — never
+  //  a backwards-reading mirror. Unreflected placements are EXACTLY the
+  //  legacy behavior (no flip check runs).
+  const base = normAngle((typeof entity.rotation === "number" ? entity.rotation : 0) + m.rot);
+  const rotation = m.ref === -1 && base > Math.PI / 2 && base < (3 * Math.PI) / 2 ? normAngle(base + Math.PI) : base;
   const props: Record<string, unknown> = {
     type: "text",
     layer: typeof entity.layer === "string" && entity.layer.length > 0 ? entity.layer : "0",
@@ -262,8 +296,11 @@ function expandDefinition(
         ...(Array.isArray(entity.attributes)
           ? { attributes: entity.attributes as { tag: string; value: string }[] }
           : {}),
+        // COMPAT-CAD-004 (additive): a nested reference stored in its
+        //  mirrored form composes with the parent's reflection law.
+        ...(entity.mirrored === true ? { mirrored: true as const } : {}),
       };
-      const childSim = simFromPlacement({ x: nested.x, y: nested.y }, child.basePoint, nested.scale, nested.rotation);
+      const childSim = simFromPlacement({ x: nested.x, y: nested.y }, child.basePoint, nested.scale, nested.rotation, nested.mirrored);
       expandDefinition(child, composeSim(m, childSim), table, nested.attributes, out);
       continue;
     }
@@ -293,7 +330,7 @@ export function expandBlockInstance(ref: BlockRefView, table: BlockTable): reado
   if (def === undefined) {
     return [placeholderAt({ x: ref.x, y: ref.y }, `unresolved block ${ref.blockId}`)];
   }
-  const m = simFromPlacement({ x: ref.x, y: ref.y }, def.basePoint, ref.scale, ref.rotation);
+  const m = simFromPlacement({ x: ref.x, y: ref.y }, def.basePoint, ref.scale, ref.rotation, ref.mirrored);
   const out: ExpandedEntity[] = [];
   expandDefinition(def, m, table, ref.attributes, out);
   return out;
@@ -369,16 +406,21 @@ export function explodeBlockInstance(
   if (def === undefined) {
     throw new BlockError(`block definition '${ref.blockId}' no longer exists — cannot explode`, "bad_id");
   }
-  const m = simFromPlacement({ x: ref.x, y: ref.y }, def.basePoint, ref.scale, ref.rotation);
+  const m = simFromPlacement({ x: ref.x, y: ref.y }, def.basePoint, ref.scale, ref.rotation, ref.mirrored);
   const out: ExplodedPiece[] = [];
   for (const entity of def.entities) {
     if (entity.type === "block-ref" && typeof entity.blockId === "string") {
       // Nested reference: compose the placement into an independent element.
+      // COMPAT-CAD-004: the composed placement follows the reflection law —
+      // rotation' = m.rot + nestedRotation·m.ref, handedness multiplies —
+      // so exploding a mirrored instance yields correctly-handed nested
+      // instances (never a silently flipped copy).
       const nestedX = typeof entity.x === "number" ? entity.x : 0;
       const nestedY = typeof entity.y === "number" ? entity.y : 0;
       const nestedScale = typeof entity.scale === "number" ? entity.scale : 1;
       const nestedRotation = typeof entity.rotation === "number" ? entity.rotation : 0;
       const at = applySim(m, { x: nestedX, y: nestedY });
+      const composedMirrored = (entity.mirrored === true) !== (m.ref === -1);
       out.push({
         kind: "block-ref",
         props: {
@@ -389,10 +431,11 @@ export function explodeBlockInstance(
           x: at.x,
           y: at.y,
           scale: m.s * nestedScale,
-          rotation: normAngle(m.rot + nestedRotation),
+          rotation: normAngle(m.rot + nestedRotation * m.ref),
           ...(Array.isArray(entity.attributes)
             ? { attributes: entity.attributes as { tag: string; value: string }[] }
             : {}),
+          ...(composedMirrored ? { mirrored: true } : {}),
         },
       });
       continue;

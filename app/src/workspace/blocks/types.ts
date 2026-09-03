@@ -103,6 +103,17 @@ export interface BlockRefView {
    *  definition.materialId ?? null. Absent = inherit the definition
    *  default (the canonical no-override form). */
   readonly materialId?: string;
+  /** COMPAT-CAD-004 (additive, Issue #121): the MIRRORED placement state.
+   *  Present (true) = the instance renders its definition content through
+   *  the reflected similarity R(rotation)·diag(1, −1)·scale (a mirrored
+   *  copy created by pattern.mirror — the bounded deterministic mirror
+   *  for symbol instances). Absent = the unreflected placement (every
+   *  pre-COMPAT-CAD-004 instance — the canonical form; written ONLY when
+   *  true so legacy snapshots and pinned fixtures stay byte-identical).
+   *  Text content in a mirrored instance stays legible (the MIRRTEXT=0
+   *  drawing-office default): text POSITIONS transform with the reflected
+   *  similarity; the text rotation follows the unreflected frame. */
+  readonly mirrored?: true;
 }
 
 export interface XrefRefView {
@@ -226,6 +237,14 @@ export function makeBlockRef(input: Record<string, unknown>): BlockRefView {
   // the strict/soft parsers are tolerant of it by construction (this
   // constructor re-validates stored props on every read).
   const materialId = optString(input.materialId, "block-ref materialId");
+  // COMPAT-CAD-004 (additive): the mirrored placement state. Only the
+  // literal `true` materializes the field (false/absent = the canonical
+  // unreflected form — the strict parser normalizes, so a stored `false`
+  // can never leak into a snapshot through this path).
+  if (input.mirrored !== undefined && input.mirrored !== null && typeof input.mirrored !== "boolean") {
+    throw new BlockError("block-ref mirrored must be a boolean when present", "bad_input");
+  }
+  const mirrored = input.mirrored === true ? (true as const) : undefined;
   return {
     type: "block-ref",
     layer,
@@ -236,6 +255,7 @@ export function makeBlockRef(input: Record<string, unknown>): BlockRefView {
     rotation,
     ...(attributes !== undefined ? { attributes } : {}),
     ...(materialId !== undefined ? { materialId } : {}),
+    ...(mirrored !== undefined ? { mirrored } : {}),
   };
 }
 
@@ -312,6 +332,9 @@ export function blockRefToProps(ref: BlockRefView): Record<string, unknown> {
   // CAD-PARITY-012 (additive): written ONLY when set (absence = inherit the
   // definition's material default — never an undefined value).
   if (ref.materialId !== undefined) props.materialId = ref.materialId;
+  // COMPAT-CAD-004 (additive): written ONLY when true (absence = the
+  // canonical unreflected placement — legacy snapshots byte-identical).
+  if (ref.mirrored === true) props.mirrored = true;
   return props;
 }
 

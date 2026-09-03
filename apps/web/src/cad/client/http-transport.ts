@@ -52,6 +52,12 @@ import type {
   RasterTraceResult,
   ToolsetCapabilityView,
 } from "@offisos/cad-app-shell/contracts/toolsets";
+// COMPAT-CAD-004 (additive, Issue #121): the parametrics shared contract
+// view types (pure — browser-safe type-only import).
+import type {
+  AssocReportView,
+  ParametricCapabilityView,
+} from "@offisos/cad-app-shell/contracts/parametrics";
 
 /** Send a CommandQueryRequest over the Web transport. */
 export async function send(
@@ -3753,4 +3759,116 @@ export function unwrapRasterTrace(res: CommandQueryResponse): RasterTraceResult 
   const v = res.value as RasterTraceResult | null;
   if (typeof v !== "object" || v === null || !Array.isArray(v.vectors)) return null;
   return v;
+}
+
+// --- COMPAT-CAD-004 (additive, Issue #121): the consolidated
+// parametrics/associative/patterns client mirror -------------------------------
+
+/** `entity.create` (command) — the verified canonical 2D entity creation
+ *  batch (the seed path of the parametrics workbench — the SAME governed
+ *  surface the command line drives). */
+export async function entityCreate(entities: readonly unknown[]): Promise<CommandQueryResponse> {
+  return command("entity.create", { entities });
+}
+
+/** `entity.modify` (command) — the verified modify surface (the pattern
+ *  family's array arm over entities AND symbol instances). */
+export async function entityModify(op: Record<string, unknown>): Promise<CommandQueryResponse> {
+  return command("entity.modify", op);
+}
+
+/** `annotation.create` (command) — the verified associative annotation
+ *  creation batch (the seed path of the associations workflow). */
+export async function annotationCreate(payload: { entities: readonly unknown[] }): Promise<CommandQueryResponse> {
+  return command("annotation.create", payload);
+}
+
+/** `pattern.mirror` (command) — the bounded deterministic mirror over
+ *  drafting geometry AND block instances (ONE atomic revision; the
+ *  reflected placement flips the symbol handedness). */
+export async function patternMirror(input: {
+  readonly ids: readonly string[];
+  readonly p1: { x: number; y: number };
+  readonly p2: { x: number; y: number };
+  readonly eraseSource: boolean;
+}): Promise<CommandQueryResponse> {
+  return command("pattern.mirror", input);
+}
+
+/** `assoc.refresh` (command) — the one-revision atomic associative
+ *  refresh (annotations re-measured + documentation regenerated). */
+export async function assocRefresh(): Promise<CommandQueryResponse> {
+  return command("assoc.refresh", {});
+}
+
+/** `parametrics.capabilities` (query) — the versioned typed capability
+ *  discovery table (the closed registry with honest origin provenance). */
+export async function parametricsCapabilities(): Promise<CommandQueryResponse> {
+  return query("parametrics.capabilities", {});
+}
+
+/** `assoc.report` (query) — the consolidated typed associative report
+ *  (annotations, symbols, xrefs, raster references, docs annotations). */
+export async function assocReport(): Promise<CommandQueryResponse> {
+  return query("assoc.report", {});
+}
+
+/** The versioned discovery view of `parametrics.capabilities`. */
+export interface ParametricsCapabilitiesView {
+  readonly apiVersion: string;
+  readonly capabilities: readonly ParametricCapabilityView[];
+  readonly documentVersion: number;
+  readonly contentHash: string;
+}
+
+/** The `pattern.mirror` outcome view. */
+export interface PatternMirrorOutcomeView {
+  readonly summary: string;
+  readonly created: number;
+  readonly modified: number;
+  readonly rows: readonly {
+    readonly id: string;
+    readonly kind: "geometry" | "block-ref";
+    readonly resultId: string;
+    readonly mirrored: boolean;
+  }[];
+}
+
+/** The `assoc.refresh` outcome view. */
+export interface AssocRefreshOutcomeView {
+  readonly applied: boolean;
+  readonly summary: string;
+  readonly notes: readonly string[];
+  readonly docs: { readonly updated: number; readonly dangling: number; readonly sourceLoss: number };
+  readonly report: AssocReportView;
+}
+
+// --- The unwraps ----------------------------------------------------------------
+
+export function unwrapParametricsCapabilities(res: CommandQueryResponse): ParametricsCapabilitiesView | null {
+  if (!res.ok) return null;
+  const v = res.value as ParametricsCapabilitiesView | null;
+  if (typeof v !== "object" || v === null || !Array.isArray(v.capabilities)) return null;
+  return v;
+}
+
+export function unwrapPatternMirror(res: CommandQueryResponse): PatternMirrorOutcomeView | null {
+  if (!res.ok) return null;
+  const v = res.value as { view?: unknown } | null;
+  if (typeof v !== "object" || v === null || typeof v.view !== "object" || v.view === null) return null;
+  return v.view as PatternMirrorOutcomeView;
+}
+
+export function unwrapAssocRefresh(res: CommandQueryResponse): AssocRefreshOutcomeView | null {
+  if (!res.ok) return null;
+  const v = res.value as { view?: unknown } | null;
+  if (typeof v !== "object" || v === null || typeof v.view !== "object" || v.view === null) return null;
+  return v.view as AssocRefreshOutcomeView;
+}
+
+export function unwrapAssocReport(res: CommandQueryResponse): AssocReportView | null {
+  if (!res.ok) return null;
+  const v = res.value as { report?: unknown } | null;
+  if (typeof v !== "object" || v === null || typeof v.report !== "object" || v.report === null) return null;
+  return v.report as AssocReportView;
 }

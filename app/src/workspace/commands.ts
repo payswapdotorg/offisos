@@ -34,6 +34,7 @@ import { COMMANDS_DOCUMENTATION } from "./commands-documentation.js";
 import { COMMANDS_COLLAB } from "./commands-collab.js";
 import { COMMANDS_AUTOMATION } from "./commands-automation.js";
 import { COMMANDS_TOOLSETS } from "./commands-toolsets.js";
+import { COMMANDS_ASSOCIATIVE } from "./commands-associative.js";
 import type {
   AppApiCommandPlanEntry,
   CommandCategory,
@@ -1326,6 +1327,11 @@ export const WORKSPACE_COMMANDS: readonly WorkspaceCommand[] = [
   // (ribbonTab "Automation") ---
   ...COMMANDS_AUTOMATION,
   ...COMMANDS_TOOLSETS,
+  // --- COMPAT-CAD-004 (Issue #121): the consolidated parametrics/
+  //  associative/patterns vocabulary — the bounded mirror including
+  //  symbol instances, the one-revision associative refresh and the
+  //  Parametrics workbench surface (ribbonTab "Parametric") ---
+  ...COMMANDS_ASSOCIATIVE,
 ];
 
 function normalize(a: number): number {

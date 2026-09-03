@@ -25,6 +25,10 @@ import type { CADDocumentSnapshot, VersionMeta } from "@offisos/cad-app-shell/co
 import type { Vec2 } from "@offisos/cad-app-shell/drafting/precision";
 import type { Command, CommandQueryResponse } from "@offisos/cad-app-shell/contracts/app-api";
 import {
+  parametricsCapabilities,
+  assocReport,
+  unwrapParametricsCapabilities,
+  unwrapAssocReport,
   createDoc,
   getGraphEvents,
   getHistory,
@@ -136,6 +140,9 @@ import { AutomationWorkbench } from "@/cad/automation/workbench";
 // CAD-PARITY-018 (Issue #118): the specialized-toolsets workbench (the
 // architecture/MEP/mechanical/raster workflows over the governed App API).
 import { ToolsetsWorkbench } from "@/cad/toolsets/workbench";
+// COMPAT-CAD-004 (Issue #121): the Parametrics workbench (the consolidated
+// parametrics/associative/patterns workflows over the governed App API).
+import { ParametricsWorkbench } from "@/cad/parametrics/workbench";
 // CAD-PARITY-012 (Issue #102): the shared material display helpers — the
 // SAME resolution the canvas paint loop and the Coordination palette run;
 // materialViewsOf derives the id-sorted table rows from the snapshot (the
@@ -168,6 +175,9 @@ const VIEW_TABS: readonly { id: WorkspaceView; label: string }[] = [
   // CAD-PARITY-018 (Issue #118): the specialized-toolsets surface
   // (architecture, MEP, mechanical, raster).
   { id: "toolsets", label: "Toolsets" },
+  // COMPAT-CAD-004 (Issue #121): the consolidated parametrics surface
+  // (constraints, associations, symbols, patterns).
+  { id: "parametrics", label: "Parametrics" },
 ];
 
 export function WorkspaceShell(): React.JSX.Element {
@@ -502,6 +512,12 @@ export function WorkspaceShell(): React.JSX.Element {
               // MEPREPORT/RASTERSTATUS/RASTERTRACE report surfaces — the
               // Specialized Toolsets workbench.
               setView("toolsets");
+            } else if (palette === "parametrics") {
+              // COMPAT-CAD-004 (Issue #121): PATTERNMIRROR/ASSOCREFRESH +
+              // the PARAMETRICS report surface — the Parametrics workbench
+              // (capability discovery, constraints, the associative report,
+              // symbols, patterns).
+              setView("parametrics");
             } else if (palette === "workspace") {
               setPreset((p) => (p === "compact" ? "drafting" : "compact"));
             }
@@ -936,6 +952,33 @@ export function WorkspaceShell(): React.JSX.Element {
               setHistoryLines((h) => [...h, ...lines]);
             } catch {
               setHistoryLines((h) => [...h, "*ERROR* report.toolsets: the query failed."]);
+            }
+            break;
+          }
+          case "report.parametrics": {
+            // COMPAT-CAD-004 (Issue #121): PARAMETRICS/PAR — the host
+            // renders the REAL parametrics query results (the capability
+            // discovery + the consolidated associative report).
+            try {
+              const [capsRes, reportRes] = await Promise.all([parametricsCapabilities(), assocReport()]);
+              const caps = unwrapParametricsCapabilities(capsRes);
+              const report = unwrapAssocReport(reportRes);
+              const lines: string[] = [];
+              if (caps === null || report === null) {
+                const failed = !capsRes.ok ? capsRes : reportRes;
+                lines.push(`*ERROR* report.parametrics: ${failed.ok ? "unexpected response shape" : `${failed.code} — ${failed.message}`}`);
+              } else {
+                const commands = caps.capabilities.filter((c) => c.kind === "command").length;
+                const added = caps.capabilities.filter((c) => c.origin === "compat-cad-004").length;
+                lines.push(`PARAMETRICS: api v${caps.apiVersion} — ${caps.capabilities.length} capabilities (${commands} commands, ${caps.capabilities.length - commands} queries; ${added} added by COMPAT-CAD-004), bound to doc v${caps.documentVersion} sha ${caps.contentHash.slice(0, 12)}….`);
+                lines.push(`PARAMETRICS: associative report — ${report.counts.total} row(s), ${report.counts.ok} ok, ${report.counts.notOk} not ok, digest ${report.reportSha256.slice(0, 12)}….`);
+                for (const row of report.rows) {
+                  lines.push(`PARAMETRICS: ${row.kind} ${row.id} ${row.outcome}${row.code !== undefined ? ` (${row.code})` : ""} — ${row.reason}`);
+                }
+              }
+              setHistoryLines((h) => [...h, ...lines]);
+            } catch {
+              setHistoryLines((h) => [...h, "*ERROR* report.parametrics: the query failed."]);
             }
             break;
           }
@@ -1464,6 +1507,10 @@ export function WorkspaceShell(): React.JSX.Element {
                 workbench (the architecture/MEP/mechanical/raster workflows
                 over the governed App API). */}
             {view === "toolsets" && <ToolsetsWorkbench />}
+            {/* COMPAT-CAD-004 (Issue #121): the Parametrics workbench (the
+                consolidated parametrics/associative/patterns workflows
+                over the governed App API). */}
+            {view === "parametrics" && <ParametricsWorkbench />}
             {view === "layout" && (
               <LayoutCanvas
                 snapshot={snapshot}
