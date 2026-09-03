@@ -16,3 +16,8 @@ export * from "./scene.js";
 // contracts (bounds, record payload types, derived view types — the same
 // barrel discipline as the sibling contracts; no runtime dependencies).
 export * from "./toolsets.js";
+// COMPAT-CAD-004 (additive, Issue #121): the parametrics/associative/
+// patterns shared contracts (the versioned capability registry views, the
+// consolidated associative report/refresh views, the pattern operation
+// views — the same barrel discipline; no runtime dependencies).
+export * from "./parametrics.js";
