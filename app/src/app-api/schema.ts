@@ -2889,6 +2889,10 @@ export const QUERY_PAYLOAD_SCHEMAS: Readonly<Record<QueryName, object>> = {
   // parametrics/associative/patterns queries. ---
   "parametrics.capabilities": { type: "object", properties: {} },
   "assoc.report": { type: "object", properties: {} },
+  // CAD-PARITY-019 rev 2 (additive, the architect review on PR #125): the
+  // certification corpus catalog (no payload — pure derived data over the
+  // version-pinned corpus).
+  "certification.corpusCatalog": { type: "object", properties: {} },
 };
 
 export const WIRE_ENVELOPE_SCHEMA = {

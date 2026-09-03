@@ -1,0 +1,1063 @@
+{
+  "reportSha256": "3c7d53ffcd30a3b74d0d611ece11d4e370e559611b6a413310ed940115f943b0",
+  "normalized": {
+    "contract": "offisos-p019-certification/1",
+    "corpus": {
+      "id": "autocad-p019-corpus",
+      "sha256": "«sha256»",
+      "version": "2",
+      "workflowCount": 8
+    },
+    "summary": {
+      "expectations": {
+        "exact": 96,
+        "failed": 0,
+        "lossy": 0,
+        "total": 100,
+        "unsupported": 4
+      },
+      "interop": {
+        "exact": 6,
+        "failed": 0,
+        "lossy": 1,
+        "total": 13,
+        "unsupported": 6
+      },
+      "verdict": "CERTIFIED",
+      "workflows": 8,
+      "workflowsPassed": 8
+    },
+    "workflows": [
+      {
+        "discipline": "drafting",
+        "expectations": [
+          {
+            "id": "exp-layer-created",
+            "outcome": "exact",
+            "status": "pass"
+          },
+          {
+            "id": "exp-layer-current",
+            "outcome": "exact",
+            "status": "pass"
+          },
+          {
+            "id": "exp-rectangle",
+            "outcome": "exact",
+            "status": "pass"
+          },
+          {
+            "id": "exp-line",
+            "outcome": "exact",
+            "status": "pass"
+          },
+          {
+            "id": "exp-circle-radius",
+            "outcome": "exact",
+            "status": "pass"
+          },
+          {
+            "id": "exp-arc-created",
+            "outcome": "exact",
+            "status": "pass"
+          },
+          {
+            "id": "exp-on-current-layer",
+            "outcome": "exact",
+            "status": "pass"
+          },
+          {
+            "id": "exp-one-revision-per-primitive",
+            "outcome": "exact",
+            "status": "pass"
+          },
+          {
+            "id": "exp-offset-parallel",
+            "outcome": "exact",
+            "status": "pass"
+          },
+          {
+            "id": "exp-offset-distance",
+            "outcome": "exact",
+            "status": "pass"
+          },
+          {
+            "id": "exp-mirror-keeps-source",
+            "outcome": "exact",
+            "status": "pass"
+          },
+          {
+            "id": "exp-offset-one-revision",
+            "outcome": "exact",
+            "status": "pass"
+          },
+          {
+            "id": "exp-copy-duplicates",
+            "outcome": "exact",
+            "status": "pass"
+          },
+          {
+            "id": "exp-move-preserves-count",
+            "outcome": "exact",
+            "status": "pass"
+          },
+          {
+            "id": "exp-rotate-keeps-count",
+            "outcome": "exact",
+            "status": "pass"
+          },
+          {
+            "id": "exp-chprop-color",
+            "outcome": "exact",
+            "status": "pass"
+          },
+          {
+            "id": "exp-chprop-one-revision",
+            "outcome": "exact",
+            "status": "pass"
+          },
+          {
+            "id": "exp-unknown-command-declines",
+            "outcome": "unsupported",
+            "status": "pass"
+          }
+        ],
+        "finalDigest": "«sha256»",
+        "id": "wf-plan-drafting",
+        "interop": [
+          {
+            "expected": "exact",
+            "id": "io-dxf-linework",
+            "observed": "tolerance",
+            "status": "pass",
+            "surface": "dxf"
+          },
+          {
+            "expected": "exact",
+            "id": "io-dxf-layers",
+            "observed": "exact",
+            "status": "pass",
+            "surface": "dxf"
+          }
+        ],
+        "perf": [],
+        "phases": [
+          {
+            "commandCount": 1,
+            "commandNames": [
+              "-LAYER"
+            ],
+            "id": "layers",
+            "revisionDelta": 1,
+            "status": "pass"
+          },
+          {
+            "commandCount": 4,
+            "commandNames": [
+              "RECTANGLE",
+              "CIRCLE",
+              "ARC"
+            ],
+            "id": "primitives",
+            "revisionDelta": 4,
+            "status": "pass"
+          },
+          {
+            "commandCount": 2,
+            "commandNames": [
+              "OFFSET",
+              "MIRROR"
+            ],
+            "id": "offset-mirror",
+            "revisionDelta": 2,
+            "status": "pass"
+          },
+          {
+            "commandCount": 3,
+            "commandNames": [
+              "COPY",
+              "MOVE",
+              "ROTATE"
+            ],
+            "id": "modify",
+            "revisionDelta": 3,
+            "status": "pass"
+          },
+          {
+            "commandCount": 1,
+            "commandNames": [
+              "CHPROP"
+            ],
+            "id": "props",
+            "revisionDelta": 1,
+            "status": "pass"
+          }
+        ],
+        "robustness": {
+          "replayStable": "pass",
+          "roundTrip": "pass",
+          "undoRedo": "pass"
+        },
+        "status": "pass",
+        "title": "Architectural floor-plan drafting"
+      },
+      {
+        "discipline": "annotation",
+        "expectations": [
+          {
+            "id": "exp-seed",
+            "outcome": "exact",
+            "status": "pass"
+          },
+          {
+            "id": "exp-dim-count",
+            "outcome": "exact",
+            "status": "pass"
+          },
+          {
+            "id": "exp-dim-linear-measured",
+            "outcome": "exact",
+            "status": "pass"
+          },
+          {
+            "id": "exp-dim-diameter-measured",
+            "outcome": "exact",
+            "status": "pass"
+          },
+          {
+            "id": "exp-dim-radius-measured",
+            "outcome": "exact",
+            "status": "pass"
+          },
+          {
+            "id": "exp-dim-atomic",
+            "outcome": "exact",
+            "status": "pass"
+          },
+          {
+            "id": "exp-mtext",
+            "outcome": "exact",
+            "status": "pass"
+          },
+          {
+            "id": "exp-leader",
+            "outcome": "exact",
+            "status": "pass"
+          },
+          {
+            "id": "exp-revcloud",
+            "outcome": "exact",
+            "status": "pass"
+          },
+          {
+            "id": "exp-revcloud-closed",
+            "outcome": "exact",
+            "status": "pass"
+          },
+          {
+            "id": "exp-revision-recorded",
+            "outcome": "exact",
+            "status": "pass"
+          }
+        ],
+        "finalDigest": "«sha256»",
+        "id": "wf-annotation-docs",
+        "interop": [
+          {
+            "expected": "unsupported",
+            "id": "io-dxf-annotation",
+            "observed": "unsupported",
+            "status": "pass",
+            "surface": "dxf"
+          },
+          {
+            "expected": "unsupported",
+            "id": "io-sheet-dwg",
+            "observed": "unsupported",
+            "status": "pass",
+            "surface": "sheet"
+          },
+          {
+            "expected": "exact",
+            "id": "io-sheet-svg",
+            "observed": "exact",
+            "status": "pass",
+            "surface": "sheet"
+          }
+        ],
+        "perf": [],
+        "phases": [
+          {
+            "commandCount": 1,
+            "commandNames": [],
+            "id": "seed",
+            "revisionDelta": 1,
+            "status": "pass"
+          },
+          {
+            "commandCount": 1,
+            "commandNames": [],
+            "id": "dimensions",
+            "revisionDelta": 1,
+            "status": "pass"
+          },
+          {
+            "commandCount": 2,
+            "commandNames": [
+              "MTEXT",
+              "LEADER"
+            ],
+            "id": "text-leaders",
+            "revisionDelta": 2,
+            "status": "pass"
+          },
+          {
+            "commandCount": 2,
+            "commandNames": [
+              "REVCLOUD"
+            ],
+            "id": "revision-cloud",
+            "revisionDelta": 2,
+            "status": "pass"
+          }
+        ],
+        "robustness": {
+          "replayStable": "pass",
+          "roundTrip": "pass",
+          "undoRedo": "pass"
+        },
+        "status": "pass",
+        "title": "Dimensioned annotated drawing documentation"
+      },
+      {
+        "discipline": "blocks",
+        "expectations": [
+          {
+            "id": "exp-seed-two",
+            "outcome": "exact",
+            "status": "pass"
+          },
+          {
+            "id": "exp-block-definition",
+            "outcome": "exact",
+            "status": "pass"
+          },
+          {
+            "id": "exp-block-entities",
+            "outcome": "exact",
+            "status": "pass"
+          },
+          {
+            "id": "exp-sources-converted",
+            "outcome": "exact",
+            "status": "pass"
+          },
+          {
+            "id": "exp-block-one-revision",
+            "outcome": "exact",
+            "status": "pass"
+          },
+          {
+            "id": "exp-insert-placement",
+            "outcome": "exact",
+            "status": "pass"
+          },
+          {
+            "id": "exp-attribute-value",
+            "outcome": "exact",
+            "status": "pass"
+          },
+          {
+            "id": "exp-attdef-carried",
+            "outcome": "exact",
+            "status": "pass"
+          },
+          {
+            "id": "exp-attedit-value",
+            "outcome": "exact",
+            "status": "pass"
+          },
+          {
+            "id": "exp-attedit-atomic",
+            "outcome": "exact",
+            "status": "pass"
+          },
+          {
+            "id": "exp-array-count",
+            "outcome": "exact",
+            "status": "pass"
+          },
+          {
+            "id": "exp-array-atomic",
+            "outcome": "exact",
+            "status": "pass"
+          },
+          {
+            "id": "exp-pattern-mirror-count",
+            "outcome": "exact",
+            "status": "pass"
+          },
+          {
+            "id": "exp-pattern-mirror-reflected",
+            "outcome": "exact",
+            "status": "pass"
+          },
+          {
+            "id": "exp-pattern-mirror-axis",
+            "outcome": "exact",
+            "status": "pass"
+          }
+        ],
+        "finalDigest": "«sha256»",
+        "id": "wf-symbol-blocks",
+        "interop": [
+          {
+            "expected": "unsupported",
+            "id": "io-dxf-blocks",
+            "observed": "unsupported",
+            "status": "pass",
+            "surface": "dxf"
+          }
+        ],
+        "perf": [],
+        "phases": [
+          {
+            "commandCount": 1,
+            "commandNames": [],
+            "id": "seed",
+            "revisionDelta": 1,
+            "status": "pass"
+          },
+          {
+            "commandCount": 1,
+            "commandNames": [
+              "BLOCK"
+            ],
+            "id": "define",
+            "revisionDelta": 1,
+            "status": "pass"
+          },
+          {
+            "commandCount": 3,
+            "commandNames": [
+              "INSERT"
+            ],
+            "id": "insert-attedit",
+            "revisionDelta": 3,
+            "status": "pass"
+          },
+          {
+            "commandCount": 1,
+            "commandNames": [
+              "ATTEDIT"
+            ],
+            "id": "attedit",
+            "revisionDelta": 1,
+            "status": "pass"
+          },
+          {
+            "commandCount": 1,
+            "commandNames": [
+              "ARRAY"
+            ],
+            "id": "array",
+            "revisionDelta": 1,
+            "status": "pass"
+          },
+          {
+            "commandCount": 1,
+            "commandNames": [
+              "PATTERNMIRROR"
+            ],
+            "id": "pattern-mirror",
+            "revisionDelta": 1,
+            "status": "pass"
+          }
+        ],
+        "robustness": {
+          "replayStable": "pass",
+          "roundTrip": "pass",
+          "undoRedo": "pass"
+        },
+        "status": "pass",
+        "title": "Reusable symbol library and placement"
+      },
+      {
+        "discipline": "sheet",
+        "expectations": [
+          {
+            "id": "exp-seed",
+            "outcome": "exact",
+            "status": "pass"
+          },
+          {
+            "id": "exp-layout-id",
+            "outcome": "exact",
+            "status": "pass"
+          },
+          {
+            "id": "exp-pagesetup",
+            "outcome": "exact",
+            "status": "pass"
+          },
+          {
+            "id": "exp-pagesetup-dimensions",
+            "outcome": "exact",
+            "status": "pass"
+          },
+          {
+            "id": "exp-titleblock-placed",
+            "outcome": "exact",
+            "status": "pass"
+          },
+          {
+            "id": "exp-clone",
+            "outcome": "exact",
+            "status": "pass"
+          },
+          {
+            "id": "exp-publish-deterministic",
+            "outcome": "exact",
+            "status": "pass"
+          },
+          {
+            "id": "exp-plot-digest-stable",
+            "outcome": "exact",
+            "status": "pass"
+          }
+        ],
+        "finalDigest": "«sha256»",
+        "id": "wf-sheet-publication",
+        "interop": [
+          {
+            "expected": "exact",
+            "id": "io-sheet-pdf",
+            "observed": "exact",
+            "status": "pass",
+            "surface": "sheet"
+          }
+        ],
+        "perf": [],
+        "phases": [
+          {
+            "commandCount": 1,
+            "commandNames": [],
+            "id": "seed",
+            "revisionDelta": 1,
+            "status": "pass"
+          },
+          {
+            "commandCount": 4,
+            "commandNames": [
+              "PAGESETUP"
+            ],
+            "id": "layout",
+            "revisionDelta": 4,
+            "status": "pass"
+          },
+          {
+            "commandCount": 4,
+            "commandNames": [],
+            "id": "clone-publish",
+            "revisionDelta": 3,
+            "status": "pass"
+          },
+          {
+            "commandCount": 2,
+            "commandNames": [],
+            "id": "plot",
+            "revisionDelta": 0,
+            "status": "pass"
+          }
+        ],
+        "robustness": {
+          "replayStable": "pass",
+          "roundTrip": "pass",
+          "undoRedo": "pass"
+        },
+        "status": "pass",
+        "title": "Sheet set assembly and deterministic publication"
+      },
+      {
+        "discipline": "model3d",
+        "expectations": [
+          {
+            "id": "exp-box-identity",
+            "outcome": "exact",
+            "status": "pass"
+          },
+          {
+            "id": "exp-box-count",
+            "outcome": "exact",
+            "status": "pass"
+          },
+          {
+            "id": "exp-box-provenance",
+            "outcome": "exact",
+            "status": "pass"
+          },
+          {
+            "id": "exp-union",
+            "outcome": "exact",
+            "status": "pass"
+          },
+          {
+            "id": "exp-subtract-provenance",
+            "outcome": "exact",
+            "status": "pass"
+          },
+          {
+            "id": "exp-subtract-exact",
+            "outcome": "exact",
+            "status": "pass"
+          },
+          {
+            "id": "exp-subtract-exact-max",
+            "outcome": "exact",
+            "status": "pass"
+          },
+          {
+            "id": "exp-intersect-decline",
+            "outcome": "unsupported",
+            "status": "pass"
+          },
+          {
+            "id": "exp-move3d-preserves",
+            "outcome": "exact",
+            "status": "pass"
+          },
+          {
+            "id": "exp-ucs",
+            "outcome": "exact",
+            "status": "pass"
+          },
+          {
+            "id": "exp-ucs-origin",
+            "outcome": "exact",
+            "status": "pass"
+          },
+          {
+            "id": "exp-sectionplane",
+            "outcome": "exact",
+            "status": "pass"
+          },
+          {
+            "id": "exp-section-exact",
+            "outcome": "exact",
+            "status": "pass"
+          },
+          {
+            "id": "exp-section-exact-facets",
+            "outcome": "exact",
+            "status": "pass"
+          }
+        ],
+        "finalDigest": "«sha256»",
+        "id": "wf-model3d-mass",
+        "interop": [
+          {
+            "expected": "unsupported",
+            "id": "io-ifc-solids",
+            "observed": "unsupported",
+            "status": "pass",
+            "surface": "ifc"
+          }
+        ],
+        "perf": [],
+        "phases": [
+          {
+            "commandCount": 3,
+            "commandNames": [
+              "BOX"
+            ],
+            "id": "primitives",
+            "revisionDelta": 3,
+            "status": "pass"
+          },
+          {
+            "commandCount": 5,
+            "commandNames": [
+              "UNION",
+              "INTERSECT",
+              "BOX",
+              "SUBTRACT"
+            ],
+            "id": "booleans",
+            "revisionDelta": 5,
+            "status": "pass"
+          },
+          {
+            "commandCount": 3,
+            "commandNames": [
+              "MOVE3D",
+              "UCSNEW",
+              "SECTIONPLANE"
+            ],
+            "id": "transforms-section",
+            "revisionDelta": 3,
+            "status": "pass"
+          }
+        ],
+        "robustness": {
+          "replayStable": "pass",
+          "roundTrip": "pass",
+          "undoRedo": "pass"
+        },
+        "status": "pass",
+        "title": "3D massing model with exact sections"
+      },
+      {
+        "discipline": "bim",
+        "expectations": [
+          {
+            "id": "exp-bim-elements",
+            "outcome": "exact",
+            "status": "pass"
+          },
+          {
+            "id": "exp-hosted-openings",
+            "outcome": "exact",
+            "status": "pass"
+          },
+          {
+            "id": "exp-stair",
+            "outcome": "exact",
+            "status": "pass"
+          },
+          {
+            "id": "exp-stair-railings",
+            "outcome": "exact",
+            "status": "pass"
+          },
+          {
+            "id": "exp-zone",
+            "outcome": "exact",
+            "status": "pass"
+          },
+          {
+            "id": "exp-propdef",
+            "outcome": "exact",
+            "status": "pass"
+          },
+          {
+            "id": "exp-material",
+            "outcome": "exact",
+            "status": "pass"
+          },
+          {
+            "id": "exp-material-assigned",
+            "outcome": "exact",
+            "status": "pass"
+          },
+          {
+            "id": "exp-schedule",
+            "outcome": "exact",
+            "status": "pass"
+          },
+          {
+            "id": "exp-qto-rows",
+            "outcome": "exact",
+            "status": "pass"
+          },
+          {
+            "id": "exp-qto-totals",
+            "outcome": "exact",
+            "status": "pass"
+          }
+        ],
+        "finalDigest": "«sha256»",
+        "id": "wf-bim-quantities",
+        "interop": [
+          {
+            "expected": "exact",
+            "id": "io-ifc-walls",
+            "observed": "tolerance",
+            "status": "pass",
+            "surface": "ifc"
+          }
+        ],
+        "perf": [],
+        "phases": [
+          {
+            "commandCount": 3,
+            "commandNames": [
+              "STAIRRUN",
+              "ZONE"
+            ],
+            "id": "authoring",
+            "revisionDelta": 3,
+            "status": "pass"
+          },
+          {
+            "commandCount": 3,
+            "commandNames": [],
+            "id": "properties-materials",
+            "revisionDelta": 3,
+            "status": "pass"
+          },
+          {
+            "commandCount": 1,
+            "commandNames": [],
+            "id": "schedules-qto",
+            "revisionDelta": 1,
+            "status": "pass"
+          }
+        ],
+        "robustness": {
+          "replayStable": "pass",
+          "roundTrip": "pass",
+          "undoRedo": "pass"
+        },
+        "status": "pass",
+        "title": "Building model with schedules and quantities"
+      },
+      {
+        "discipline": "toolsets",
+        "expectations": [
+          {
+            "id": "exp-wallrun",
+            "outcome": "exact",
+            "status": "pass"
+          },
+          {
+            "id": "exp-wallrun-junction",
+            "outcome": "exact",
+            "status": "pass"
+          },
+          {
+            "id": "exp-hosted-opening",
+            "outcome": "exact",
+            "status": "pass"
+          },
+          {
+            "id": "exp-spacegrid",
+            "outcome": "exact",
+            "status": "pass"
+          },
+          {
+            "id": "exp-meprun-identity",
+            "outcome": "exact",
+            "status": "pass"
+          },
+          {
+            "id": "exp-meprun-kind",
+            "outcome": "exact",
+            "status": "pass"
+          },
+          {
+            "id": "exp-mepreport",
+            "outcome": "exact",
+            "status": "pass"
+          },
+          {
+            "id": "exp-mepconnect-decline",
+            "outcome": "unsupported",
+            "status": "pass"
+          },
+          {
+            "id": "exp-equip-ports",
+            "outcome": "exact",
+            "status": "pass"
+          },
+          {
+            "id": "exp-equip-identity",
+            "outcome": "exact",
+            "status": "pass"
+          },
+          {
+            "id": "exp-mepconnect-inrecord",
+            "outcome": "exact",
+            "status": "pass"
+          },
+          {
+            "id": "exp-raster",
+            "outcome": "exact",
+            "status": "pass"
+          }
+        ],
+        "finalDigest": "«sha256»",
+        "id": "wf-specialized-toolsets",
+        "interop": [
+          {
+            "expected": "exact",
+            "id": "io-toolsets-ifc-identity",
+            "observed": "exact",
+            "status": "pass",
+            "surface": "ifc"
+          },
+          {
+            "expected": "unsupported",
+            "id": "io-toolsets-ifc-raster",
+            "observed": "unsupported",
+            "status": "pass",
+            "surface": "ifc"
+          },
+          {
+            "expected": "lossy",
+            "id": "io-toolsets-ifc-arrays",
+            "observed": "lossy",
+            "status": "pass",
+            "surface": "ifc"
+          }
+        ],
+        "perf": [],
+        "phases": [
+          {
+            "commandCount": 4,
+            "commandNames": [
+              "WALLRUN",
+              "PLACEOPENING",
+              "SPACEGRID"
+            ],
+            "id": "arch-toolset",
+            "revisionDelta": 4,
+            "status": "pass"
+          },
+          {
+            "commandCount": 1,
+            "commandNames": [
+              "MEPRUN",
+              "MEPREPORT"
+            ],
+            "id": "mep-toolset",
+            "revisionDelta": 1,
+            "status": "pass"
+          },
+          {
+            "commandCount": 4,
+            "commandNames": [
+              "EQUIPADD",
+              "MEPCONNECT",
+              "RASTERATTACH"
+            ],
+            "id": "mech-raster",
+            "revisionDelta": 4,
+            "status": "pass"
+          }
+        ],
+        "robustness": {
+          "replayStable": "pass",
+          "roundTrip": "pass",
+          "undoRedo": "pass"
+        },
+        "status": "pass",
+        "title": "Architecture/MEP/mechanical specialized toolset workflows"
+      },
+      {
+        "discipline": "collab",
+        "expectations": [
+          {
+            "id": "exp-xattach",
+            "outcome": "exact",
+            "status": "pass"
+          },
+          {
+            "id": "exp-xattach-status",
+            "outcome": "exact",
+            "status": "pass"
+          },
+          {
+            "id": "exp-xlist",
+            "outcome": "exact",
+            "status": "pass"
+          },
+          {
+            "id": "exp-xreload-decline",
+            "outcome": "unsupported",
+            "status": "pass"
+          },
+          {
+            "id": "exp-xdetach",
+            "outcome": "exact",
+            "status": "pass"
+          },
+          {
+            "id": "exp-xdetach-atomic",
+            "outcome": "exact",
+            "status": "pass"
+          },
+          {
+            "id": "exp-presence",
+            "outcome": "exact",
+            "status": "pass"
+          },
+          {
+            "id": "exp-comment",
+            "outcome": "exact",
+            "status": "pass"
+          },
+          {
+            "id": "exp-collab-state",
+            "outcome": "exact",
+            "status": "pass"
+          },
+          {
+            "id": "exp-ckpt",
+            "outcome": "exact",
+            "status": "pass"
+          },
+          {
+            "id": "exp-recovery-list",
+            "outcome": "exact",
+            "status": "pass"
+          }
+        ],
+        "finalDigest": "«sha256»",
+        "id": "wf-collab-automation",
+        "interop": [
+          {
+            "expected": "unsupported",
+            "id": "io-dxf-xrefs",
+            "observed": "unsupported",
+            "status": "pass",
+            "surface": "dxf"
+          }
+        ],
+        "perf": [],
+        "phases": [
+          {
+            "commandCount": 1,
+            "commandNames": [
+              "XATTACH",
+              "XLIST",
+              "XRELOAD"
+            ],
+            "id": "xrefs-attach",
+            "revisionDelta": 1,
+            "status": "pass"
+          },
+          {
+            "commandCount": 1,
+            "commandNames": [
+              "XDETACH"
+            ],
+            "id": "xrefs-detach",
+            "revisionDelta": 1,
+            "status": "pass"
+          },
+          {
+            "commandCount": 3,
+            "commandNames": [],
+            "id": "collab",
+            "revisionDelta": 0,
+            "status": "pass"
+          },
+          {
+            "commandCount": 1,
+            "commandNames": [],
+            "id": "recovery",
+            "revisionDelta": 0,
+            "status": "pass"
+          }
+        ],
+        "robustness": {
+          "replayStable": "pass",
+          "roundTrip": "pass",
+          "undoRedo": "pass"
+        },
+        "status": "pass",
+        "title": "Collaborative recoverable automated document workflow"
+      }
+    ]
+  }
+}

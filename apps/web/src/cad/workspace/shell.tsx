@@ -143,6 +143,10 @@ import { ToolsetsWorkbench } from "@/cad/toolsets/workbench";
 // COMPAT-CAD-004 (Issue #121): the Parametrics workbench (the consolidated
 // parametrics/associative/patterns workflows over the governed App API).
 import { ParametricsWorkbench } from "@/cad/parametrics/workbench";
+// CAD-PARITY-019 (Issue #122): the Certification workbench (the version-
+// pinned corpus catalog + the live interoperability classification probes
+// over the governed App API).
+import { CertificationWorkbench } from "@/cad/certification/workbench";
 // CAD-PARITY-012 (Issue #102): the shared material display helpers — the
 // SAME resolution the canvas paint loop and the Coordination palette run;
 // materialViewsOf derives the id-sorted table rows from the snapshot (the
@@ -178,6 +182,9 @@ const VIEW_TABS: readonly { id: WorkspaceView; label: string }[] = [
   // COMPAT-CAD-004 (Issue #121): the consolidated parametrics surface
   // (constraints, associations, symbols, patterns).
   { id: "parametrics", label: "Parametrics" },
+  // CAD-PARITY-019 (Issue #122): the certification surface (the version-
+  // pinned corpus catalog + the live interop classification).
+  { id: "certification", label: "Certification" },
 ];
 
 export function WorkspaceShell(): React.JSX.Element {
@@ -1511,6 +1518,10 @@ export function WorkspaceShell(): React.JSX.Element {
                 consolidated parametrics/associative/patterns workflows
                 over the governed App API). */}
             {view === "parametrics" && <ParametricsWorkbench />}
+            {/* CAD-PARITY-019 (Issue #122): the certification surface — the
+                version-pinned corpus catalog + the live interop
+                classification probes over the governed App API. */}
+            {view === "certification" && <CertificationWorkbench />}
             {view === "layout" && (
               <LayoutCanvas
                 snapshot={snapshot}
