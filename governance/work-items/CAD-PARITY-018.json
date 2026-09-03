@@ -159,6 +159,19 @@
         "pr": 120,
         "path": "apps/web/test/toolsets-p018-smoke.mjs"
       }
+    },
+    {
+      "id": "EV-003",
+      "type": "automated-test-suite",
+      "description": "The corrective interop coverage required by the Architect review 5096872026 (criterion 14): the specialized-toolsets IFC/BCF/IDS compatibility. The deterministic app suite app/test/toolsets-p018-interop.test.ts — 22 tests over the REAL IfcOpenShell worker (0 skipped with the pinned toolchain): the IfcGroup carrier codec (byte-exact round-trip of all four record kinds incl. separator-bearing names and exact float coordinates, the DRY classification, classify-only existing matches, the documented LOSSY row on changed fields, typed UNSUPPORTED rows on malformed carrier data, identity preservation vs minting), the static 12-row concept x surface typed-outcome matrix (identity/scalars/BCF-element-refs/IDS EXACT; structured arrays LOSSY; native MEP/mechanical IFC classes, raster binary payloads, derived diagnostics, BCF-to-record references UNSUPPORTED), the live per-record DRY classification, the full live boundary (additive-optional export with legacy byte-identity, byte-exact record restoration with preserved tls- identities and ONE atomic undo, export-import-export byte-identity, classify-only re-import, IDS pass/fail discrimination over BOTH the workflow elements and the carrier IfcGroup psets, BCF exact references + the typed tls- decline + the honest null), and the Web/Electron host convergence on the interop surfaces. The web smoke apps/web/test/toolsets-interop-p018-smoke.mjs drives the same stream through the dev server (29 commands) with the pinned fixture app/test/fixtures/cad-parity-018-toolsets-interop.json byte-identical across repeat runs (21 pinned fields: the legacy/toolsets export hashes, the report hashes, the import classification, the restored-records digest, the BCF resolution, the IDS statuses, the typed decline code, the command stream). The adapter/worker boundaries are PRESERVED: zero worker/protocol changes (the toolsets groups ride the P014-generic IfcGroup carrier through the adapter mapping).",
+      "produced_at": "2026-09-03T02:43:21Z",
+      "reproducible": true,
+      "reproduction": "cd app && OFFISOS_PYTHON=<python-with-ifcopenshell-0.8.5> node --import tsx --test test/toolsets-p018-interop.test.ts ; cd apps/web && OFFISOS_GEOMETRY_ENGINE=reference OFFISOS_IFC_WORKER=<repo>/app/src/adapters/ifc/worker/ifc-worker.py OFFISOS_PYTHON=<python> npm run dev -- --webpack -p 3100 & then: node --import tsx test/toolsets-interop-p018-smoke.mjs",
+      "references": {
+        "commit": "ea76d4b",
+        "pr": 120,
+        "path": "app/test/fixtures/cad-parity-018-toolsets-interop.json"
+      }
     }
   ],
   "decisions": []
