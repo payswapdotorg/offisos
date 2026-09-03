@@ -49,18 +49,36 @@ Shared API/UI: versioned typed App API, one shared command registry, Toolsets wo
 
 Interoperability: IFC/BCF/IDS support for the bounded specialized semantics, with explicit LOSSY/UNSUPPORTED outcomes outside the supported model.
 
-## Current successor
+## CAD/BIM successor sequence
 
-`COMPAT-CAD-004` is the next governed work item and is now **ASSIGNED**.
+P018 is the VERIFIED specialized-toolset milestone. The intended successor sequence is:
 
-- GitHub Issue: **#121**
-- Governance record: `governance/work-items/COMPAT-CAD-004.json`
-- State: `ASSIGNED`
-- Dependency: P018 VERIFIED at `3edd5506d972dc309b22c21baad7643f021f27d4`
-- Scope: bounded parametric constraints, associative drafting, reusable 2D symbols/blocks, deterministic mirror/array/pattern operations, shared App API/command registry, and bounded interoperability.
-- Implementer stop gate: `PR_OPEN/VERIFYING`.
+1. `COMPAT-CAD-004` — bounded pre-certification product hardening: parametric constraints, associative drafting, reusable 2D symbols/blocks, deterministic mirror/array/pattern operations, shared App API/command registry, and bounded interoperability. It is already **ASSIGNED** under Issue **#121** and depends on the VERIFIED P018 baseline.
+2. **P019 / CAD-PARITY-019** — **AutoCAD parity certification**. This is a certification program, not another feature sprint. It evaluates a representative professional workflow corpus across semantics, persistence, real UI task completion, interoperability, and performance/robustness. Feature checklists alone do not certify parity.
+3. **P020 / CAD-PARITY-020** — **Archicad parity certification**. This uses the same certification principle against Archicad-class BIM/documentation workflows, proving integrated professional workflows rather than merely the existence of individual commands.
 
-This is the planned **complete-enough CAD/BIM boundary** in `spec/roadmap-v1.1.md`. After this work item is VERIFIED, CAD/BIM feature expansion pauses while broader ConstructionOS platform work proceeds.
+The roadmap therefore reads **P018 → pre-certification hardening → P019 → P020 → broader ConstructionOS platform build**.
+
+P019 and P020 are distinct governed milestones and must not be collapsed into COMPAT-CAD-004 or treated as ordinary feature implementation sprints. Their acceptance must be evidence-backed, revision-bound and reproducible under the normal governance lifecycle.
+
+After P020 is VERIFIED, CAD/BIM feature expansion becomes a separate, non-blocking compatibility program. The broader ConstructionOS platform continues under Architecture v1.1.
+
+## Parallel tracks
+
+Project/scheduling and Office/Sheets may proceed independently once their own dependency gates are satisfied:
+
+- Project: `RESEARCH-PM-001 → RESEARCH-PM-002 → COMPAT-PM-001 → COMPAT-PM-002`
+- Office: `RESEARCH-OFFICE-001 → COMPAT-SHEET-001 / COMPAT-DOC-001 / COMPAT-OFFICE-001`
+
+These tracks converge on the shared platform rather than creating separate architectures.
+
+## Platform sequence
+
+Once the first Project/Sheets baselines can exercise shared services, the common platform proceeds:
+
+`PLATFORM-001 → PLATFORM-002 → PLATFORM-003 → PLATFORM-004 → PLATFORM-005 → PLATFORM-006`
+
+Then the Construction Graph, collaboration, AI/tool intelligence, knowledge/uncertainty, cost/procurement, construction intelligence, extensions/public API and full-system benchmarks proceed according to their governed dependencies.
 
 ## Primary repository authorities
 
