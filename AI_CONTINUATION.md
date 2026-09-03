@@ -53,11 +53,11 @@ Interoperability: IFC/BCF/IDS support for the bounded specialized semantics, wit
 
 P018 is the VERIFIED specialized-toolset milestone. The intended successor sequence is:
 
-1. `COMPAT-CAD-004` — bounded pre-certification product hardening: parametric constraints, associative drafting, reusable 2D symbols/blocks, deterministic mirror/array/pattern operations, shared App API/command registry, and bounded interoperability. It is already **ASSIGNED** under Issue **#121** and depends on the VERIFIED P018 baseline.
-2. **P019 / CAD-PARITY-019** — **AutoCAD parity certification**. This is a certification program, not another feature sprint. It evaluates a representative professional workflow corpus across semantics, persistence, real UI task completion, interoperability, and performance/robustness. Feature checklists alone do not certify parity.
-3. **P020 / CAD-PARITY-020** — **Archicad parity certification**. This uses the same certification principle against Archicad-class BIM/documentation workflows, proving integrated professional workflows rather than merely the existence of individual commands.
+1. `COMPAT-CAD-004` — bounded pre-certification product hardening: parametric constraints, associative drafting, reusable 2D symbols/blocks, deterministic mirror/array/pattern operations, shared App API/command registry, and bounded interoperability. It is already **ASSIGNED** under Issue **#121** and depends on the VERIFIED P018 baseline. It must be VERIFIED before P019 can enter execution.
+2. **P019 / CAD-PARITY-019** — **AutoCAD parity certification**. GitHub Issue **#122**; governance record `governance/work-items/CAD-PARITY-019.json`; currently **DRAFT**. This is a certification program, not another feature sprint. It evaluates a representative professional workflow corpus across semantics, persistence, real UI task completion, interoperability, and performance/robustness. Feature checklists alone do not certify parity.
+3. **P020 / CAD-PARITY-020** — **Archicad parity certification**. GitHub Issue **#123**; governance record `governance/work-items/CAD-PARITY-020.json`; currently **DRAFT** and depends on P019 VERIFIED. This uses the same certification principle against Archicad-class BIM/documentation workflows, proving integrated professional workflows rather than merely the existence of individual commands.
 
-The roadmap therefore reads **P018 → pre-certification hardening → P019 → P020 → broader ConstructionOS platform build**.
+The authoritative roadmap therefore reads **P018 → COMPAT-CAD-004 → P019 → P020 → broader ConstructionOS platform build**.
 
 P019 and P020 are distinct governed milestones and must not be collapsed into COMPAT-CAD-004 or treated as ordinary feature implementation sprints. Their acceptance must be evidence-backed, revision-bound and reproducible under the normal governance lifecycle.
 
@@ -95,6 +95,8 @@ Read these before making architectural decisions:
 - `governance/work-items/CAD-PARITY-017.json`
 - `governance/work-items/CAD-PARITY-018.json`
 - `governance/work-items/COMPAT-CAD-004.json`
+- `governance/work-items/CAD-PARITY-019.json`
+- `governance/work-items/CAD-PARITY-020.json`
 - `docs/LLM-ARCHITECT-HANDOFF.md`
 - `IMPLEMENTATION.md`
 - `AGENTS.md`
