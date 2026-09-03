@@ -143,6 +143,9 @@ export interface ModelHistory {
   /** CAD-PARITY-015 (Issue #110): the prd-NNNNNN minting cursor
    *  (canonical-minimal, like every counter). */
   readonly next_property_def_sequence?: number;
+  /** CAD-PARITY-018 (Issue #118): the tls-NNNNNN minting cursor for the
+   *  specialized-toolsets records (canonical-minimal, like every counter). */
+  readonly next_specialized_sequence?: number;
   /** CAD-PARITY-013: the rev-NNNNNN minting cursor (canonical-minimal). */
   readonly next_revision_sequence?: number;
   /** CAD-PARITY-013: the pub-NNNNNN minting cursor (canonical-minimal). */

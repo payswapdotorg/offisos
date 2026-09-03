@@ -14,6 +14,14 @@
 
 import type { ModelHistory } from "./model.js";
 import type { Vec3 } from "./geometry.js";
+// CAD-PARITY-018 (Issue #118): the specialized-toolsets data payloads
+// (sibling-contract type imports — the model.js/geometry.js precedent).
+import type {
+  MechEquipmentData,
+  MepRunData,
+  RasterReferenceData,
+  RasterSourceData,
+} from "./toolsets.js";
 
 /** Versioned entity metadata per data-model.md §2. */
 export interface VersionMeta {
@@ -715,6 +723,51 @@ export interface PropertyDefRecord {
   readonly appliesTo?: readonly string[];
 }
 
+// --- CAD-PARITY-018 (additive, Issue #118): the specialized-toolsets
+// record table ---------------------------------------------------------------
+
+/** The closed specialized-toolset vocabulary. */
+export type SpecializedToolset = "mep" | "mechanical" | "raster";
+
+/** The closed specialized-record kind vocabulary (one per record shape). */
+export type SpecializedRecordKind = "mep.run" | "mech.equipment" | "raster.source" | "raster.reference";
+
+/** A document-owned specialized-toolset record: ONE bounded MEP run /
+ * mechanical equipment / raster source / raster reference row of the
+ * CADDocument specialized table. Canonical identity `tls-NNNNNN` is
+ * minted by the document (monotonic, never reused, checkpointed in the
+ * model history); the `data` payload follows the contracts/toolsets.ts
+ * grammar (validated in ONE place by the toolsets core). Runs carry
+ * their connections IN-RECORD (bounded, locally-unique ordinal ids);
+ * raster reference status is DERIVED (ok/stale/missing — never stored).
+ * The P015 PropertyDefRecord pattern generalized: declarations/records
+ * only — every derivation is computed fresh on demand. */
+export type SpecializedRecord =
+  | {
+      readonly id: string;
+      readonly toolset: "mep";
+      readonly kind: "mep.run";
+      readonly data: MepRunData;
+    }
+  | {
+      readonly id: string;
+      readonly toolset: "mechanical";
+      readonly kind: "mech.equipment";
+      readonly data: MechEquipmentData;
+    }
+  | {
+      readonly id: string;
+      readonly toolset: "raster";
+      readonly kind: "raster.source";
+      readonly data: RasterSourceData;
+    }
+  | {
+      readonly id: string;
+      readonly toolset: "raster";
+      readonly kind: "raster.reference";
+      readonly data: RasterReferenceData;
+    };
+
 /** A document revision record (CAD-PARITY-013). Canonical identity
  *  `rev-NNNNNN` is minted by the document (monotonic, never reused); the
  *  CODE (e.g. "P01") is the user-facing address, unique among revisions.
@@ -1088,6 +1141,14 @@ export interface CADDocumentSnapshot {
    *  removePropertyDef command model). Declarations only — property VALUES
    *  live on the canonical element property-set overlay, never here. */
   readonly propertyDefs?: readonly PropertyDefRecord[];
+  /** CAD-PARITY-018 (Issue #118): the document-owned specialized-toolset
+   *  records (absent while empty so legacy snapshots and the pinned
+   *  CAD-PARITY-002..017 fixtures stay byte-identical; versioned through
+   *  the addSpecialized/setSpecializedRecord/removeSpecialized command
+   *  model — the P015 propertyDefs pattern generalized). Declarations/
+   *  records only — every derivation (route violations, clash reports,
+   *  raster status/trace) is computed fresh on demand, never stored. */
+  readonly specialized?: readonly SpecializedRecord[];
   /** CAD-PARITY-013: the document revision records (absent while empty;
    *  versioned through the addRevision/updateRevision/setRevisionRecord/
    *  removeRevision command model). */
@@ -1833,6 +1894,40 @@ export type DocumentEdit =
       readonly element?: undefined;
       readonly patch?: undefined;
       readonly propertyDefId: string;
+    }
+  // CAD-PARITY-018 (additive, Issue #118): the specialized-toolsets
+  // record command model — add/setRecord/remove over `specialized`
+  // (document-owned bounded MEP/mechanical/raster records; the data
+  // grammar is validated in ONE place by the toolsets core).
+  | {
+      /** Add a specialized record. A missing/empty id mints a canonical
+       *  `tls-NNNNNN` identity; duplicate ids are rejected. The toolset
+       *  table bounds (runs/equipment/sources/references) and the
+       *  raster sourceRef uniqueness are enforced at apply. */
+      readonly type: "addSpecialized";
+      readonly elementId?: undefined;
+      readonly element?: undefined;
+      readonly patch?: undefined;
+      readonly record: SpecializedRecord;
+    }
+  | {
+      /** Full-record specialized restore (setPropertyDefRecord semantics:
+       *  id is immutable, the merged record re-validates as a whole). */
+      readonly type: "setSpecializedRecord";
+      readonly elementId?: undefined;
+      readonly element?: undefined;
+      readonly patch?: undefined;
+      readonly id: string;
+      readonly record: SpecializedRecord;
+    }
+  | {
+      /** Remove a specialized record (typed toolset_not_found when the id
+       *  is unknown; undo restores the full record atomically). */
+      readonly type: "removeSpecialized";
+      readonly elementId?: undefined;
+      readonly element?: undefined;
+      readonly patch?: undefined;
+      readonly id: string;
     }
   | {
       /** Add a revision record. A missing/empty id mints a canonical

@@ -284,6 +284,13 @@ import {
   type IfcDocsMint,
   type IfcDocsTargetState,
 } from "../ifc/index.js";
+// CAD-PARITY-018 (additive, Issue #118 criterion 14 — the corrective
+// interop coverage): the specialized-toolsets IfcGroup carrier + reconcile.
+import {
+  buildIfcToolsetsExport,
+  reconcileIfcToolsets,
+  type IfcToolsetsReconcileOutcome,
+} from "../ifc/index.js";
 // CAD-PARITY-014 (additive, Issue #107): the bounded interoperability shared
 // core (pure, engine-free, LOCK-018 — the dxf writer/reader/import mapping,
 // the Sheet-IR→Plot-IR bridge, the exchange report, the archival registry
@@ -291,6 +298,7 @@ import {
 import {
   archivalList,
   buildInteropExchangeReport,
+  buildToolsetsInteropReport,
   dxfRoundtripReport,
   looksLikeDwg,
   readDxf,
@@ -436,6 +444,53 @@ import {
   type AutomationRole,
   type AutomationStepOutcome,
 } from "../contracts/automation.js";
+// CAD-PARITY-018 (additive, Issue #118): the bounded specialized-toolsets
+// core — the versioned typed capability registry (API-001), the
+// architecture composition builders over the VERIFIED BIM/drafting
+// primitives (the same buildBimCreate/buildDraftingCreate batches the
+// existing commands produce), the bounded MEP/mechanical/raster records
+// persisted through the document-owned specialized table (tls- identities
+// minted by the document, monotonic, never reused), the deterministic
+// route/clash/status/trace derivations (computed fresh, never stored) and
+// the typed non-authoritative trace→commit path. Engine-free shared core
+// (LOCK-018); the CADDocument remains the single canonical system of
+// record (LOCK-019).
+import {
+  ToolsetError,
+  TOOLSETS_API_VERSION,
+  toolsetCapabilityViews,
+} from "../toolsets/index.js";
+import {
+  buildComponentArray,
+  buildDimensionChain,
+  buildHostedOpening,
+  buildRoof,
+  buildSpaceGrid,
+  buildStairRun,
+  buildWallRun,
+  hostedOpeningIdCount,
+  stairRunIdCount,
+  wallRunIdCount,
+} from "../toolsets/arch.js";
+import { clashReport, connectRun, validateRoute } from "../toolsets/mep.js";
+import { buildEquipmentArray } from "../toolsets/mechanical.js";
+import { referenceStatus, selectTraceVectors, trace } from "../toolsets/raster.js";
+import {
+  validateMepRunData,
+  validateMechEquipmentData,
+  validateRasterReferenceData,
+  validateRasterSourceData,
+  TOOLSETS_TABLE_BOUNDS,
+} from "../toolsets/records.js";
+import type {
+  MechEquipmentData,
+  MepConnectionEnd,
+  MepConnectionTarget,
+  MepRunData,
+  RasterReferenceData,
+  RasterSourceData,
+} from "../contracts/toolsets.js";
+import type { SpecializedRecord } from "../contracts/caddocument.js";
 import {
   DEFAULT_RECOVERY_POLICY,
   PRESENCE_TTL,
@@ -1119,6 +1174,51 @@ export class AppApiHandler {
         return this.cmdAutomationUnsubscribe(command.payload);
       case "automation.registerExtension":
         return this.cmdAutomationRegisterExtension(command.payload);
+      // --- CAD-PARITY-018 (additive, Issue #118): the specialized-toolsets
+      // command surface (bounded architecture/MEP/mechanical/raster
+      // composition over the verified core — the same element-edit batches
+      // the existing bim/drafting paths produce, the document-owned
+      // specialized record table, ONE atomic revision per command). ---
+      case "toolset.archWallRun":
+        return this.cmdToolsetArchWallRun(command.payload);
+      case "toolset.archHostedOpening":
+        return this.cmdToolsetArchHostedOpening(command.payload);
+      case "toolset.archRoof":
+        return this.cmdToolsetArchRoof(command.payload);
+      case "toolset.archStairRun":
+        return this.cmdToolsetArchStairRun(command.payload);
+      case "toolset.archSpaceGrid":
+        return this.cmdToolsetArchSpaceGrid(command.payload);
+      case "toolset.archDimChain":
+        return this.cmdToolsetArchDimChain(command.payload);
+      case "toolset.archComponentArray":
+        return this.cmdToolsetArchComponentArray(command.payload);
+      case "toolset.mepAddRun":
+        return this.cmdToolsetMepAddRun(command.payload);
+      case "toolset.mepSetRun":
+        return this.cmdToolsetMepSetRun(command.payload);
+      case "toolset.mepRemoveRun":
+        return this.cmdToolsetMepRemoveRun(command.payload);
+      case "toolset.mepConnect":
+        return this.cmdToolsetMepConnect(command.payload);
+      case "toolset.mechAddEquipment":
+        return this.cmdToolsetMechAddEquipment(command.payload);
+      case "toolset.mechSetEquipment":
+        return this.cmdToolsetMechSetEquipment(command.payload);
+      case "toolset.mechRemoveEquipment":
+        return this.cmdToolsetMechRemoveEquipment(command.payload);
+      case "toolset.mechArray":
+        return this.cmdToolsetMechArray(command.payload);
+      case "toolset.rasterAddSource":
+        return this.cmdToolsetRasterAddSource(command.payload);
+      case "toolset.rasterAttach":
+        return this.cmdToolsetRasterAttach(command.payload);
+      case "toolset.rasterSetReference":
+        return this.cmdToolsetRasterSetReference(command.payload);
+      case "toolset.rasterRemoveReference":
+        return this.cmdToolsetRasterRemoveReference(command.payload);
+      case "toolset.rasterCommitTrace":
+        return this.cmdToolsetRasterCommitTrace(command.payload);
       default: {
         const _exhaustive: never = command.name;
         return err("unknown_command", `unknown command: ${JSON.stringify(_exhaustive)}`);
@@ -1521,6 +1621,8 @@ export class AppApiHandler {
         return this.qInteropExchangeReport();
       case "interop.archivalList":
         return this.qInteropArchivalList();
+      case "interop.toolsetsReport":
+        return this.qInteropToolsetsReport();
       case "interop.roundtripReport":
         return await this.qInteropRoundtripReport(query.payload);
       // --- CAD-PARITY-016 (additive, Issue #112): the collaboration/
@@ -1565,6 +1667,21 @@ export class AppApiHandler {
         return this.qAutomationEvents(query.payload);
       case "automation.extensions":
         return this.qAutomationExtensions();
+      // --- CAD-PARITY-018 (additive, Issue #118): the specialized-toolsets
+      // query surfaces (non-mutating, computed fresh every call, never
+      // persisted stale). ---
+      case "toolset.capabilities":
+        return this.qToolsetCapabilities();
+      case "toolset.listRecords":
+        return this.qToolsetListRecords(query.payload);
+      case "toolset.mepValidateRoute":
+        return this.qToolsetMepValidateRoute(query.payload);
+      case "toolset.mepClashReport":
+        return this.qToolsetMepClashReport(query.payload);
+      case "toolset.rasterStatus":
+        return this.qToolsetRasterStatus(query.payload);
+      case "toolset.rasterTrace":
+        return this.qToolsetRasterTrace(query.payload);
       default: {
         const _exhaustive: never = query.name;
         return err("unknown_query", `unknown query: ${JSON.stringify(_exhaustive)}`);
@@ -7827,9 +7944,18 @@ export class AppApiHandler {
         tables.publisherSets.length > 0
           ? buildIfcDocumentationExport(tables, (snapshot.docsSheets ?? []).length)
           : null;
+      // CAD-PARITY-018 (Issue #118 criterion 14 — the corrective interop
+      // coverage): the specialized records exchange through the SAME IfcGroup
+      // carrier (ifc/toolsetmap.ts — the adapter maps the groups onto the
+      // worker's generic group writer; zero worker change). Attached ONLY
+      // when the specialized table is non-empty (the legacy byte-identity
+      // invariant — the pinned P014/P018 fixtures stay byte-identical).
+      const specialized = snapshot.specialized ?? [];
+      const toolsets = specialized.length > 0 ? buildIfcToolsetsExport(specialized) : null;
       const built = await adapter.build({
         ...outcome.request,
         ...(documentation !== null ? { documentation: { groups: documentation.groups } } : {}),
+        ...(toolsets !== null ? { toolsets: { groups: toolsets.groups } } : {}),
       });
       return ok({
         ifc: built.ifc,
@@ -7839,6 +7965,7 @@ export class AppApiHandler {
         engineVersion: built.engineVersion,
         counts: outcome.counts,
         ...(documentation !== null ? { documentation: documentation.counts } : {}),
+        ...(toolsets !== null ? { toolsets: toolsets.counts } : {}),
       });
     } catch (e) {
       if (isAdapterFailure(e)) return err(e.code, e.message, e.retryable);
@@ -7914,6 +8041,24 @@ export class AppApiHandler {
         documentationOutcome = reconcileIfcDocumentation(documentation, existing, mint);
         edits.push(...this.documentationEditsOf(documentationOutcome.drafts));
       }
+      // CAD-PARITY-018 (Issue #118 criterion 14 — the corrective interop
+      // coverage): the toolsets IfcGroup records reconcile against the
+      // current specialized table and re-create as document records
+      // (preserving well-formed declared identities, minting otherwise; the
+      // drafts re-validate through the SAME grammar at execute) — in the
+      // SAME atomic batch (one revision, one undo). Existing matches are
+      // classify-only (the document authority stays — the P014 docmap
+      // discipline).
+      const toolsetsParsed = parsed.toolsets ?? null;
+      let toolsetsOutcome: IfcToolsetsReconcileOutcome | null = null;
+      if (toolsetsParsed !== null && toolsetsParsed.records.length > 0) {
+        toolsetsOutcome = reconcileIfcToolsets(toolsetsParsed.records, snapshot.specialized ?? [], {
+          specialized: (): string => this.doc.mintSpecializedId(),
+        });
+        for (const record of toolsetsOutcome.records) {
+          edits.push({ type: "addSpecialized", record });
+        }
+      }
       edits.push({
         type: "addIfcImport",
         record: { ...outcome.record, id: "", at: AppApiHandler.IFC_IMPORT_NOW },
@@ -7941,6 +8086,15 @@ export class AppApiHandler {
                   revisions: documentationOutcome.drafts.revisions.length,
                   publisherSets: documentationOutcome.drafts.publisherSets.length,
                 },
+              },
+            }
+          : {}),
+        ...(toolsetsOutcome !== null
+          ? {
+              toolsets: {
+                report: toolsetsOutcome.report,
+                reportHash: toolsetsOutcome.reportHash,
+                created: toolsetsOutcome.records.map((r) => r.id),
               },
             }
           : {}),
@@ -8393,6 +8547,21 @@ export class AppApiHandler {
     return ok(archivalList());
   }
 
+  /** interop.toolsetsReport (query, NON-VERSIONED) — CAD-PARITY-018 (Issue
+   *  #118 criterion 14 — the corrective interop coverage): the typed IFC/
+   *  BCF/IDS OUTCOME surface for the specialized semantics. The static
+   *  concept × surface matrix (the durable EXACT/LOSSY/UNSUPPORTED table —
+   *  including the explicit typed refusals: native MEP/mechanical IFC
+   *  classes, raster binary payloads, derived diagnostics, BCF references
+   *  to tls- records) + the live per-record DRY classification through the
+   *  REAL carrier codec (encode → decode → compare: the per-field
+   *  exactness is PROVEN for THIS document, not asserted). Pure, engine-free
+   *  and deterministic — no adapter required. */
+  private qInteropToolsetsReport(): CommandQueryResponse {
+    const snapshot = this.doc.snapshot();
+    return ok(buildToolsetsInteropReport(snapshot.specialized ?? []));
+  }
+
   /** interop.roundtripReport (query, NON-VERSIONED) — the format round-trip
    *  verification loops (D6). "dxf" is pure TS (export → parse → the DRY
    *  mapping + the per-element field classification + the source sha);
@@ -8445,11 +8614,17 @@ export class AppApiHandler {
           elementIdByDomainId,
         }, null)
         : null;
+      // CAD-PARITY-018 (Issue #118 criterion 14): the toolsets dimension of
+      // the DRY loop (classify-only — the round-trip never mutates).
+      const toolsetsOutcome = parsed.toolsets !== undefined && parsed.toolsets.records.length > 0
+        ? reconcileIfcToolsets(parsed.toolsets.records, this.doc.snapshot().specialized ?? [], null)
+        : null;
       const report = {
         format: "ifc" as const,
         sourceSha256,
         elements: elementsOutcome.report,
         ...(docsOutcome !== null ? { documentation: docsOutcome.report } : {}),
+        ...(toolsetsOutcome !== null ? { toolsets: toolsetsOutcome.report } : {}),
       };
       return ok({
         ...report,
@@ -8906,6 +9081,17 @@ export class AppApiHandler {
     if (e instanceof AutomationError) return err(e.code, e.message, false);
     if (e instanceof P016PersistError) return err(e.code, e.message, false);
     return err("p016_failed", (e as Error).message, false);
+  }
+
+  /** CAD-PARITY-018 (Issue #118): the shared typed-error mapping for the
+   *  specialized-toolsets core — ToolsetError carries the typed code
+   *  (contracts/toolsets.ts documents the closed table); residual
+   *  composition failures from the reused BIM/drafting builders surface
+   *  as toolset_bad_payload with the deterministic message (never a
+   *  silent guess). */
+  private toolsetFailure(e: unknown): CommandQueryResponse {
+    if (e instanceof ToolsetError) return err(e.code, e.message, false);
+    return err("toolset_bad_payload", (e as Error).message, false);
   }
 
   // --- recovery -------------------------------------------------------------
@@ -10036,6 +10222,888 @@ export class AppApiHandler {
       return ok({ extensions: automation.extensionList() });
     } catch (e) {
       return this.p016Err(e);
+    }
+  }
+
+  // ===========================================================================
+  // CAD-PARITY-018 (additive, Issue #118): the specialized-toolsets API
+  // surface. The CADDocument remains the single canonical system of
+  // record (LOCK-019): architecture commands compose EXACTLY the
+  // element-creation batches the existing bim.createElements /
+  // drafting.createEntities paths produce (ONE atomic revision per
+  // command; element identities stay document-minted); the
+  // MEP/mechanical/raster records live in the document-owned specialized
+  // table (`tls-NNNNNN`, monotonic, never reused) and mutate ONLY
+  // through doc.execute(addSpecialized/setSpecializedRecord/
+  // removeSpecialized); every derived view (route violations, clash
+  // diagnostics, raster status/trace) is computed fresh from the
+  // canonical records and never persisted. Engine-free core
+  // (LOCK-003/018); typed declines for everything outside the bounded
+  // model — never fabricated geometry or semantics.
+  // ===========================================================================
+
+  // --- shared helpers ---------------------------------------------------------
+
+  /** The specialized records of one kind (insertion order — mint order). */
+  private specializedRecordsOf(kind: SpecializedRecord["kind"]): readonly SpecializedRecord[] {
+    return this.doc.specializedTable.filter((rec) => rec.kind === kind);
+  }
+
+  /** Look up one specialized record (any kind) by canonical id. */
+  private specializedRecordOfKind(id: string, kind: SpecializedRecord["kind"]): SpecializedRecord | undefined {
+    const rec = this.doc.specializedById(id);
+    return rec !== undefined && rec.kind === kind ? rec : undefined;
+  }
+
+  /** The pre-mint draft-validation + table-bound gate shared by the
+   *  specialized record add commands (a failing command never burns a
+   *  tls- identity). Returns the typed failure or null when the draft is
+   *  admissible. */
+  private toolsetAddGate(
+    kind: SpecializedRecord["kind"],
+    currentCount: number,
+    validate: () => void,
+  ): CommandQueryResponse | null {
+    const bounds: Record<SpecializedRecord["kind"], number> = {
+      "mep.run": TOOLSETS_TABLE_BOUNDS.maxRuns,
+      "mech.equipment": TOOLSETS_TABLE_BOUNDS.maxEquipment,
+      "raster.source": TOOLSETS_TABLE_BOUNDS.maxRasterSources,
+      "raster.reference": TOOLSETS_TABLE_BOUNDS.maxRasterReferences,
+    };
+    const max = bounds[kind] ?? 0;
+    if (currentCount + 1 > max) {
+      return err(
+        "toolset_out_of_bounds",
+        `the ${kind} table is full (${max} records — the closed specialized-toolsets bound)`,
+        false,
+      );
+    }
+    try {
+      validate();
+    } catch (e) {
+      return this.toolsetFailure(e);
+    }
+    return null;
+  }
+
+  /** The BIM element-type guard (the architecture host pre-check — typed
+   *  toolset_host_not_found, never a generic builder error). */
+  private bimElementOfType(elementId: string, type: string): { elementId: string } | null {
+    const el = this.doc.elementById(elementId);
+    if (el === undefined || (el.props as Record<string, unknown>).type !== type) {
+      return null;
+    }
+    return { elementId };
+  }
+
+  // --- architecture (composition over the verified BIM primitives) -----------
+
+  /** toolset.archWallRun — compose a multi-segment wall run from a
+   *  polyline: ONE atomic element batch (the bim.createElements path),
+   *  deterministic per-segment names (`name-1`, `name-2`, …) and optional
+   *  junction openings at the interior vertices (hosted through the real
+   *  P011 opening.hostId field; the two-adjacent-wall junction
+   *  relationship is reported in the manifest — never fabricated into
+   *  element props). */
+  private cmdToolsetArchWallRun(payload: unknown): CommandQueryResponse {
+    const p = payload as {
+      storyId?: unknown; polyline?: unknown; widthMm?: unknown; heightMm?: unknown; name?: unknown; junctions?: unknown;
+    } | null;
+    if (
+      p === null || typeof p !== "object" || typeof p.storyId !== "string" || p.storyId.length === 0 ||
+      !Array.isArray(p.polyline) || p.polyline.length < 2 ||
+      typeof p.widthMm !== "number" || typeof p.heightMm !== "number"
+    ) {
+      return err("bad_payload", "toolset.archWallRun requires { storyId, polyline, widthMm, heightMm }", true);
+    }
+    const junctions = p.junctions === undefined ? "none" : p.junctions;
+    if (junctions !== "none" && junctions !== "openings") {
+      return err("bad_payload", "toolset.archWallRun junctions must be 'none' | 'openings'", true);
+    }
+    if (this.bimElementOfType(p.storyId, "bim.story") === null) {
+      return err("toolset_host_not_found", `no story '${p.storyId}' — the wall run needs an existing host story`, false);
+    }
+    try {
+      // Pre-mint the document element identities for the in-batch
+      // references (the docs.addAnnotations composite-batch precedent).
+      const ids = Array.from({ length: wallRunIdCount(p.polyline.length, junctions as "none" | "openings") }, () =>
+        this.doc.mintElementId(),
+      );
+      const plan = buildWallRun(
+        {
+          storyId: p.storyId,
+          polyline: p.polyline as { x: number; y: number }[],
+          widthMm: p.widthMm,
+          heightMm: p.heightMm,
+          ...(typeof p.name === "string" ? { name: p.name } : {}),
+          junctions: junctions as "none" | "openings",
+        },
+        ids,
+      );
+      const before = new Set(this.doc.allElements().map((el) => el.id));
+      const outcome = buildBimCreate(this.doc.allElements(), plan.entities);
+      this.doc.execute(outcome.edit);
+      const created = this.doc.allElements().filter((el) => !before.has(el.id)).map((el) => el.id);
+      const walls = created
+        .map((id) => this.doc.elementById(id))
+        .filter((el) => (el?.props as Record<string, unknown>).type === "bim.wall")
+        .map((el) => ({ id: el!.id, name: (el!.props as Record<string, unknown>).name }));
+      return ok({ created, wallCount: plan.wallCount, walls, junctions: plan.junctions, snapshot: this.doc.snapshot() });
+    } catch (e) {
+      return this.toolsetFailure(e);
+    }
+  }
+
+  /** toolset.archHostedOpening — place a hosted door/window opening into
+   *  an EXISTING wall (the P011 host binding: the opening's hostId + the
+   *  fill's openingId, one atomic batch). */
+  private cmdToolsetArchHostedOpening(payload: unknown): CommandQueryResponse {
+    const p = payload as {
+      wallId?: unknown; kind?: unknown; tAlongWall?: unknown; widthMm?: unknown; heightMm?: unknown;
+      sillMm?: unknown; swing?: unknown; name?: unknown;
+    } | null;
+    if (
+      p === null || typeof p !== "object" || typeof p.wallId !== "string" || p.wallId.length === 0 ||
+      (p.kind !== "door" && p.kind !== "window") ||
+      typeof p.tAlongWall !== "number" || typeof p.widthMm !== "number" || typeof p.heightMm !== "number"
+    ) {
+      return err("bad_payload", "toolset.archHostedOpening requires { wallId, kind: door|window, tAlongWall, widthMm, heightMm }", true);
+    }
+    if (this.bimElementOfType(p.wallId, "bim.wall") === null) {
+      return err("toolset_host_not_found", `no wall '${p.wallId}' — the hosted opening needs an existing host wall`, false);
+    }
+    try {
+      const ids = Array.from({ length: hostedOpeningIdCount() }, () => this.doc.mintElementId());
+      const plan = buildHostedOpening(
+        {
+          wallId: p.wallId,
+          kind: p.kind,
+          tAlongWall: p.tAlongWall,
+          widthMm: p.widthMm,
+          heightMm: p.heightMm,
+          ...(typeof p.sillMm === "number" ? { sillMm: p.sillMm } : {}),
+          ...(p.swing === "left" || p.swing === "right" ? { swing: p.swing } : {}),
+          ...(typeof p.name === "string" ? { name: p.name } : {}),
+        },
+        ids,
+      );
+      const before = new Set(this.doc.allElements().map((el) => el.id));
+      const outcome = buildBimCreate(this.doc.allElements(), plan.entities);
+      this.doc.execute(outcome.edit);
+      const created = this.doc.allElements().filter((el) => !before.has(el.id)).map((el) => el.id);
+      return ok({ created, openingId: plan.openingId, fillId: plan.fillId, snapshot: this.doc.snapshot() });
+    } catch (e) {
+      return this.toolsetFailure(e);
+    }
+  }
+
+  /** toolset.archRoof — place a parametric gable roof over an
+   *  axis-aligned footprint (the P011 bim.roof primitive, one atomic
+   *  batch). */
+  private cmdToolsetArchRoof(payload: unknown): CommandQueryResponse {
+    const p = payload as {
+      storyId?: unknown; corner1?: unknown; corner2?: unknown; ridgeAxis?: unknown; heightMm?: unknown;
+      baseOffsetMm?: unknown; topStoryId?: unknown; name?: unknown;
+    } | null;
+    if (
+      p === null || typeof p !== "object" || typeof p.storyId !== "string" || p.storyId.length === 0 ||
+      typeof p.corner1 !== "object" || p.corner1 === null || typeof p.corner2 !== "object" || p.corner2 === null ||
+      typeof p.heightMm !== "number"
+    ) {
+      return err("bad_payload", "toolset.archRoof requires { storyId, corner1, corner2, heightMm }", true);
+    }
+    if (this.bimElementOfType(p.storyId, "bim.story") === null) {
+      return err("toolset_host_not_found", `no story '${p.storyId}' — the roof needs an existing host story`, false);
+    }
+    if (typeof p.topStoryId === "string" && this.bimElementOfType(p.topStoryId, "bim.story") === null) {
+      return err("toolset_host_not_found", `no story '${p.topStoryId}' — the roof's topStoryId must reference an existing story`, false);
+    }
+    try {
+      const plan = buildRoof({
+        storyId: p.storyId,
+        corner1: p.corner1 as { x: number; y: number },
+        corner2: p.corner2 as { x: number; y: number },
+        ...(p.ridgeAxis === "x" || p.ridgeAxis === "y" ? { ridgeAxis: p.ridgeAxis } : {}),
+        heightMm: p.heightMm,
+        ...(typeof p.baseOffsetMm === "number" ? { baseOffsetMm: p.baseOffsetMm } : {}),
+        ...(typeof p.topStoryId === "string" ? { topStoryId: p.topStoryId } : {}),
+        ...(typeof p.name === "string" ? { name: p.name } : {}),
+      });
+      const before = new Set(this.doc.allElements().map((el) => el.id));
+      const outcome = buildBimCreate(this.doc.allElements(), plan.entities);
+      this.doc.execute(outcome.edit);
+      const created = this.doc.allElements().filter((el) => !before.has(el.id)).map((el) => el.id);
+      return ok({ created, snapshot: this.doc.snapshot() });
+    } catch (e) {
+      return this.toolsetFailure(e);
+    }
+  }
+
+  /** toolset.archStairRun — place a single-flight stair with optional
+   *  deterministic side railings (hosted through the real P011
+   *  bim.railing.hostId field, one atomic batch). */
+  private cmdToolsetArchStairRun(payload: unknown): CommandQueryResponse {
+    const p = payload as {
+      storyId?: unknown; topStoryId?: unknown; start?: unknown; directionDeg?: unknown; widthMm?: unknown;
+      stepCount?: unknown; treadMm?: unknown; baseOffsetMm?: unknown; landingLengthMm?: unknown;
+      railings?: unknown; handrailHeightMm?: unknown; name?: unknown;
+    } | null;
+    if (
+      p === null || typeof p !== "object" || typeof p.storyId !== "string" || p.storyId.length === 0 ||
+      typeof p.topStoryId !== "string" || p.topStoryId.length === 0 ||
+      typeof p.start !== "object" || p.start === null ||
+      typeof p.widthMm !== "number" || typeof p.stepCount !== "number" || typeof p.treadMm !== "number"
+    ) {
+      return err("bad_payload", "toolset.archStairRun requires { storyId, topStoryId, start, widthMm, stepCount, treadMm }", true);
+    }
+    if (this.bimElementOfType(p.storyId, "bim.story") === null) {
+      return err("toolset_host_not_found", `no story '${p.storyId}' — the stair needs an existing host story`, false);
+    }
+    if (this.bimElementOfType(p.topStoryId, "bim.story") === null) {
+      return err("toolset_host_not_found", `no story '${p.topStoryId}' — the stair's topStoryId must reference an existing story`, false);
+    }
+    const railings = p.railings === undefined ? "none" : p.railings;
+    if (railings !== "none" && railings !== "left" && railings !== "right" && railings !== "both") {
+      return err("bad_payload", "toolset.archStairRun railings must be 'none' | 'left' | 'right' | 'both'", true);
+    }
+    try {
+      const ids = Array.from({ length: stairRunIdCount(railings as "none" | "left" | "right" | "both") }, () =>
+        this.doc.mintElementId(),
+      );
+      const plan = buildStairRun(
+        {
+          storyId: p.storyId,
+          topStoryId: p.topStoryId,
+          start: p.start as { x: number; y: number },
+          ...(typeof p.directionDeg === "number" ? { directionDeg: p.directionDeg } : {}),
+          widthMm: p.widthMm,
+          stepCount: p.stepCount,
+          treadMm: p.treadMm,
+          ...(typeof p.baseOffsetMm === "number" ? { baseOffsetMm: p.baseOffsetMm } : {}),
+          ...(typeof p.landingLengthMm === "number" ? { landingLengthMm: p.landingLengthMm } : {}),
+          railings: railings as "none" | "left" | "right" | "both",
+          ...(typeof p.handrailHeightMm === "number" ? { handrailHeightMm: p.handrailHeightMm } : {}),
+          ...(typeof p.name === "string" ? { name: p.name } : {}),
+        },
+        ids,
+      );
+      const before = new Set(this.doc.allElements().map((el) => el.id));
+      const outcome = buildBimCreate(this.doc.allElements(), plan.entities);
+      this.doc.execute(outcome.edit);
+      const created = this.doc.allElements().filter((el) => !before.has(el.id)).map((el) => el.id);
+      return ok({ created, stairId: plan.stairId, railingIds: plan.railingIds, snapshot: this.doc.snapshot() });
+    } catch (e) {
+      return this.toolsetFailure(e);
+    }
+  }
+
+  /** toolset.archSpaceGrid — compose a rectangular space grid with
+   *  deterministic `prefix-<col>-<row>` names (one atomic batch). */
+  private cmdToolsetArchSpaceGrid(payload: unknown): CommandQueryResponse {
+    const p = payload as {
+      storyId?: unknown; origin?: unknown; cols?: unknown; rows?: unknown; cellWidthMm?: unknown;
+      cellHeightMm?: unknown; prefix?: unknown; heightMm?: unknown; baseOffsetMm?: unknown;
+    } | null;
+    if (
+      p === null || typeof p !== "object" || typeof p.storyId !== "string" || p.storyId.length === 0 ||
+      typeof p.origin !== "object" || p.origin === null ||
+      typeof p.cols !== "number" || typeof p.rows !== "number" ||
+      typeof p.cellWidthMm !== "number" || typeof p.cellHeightMm !== "number"
+    ) {
+      return err("bad_payload", "toolset.archSpaceGrid requires { storyId, origin, cols, rows, cellWidthMm, cellHeightMm }", true);
+    }
+    if (this.bimElementOfType(p.storyId, "bim.story") === null) {
+      return err("toolset_host_not_found", `no story '${p.storyId}' — the space grid needs an existing host story`, false);
+    }
+    try {
+      const plan = buildSpaceGrid({
+        storyId: p.storyId,
+        origin: p.origin as { x: number; y: number },
+        cols: p.cols,
+        rows: p.rows,
+        cellWidthMm: p.cellWidthMm,
+        cellHeightMm: p.cellHeightMm,
+        ...(typeof p.prefix === "string" ? { prefix: p.prefix } : {}),
+        ...(typeof p.heightMm === "number" ? { heightMm: p.heightMm } : {}),
+        ...(typeof p.baseOffsetMm === "number" ? { baseOffsetMm: p.baseOffsetMm } : {}),
+      });
+      const before = new Set(this.doc.allElements().map((el) => el.id));
+      const outcome = buildBimCreate(this.doc.allElements(), plan.entities);
+      this.doc.execute(outcome.edit);
+      const created = this.doc.allElements().filter((el) => !before.has(el.id)).map((el) => el.id);
+      return ok({ created, names: plan.names, snapshot: this.doc.snapshot() });
+    } catch (e) {
+      return this.toolsetFailure(e);
+    }
+  }
+
+  /** toolset.archDimChain — compose an aligned linear-dimension chain over
+   *  consecutive points (the drafting dim-linear primitive — annotation
+   *  elements, one atomic batch through the drafting.createEntities
+   *  path). */
+  private cmdToolsetArchDimChain(payload: unknown): CommandQueryResponse {
+    const p = payload as { points?: unknown; offsetMm?: unknown; layer?: unknown } | null;
+    if (p === null || typeof p !== "object" || !Array.isArray(p.points)) {
+      return err("bad_payload", "toolset.archDimChain requires a points array", true);
+    }
+    try {
+      const plan = buildDimensionChain({
+        points: p.points as { x: number; y: number }[],
+        ...(typeof p.offsetMm === "number" ? { offsetMm: p.offsetMm } : {}),
+        ...(typeof p.layer === "string" ? { layer: p.layer } : {}),
+      });
+      const before = new Set(this.doc.allElements().map((el) => el.id));
+      const outcome = buildDraftingCreate(
+        this.doc.allElements(),
+        (id) => this.doc.layerById(id) !== undefined,
+        plan.entities,
+      );
+      this.doc.execute(outcome.edit);
+      const created = this.doc.allElements().filter((el) => !before.has(el.id)).map((el) => el.id);
+      return ok({ created, dimensionCount: plan.dimensionCount, snapshot: this.doc.snapshot() });
+    } catch (e) {
+      return this.toolsetFailure(e);
+    }
+  }
+
+  /** toolset.archComponentArray — compose a rectangular component-instance
+   *  array at deterministic origin+col·dx, row·dy offsets (one atomic
+   *  batch; every instance is validated against its definition through
+   *  the existing bim path). */
+  private cmdToolsetArchComponentArray(payload: unknown): CommandQueryResponse {
+    const p = payload as {
+      definitionId?: unknown; storyId?: unknown; origin?: unknown; cols?: unknown; rows?: unknown;
+      dxMm?: unknown; dyMm?: unknown; rotation?: unknown; baseOffsetMm?: unknown; namePrefix?: unknown;
+    } | null;
+    if (
+      p === null || typeof p !== "object" || typeof p.definitionId !== "string" || p.definitionId.length === 0 ||
+      typeof p.storyId !== "string" || p.storyId.length === 0 ||
+      typeof p.origin !== "object" || p.origin === null ||
+      typeof p.cols !== "number" || typeof p.rows !== "number" ||
+      typeof p.dxMm !== "number" || typeof p.dyMm !== "number"
+    ) {
+      return err("bad_payload", "toolset.archComponentArray requires { definitionId, storyId, origin, cols, rows, dxMm, dyMm }", true);
+    }
+    if (this.bimElementOfType(p.definitionId, "bim.componentDef") === null) {
+      return err("toolset_host_not_found", `no component definition '${p.definitionId}' — the array needs an existing definition`, false);
+    }
+    if (this.bimElementOfType(p.storyId, "bim.story") === null) {
+      return err("toolset_host_not_found", `no story '${p.storyId}' — the array needs an existing host story`, false);
+    }
+    try {
+      const plan = buildComponentArray({
+        definitionId: p.definitionId,
+        storyId: p.storyId,
+        origin: p.origin as { x: number; y: number },
+        cols: p.cols,
+        rows: p.rows,
+        dxMm: p.dxMm,
+        dyMm: p.dyMm,
+        ...(typeof p.rotation === "number" ? { rotation: p.rotation } : {}),
+        ...(typeof p.baseOffsetMm === "number" ? { baseOffsetMm: p.baseOffsetMm } : {}),
+        ...(typeof p.namePrefix === "string" ? { namePrefix: p.namePrefix } : {}),
+      });
+      const before = new Set(this.doc.allElements().map((el) => el.id));
+      const outcome = buildBimCreate(this.doc.allElements(), plan.entities);
+      this.doc.execute(outcome.edit);
+      const created = this.doc.allElements().filter((el) => !before.has(el.id)).map((el) => el.id);
+      return ok({ created, count: plan.count, snapshot: this.doc.snapshot() });
+    } catch (e) {
+      return this.toolsetFailure(e);
+    }
+  }
+
+  // --- MEP (the bounded run records) -----------------------------------------
+
+  /** toolset.mepAddRun — add one bounded MEP run record (tls- identity
+   *  minted by the document; the routing grammar is validated BEFORE the
+   *  mint so a failing command never burns an identity). */
+  private cmdToolsetMepAddRun(payload: unknown): CommandQueryResponse {
+    const p = payload as { run?: unknown } | null;
+    if (p === null || typeof p !== "object" || typeof p.run !== "object" || p.run === null) {
+      return err("bad_payload", "toolset.mepAddRun requires { run }", true);
+    }
+    const gate = this.toolsetAddGate("mep.run", this.specializedRecordsOf("mep.run").length, () => {
+      validateMepRunData(p.run);
+    });
+    if (gate !== null) return gate;
+    const record: SpecializedRecord = {
+      id: this.doc.mintSpecializedId(),
+      toolset: "mep",
+      kind: "mep.run",
+      data: validateMepRunData(p.run),
+    };
+    try {
+      this.doc.execute({ type: "addSpecialized", record });
+      return ok({ record, snapshot: this.doc.snapshot() });
+    } catch (e) {
+      return this.toolsetFailure(e);
+    }
+  }
+
+  /** toolset.mepSetRun — replace one MEP run record (full-record restore
+   *  semantics; id immutable; the merged record re-validates as a whole). */
+  private cmdToolsetMepSetRun(payload: unknown): CommandQueryResponse {
+    const p = payload as { id?: unknown; run?: unknown } | null;
+    if (p === null || typeof p !== "object" || typeof p.id !== "string" || p.id.length === 0 || typeof p.run !== "object" || p.run === null) {
+      return err("bad_payload", "toolset.mepSetRun requires { id, run }", true);
+    }
+    if (this.specializedRecordOfKind(p.id, "mep.run") === undefined) {
+      return err("toolset_not_found", `no MEP run '${p.id}'`, false);
+    }
+    try {
+      const data = validateMepRunData(p.run);
+      this.doc.execute({ type: "setSpecializedRecord", id: p.id, record: { id: p.id, toolset: "mep", kind: "mep.run", data } });
+      return ok({ record: this.doc.specializedById(p.id), snapshot: this.doc.snapshot() });
+    } catch (e) {
+      return this.toolsetFailure(e);
+    }
+  }
+
+  /** toolset.mepRemoveRun — remove one MEP run record (typed not-found;
+   *  undo restores the full record atomically). */
+  private cmdToolsetMepRemoveRun(payload: unknown): CommandQueryResponse {
+    const p = payload as { id?: unknown } | null;
+    if (p === null || typeof p !== "object" || typeof p.id !== "string" || p.id.length === 0) {
+      return err("bad_payload", "toolset.mepRemoveRun requires { id }", true);
+    }
+    if (this.specializedRecordOfKind(p.id, "mep.run") === undefined) {
+      return err("toolset_not_found", `no MEP run '${p.id}'`, false);
+    }
+    try {
+      this.doc.execute({ type: "removeSpecialized", id: p.id });
+      return ok({ removed: p.id, snapshot: this.doc.snapshot() });
+    } catch (e) {
+      return this.toolsetFailure(e);
+    }
+  }
+
+  /** toolset.mepConnect — record one connection on a run end (the ordinal
+   *  id `c<next>`; typed declines for unknown targets and domain/kind
+   *  mismatches; ONE atomic revision). */
+  private cmdToolsetMepConnect(payload: unknown): CommandQueryResponse {
+    const p = payload as { runId?: unknown; at?: unknown; target?: unknown } | null;
+    if (
+      p === null || typeof p !== "object" || typeof p.runId !== "string" || p.runId.length === 0 ||
+      (p.at !== "start" && p.at !== "end") ||
+      typeof p.target !== "object" || p.target === null
+    ) {
+      return err("bad_payload", "toolset.mepConnect requires { runId, at: start|end, target }", true);
+    }
+    const run = this.specializedRecordOfKind(p.runId, "mep.run");
+    if (run === undefined) {
+      return err("toolset_not_found", `no MEP run '${p.runId}'`, false);
+    }
+    try {
+      const data = connectRun(p.runId, run.data as MepRunData, p.at as MepConnectionEnd, p.target as MepConnectionTarget, {
+        equipment: (id) => this.specializedRecordOfKind(id, "mech.equipment")?.data as MechEquipmentData | undefined,
+        run: (id) => this.specializedRecordOfKind(id, "mep.run")?.data as MepRunData | undefined,
+      });
+      const connection = data.connections?.[data.connections.length - 1];
+      this.doc.execute({ type: "setSpecializedRecord", id: p.runId, record: { id: p.runId, toolset: "mep", kind: "mep.run", data } });
+      return ok({ connection, record: this.doc.specializedById(p.runId), snapshot: this.doc.snapshot() });
+    } catch (e) {
+      return this.toolsetFailure(e);
+    }
+  }
+
+  // --- mechanical (the bounded equipment records) -----------------------------
+
+  /** toolset.mechAddEquipment — add one bounded mechanical equipment
+   *  record with ordinal ports (tls- identity; pre-mint validation). */
+  private cmdToolsetMechAddEquipment(payload: unknown): CommandQueryResponse {
+    const p = payload as { equipment?: unknown } | null;
+    if (p === null || typeof p !== "object" || typeof p.equipment !== "object" || p.equipment === null) {
+      return err("bad_payload", "toolset.mechAddEquipment requires { equipment }", true);
+    }
+    const gate = this.toolsetAddGate("mech.equipment", this.specializedRecordsOf("mech.equipment").length, () => {
+      validateMechEquipmentData(p.equipment);
+    });
+    if (gate !== null) return gate;
+    const record: SpecializedRecord = {
+      id: this.doc.mintSpecializedId(),
+      toolset: "mechanical",
+      kind: "mech.equipment",
+      data: validateMechEquipmentData(p.equipment),
+    };
+    try {
+      this.doc.execute({ type: "addSpecialized", record });
+      return ok({ record, snapshot: this.doc.snapshot() });
+    } catch (e) {
+      return this.toolsetFailure(e);
+    }
+  }
+
+  /** toolset.mechSetEquipment — replace one equipment record (full-record
+   *  restore semantics). */
+  private cmdToolsetMechSetEquipment(payload: unknown): CommandQueryResponse {
+    const p = payload as { id?: unknown; equipment?: unknown } | null;
+    if (p === null || typeof p !== "object" || typeof p.id !== "string" || p.id.length === 0 || typeof p.equipment !== "object" || p.equipment === null) {
+      return err("bad_payload", "toolset.mechSetEquipment requires { id, equipment }", true);
+    }
+    if (this.specializedRecordOfKind(p.id, "mech.equipment") === undefined) {
+      return err("toolset_not_found", `no mechanical equipment '${p.id}'`, false);
+    }
+    try {
+      const data = validateMechEquipmentData(p.equipment);
+      this.doc.execute({ type: "setSpecializedRecord", id: p.id, record: { id: p.id, toolset: "mechanical", kind: "mech.equipment", data } });
+      return ok({ record: this.doc.specializedById(p.id), snapshot: this.doc.snapshot() });
+    } catch (e) {
+      return this.toolsetFailure(e);
+    }
+  }
+
+  /** toolset.mechRemoveEquipment — remove one equipment record (typed
+   *  not-found; undo restores atomically). */
+  private cmdToolsetMechRemoveEquipment(payload: unknown): CommandQueryResponse {
+    const p = payload as { id?: unknown } | null;
+    if (p === null || typeof p !== "object" || typeof p.id !== "string" || p.id.length === 0) {
+      return err("bad_payload", "toolset.mechRemoveEquipment requires { id }", true);
+    }
+    if (this.specializedRecordOfKind(p.id, "mech.equipment") === undefined) {
+      return err("toolset_not_found", `no mechanical equipment '${p.id}'`, false);
+    }
+    try {
+      this.doc.execute({ type: "removeSpecialized", id: p.id });
+      return ok({ removed: p.id, snapshot: this.doc.snapshot() });
+    } catch (e) {
+      return this.toolsetFailure(e);
+    }
+  }
+
+  /** toolset.mechArray — compose the deterministic equipment array (every
+   *  cell origin and every port position offset by the cell delta — ports
+   *  move with the equipment; ONE atomic revision for the whole array). */
+  private cmdToolsetMechArray(payload: unknown): CommandQueryResponse {
+    const p = payload as { equipmentId?: unknown; cols?: unknown; rows?: unknown; dxMm?: unknown; dyMm?: unknown } | null;
+    if (
+      p === null || typeof p !== "object" || typeof p.equipmentId !== "string" || p.equipmentId.length === 0 ||
+      typeof p.cols !== "number" || typeof p.rows !== "number" ||
+      typeof p.dxMm !== "number" || typeof p.dyMm !== "number"
+    ) {
+      return err("bad_payload", "toolset.mechArray requires { equipmentId, cols, rows, dxMm, dyMm }", true);
+    }
+    const base = this.specializedRecordOfKind(p.equipmentId, "mech.equipment");
+    if (base === undefined) {
+      return err("toolset_not_found", `no mechanical equipment '${p.equipmentId}' (the array base)`, false);
+    }
+    try {
+      const cells = buildEquipmentArray(base.data as MechEquipmentData, p.cols, p.rows, p.dxMm, p.dyMm);
+      const existing = this.specializedRecordsOf("mech.equipment").length;
+      if (existing + cells.length > TOOLSETS_TABLE_BOUNDS.maxEquipment) {
+        return err(
+          "toolset_out_of_bounds",
+          `the equipment array (${cells.length} cells) exceeds the ${TOOLSETS_TABLE_BOUNDS.maxEquipment}-record equipment bound (${existing} already present)`,
+          false,
+        );
+      }
+      const records: SpecializedRecord[] = cells.map((data) => ({
+        id: this.doc.mintSpecializedId(),
+        toolset: "mechanical",
+        kind: "mech.equipment",
+        data,
+      }));
+      this.doc.execute({ type: "applyEdits", edits: records.map((record) => ({ type: "addSpecialized", record })) });
+      return ok({ created: records.map((r) => r.id), count: cells.length, snapshot: this.doc.snapshot() });
+    } catch (e) {
+      return this.toolsetFailure(e);
+    }
+  }
+
+  // --- raster (the canonical underlay references) ------------------------------
+
+  /** toolset.rasterAddSource — register one raster underlay source record
+   *  (identity + digest + optional bounded lineWork; sourceRefs are
+   *  unique among raster sources). */
+  private cmdToolsetRasterAddSource(payload: unknown): CommandQueryResponse {
+    const p = payload as { source?: unknown } | null;
+    if (p === null || typeof p !== "object" || typeof p.source !== "object" || p.source === null) {
+      return err("bad_payload", "toolset.rasterAddSource requires { source }", true);
+    }
+    try {
+      const data = validateRasterSourceData(p.source);
+      if (this.doc.specializedRasterSourceByRef(data.sourceRef) !== undefined) {
+        return err(
+          "toolset_bad_payload",
+          `raster sourceRef '${data.sourceRef}' is already registered (source references are unique among raster sources)`,
+          false,
+        );
+      }
+      const gate = this.toolsetAddGate("raster.source", this.specializedRecordsOf("raster.source").length, () => {
+        validateRasterSourceData(p.source);
+      });
+      if (gate !== null) return gate;
+      const record: SpecializedRecord = {
+        id: this.doc.mintSpecializedId(),
+        toolset: "raster",
+        kind: "raster.source",
+        data,
+      };
+      this.doc.execute({ type: "addSpecialized", record });
+      return ok({ record, snapshot: this.doc.snapshot() });
+    } catch (e) {
+      return this.toolsetFailure(e);
+    }
+  }
+
+  /** toolset.rasterAttach — attach one raster reference to a REGISTERED
+   *  source (typed toolset_reference_missing when the source does not
+   *  exist — the underlay identity is verified at attach time). */
+  private cmdToolsetRasterAttach(payload: unknown): CommandQueryResponse {
+    const p = payload as { reference?: unknown } | null;
+    if (p === null || typeof p !== "object" || typeof p.reference !== "object" || p.reference === null) {
+      return err("bad_payload", "toolset.rasterAttach requires { reference }", true);
+    }
+    try {
+      const data = validateRasterReferenceData(p.reference);
+      if (this.doc.specializedRasterSourceByRef(data.sourceRef) === undefined) {
+        return err(
+          "toolset_reference_missing",
+          `no raster source with sourceRef '${data.sourceRef}' is registered — attach the source first`,
+          false,
+        );
+      }
+      const gate = this.toolsetAddGate("raster.reference", this.specializedRecordsOf("raster.reference").length, () => {
+        validateRasterReferenceData(p.reference);
+      });
+      if (gate !== null) return gate;
+      const record: SpecializedRecord = {
+        id: this.doc.mintSpecializedId(),
+        toolset: "raster",
+        kind: "raster.reference",
+        data,
+      };
+      this.doc.execute({ type: "addSpecialized", record });
+      return ok({ record, snapshot: this.doc.snapshot() });
+    } catch (e) {
+      return this.toolsetFailure(e);
+    }
+  }
+
+  /** toolset.rasterSetReference — replace one reference record (the
+   *  declared source is verified like attach; full-record restore
+   *  semantics). */
+  private cmdToolsetRasterSetReference(payload: unknown): CommandQueryResponse {
+    const p = payload as { id?: unknown; reference?: unknown } | null;
+    if (p === null || typeof p !== "object" || typeof p.id !== "string" || p.id.length === 0 || typeof p.reference !== "object" || p.reference === null) {
+      return err("bad_payload", "toolset.rasterSetReference requires { id, reference }", true);
+    }
+    if (this.specializedRecordOfKind(p.id, "raster.reference") === undefined) {
+      return err("toolset_not_found", `no raster reference '${p.id}'`, false);
+    }
+    try {
+      const data = validateRasterReferenceData(p.reference);
+      if (this.doc.specializedRasterSourceByRef(data.sourceRef) === undefined) {
+        return err(
+          "toolset_reference_missing",
+          `no raster source with sourceRef '${data.sourceRef}' is registered — attach the source first`,
+          false,
+        );
+      }
+      this.doc.execute({ type: "setSpecializedRecord", id: p.id, record: { id: p.id, toolset: "raster", kind: "raster.reference", data } });
+      return ok({ record: this.doc.specializedById(p.id), snapshot: this.doc.snapshot() });
+    } catch (e) {
+      return this.toolsetFailure(e);
+    }
+  }
+
+  /** toolset.rasterRemoveReference — remove one reference record (typed
+   *  not-found; undo restores atomically). */
+  private cmdToolsetRasterRemoveReference(payload: unknown): CommandQueryResponse {
+    const p = payload as { id?: unknown } | null;
+    if (p === null || typeof p !== "object" || typeof p.id !== "string" || p.id.length === 0) {
+      return err("bad_payload", "toolset.rasterRemoveReference requires { id }", true);
+    }
+    if (this.specializedRecordOfKind(p.id, "raster.reference") === undefined) {
+      return err("toolset_not_found", `no raster reference '${p.id}'`, false);
+    }
+    try {
+      this.doc.execute({ type: "removeSpecialized", id: p.id });
+      return ok({ removed: p.id, snapshot: this.doc.snapshot() });
+    } catch (e) {
+      return this.toolsetFailure(e);
+    }
+  }
+
+  /** toolset.rasterCommitTrace — commit the traced vectors of one
+   *  reference as CANONICAL line elements through the existing
+   *  drafting element-creation path (the lineage is recorded in the
+   *  element props under the `trace` key — { sourceRef, referenceId,
+   *  vectorIndices }; ONE atomic revision; undo removes them). Typed
+   *  declines: missing source (toolset_reference_missing), stale digest
+   *  (toolset_reference_stale), out-of-range vector indices
+   *  (toolset_out_of_bounds). */
+  private cmdToolsetRasterCommitTrace(payload: unknown): CommandQueryResponse {
+    const p = payload as { referenceId?: unknown; vectorIndices?: unknown } | null;
+    if (p === null || typeof p !== "object" || typeof p.referenceId !== "string" || p.referenceId.length === 0) {
+      return err("bad_payload", "toolset.rasterCommitTrace requires { referenceId, vectorIndices? }", true);
+    }
+    const reference = this.specializedRecordOfKind(p.referenceId, "raster.reference");
+    if (reference === undefined) {
+      return err("toolset_not_found", `no raster reference '${p.referenceId}'`, false);
+    }
+    try {
+      const source = this.traceSourceOf(reference);
+      const result = trace({ id: reference.id, data: reference.data as RasterReferenceData }, source);
+      const selected = selectTraceVectors(result, p.vectorIndices as readonly number[] | undefined);
+      const entities = selected.map(({ vector }) => ({
+        type: "line",
+        layer: (reference.data as RasterReferenceData).layer ?? "0",
+        from: [vector.from.x, vector.from.y],
+        to: [vector.to.x, vector.to.y],
+      }));
+      const before = new Set(this.doc.allElements().map((el) => el.id));
+      const outcome = buildDraftingCreate(
+        this.doc.allElements(),
+        (id) => this.doc.layerById(id) !== undefined,
+        entities,
+      );
+      // The lineage overlay: props are free-form records (Record<string,
+      // unknown>) — the trace key records {sourceRef, referenceId,
+      // vectorIndices} on EVERY committed line (additive; the drafting
+      // readers ignore unknown props).
+      const edits = (outcome.edit as { type: "applyEdits"; edits: DocumentEdit[] }).edits.map((sub: DocumentEdit, i: number) => {
+        if (sub.type !== "addElement") return sub;
+        const element = sub.element;
+        const lineage = {
+          sourceRef: (reference.data as RasterReferenceData).sourceRef,
+          referenceId: p.referenceId,
+          vectorIndices: [selected[i]?.index ?? -1],
+        };
+        return { type: "addElement", element: { ...element, props: { ...element.props, trace: lineage } } } as DocumentEdit;
+      });
+      this.doc.execute({ type: "applyEdits", edits });
+      const created = this.doc.allElements().filter((el) => !before.has(el.id)).map((el) => el.id);
+      return ok({
+        created,
+        committed: selected.length,
+        trace: { notice: result.notice, authoritative: false },
+        snapshot: this.doc.snapshot(),
+      });
+    } catch (e) {
+      return this.toolsetFailure(e);
+    }
+  }
+
+  /** The trace source lookup (typed missing/stale declines — the derived
+   *  runtime identity check, never a stored guess). */
+  private traceSourceOf(reference: SpecializedRecord): { id: string; data: RasterSourceData } {
+    const data = reference.data as RasterReferenceData;
+    const sourceRec = this.doc.specializedRasterSourceByRef(data.sourceRef);
+    if (sourceRec === undefined) {
+      throw new ToolsetError(
+        "toolset_reference_missing",
+        `no raster source with sourceRef '${data.sourceRef}' is registered (the underlay is missing)`,
+      );
+    }
+    const source = sourceRec.data as RasterSourceData;
+    if (source.contentDigest !== data.declaredDigest) {
+      throw new ToolsetError(
+        "toolset_reference_stale",
+        `the raster source '${data.sourceRef}' digest changed since attach (declared '${data.declaredDigest}', current '${source.contentDigest}') — the reference is stale`,
+      );
+    }
+    return { id: sourceRec.id, data: source };
+  }
+
+  // --- the specialized-toolsets queries ----------------------------------------
+
+  /** toolset.capabilities — the versioned typed discovery table (the
+   *  closed registry + one-line summaries, bound to the canonical
+   *  revision). */
+  private qToolsetCapabilities(): CommandQueryResponse {
+    return ok({
+      apiVersion: TOOLSETS_API_VERSION,
+      capabilities: toolsetCapabilityViews(),
+      documentVersion: this.doc.snapshot().version.version_number,
+      contentHash: this.doc.currentContentHash(),
+    });
+  }
+
+  /** toolset.listRecords — the specialized-record inventory (id-sorted
+   *  rows; optional toolset/kind filters). */
+  private qToolsetListRecords(payload: unknown): CommandQueryResponse {
+    const p = payload as { toolset?: unknown; kind?: unknown } | null;
+    const toolset = p !== null && typeof p === "object" && typeof p.toolset === "string" ? (p.toolset as SpecializedRecord["toolset"]) : undefined;
+    const kind = p !== null && typeof p === "object" && typeof p.kind === "string" ? (p.kind as SpecializedRecord["kind"]) : undefined;
+    const rows = this.doc.specializedTable
+      .filter((rec) => (toolset === undefined || rec.toolset === toolset) && (kind === undefined || rec.kind === kind))
+      .map((rec) => ({ id: rec.id, toolset: rec.toolset, kind: rec.kind }))
+      .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+    return ok({ records: rows, count: rows.length });
+  }
+
+  /** toolset.mepValidateRoute — the deterministic route violations of one
+   *  run (computed fresh; stored runs passed the grammar at write time —
+   *  the derivation is the verification, never a stored result). */
+  private qToolsetMepValidateRoute(payload: unknown): CommandQueryResponse {
+    const p = payload as { id?: unknown } | null;
+    if (p === null || typeof p !== "object" || typeof p.id !== "string" || p.id.length === 0) {
+      return err("bad_payload", "toolset.mepValidateRoute requires { id }", true);
+    }
+    const run = this.specializedRecordOfKind(p.id, "mep.run");
+    if (run === undefined) {
+      return err("toolset_not_found", `no MEP run '${p.id}'`, false);
+    }
+    const data = run.data as MepRunData;
+    return ok({ id: p.id, domain: data.domain, violations: validateRoute(data) });
+  }
+
+  /** toolset.mepClashReport — the deterministic clash/clearance
+   *  diagnostics of the MEP runs against the canonical wall/slab bodies
+   *  (exact 2D planar distances; default clearance 50 mm when not
+   *  declared). */
+  private qToolsetMepClashReport(payload: unknown): CommandQueryResponse {
+    const p = payload as { clearanceMm?: unknown } | null;
+    let clearanceMm = 50;
+    if (p !== null && typeof p === "object" && p.clearanceMm !== undefined) {
+      if (typeof p.clearanceMm !== "number" || !Number.isFinite(p.clearanceMm) || (p.clearanceMm as number) < 0) {
+        return err("bad_payload", "toolset.mepClashReport clearanceMm must be a finite number ≥ 0 when present", true);
+      }
+      clearanceMm = p.clearanceMm;
+    }
+    const runs = this.specializedRecordsOf("mep.run").map((rec) => ({
+      id: rec.id,
+      data: rec.data as MepRunData,
+    }));
+    try {
+      const diagnostics = clashReport(runs, clearanceMm, this.doc.allElements());
+      return ok({ clearanceMm, diagnostics, runCount: runs.length });
+    } catch (e) {
+      return this.toolsetFailure(e);
+    }
+  }
+
+  /** toolset.rasterStatus — the fresh ok/stale/missing reference table
+   *  (computed fresh from the canonical records — the status is a
+   *  derivation, never stored). */
+  private qToolsetRasterStatus(payload: unknown): CommandQueryResponse {
+    const references = this.specializedRecordsOf("raster.reference");
+    const sources = this.specializedRecordsOf("raster.source");
+    const statuses = references
+      .map((rec) => referenceStatus({ id: rec.id, data: rec.data as RasterReferenceData }, sources.map((s) => ({ data: s.data as RasterSourceData }))))
+      .sort((a, b) => (a.referenceId < b.referenceId ? -1 : a.referenceId > b.referenceId ? 1 : 0));
+    return ok({ statuses, referenceCount: references.length });
+  }
+
+  /** toolset.rasterTrace — the typed NON-AUTHORITATIVE trace derivation
+   *  of one reference (scale → rotation → origin, clipping applied;
+   *  typed missing/stale declines; the result always carries
+   *  authoritative:false + the commit notice). */
+  private qToolsetRasterTrace(payload: unknown): CommandQueryResponse {
+    const p = payload as { referenceId?: unknown } | null;
+    if (p === null || typeof p !== "object" || typeof p.referenceId !== "string" || p.referenceId.length === 0) {
+      return err("bad_payload", "toolset.rasterTrace requires { referenceId }", true);
+    }
+    const reference = this.specializedRecordOfKind(p.referenceId, "raster.reference");
+    if (reference === undefined) {
+      return err("toolset_not_found", `no raster reference '${p.referenceId}'`, false);
+    }
+    try {
+      const source = this.traceSourceOf(reference);
+      return ok(trace({ id: reference.id, data: reference.data as RasterReferenceData }, source));
+    } catch (e) {
+      return this.toolsetFailure(e);
     }
   }
 

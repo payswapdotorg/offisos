@@ -54,7 +54,11 @@ export type CommandCategory =
   | "help"
   // CAD-PARITY-009 (Issue #90): the 3D navigation / UCS / bounded-modeling
   // vocabulary (the ribbon's 3D Model tab carries it).
-  | "model3d";
+  | "model3d"
+  // CAD-PARITY-018 (Issue #118): the specialized professional toolsets
+  // (architecture composition, MEP routing, mechanical layout, raster
+  // underlay — the ribbon's Toolsets tab carries it).
+  | "toolsets";
 
 // ---------------------------------------------------------------------------
 // Prompt steps — what a running command asks for.

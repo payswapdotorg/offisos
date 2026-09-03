@@ -12,3 +12,7 @@ export * from "./app-api.js";
 export * from "./caddocument.js";
 export * from "./adapter.js";
 export * from "./scene.js";
+// CAD-PARITY-018 (additive, Issue #118): the specialized-toolsets shared
+// contracts (bounds, record payload types, derived view types — the same
+// barrel discipline as the sibling contracts; no runtime dependencies).
+export * from "./toolsets.js";

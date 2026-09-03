@@ -16,9 +16,12 @@ import type {
   IfcBuildRequest,
   IfcBuildResult,
   IfcIdsResult,
+  IfcParsedDocumentationRecord,
+  IfcParsedToolsetRecord,
   IfcParseResult,
 } from "../../contracts/ifc.js";
 import { AdapterFailure } from "../../contracts/geometry.js";
+import { isToolsetsDomainKind } from "../../ifc/toolsetmap.js";
 import { runIfcWorker, type IfcProcessOptions } from "./ifc-process.js";
 import type {
   WorkerBcfBuildOk,
@@ -49,6 +52,71 @@ function assertBase64(value: unknown, what: string): string {
   return value;
 }
 
+/** CAD-PARITY-018 (Issue #118 criterion 14): map the toolsets groups onto
+ *  the worker's GENERIC IfcGroup carrier. The worker's group writer/reader
+ *  is generic over {guid, name, identity, fields} records (the P014
+ *  design) — the toolsets records ride the same `documentation.groups`
+ *  slot AFTER the documentation groups (deterministic order), and the
+ *  worker protocol is UNCHANGED. A request without toolsets groups maps to
+ *  EXACTLY the pre-P018 worker model (legacy byte-identity). */
+function workerBuildModel(request: IfcBuildRequest): IfcBuildRequest {
+  const { toolsets, ...rest } = request;
+  const toolsetGroups = toolsets?.groups;
+  if (toolsetGroups === undefined || toolsetGroups.length === 0) {
+    return rest;
+  }
+  const docsGroups = rest.documentation?.groups ?? [];
+  return { ...rest, documentation: { groups: [...docsGroups, ...toolsetGroups] } };
+}
+
+/** CAD-PARITY-018 (Issue #118 criterion 14): split the worker's generic
+ *  group parse by DomainKind — groups carrying a toolsets DomainKind
+ *  become `parsed.toolsets` (structurally validated here, before the App
+ *  API), everything else stays `parsed.documentation` with EXACTLY the
+ *  pre-P018 semantics (legacy parse results stay shape-identical when the
+ *  file carries no toolsets groups). */
+function splitToolsetsGroups(result: Omit<IfcParseResult, "engineVersion">): Omit<IfcParseResult, "engineVersion"> {
+  const docs = result.documentation;
+  if (docs === undefined || docs.records.length === 0) {
+    return result;
+  }
+  const toolsetsRecords: IfcParsedToolsetRecord[] = [];
+  const docsRecords: IfcParsedDocumentationRecord[] = [];
+  for (const record of docs.records) {
+    if (isToolsetsDomainKind(record.identity)) {
+      // Structural validation (the adapter discipline: nothing malformed
+      // reaches the App API).
+      if (
+        typeof record.globalId !== "string" ||
+        typeof record.name !== "string" ||
+        record.identity === null ||
+        typeof record.identity["DomainId"] !== "string" ||
+        typeof record.identity["DomainKind"] !== "string" ||
+        typeof record.fields !== "object" || record.fields === null
+      ) {
+        throw new AdapterFailure("engine_error", "IFC worker toolsets group record is malformed", false);
+      }
+      toolsetsRecords.push({
+        globalId: record.globalId,
+        name: record.name,
+        identity: record.identity,
+        fields: record.fields,
+      });
+    } else {
+      docsRecords.push(record);
+    }
+  }
+  if (toolsetsRecords.length === 0) {
+    return result;
+  }
+  const { documentation: _original, ...rest } = result;
+  return {
+    ...rest,
+    ...(docsRecords.length > 0 ? { documentation: { records: docsRecords } } : {}),
+    toolsets: { records: toolsetsRecords },
+  };
+}
+
 export interface IfcInteropAdapterOptions extends IfcProcessOptions {}
 
 export function createIfcInteropAdapter(options: IfcInteropAdapterOptions = {}): IfcInteropAdapter {
@@ -73,7 +141,7 @@ export function createIfcInteropAdapter(options: IfcInteropAdapterOptions = {}):
       }
     },
     async build(request: IfcBuildRequest): Promise<IfcBuildResult> {
-      const response = await runIfcWorker({ op: "build", model: request }, (r) => {
+      const response = await runIfcWorker({ op: "build", model: workerBuildModel(request) }, (r) => {
         const ok = r as WorkerBuildOk;
         assertIdentity(ok);
         if (typeof ok.ifc !== "string" || !Number.isInteger(ok.size) || ok.size <= 0 || typeof ok.sha256 !== "string" || !/^[0-9a-f]{64}$/.test(ok.sha256)) {
@@ -116,7 +184,7 @@ export function createIfcInteropAdapter(options: IfcInteropAdapterOptions = {}):
         }
         return ok;
       }, options);
-      return { ...response.result, engineVersion: response.engineVersion };
+      return { ...splitToolsetsGroups(response.result), engineVersion: response.engineVersion };
     },
     async validateIds(ifc: string, idsXml: string): Promise<IfcIdsResult> {
       const response = await runIfcWorker({ op: "ids", ifc, ids: idsXml }, (r) => {

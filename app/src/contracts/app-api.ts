@@ -353,7 +353,48 @@ export type CommandName =
   | "automation.deleteScript"
   | "automation.subscribe"
   | "automation.unsubscribe"
-  | "automation.registerExtension";
+  | "automation.registerExtension"
+  // --- CAD-PARITY-018 (additive, Issue #118): the specialized-toolsets
+  // command surface (bounded architecture/MEP/mechanical/raster
+  // composition over the verified core). toolset.arch* commands emit
+  // EXACTLY the element-creation batches the existing bim/drafting paths
+  // produce (ONE atomic revision per command, document-minted element
+  // identities — no parallel element semantics, no fabricated geometry;
+  // typed declines for everything outside the bounded model);
+  // toolset.mepAddRun/mepSetRun/mepRemoveRun manage the document-owned
+  // bounded MEP run records (tls- identities, route-grammar validation,
+  // in-record connections via mepConnect with typed domain/kind
+  // mismatch declines); toolset.mechAddEquipment/mechSetEquipment/
+  // mechRemoveEquipment manage the bounded mechanical equipment records
+  // (ordinal port ids, port metadata); toolset.mechArray composes the
+  // deterministic equipment array (ports move with the equipment);
+  // toolset.rasterAddSource registers the canonical underlay source
+  // records (identity + digest + bounded lineWork); rasterAttach/
+  // rasterSetReference/rasterRemoveReference manage the reference
+  // records (transform/clipping/visibility; the ok/stale/missing status
+  // is DERIVED, never stored); rasterCommitTrace commits traced vectors
+  // as canonical line elements through the existing element-creation
+  // path with the lineage recorded in the element props. ---
+  | "toolset.archWallRun"
+  | "toolset.archHostedOpening"
+  | "toolset.archRoof"
+  | "toolset.archStairRun"
+  | "toolset.archSpaceGrid"
+  | "toolset.archDimChain"
+  | "toolset.archComponentArray"
+  | "toolset.mepAddRun"
+  | "toolset.mepSetRun"
+  | "toolset.mepRemoveRun"
+  | "toolset.mepConnect"
+  | "toolset.mechAddEquipment"
+  | "toolset.mechSetEquipment"
+  | "toolset.mechRemoveEquipment"
+  | "toolset.mechArray"
+  | "toolset.rasterAddSource"
+  | "toolset.rasterAttach"
+  | "toolset.rasterSetReference"
+  | "toolset.rasterRemoveReference"
+  | "toolset.rasterCommitTrace";
 
 // --- Query names (non-mutating) ---
 // `document.getSelection` returns the ephemeral editor selection (orthogonal
@@ -511,6 +552,12 @@ export type QueryName =
   | "interop.exchangeReport"
   | "interop.archivalList"
   | "interop.roundtripReport"
+  // CAD-PARITY-018 (additive, Issue #118 criterion 14 — the corrective
+  // interop coverage): the specialized-toolsets IFC/BCF/IDS typed-outcome
+  // surface (the static concept × surface matrix + the live per-record DRY
+  // classification through the REAL carrier codec; non-mutating, pure,
+  // deterministic — no adapter required).
+  | "interop.toolsetsReport"
   // --- CAD-PARITY-016 (additive, Issue #112): the collaboration/recovery/
   // scale query surfaces (non-mutating, computed fresh every call, never
   // persisted stale). recovery.list = the retained checkpoint inventory +
@@ -561,7 +608,24 @@ export type QueryName =
   | "automation.scripts"
   | "automation.runs"
   | "automation.events"
-  | "automation.extensions";
+  | "automation.extensions"
+  // --- CAD-PARITY-018 (additive, Issue #118): the specialized-toolsets
+  // query surfaces (non-mutating, computed fresh every call, never
+  // persisted stale). toolset.capabilities = the versioned typed
+  // discovery table (the closed registry + one-line summaries);
+  // toolset.listRecords = the specialized-record inventory (id-sorted);
+  // toolset.mepValidateRoute = the deterministic route violations of one
+  // run; toolset.mepClashReport = the deterministic clash/clearance
+  // diagnostics of the runs against the canonical wall/slab bodies;
+  // toolset.rasterStatus = the fresh ok/stale/missing reference table
+  // (typed reasons); toolset.rasterTrace = the typed NON-AUTHORITATIVE
+  // trace derivation (scale → rotation → origin, clipping applied). ---
+  | "toolset.capabilities"
+  | "toolset.listRecords"
+  | "toolset.mepValidateRoute"
+  | "toolset.mepClashReport"
+  | "toolset.rasterStatus"
+  | "toolset.rasterTrace";
 
 export interface Command {
   readonly type: "command";

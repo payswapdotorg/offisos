@@ -19,7 +19,11 @@
  *                    shared report types — the ifc loop composes at the App
  *                    API layer where the adapter lives);
  *  - bcf           — the BCF topic exchange classification (the camera/
- *                    lineage/snapshot field vocabulary).
+ *                    lineage/snapshot field vocabulary);
+ *  - toolsets      — the CAD-PARITY-018 specialized-toolsets interop
+ *                    classification (the static typed OUTCOME matrix + the
+ *                    live per-record DRY classification — Issue #118
+ *                    criterion 14).
  *
  * The IFC-side carrier (the IfcGroup documentation exchange, the BCF
  * viewpoint/lineage contracts) lives in src/ifc + src/contracts/ifc.ts
@@ -88,3 +92,15 @@ export {
   classifyBcfTopic,
   BCF_CAMERA_TOLERANCE,
 } from "./bcf.js";
+// CAD-PARITY-018 (additive, Issue #118 criterion 14 — the corrective
+// interop coverage): the specialized-toolsets interop classification (the
+// static concept × surface matrix + the live per-record DRY classification
+// through the REAL carrier codec).
+export {
+  INTEROP_TOOLSETS_CONTRACT,
+  TOOLSETS_INTEROP_ROWS,
+  buildToolsetsInteropReport,
+  type InteropToolsetsRow,
+  type InteropToolsetsRecordRow,
+  type InteropToolsetsReport,
+} from "./toolsets.js";

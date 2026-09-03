@@ -59,6 +59,9 @@ import type {
   // CAD-PARITY-015 (additive, Issue #110): the property-definition registry.
   PropertyDefRecord,
   TitleBlockRecord,
+  // CAD-PARITY-018 (additive, Issue #118): the specialized-toolsets record
+  // table.
+  SpecializedRecord,
 } from "../contracts/caddocument.js";
 import type { ModelHistory } from "../contracts/model.js";
 import { childVersion, rootVersion } from "./versioning.js";
@@ -132,6 +135,15 @@ import {
   validateTitleBlockRecord,
 } from "./workspace.js";
 import { assertDefinitionGraph, normalizeBlockEntities, referencedBlockIds } from "../workspace/blocks/types.js";
+// CAD-PARITY-018 (additive, Issue #118): the specialized-toolsets record
+// grammar — validated in ONE place by the toolsets core (the single
+// record-grammar precedent: the P015 registry validators lived with the
+// document; the P018 core owns its own grammar and the document calls it).
+import {
+  deriveSpecializedSequence,
+  normalizeToolsetRecord,
+  TOOLSETS_TABLE_BOUNDS,
+} from "../toolsets/records.js";
 import {
   appendRevision,
   canonicalHashOf,
@@ -315,6 +327,14 @@ export class CADDocument {
   private readonly propertyDefs: Map<string, PropertyDefRecord> = new Map();
   /** CAD-PARITY-015: monotonic mint counter for `prd-NNNNNN` identities. */
   private nextPropertyDefSequence: number;
+  /** CAD-PARITY-018 (Issue #118): the document-owned specialized-toolsets
+   *  records (id-keyed, insertion-ordered; raster sourceRefs unique among
+   *  raster.source rows). Declarations/records only — every derivation is
+   *  computed fresh on demand, never stored (no parallel source of
+   *  truth). */
+  private readonly specialized: Map<string, SpecializedRecord> = new Map();
+  /** CAD-PARITY-018: monotonic mint counter for `tls-NNNNNN` identities. */
+  private nextSpecializedSequence: number;
   /** CAD-PARITY-013: the document revision records (id-keyed, insertion-
    *  ordered; codes unique — the user-facing address). */
   private readonly revisions: Map<string, RevisionRecord> = new Map();
@@ -378,6 +398,8 @@ export class CADDocument {
     nextScheduleSequence: number,
     propertyDefs: Iterable<PropertyDefRecord>,
     nextPropertyDefSequence: number,
+    specialized: Iterable<SpecializedRecord>,
+    nextSpecializedSequence: number,
     revisions: Iterable<RevisionRecord>,
     nextRevisionSequence: number,
     publisherSets: Iterable<PublisherSetRecord>,
@@ -435,6 +457,9 @@ export class CADDocument {
     // CAD-PARITY-015: the property-definition registry.
     for (const d of propertyDefs) this.propertyDefs.set(d.id, d);
     this.nextPropertyDefSequence = nextPropertyDefSequence;
+    // CAD-PARITY-018: the specialized-toolsets record table.
+    for (const rec of specialized) this.specialized.set(rec.id, rec);
+    this.nextSpecializedSequence = nextSpecializedSequence;
     for (const rev of revisions) this.revisions.set(rev.id, rev);
     this.nextRevisionSequence = nextRevisionSequence;
     for (const ps of publisherSets) this.publisherSets.set(ps.id, ps);
@@ -722,6 +747,27 @@ export class CADDocument {
       propertyDefAddresses.add(address);
       propertyDefRecords.push(validated);
     }
+    // CAD-PARITY-018 (Issue #118): the specialized-toolsets records (the
+    // single toolsets-core grammar + id/raster-sourceRef uniqueness).
+    const specializedRecords: SpecializedRecord[] = [];
+    const specializedIds = new Set<string>();
+    const rasterSourceRefs = new Set<string>();
+    for (const raw of [...(snapshot.specialized ?? [])]) {
+      const validated = normalizeToolsetRecord(raw);
+      if (specializedIds.has(validated.id)) {
+        throw new Error(`open: duplicate specialized record id '${validated.id}'`);
+      }
+      if (validated.kind === "raster.source") {
+        if (rasterSourceRefs.has(validated.data.sourceRef)) {
+          throw new Error(
+            `open: duplicate raster sourceRef '${validated.data.sourceRef}' (source references are unique among raster sources)`,
+          );
+        }
+        rasterSourceRefs.add(validated.data.sourceRef);
+      }
+      specializedIds.add(validated.id);
+      specializedRecords.push(validated);
+    }
     const revisionRecords: RevisionRecord[] = [];
     const revisionIds = new Set<string>();
     const revisionCodes = new Set<string>();
@@ -868,6 +914,8 @@ export class CADDocument {
       Math.max(deriveScheduleSequence(scheduleRecords), history.next_schedule_sequence ?? 1),
       propertyDefRecords,
       Math.max(derivePropertyDefSequence(propertyDefRecords), history.next_property_def_sequence ?? 1),
+      specializedRecords,
+      Math.max(deriveSpecializedSequence(specializedRecords), history.next_specialized_sequence ?? 1),
       revisionRecords,
       Math.max(deriveRevisionSequence(revisionRecords), history.next_revision_sequence ?? 1),
       publisherSetRecords,
@@ -933,6 +981,9 @@ export class CADDocument {
       [],
       1,
       // CAD-PARITY-015: empty property-definition registry.
+      [],
+      1,
+      // CAD-PARITY-018: empty specialized-toolsets record table.
       [],
       1,
       [],
@@ -1053,6 +1104,8 @@ export class CADDocument {
       nextTitleBlockSequence: this.nextTitleBlockSequence,
       nextScheduleSequence: this.nextScheduleSequence,
       nextPropertyDefSequence: this.nextPropertyDefSequence,
+      // CAD-PARITY-018: the specialized-toolsets mint counter.
+      nextSpecializedSequence: this.nextSpecializedSequence,
       nextRevisionSequence: this.nextRevisionSequence,
       nextPublisherSetSequence: this.nextPublisherSetSequence,
     });
@@ -1113,6 +1166,8 @@ export class CADDocument {
       nextTitleBlockSequence: this.nextTitleBlockSequence,
       nextScheduleSequence: this.nextScheduleSequence,
       nextPropertyDefSequence: this.nextPropertyDefSequence,
+      // CAD-PARITY-018: the specialized-toolsets mint counter.
+      nextSpecializedSequence: this.nextSpecializedSequence,
       nextRevisionSequence: this.nextRevisionSequence,
       nextPublisherSetSequence: this.nextPublisherSetSequence,
     });
@@ -1157,6 +1212,8 @@ export class CADDocument {
       nextTitleBlockSequence: this.nextTitleBlockSequence,
       nextScheduleSequence: this.nextScheduleSequence,
       nextPropertyDefSequence: this.nextPropertyDefSequence,
+      // CAD-PARITY-018: the specialized-toolsets mint counter.
+      nextSpecializedSequence: this.nextSpecializedSequence,
       nextRevisionSequence: this.nextRevisionSequence,
       nextPublisherSetSequence: this.nextPublisherSetSequence,
     });
@@ -1227,6 +1284,10 @@ export class CADDocument {
       ...(this.titleBlocks.size > 0 ? { titleBlocks: [...this.titleBlocks.values()] } : {}),
       ...(this.schedules.size > 0 ? { schedules: [...this.schedules.values()] } : {}),
       ...(this.propertyDefs.size > 0 ? { propertyDefs: [...this.propertyDefs.values()] } : {}),
+      // CAD-PARITY-018: the specialized-toolsets record table — omitted while
+      // empty so legacy snapshots (and every pinned fixture) stay
+      // byte-identical (the additive-optional contract).
+      ...(this.specialized.size > 0 ? { specialized: [...this.specialized.values()] } : {}),
       ...(this.revisions.size > 0 ? { revisions: [...this.revisions.values()] } : {}),
       ...(this.publisherSets.size > 0 ? { publisherSets: [...this.publisherSets.values()] } : {}),
     };
@@ -1489,6 +1550,16 @@ export class CADDocument {
       let minted = this.mintPropertyDefId();
       while (this.propertyDefs.has(minted)) minted = this.mintPropertyDefId();
       return { ...edit, propertyDef: { ...edit.propertyDef, id: minted } } as DocumentEdit;
+    }
+    // CAD-PARITY-018 (Issue #118): the specialized-toolsets id mint (a
+    // missing/empty record id mints a canonical `tls-NNNNNN` identity —
+    // the same document-authority contract as every other table).
+    if (edit.type === "addSpecialized") {
+      const raw = edit.record as { id?: unknown };
+      if (typeof raw.id === "string" && raw.id.length > 0) return edit;
+      let minted = this.mintSpecializedId();
+      while (this.specialized.has(minted)) minted = this.mintSpecializedId();
+      return { ...edit, record: { ...edit.record, id: minted } } as DocumentEdit;
     }
     if (edit.type === "addRevision") {
       const raw = edit.revision as { id?: unknown };
@@ -2340,6 +2411,42 @@ export class CADDocument {
         // No gates: schedule pd:<id> columns render the deterministic missing
         // cell afterwards (rows are derived fresh — nothing is stored stale).
         this.propertyDefs.delete(edit.propertyDefId);
+        break;
+      }
+      // CAD-PARITY-018 (Issue #118): the specialized-toolsets record table
+      // (the single toolsets-core grammar; table bounds + raster sourceRef
+      // uniqueness enforced here — the document is the table authority).
+      case "addSpecialized": {
+        if (edit.record === undefined) throw new Error("addSpecialized requires record");
+        const record = normalizeToolsetRecord(edit.record);
+        if (this.specialized.has(record.id)) {
+          throw new Error(
+            `addSpecialized: specialized record id '${record.id}' already exists — canonical specialized identity must not be reused while the record exists`,
+          );
+        }
+        this.assertSpecializedTableBounds(record, null);
+        this.specialized.set(record.id, record);
+        break;
+      }
+      case "setSpecializedRecord": {
+        if (edit.id === undefined || edit.record === undefined) {
+          throw new Error("setSpecializedRecord requires id + record");
+        }
+        const record = normalizeToolsetRecord(edit.record);
+        if (record.id !== edit.id) throw new Error("setSpecializedRecord: record.id must equal id");
+        if (!this.specialized.has(record.id)) {
+          throw new Error(`setSpecializedRecord: no specialized record '${record.id}'`);
+        }
+        this.assertSpecializedTableBounds(record, record.id);
+        this.specialized.set(record.id, record);
+        break;
+      }
+      case "removeSpecialized": {
+        if (edit.id === undefined) throw new Error("removeSpecialized requires id");
+        if (!this.specialized.has(edit.id)) {
+          throw new Error(`removeSpecialized: no specialized record '${edit.id}'`);
+        }
+        this.specialized.delete(edit.id);
         break;
       }
       case "addRevision": {
@@ -3213,6 +3320,29 @@ export class CADDocument {
         if (existing === undefined) throw new Error(`removePropertyDef: no property definition '${edit.propertyDefId}'`);
         return { type: "addPropertyDef", propertyDef: existing };
       }
+      // CAD-PARITY-018 (Issue #118): the specialized-toolsets inverses (the
+      // full-record restore pattern — undo of add is remove; undo of remove
+      // re-adds the exact record; undo of setRecord restores the previous
+      // record byte-identically).
+      case "addSpecialized": {
+        if (edit.record === undefined) throw new Error("addSpecialized requires record");
+        const record = normalizeToolsetRecord(edit.record);
+        return { type: "removeSpecialized", id: record.id };
+      }
+      case "setSpecializedRecord": {
+        if (edit.id === undefined || edit.record === undefined) {
+          throw new Error("setSpecializedRecord requires id + record");
+        }
+        const current = this.specialized.get(edit.id);
+        if (current === undefined) throw new Error(`setSpecializedRecord: no specialized record '${edit.id}'`);
+        return { type: "setSpecializedRecord", id: edit.id, record: current };
+      }
+      case "removeSpecialized": {
+        if (edit.id === undefined) throw new Error("removeSpecialized requires id");
+        const existing = this.specialized.get(edit.id);
+        if (existing === undefined) throw new Error(`removeSpecialized: no specialized record '${edit.id}'`);
+        return { type: "addSpecialized", record: existing };
+      }
       case "addRevision": {
         if (edit.revision === undefined) throw new Error("addRevision requires revision");
         const revision = validateRevisionRecord(edit.revision);
@@ -3642,6 +3772,73 @@ export class CADDocument {
   /** CAD-PARITY-015: current mint counter for property-definition identities. */
   get propertyDefSequence(): number {
     return this.nextPropertyDefSequence;
+  }
+
+  /** CAD-PARITY-018: mint a canonical specialized-record identity
+   *  (`tls-NNNNNN`, monotonic, never reused) — document authority. */
+  mintSpecializedId(): string {
+    const minted = `tls-${String(this.nextSpecializedSequence).padStart(6, "0")}`;
+    this.nextSpecializedSequence += 1;
+    return minted;
+  }
+
+  /** CAD-PARITY-018: the specialized-toolsets record table (insertion
+   *  order — mint order, deterministic). */
+  get specializedTable(): readonly SpecializedRecord[] {
+    return [...this.specialized.values()];
+  }
+
+  /** CAD-PARITY-018: look up a specialized record by canonical id. */
+  specializedById(id: string): SpecializedRecord | undefined {
+    return this.specialized.get(id);
+  }
+
+  /** CAD-PARITY-018: the raster sources carrying a given sourceRef (the
+   *  uniqueness basis). */
+  specializedRasterSourceByRef(sourceRef: string): SpecializedRecord | undefined {
+    for (const rec of this.specialized.values()) {
+      if (rec.kind === "raster.source" && rec.data.sourceRef === sourceRef) return rec;
+    }
+    return undefined;
+  }
+
+  /** CAD-PARITY-018: current mint counter for specialized identities. */
+  get specializedSequence(): number {
+    return this.nextSpecializedSequence;
+  }
+
+  /** CAD-PARITY-018 (Issue #118): the per-kind specialized table bounds +
+   *  raster sourceRef uniqueness (typed messages; the document is the
+   *  table authority — the pure toolsets-core validators have no table
+   *  access, so the closed bounds are enforced here). */
+  private assertSpecializedTableBounds(record: SpecializedRecord, excludeId: string | null): void {
+    let count = 0;
+    for (const rec of this.specialized.values()) {
+      if (excludeId !== null && rec.id === excludeId) continue;
+      if (rec.kind === record.kind) count += 1;
+    }
+    const bounds: Record<string, number> = {
+      "mep.run": TOOLSETS_TABLE_BOUNDS.maxRuns,
+      "mech.equipment": TOOLSETS_TABLE_BOUNDS.maxEquipment,
+      "raster.source": TOOLSETS_TABLE_BOUNDS.maxRasterSources,
+      "raster.reference": TOOLSETS_TABLE_BOUNDS.maxRasterReferences,
+    };
+    const max = bounds[record.kind] ?? 0;
+    if (count + 1 > max) {
+      throw new Error(
+        `addSpecialized: the ${record.kind} table is full (${max} records — the closed specialized-toolsets bound)`,
+      );
+    }
+    if (record.kind === "raster.source") {
+      for (const rec of this.specialized.values()) {
+        if (excludeId !== null && rec.id === excludeId) continue;
+        if (rec.kind === "raster.source" && rec.data.sourceRef === record.data.sourceRef) {
+          throw new Error(
+            `addSpecialized: raster sourceRef '${record.data.sourceRef}' is already registered (source references are unique among raster sources)`,
+          );
+        }
+      }
+    }
   }
 
   /** The revision records (insertion order). */

@@ -36,6 +36,22 @@ import type {
   ModelHistory,
   ModelReplayResult,
 } from "@offisos/cad-app-shell/contracts/model";
+// CAD-PARITY-018 (additive, Issue #118): the specialized-toolsets shared
+// contract view types (pure — browser-safe type-only import).
+import type {
+  MechEquipmentData,
+  MepClashDiagnostic,
+  MepConnection,
+  MepConnectionEnd,
+  MepConnectionTarget,
+  MepRouteViolation,
+  MepRunData,
+  RasterReferenceData,
+  RasterSourceData,
+  RasterStatusReport,
+  RasterTraceResult,
+  ToolsetCapabilityView,
+} from "@offisos/cad-app-shell/contracts/toolsets";
 
 /** Send a CommandQueryRequest over the Web transport. */
 export async function send(
@@ -3382,4 +3398,359 @@ export function unwrapAutomationRun(res: CommandQueryResponse): AutomationRunRow
   const v = res.value as { run?: unknown } | null;
   if (typeof v !== "object" || v === null || typeof v.run !== "object") return null;
   return v.run as AutomationRunRow;
+}
+
+// ---------------------------------------------------------------------------
+// CAD-PARITY-018 (additive, Issue #118): the specialized-toolsets transport
+// mirrors — the typed client surface of the Toolsets workbench. The four
+// professional toolsets (architecture composition, bounded MEP runs,
+// mechanical equipment, raster/underlay references) are CLIENTS of the
+// governed semantic App API: every mutating wrapper dispatches through the
+// SAME command path (the only mutation route), and the specialized records
+// are document-owned rows of the CADDocument specialized table (LOCK-019 —
+// the CADDocument stays the canonical system of record).
+// ---------------------------------------------------------------------------
+
+// --- the architecture composition commands (over the verified BIM
+// primitives — ONE atomic element batch per command) -------------------------
+
+/** `toolset.archWallRun` input (multi-segment wall run from a polyline). */
+export interface ToolsetArchWallRunInput {
+  readonly storyId: string;
+  readonly polyline: readonly { x: number; y: number }[];
+  readonly widthMm: number;
+  readonly heightMm: number;
+  readonly name?: string;
+  readonly junctions?: "none" | "openings";
+}
+
+/** `toolset.archWallRun` (command) — compose a multi-segment wall run with
+ *  deterministic per-segment names and optional junction openings. */
+export async function toolsetArchWallRun(input: ToolsetArchWallRunInput): Promise<CommandQueryResponse> {
+  return command("toolset.archWallRun", input);
+}
+
+/** `toolset.archHostedOpening` (command) — place a hosted door/window
+ *  opening into an existing wall (the P011 host binding). */
+export async function toolsetArchHostedOpening(input: {
+  readonly wallId: string;
+  readonly kind: "door" | "window";
+  readonly tAlongWall: number;
+  readonly widthMm: number;
+  readonly heightMm: number;
+  readonly sillMm?: number;
+  readonly swing?: "left" | "right";
+  readonly name?: string;
+}): Promise<CommandQueryResponse> {
+  return command("toolset.archHostedOpening", input);
+}
+
+/** `toolset.archRoof` (command) — place a parametric gable roof over an
+ *  axis-aligned footprint. */
+export async function toolsetArchRoof(input: {
+  readonly storyId: string;
+  readonly corner1: { x: number; y: number };
+  readonly corner2: { x: number; y: number };
+  readonly ridgeAxis?: "x" | "y";
+  readonly heightMm: number;
+  readonly baseOffsetMm?: number;
+  readonly topStoryId?: string;
+  readonly name?: string;
+}): Promise<CommandQueryResponse> {
+  return command("toolset.archRoof", input);
+}
+
+/** `toolset.archStairRun` (command) — place a single-flight stair with
+ *  optional deterministic side railings. */
+export async function toolsetArchStairRun(input: {
+  readonly storyId: string;
+  readonly topStoryId: string;
+  readonly start: { x: number; y: number };
+  readonly directionDeg?: number;
+  readonly widthMm: number;
+  readonly stepCount: number;
+  readonly treadMm: number;
+  readonly baseOffsetMm?: number;
+  readonly landingLengthMm?: number;
+  readonly railings?: "none" | "left" | "right" | "both";
+  readonly handrailHeightMm?: number;
+  readonly name?: string;
+}): Promise<CommandQueryResponse> {
+  return command("toolset.archStairRun", input);
+}
+
+/** `toolset.archSpaceGrid` (command) — compose a rectangular space grid
+ *  with deterministic `prefix-<col>-<row>` names. */
+export async function toolsetArchSpaceGrid(input: {
+  readonly storyId: string;
+  readonly origin: { x: number; y: number };
+  readonly cols: number;
+  readonly rows: number;
+  readonly cellWidthMm: number;
+  readonly cellHeightMm: number;
+  readonly prefix?: string;
+  readonly heightMm?: number;
+  readonly baseOffsetMm?: number;
+}): Promise<CommandQueryResponse> {
+  return command("toolset.archSpaceGrid", input);
+}
+
+/** `toolset.archDimChain` (command) — compose an aligned linear-dimension
+ *  chain over consecutive points (drafting annotation elements). */
+export async function toolsetArchDimChain(input: {
+  readonly points: readonly { x: number; y: number }[];
+  readonly offsetMm?: number;
+  readonly layer?: string;
+}): Promise<CommandQueryResponse> {
+  return command("toolset.archDimChain", input);
+}
+
+/** `toolset.archComponentArray` (command) — compose a rectangular
+ *  component-instance array at deterministic offsets. */
+export async function toolsetArchComponentArray(input: {
+  readonly definitionId: string;
+  readonly storyId: string;
+  readonly origin: { x: number; y: number };
+  readonly cols: number;
+  readonly rows: number;
+  readonly dxMm: number;
+  readonly dyMm: number;
+  readonly rotation?: number;
+  readonly baseOffsetMm?: number;
+  readonly namePrefix?: string;
+}): Promise<CommandQueryResponse> {
+  return command("toolset.archComponentArray", input);
+}
+
+// --- the MEP record commands (document-owned `tls-` rows) --------------------
+
+/** `toolset.mepAddRun` (command) — add one bounded MEP run record. */
+export async function toolsetMepAddRun(run: MepRunData): Promise<CommandQueryResponse> {
+  return command("toolset.mepAddRun", { run });
+}
+
+/** `toolset.mepSetRun` (command) — replace one MEP run record
+ *  (full-record restore semantics). */
+export async function toolsetMepSetRun(id: string, run: MepRunData): Promise<CommandQueryResponse> {
+  return command("toolset.mepSetRun", { id, run });
+}
+
+/** `toolset.mepRemoveRun` (command) — remove one MEP run record. */
+export async function toolsetMepRemoveRun(id: string): Promise<CommandQueryResponse> {
+  return command("toolset.mepRemoveRun", { id });
+}
+
+/** `toolset.mepConnect` (command) — connect one run end to an equipment
+ *  port, another run end or a free endpoint (in-record connection). */
+export async function toolsetMepConnect(
+  runId: string,
+  at: MepConnectionEnd,
+  target: MepConnectionTarget,
+): Promise<CommandQueryResponse> {
+  return command("toolset.mepConnect", { runId, at, target });
+}
+
+// --- the mechanical record commands -------------------------------------------
+
+/** `toolset.mechAddEquipment` (command) — add one bounded mechanical
+ *  equipment record with ordinal ports. */
+export async function toolsetMechAddEquipment(equipment: MechEquipmentData): Promise<CommandQueryResponse> {
+  return command("toolset.mechAddEquipment", { equipment });
+}
+
+/** `toolset.mechSetEquipment` (command) — replace one equipment record
+ *  (full-record restore semantics). */
+export async function toolsetMechSetEquipment(id: string, equipment: MechEquipmentData): Promise<CommandQueryResponse> {
+  return command("toolset.mechSetEquipment", { id, equipment });
+}
+
+/** `toolset.mechRemoveEquipment` (command) — remove one equipment record. */
+export async function toolsetMechRemoveEquipment(id: string): Promise<CommandQueryResponse> {
+  return command("toolset.mechRemoveEquipment", { id });
+}
+
+/** `toolset.mechArray` (command) — compose the deterministic equipment
+ *  array (ports move with each instance). */
+export async function toolsetMechArray(
+  equipmentId: string,
+  cols: number,
+  rows: number,
+  dxMm: number,
+  dyMm: number,
+): Promise<CommandQueryResponse> {
+  return command("toolset.mechArray", { equipmentId, cols, rows, dxMm, dyMm });
+}
+
+// --- the raster/underlay commands ----------------------------------------------
+
+/** `toolset.rasterAddSource` (command) — register one raster underlay
+ *  source record (identity + digest + optional bounded lineWork). */
+export async function toolsetRasterAddSource(source: RasterSourceData): Promise<CommandQueryResponse> {
+  return command("toolset.rasterAddSource", { source });
+}
+
+/** `toolset.rasterAttach` (command) — attach one raster reference to a
+ *  registered source (typed missing-reference decline otherwise). */
+export async function toolsetRasterAttach(reference: RasterReferenceData): Promise<CommandQueryResponse> {
+  return command("toolset.rasterAttach", { reference });
+}
+
+/** `toolset.rasterSetReference` (command) — replace one raster reference
+ *  record (full-record restore semantics). */
+export async function toolsetRasterSetReference(id: string, reference: RasterReferenceData): Promise<CommandQueryResponse> {
+  return command("toolset.rasterSetReference", { id, reference });
+}
+
+/** `toolset.rasterRemoveReference` (command) — remove one reference record. */
+export async function toolsetRasterRemoveReference(id: string): Promise<CommandQueryResponse> {
+  return command("toolset.rasterRemoveReference", { id });
+}
+
+/** `toolset.rasterCommitTrace` (command) — commit the traced vectors of one
+ *  reference as CANONICAL line elements (lineage in props; the only
+ *  authoritative path for trace geometry). */
+export async function toolsetRasterCommitTrace(
+  referenceId: string,
+  vectorIndices?: readonly number[],
+): Promise<CommandQueryResponse> {
+  return command(
+    "toolset.rasterCommitTrace",
+    vectorIndices !== undefined ? { referenceId, vectorIndices } : { referenceId },
+  );
+}
+
+// --- the specialized-toolsets queries -------------------------------------------
+
+/** `toolset.capabilities` (query) — the versioned typed
+ * specialized-toolsets capability discovery table. */
+export async function toolsetCapabilities(): Promise<CommandQueryResponse> {
+  return query("toolset.capabilities", {});
+}
+
+/** `toolset.listRecords` (query) — the specialized-record inventory
+ *  (id-sorted rows; optional toolset/kind filters). */
+export async function toolsetListRecords(
+  filter?: { toolset?: string; kind?: string },
+): Promise<CommandQueryResponse> {
+  return query("toolset.listRecords", filter ?? {});
+}
+
+/** `toolset.mepValidateRoute` (query) — the deterministic route violations
+ *  of one MEP run. */
+export async function toolsetMepValidateRoute(id: string): Promise<CommandQueryResponse> {
+  return query("toolset.mepValidateRoute", { id });
+}
+
+/** `toolset.mepClashReport` (query) — the deterministic clash/clearance
+ *  diagnostics of the MEP runs against the canonical wall/slab bodies. */
+export async function toolsetMepClashReport(clearanceMm?: number): Promise<CommandQueryResponse> {
+  return query("toolset.mepClashReport", clearanceMm !== undefined ? { clearanceMm } : {});
+}
+
+/** `toolset.rasterStatus` (query) — the fresh ok/stale/missing reference
+ *  status table with typed reasons. */
+export async function toolsetRasterStatus(): Promise<CommandQueryResponse> {
+  return query("toolset.rasterStatus", {});
+}
+
+/** `toolset.rasterTrace` (query) — the typed NON-AUTHORITATIVE trace
+ *  derivation of one reference (never canonical geometry unless committed). */
+export async function toolsetRasterTrace(referenceId: string): Promise<CommandQueryResponse> {
+  return query("toolset.rasterTrace", { referenceId });
+}
+
+// --- The P018 view types the workbench renders ----------------------------------
+
+/** The versioned discovery view of `toolset.capabilities`. */
+export interface ToolsetCapabilitiesView {
+  readonly apiVersion: string;
+  readonly capabilities: readonly ToolsetCapabilityView[];
+  readonly documentVersion: number;
+  readonly contentHash: string;
+}
+
+/** One id-sorted specialized-record inventory row of `toolset.listRecords`. */
+export interface SpecializedRecordRow {
+  readonly id: string;
+  readonly toolset: string;
+  readonly kind: string;
+}
+
+/** One document-owned specialized record (the `tls-NNNNNN` rows). */
+export interface SpecializedRecordView {
+  readonly id: string;
+  readonly toolset: string;
+  readonly kind: string;
+  readonly data: unknown;
+}
+
+/** The route-validation report of `toolset.mepValidateRoute`. */
+export interface MepRouteReportView {
+  readonly id: string;
+  readonly domain: string;
+  readonly violations: readonly MepRouteViolation[];
+}
+
+/** The clash/clearance report of `toolset.mepClashReport`. */
+export interface MepClashReportView {
+  readonly clearanceMm: number;
+  readonly diagnostics: readonly MepClashDiagnostic[];
+  readonly runCount: number;
+}
+
+/** The raster status view of `toolset.rasterStatus`. */
+export interface RasterStatusView {
+  readonly statuses: readonly RasterStatusReport[];
+  readonly referenceCount: number;
+}
+
+// --- The unwraps ----------------------------------------------------------------
+
+export function unwrapToolsetCapabilities(res: CommandQueryResponse): ToolsetCapabilitiesView | null {
+  if (!res.ok) return null;
+  const v = res.value as ToolsetCapabilitiesView | null;
+  if (typeof v !== "object" || v === null || !Array.isArray(v.capabilities)) return null;
+  return v;
+}
+
+export function unwrapToolsetListRecords(res: CommandQueryResponse): { records: readonly SpecializedRecordRow[]; count: number } | null {
+  if (!res.ok) return null;
+  const v = res.value as { records?: unknown; count?: unknown } | null;
+  if (typeof v !== "object" || v === null || !Array.isArray(v.records)) return null;
+  return v as { records: readonly SpecializedRecordRow[]; count: number };
+}
+
+export function unwrapSpecializedRecord(res: CommandQueryResponse): SpecializedRecordView | null {
+  if (!res.ok) return null;
+  const v = res.value as { record?: unknown } | null;
+  if (typeof v !== "object" || v === null || typeof v.record !== "object" || v.record === null) return null;
+  return v.record as SpecializedRecordView;
+}
+
+export function unwrapMepRouteReport(res: CommandQueryResponse): MepRouteReportView | null {
+  if (!res.ok) return null;
+  const v = res.value as MepRouteReportView | null;
+  if (typeof v !== "object" || v === null || !Array.isArray(v.violations)) return null;
+  return v;
+}
+
+export function unwrapMepClashReport(res: CommandQueryResponse): MepClashReportView | null {
+  if (!res.ok) return null;
+  const v = res.value as MepClashReportView | null;
+  if (typeof v !== "object" || v === null || !Array.isArray(v.diagnostics)) return null;
+  return v;
+}
+
+export function unwrapRasterStatus(res: CommandQueryResponse): RasterStatusView | null {
+  if (!res.ok) return null;
+  const v = res.value as RasterStatusView | null;
+  if (typeof v !== "object" || v === null || !Array.isArray(v.statuses)) return null;
+  return v;
+}
+
+export function unwrapRasterTrace(res: CommandQueryResponse): RasterTraceResult | null {
+  if (!res.ok) return null;
+  const v = res.value as RasterTraceResult | null;
+  if (typeof v !== "object" || v === null || !Array.isArray(v.vectors)) return null;
+  return v;
 }
