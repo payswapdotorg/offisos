@@ -74,6 +74,19 @@ interface CorpusCatalog {
   readonly totals: { readonly workflows: number; readonly phases: number; readonly expectations: number; readonly interop: number };
 }
 
+// CAD-PARITY-020 (additive): the derived ARCHICAD corpus catalog — the second
+// version-pinned certification corpus (Graphisoft Archicad 27; the command
+// bindings are ALL semantic analogs — Archicad documents no command line).
+interface ArchicadCorpusCatalog {
+  readonly corpus: { readonly id: string; readonly version: string; readonly referenceProduct: string; readonly sha256: string };
+  readonly sources: readonly CatalogSource[];
+  readonly commandBindings: { readonly semanticAnalogs: readonly (CatalogCommand & { readonly archicadReference?: string })[] };
+  readonly workflows: readonly CatalogWorkflow[];
+  readonly totals: { readonly workflows: number; readonly phases: number; readonly expectations: number; readonly interop: number };
+}
+
+type CorpusKind = "autocad" | "archicad";
+
 const OUTCOME_STYLE: Record<string, string> = {
   exact: "bg-emerald-100 text-emerald-800 border-emerald-300",
   tolerance: "bg-emerald-100 text-emerald-800 border-emerald-300",
@@ -110,6 +123,8 @@ interface ToolsetsRowView {
 
 export function CertificationWorkbench() {
   const [catalog, setCatalog] = React.useState<CorpusCatalog | null>(null);
+  const [archicadCatalog, setArchicadCatalog] = React.useState<ArchicadCorpusCatalog | null>(null);
+  const [corpusKind, setCorpusKind] = React.useState<CorpusKind>("autocad");
   const [dxf, setDxf] = React.useState<DxfLiveState | null>(null);
   const [rows, setRows] = React.useState<readonly ToolsetsRowView[] | null>(null);
   const [sheetDigest, setSheetDigest] = React.useState<{ format: string; stable: boolean; sha12: string } | null>(null);
@@ -130,11 +145,30 @@ export function CertificationWorkbench() {
       } catch (e) {
         if (!cancelled) setError((e as Error).message);
       }
+      try {
+        const r = await send({ type: "query", name: "certification.archicadCatalog", payload: {} });
+        if (!r.ok) throw new Error(`${r.code}: ${r.message}`);
+        if (!cancelled) setArchicadCatalog(r.value as ArchicadCorpusCatalog);
+      } catch (e) {
+        if (!cancelled) setError((e as Error).message);
+      }
     })();
     return () => {
       cancelled = true;
     };
   }, []);
+
+  // The ACTIVE catalog (the selected corpus) — both derive live through the
+  // governed App API; the selector only switches which canonical corpus is
+  // rendered (nothing is hard-coded for either corpus).
+  const active =
+    corpusKind === "autocad"
+      ? catalog === null
+        ? null
+        : { kind: "autocad" as const, data: catalog }
+      : archicadCatalog === null
+        ? null
+        : { kind: "archicad" as const, data: archicadCatalog };
 
   const runDxf = React.useCallback(async () => {
     setBusy("dxf");
@@ -208,23 +242,56 @@ export function CertificationWorkbench() {
       <Card>
         <CardHeader className="pb-2">
           <CardTitle className="flex items-center gap-2 text-sm">
-            <ShieldCheck className="h-4 w-4" /> The version-pinned AutoCAD certification corpus
+            <ShieldCheck className="h-4 w-4" /> The version-pinned certification corpora
           </CardTitle>
           <CardDescription className="text-xs">
-            {catalog === null ? (
-              "Loading the canonical corpus catalog through the governed App API…"
+            {active === null ? (
+              "Loading the canonical corpus catalogs through the governed App API…"
             ) : (
               <>
-                {catalog.corpus.id}/{catalog.corpus.version} (sha256 {catalog.corpus.sha256.slice(0, 12)}…) — pinned against{" "}
-                {catalog.corpus.referenceProduct}. Every expectation is bound to a version-pinned authoritative Autodesk
-                source (the reference manifest below, included in the corpus digest) — independently auditable, and every
+                {active.data.corpus.id}/{active.data.corpus.version} (sha256 {active.data.corpus.sha256.slice(0, 12)}…) — pinned against{" "}
+                {active.data.corpus.referenceProduct}. Every expectation is bound to a version-pinned authoritative{" "}
+                {active.kind === "autocad" ? "Autodesk" : "Graphisoft"} source (the reference manifest below, included in
+                the corpus digest) — independently auditable, and every
                 measurement is against THIS declared corpus.
+                {active.kind === "archicad" && (
+                  <>
+                    {" "}
+                    Graphisoft documents Archicad 27 with NO command-line interface — every Offisos surface the corpus
+                    drives is an explicit semantic analog (never an "Archicad command").
+                  </>
+                )}
               </>
             )}
           </CardDescription>
         </CardHeader>
+        <div className="flex flex-wrap items-center gap-1 px-6 pb-1 text-xs">
+          <span className="mr-1 text-muted-foreground">Corpus:</span>
+          <button
+            type="button"
+            onClick={() => setCorpusKind("autocad")}
+            className={`rounded border px-2 py-0.5 font-mono text-[10px] ${
+              corpusKind === "autocad"
+                ? "border-emerald-300 bg-emerald-50 text-emerald-800"
+                : "border-gray-300 bg-white text-gray-600 hover:bg-gray-50"
+            }`}
+          >
+            AutoCAD (P019)
+          </button>
+          <button
+            type="button"
+            onClick={() => setCorpusKind("archicad")}
+            className={`rounded border px-2 py-0.5 font-mono text-[10px] ${
+              corpusKind === "archicad"
+                ? "border-emerald-300 bg-emerald-50 text-emerald-800"
+                : "border-gray-300 bg-white text-gray-600 hover:bg-gray-50"
+            }`}
+          >
+            Archicad (P020)
+          </button>
+        </div>
         <CardContent className="pb-2">
-          {catalog === null ? (
+          {active === null ? (
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
               <RefreshCw className="h-3 w-3 animate-spin" /> Deriving the catalog from the canonical corpus…
             </div>
@@ -240,7 +307,7 @@ export function CertificationWorkbench() {
                   </tr>
                 </thead>
                 <tbody>
-                  {catalog.workflows.map((wf) => (
+                  {active.data.workflows.map((wf) => (
                     <tr key={wf.id} className="border-b last:border-0">
                       <td className="py-1 pr-2">
                         <span className="font-mono text-[10px] text-muted-foreground">{wf.id}</span>
@@ -254,8 +321,8 @@ export function CertificationWorkbench() {
                   <tr className="border-t font-medium">
                     <td className="py-1 pr-2">Total (derived from the canonical corpus)</td>
                     <td />
-                    <td className="py-1 pr-2 text-right tabular-nums">{catalog.totals.phases}</td>
-                    <td className="py-1 text-right tabular-nums">{catalog.totals.expectations}</td>
+                    <td className="py-1 pr-2 text-right tabular-nums">{active.data.totals.phases}</td>
+                    <td className="py-1 text-right tabular-nums">{active.data.totals.expectations}</td>
                   </tr>
                 </tbody>
               </table>
@@ -264,21 +331,21 @@ export function CertificationWorkbench() {
         </CardContent>
       </Card>
 
-      {catalog !== null && (
+      {active !== null && (
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="flex items-center gap-2 text-sm">
-              <BookOpen className="h-4 w-4" /> The auditable Autodesk reference manifest (version-pinned, digest-bound)
+              <BookOpen className="h-4 w-4" /> The auditable {active.kind === "autocad" ? "Autodesk" : "Graphisoft Archicad 27"} reference manifest (version-pinned, digest-bound)
             </CardTitle>
             <CardDescription className="text-xs">
-              The authoritative Autodesk documentation sources every workflow/expectation cites (URL + document ID +
-              command/topic scope) — included in the corpus sha256, so any reference change changes the corpus identity.
+              The authoritative {active.kind === "autocad" ? "Autodesk" : "Graphisoft"} documentation sources every workflow/expectation cites (URL + document
+              path + tool/topic scope) — included in the corpus sha256, so any reference change changes the corpus identity.
             </CardDescription>
           </CardHeader>
           <CardContent className="pb-2">
             <ScrollArea className="max-h-40">
               <ul className="space-y-1 text-xs">
-                {catalog.sources.map((s) => (
+                {active.data.sources.map((s) => (
                   <li key={s.id} className="border-b pb-1 last:border-0">
                     <span className="font-mono text-[10px] text-muted-foreground">{s.id}</span>
                     <div>
@@ -296,40 +363,57 @@ export function CertificationWorkbench() {
         </Card>
       )}
 
-      {catalog !== null && (
+      {active !== null && (
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="flex items-center gap-2 text-sm">
-              <ArrowRightLeft className="h-4 w-4" /> The command bindings (Autodesk-documented + the explicit semantic analogs)
+              <ArrowRightLeft className="h-4 w-4" />{" "}
+              {active.kind === "autocad"
+                ? "The command bindings (Autodesk-documented + the explicit semantic analogs)"
+                : "The command-analog map (every Offisos surface bound to its Graphisoft-documented reference)"}
             </CardTitle>
             <CardDescription className="text-xs">
-              Every command-line surface the corpus drives is bound: the Autodesk-documented 2024 commands (direct references)
-              and the Offisos surfaces that are NOT Autodesk commands (semantic analogs of the documented behaviors — never
-              claimed Autodesk command names; the honest rev-2 disclosure).
+              {active.kind === "autocad" ? (
+                <>
+                  Every command-line surface the corpus drives is bound: the Autodesk-documented 2024 commands (direct references)
+                  and the Offisos surfaces that are NOT Autodesk commands (semantic analogs of the documented behaviors — never
+                  claimed Autodesk command names; the honest rev-2 disclosure).
+                </>
+              ) : (
+                <>
+                  Graphisoft documents Archicad 27 with NO command-line interface — every Offisos surface the corpus drives is
+                  an EXPLICIT semantic analog of a documented Archicad 27 tool/workflow (never an "Archicad command"; the
+                  closed partition is enforced by the app-suite invariant test).
+                </>
+              )}
             </CardDescription>
           </CardHeader>
           <CardContent className="pb-2">
             <ScrollArea className="max-h-48">
               <div className="space-y-2 text-xs">
-                <div>
-                  <div className="mb-1 font-medium">Autodesk-documented commands invoked ({catalog.commandBindings.autodeskDocumented.length}):</div>
-                  <div className="flex flex-wrap gap-1">
-                    {catalog.commandBindings.autodeskDocumented.map((c) => (
-                      <span key={c.command} title={`${c.autodeskCommand} — source ${c.source}`} className="inline-flex items-center rounded border border-emerald-300 bg-emerald-50 px-1.5 py-0.5 font-mono text-[10px] text-emerald-800">
-                        {c.command}
-                      </span>
-                    ))}
+                {active.kind === "autocad" && "autodeskDocumented" in active.data.commandBindings && (
+                  <div>
+                    <div className="mb-1 font-medium">Autodesk-documented commands invoked ({active.data.commandBindings.autodeskDocumented.length}):</div>
+                    <div className="flex flex-wrap gap-1">
+                      {active.data.commandBindings.autodeskDocumented.map((c) => (
+                        <span key={c.command} title={`${c.autodeskCommand} — source ${c.source}`} className="inline-flex items-center rounded border border-emerald-300 bg-emerald-50 px-1.5 py-0.5 font-mono text-[10px] text-emerald-800">
+                          {c.command}
+                        </span>
+                      ))}
+                    </div>
                   </div>
-                </div>
+                )}
                 <div>
-                  <div className="mb-1 font-medium">Offisos semantic analogs (bound to their Autodesk references):</div>
+                  <div className="mb-1 font-medium">
+                    Offisos semantic analogs (bound to their {active.kind === "autocad" ? "Autodesk" : "Graphisoft Archicad 27"} references):
+                  </div>
                   <table className="w-full">
                     <tbody>
-                      {catalog.commandBindings.semanticAnalogs.map((a) => (
+                      {active.data.commandBindings.semanticAnalogs.map((a) => (
                         <tr key={a.offisosSurface} className="border-b last:border-0 align-top">
                           <td className="py-1 pr-2 font-mono text-[10px] whitespace-nowrap">{a.offisosSurface}</td>
                           <td className="py-1 pr-2 text-[10px] text-muted-foreground">{a.surface}</td>
-                          <td className="py-1">{a.autodeskReference}</td>
+                          <td className="py-1">{a.archicadReference ?? a.autodeskReference}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -430,7 +514,8 @@ export function CertificationWorkbench() {
       </Card>
 
       <div className="mt-auto rounded border bg-muted/40 px-3 py-2 text-[10px] leading-relaxed text-muted-foreground">
-        CAD-PARITY-019: the certification program evaluates integrated professional workflows across semantics, persistence,
+        CAD-PARITY-019/P020: the certification program evaluates integrated professional workflows (the AutoCAD-class and the
+        Archicad-class corpora) across semantics, persistence,
         real UI task completion, interoperability (explicit EXACT/LOSSY/UNSUPPORTED) and performance/robustness against the
         version-pinned corpus. The certification evidence is produced by the deterministic certification engine
         (app/src/certification) through the real command registry and the App API — pinned by the certification fixture and
