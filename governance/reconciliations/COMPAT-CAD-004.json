@@ -1,8 +1,8 @@
 {
   "id": "REC-COMPAT-CAD-004",
   "work_item": "COMPAT-CAD-004",
-  "status": "STAGED",
-  "problem": "COMPAT-CAD-004 contains one immutable historical governance defect after completion of the non-event-changing ledger recording gaps: transition #8 APPROVED -> MERGED was physically performed and recorded under role architect, while the frozen lifecycle authorizes that edge only to product-owner or implementer. The original transition must remain unchanged; the defect is reconciled explicitly under ACR-005.",
+  "status": "DECIDED",
+  "problem": "COMPAT-CAD-004 contains one immutable historical governance defect after completion of the non-event-changing ledger recording gaps: transition #8 APPROVED -> MERGED was physically performed and recorded under role architect, while the frozen lifecycle authorizes that edge only to product-owner or implementer. The original transition remains unchanged; the defect is reconciled explicitly under ACR-005.",
   "defects": [
     {
       "rule": "transition-legality",
@@ -18,5 +18,25 @@
       "explanation": "The merge was performed on the repository by the owner account while acting in the Architect governance role. The event and merge commit are genuine and already immutable; only the governance role attribution violates the frozen state-machine authorization for this edge. Reconciliation preserves the audit fact and does not authorize future architect-led merges."
     }
   ],
-  "acr": "ACR-005"
+  "evidence": [
+    {
+      "id": "EV-001",
+      "type": "ci-run",
+      "description": "Revision-bound post-merge verification for COMPAT-CAD-004: merge head 3844bff4a1141b5536d432e7f4653b78a182d821 had a terminal-success dedicated COMPAT-CAD-004 run and clean merge-head workflow matrix; governance run 33744735354 completed successfully before subsequent governance-record repairs.",
+      "produced_at": "2026-09-03T11:44:00Z",
+      "reproducible": true,
+      "reproduction": "Query GitHub Actions for the merge-head commit and inspect dedicated run 33744735415 and governance run 33744735354.",
+      "references": {
+        "commit": "3844bff4a1141b5536d432e7f4653b78a182d821",
+        "workflow_run": "33744735415",
+        "path": ".github/workflows/compat-cad-004.yml"
+      }
+    }
+  ],
+  "acr": "ACR-005",
+  "decided_by": "pectoraux",
+  "role": "architect",
+  "decided_at": "2026-09-03T11:58:00Z",
+  "rationale": "The cited defect is a single immutable historical authorization mismatch on an already-merged work item. The non-event-changing decision and merge-reference recording gaps have been completed in the work-item record, while the original architect-role merge event remains verbatim. ACR-005 is approved, the defect citation is exact, and the reconciliation mechanism is limited to this one enumerated violation. No evidence, revision-binding, architecture or future lifecycle rule is waived.",
+  "remediation": "Accept COMPAT-CAD-004 as reconciled and retain VERIFIED status under the normal evidence and revision-binding rules. The reconciliation authorizes no future architect-led APPROVED -> MERGED transitions; all future work items must obey the frozen lifecycle roles."
 }
