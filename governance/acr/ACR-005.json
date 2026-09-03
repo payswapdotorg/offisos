@@ -1,7 +1,7 @@
 {
   "id": "ACR-005",
   "title": "Sanction historical governance reconciliation for COMPAT-CAD-004",
-  "status": "PROPOSED",
+  "status": "APPROVED",
   "requested_by": "pectoraux",
   "requested_at": "2026-09-03T11:55:00Z",
   "problem": "COMPAT-CAD-004 reached MERGED and VERIFIED in the immutable ledger, but the recorded ARCHITECT_REVIEW -> APPROVED transition lacks its required decision reference, the APPROVED -> MERGED transition is recorded under an architect role that the frozen state machine does not authorize and lacks its required merge_commit reference, and the MERGED -> VERIFIED transition lacks its required decision reference. These are historical governance-record defects discovered during post-merge governance validation; they must not be repaired by rewriting the historical transitions.",
@@ -26,5 +26,19 @@
   "architecture_version_to": "1.1",
   "authorized_paths": [],
   "related_issue": 121,
-  "provenance": "Architect-directed remediation discovered during verification of COMPAT-CAD-004 after merge; the repository already contains the approved ARCH-WF-002 reconciliation mechanism and ACR-003/ACR-004 precedents."
+  "provenance": "Architect-directed remediation discovered during verification of COMPAT-CAD-004 after merge; the repository already contains the approved ARCH-WF-002 reconciliation mechanism and ACR-003/ACR-004 precedents.",
+  "review": {
+    "reviewed_by": "pectoraux",
+    "role": "architect",
+    "reviewed_at": "2026-09-03T11:56:00Z",
+    "verdict": "endorsed",
+    "rationale": "The requested reconciliation is narrowly confined to the immutable COMPAT-CAD-004 governance defects observed by the frozen validator. It preserves the original history, does not alter Architecture v1.1, does not waive evidence or revision binding, and follows the already-approved ARCH-WF-002 reconciliation mechanism."
+  },
+  "approval": {
+    "approved_by": "pectoraux",
+    "role": "product-owner",
+    "approved_at": "2026-09-03T11:56:30Z",
+    "decision": "approved",
+    "rationale": "Product Owner authorization is recorded for the narrowly scoped COMPAT-CAD-004 historical governance reconciliation so the verified milestone can remain auditable without rewriting its immutable ledger history."
+  }
 }
