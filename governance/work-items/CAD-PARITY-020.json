@@ -42,8 +42,18 @@
     "Exact-head CI verification and deployment/browser evidence where applicable.",
     "Revision-bound governance evidence covering certification implementation, review and final verification."
   ],
-  "state": "DRAFT",
-  "transitions": [],
+  "state": "READY",
+  "transitions": [
+    {
+      "from": "DRAFT",
+      "to": "READY",
+      "label": "declare_ready",
+      "actor": "pectoraux",
+      "role": "architect",
+      "timestamp": "2026-09-03T20:10:00Z",
+      "reason": "P019 is VERIFIED, issue #123 is fully specified with objective, scope, acceptance criteria, non-goals, dependency, architecture constraints and revision-bound evidence requirements; it is eligible for assignment under the repository lifecycle."
+    }
+  ],
   "evidence": [],
   "decisions": []
 }
