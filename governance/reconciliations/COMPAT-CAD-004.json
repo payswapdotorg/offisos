@@ -1,0 +1,22 @@
+{
+  "id": "REC-COMPAT-CAD-004",
+  "work_item": "COMPAT-CAD-004",
+  "status": "STAGED",
+  "problem": "COMPAT-CAD-004 contains one immutable historical governance defect after completion of the non-event-changing ledger recording gaps: transition #8 APPROVED -> MERGED was physically performed and recorded under role architect, while the frozen lifecycle authorizes that edge only to product-owner or implementer. The original transition must remain unchanged; the defect is reconciled explicitly under ACR-005.",
+  "defects": [
+    {
+      "rule": "transition-legality",
+      "violation": "unauthorized-role",
+      "transition": 8,
+      "original": {
+        "from": "APPROVED",
+        "to": "MERGED",
+        "at": "2026-09-03T10:31:09Z",
+        "actor": "pectoraux",
+        "role": "architect"
+      },
+      "explanation": "The merge was performed on the repository by the owner account while acting in the Architect governance role. The event and merge commit are genuine and already immutable; only the governance role attribution violates the frozen state-machine authorization for this edge. Reconciliation preserves the audit fact and does not authorize future architect-led merges."
+    }
+  ],
+  "acr": "ACR-005"
+}
