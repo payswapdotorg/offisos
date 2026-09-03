@@ -1,0 +1,60 @@
+{
+  "id": "COMPAT-CAD-004",
+  "title": "Parametric constraints, associative drafting, reusable symbols/blocks and deterministic patterns",
+  "issue": 121,
+  "architecture_version": "1.1",
+  "requirements": [
+    "CAD-001",
+    "CAD-002",
+    "BIM-002",
+    "API-001"
+  ],
+  "dependencies": [
+    "CAD-PARITY-018",
+    "COMPAT-CAD-003",
+    "COMPAT-BIM-003"
+  ],
+  "objective": "Complete the bounded CAD/BIM product boundary defined by the Architecture v1.1 roadmap by adding deterministic parametric constraints, associative drafting, reusable 2D symbols/blocks, and deterministic mirror/array/pattern operations without changing frozen architecture or existing canonical boundaries.",
+  "acceptance_criteria": [
+    "Representative constrained drafting workflows execute deterministically through the governed typed App API.",
+    "Supported associative annotations and symbol relationships refresh deterministically from canonical source elements and report typed dangling/reference-loss outcomes without silent re-targeting.",
+    "Reusable 2D symbol/block definitions and instances persist through save/open/replay with exact document-owned canonical identities and lineage.",
+    "Mirror, rectangular/polar array and bounded pattern operations produce stable deterministic ordering and canonical identities and support exact undo/redo/replay.",
+    "Web and Electron execute the same semantic command/query stream and converge to equivalent persisted results and canonical content hashes.",
+    "Existing CAD-PARITY-002..018 and compatibility/BIM/IFC baselines remain green and pinned fixtures remain byte-identical except for explicitly declared additive migrations.",
+    "Renderer/application code remains free of native engine and host-specific imports and all native operations remain behind existing adapter/worker boundaries.",
+    "Constraint, association, block and pattern capabilities outside the bounded vocabulary return explicit typed deterministic failures and never fabricate semantics.",
+    "The new workflows are exercised through the real Web UI; Electron uses the same shared semantic host surface and receives parity evidence where applicable.",
+    "The exact final implementation head receives terminal CI evidence plus exact deployment/browser evidence where applicable and all governance evidence is revision-bound.",
+    "No protected architecture artifact changes; any necessary architecture change is routed through the ACR/version process."
+  ],
+  "non_goals": [
+    "Full nonlinear/general-purpose constraint solving.",
+    "Full AutoCAD, Archicad or Revit feature parity.",
+    "Arbitrary dynamic-block programming or unrestricted block scripting.",
+    "Proprietary DWG writer implementation.",
+    "Architecture changes without an ACR."
+  ],
+  "risk_assumptions": [
+    "CAD-PARITY-018 is VERIFIED on main at merge 3edd5506d972dc309b22c21baad7643f021f27d4 and is the immediate specialized-toolset predecessor.",
+    "COMPAT-CAD-003 is VERIFIED and provides the existing documentation/associative annotation foundation.",
+    "COMPAT-BIM-003 is VERIFIED and provides the canonical BIM information/component baseline.",
+    "Construction Graph remains authoritative and CADDocument remains the editor working representation.",
+    "ConstructionOS Architecture v1.1 remains frozen throughout the work item."
+  ],
+  "evidence_requirements": [
+    "Deterministic constraint grammar, validation and bounded solve/update tests with explicit typed unsupported outcomes.",
+    "Associative drafting tests covering source mutation, refresh determinism, dangling/reference-loss behavior and no silent re-targeting.",
+    "Reusable symbol/block definition and instance tests covering canonical identity, persistence, replay and exact undo/redo.",
+    "Mirror/array/pattern tests covering stable deterministic ordering, transforms, identities, persistence and reversibility.",
+    "Web/Electron semantic parity fixtures over representative workflows.",
+    "Pinned fixture and repeat-run byte-identity evidence.",
+    "Regression evidence that CAD-PARITY-002..018 and compatibility/BIM/IFC baselines remain green and byte-identical where required.",
+    "Engine/host forbidden-import boundary tests.",
+    "Real browser evidence for the new Web workflow and Electron evidence where a new Electron-only surface exists.",
+    "Exact-head CI verification and deployment/browser evidence where applicable.",
+    "Revision-bound governance evidence covering implementation, CI, deployment, merge and post-merge verification."
+  ],
+  "state": "DRAFT",
+  "transitions": []
+}
