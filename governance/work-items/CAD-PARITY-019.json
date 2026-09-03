@@ -42,8 +42,27 @@
     "Exact-head CI verification and deployment/browser evidence where applicable.",
     "Revision-bound governance evidence covering certification implementation, review and final verification."
   ],
-  "state": "DRAFT",
-  "transitions": [],
+  "state": "ASSIGNED",
+  "transitions": [
+    {
+      "from": "DRAFT",
+      "to": "READY",
+      "at": "2026-09-03T11:46:30Z",
+      "actor": "pectoraux",
+      "role": "architect",
+      "reason": "P019 is fully specified as the next certification milestone on the authoritative roadmap. Its dependencies P018 and COMPAT-CAD-004 are VERIFIED, Architecture v1.1 is frozen, the certification acceptance/evidence contract is explicit, and the corpus-first certification boundary is preserved.",
+      "references": {"issue": 122, "dependencies": ["CAD-PARITY-018", "COMPAT-CAD-004"]}
+    },
+    {
+      "from": "READY",
+      "to": "ASSIGNED",
+      "at": "2026-09-03T11:46:40Z",
+      "actor": "pectoraux",
+      "role": "architect",
+      "reason": "The Product Owner's 'next' authorization advances P019 into execution. Assign the certification work to the logical implementation agent with the implementation-side stop gate at PR_OPEN/VERIFYING. The agent must first establish and version-pin the representative corpus and its reference expectations before certification claims are made.",
+      "references": {"issue": 122, "assignee": "z-ai-implementation-agent"}
+    }
+  ],
   "evidence": [],
   "decisions": []
 }
