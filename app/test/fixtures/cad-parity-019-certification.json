@@ -1,11 +1,11 @@
 {
-  "reportSha256": "db8d304ed251d210051a68a2b002f8261d9360db5759db19348ac07899d69c92",
+  "reportSha256": "3c7d53ffcd30a3b74d0d611ece11d4e370e559611b6a413310ed940115f943b0",
   "normalized": {
     "contract": "offisos-p019-certification/1",
     "corpus": {
       "id": "autocad-p019-corpus",
       "sha256": "«sha256»",
-      "version": "1",
+      "version": "2",
       "workflowCount": 8
     },
     "summary": {
@@ -144,30 +144,50 @@
         "phases": [
           {
             "commandCount": 1,
+            "commandNames": [
+              "-LAYER"
+            ],
             "id": "layers",
             "revisionDelta": 1,
             "status": "pass"
           },
           {
             "commandCount": 4,
+            "commandNames": [
+              "RECTANGLE",
+              "CIRCLE",
+              "ARC"
+            ],
             "id": "primitives",
             "revisionDelta": 4,
             "status": "pass"
           },
           {
             "commandCount": 2,
+            "commandNames": [
+              "OFFSET",
+              "MIRROR"
+            ],
             "id": "offset-mirror",
             "revisionDelta": 2,
             "status": "pass"
           },
           {
             "commandCount": 3,
+            "commandNames": [
+              "COPY",
+              "MOVE",
+              "ROTATE"
+            ],
             "id": "modify",
             "revisionDelta": 3,
             "status": "pass"
           },
           {
             "commandCount": 1,
+            "commandNames": [
+              "CHPROP"
+            ],
             "id": "props",
             "revisionDelta": 1,
             "status": "pass"
@@ -269,24 +289,33 @@
         "phases": [
           {
             "commandCount": 1,
+            "commandNames": [],
             "id": "seed",
             "revisionDelta": 1,
             "status": "pass"
           },
           {
             "commandCount": 1,
+            "commandNames": [],
             "id": "dimensions",
             "revisionDelta": 1,
             "status": "pass"
           },
           {
             "commandCount": 2,
+            "commandNames": [
+              "MTEXT",
+              "LEADER"
+            ],
             "id": "text-leaders",
             "revisionDelta": 2,
             "status": "pass"
           },
           {
             "commandCount": 2,
+            "commandNames": [
+              "REVCLOUD"
+            ],
             "id": "revision-cloud",
             "revisionDelta": 2,
             "status": "pass"
@@ -394,36 +423,52 @@
         "phases": [
           {
             "commandCount": 1,
+            "commandNames": [],
             "id": "seed",
             "revisionDelta": 1,
             "status": "pass"
           },
           {
             "commandCount": 1,
+            "commandNames": [
+              "BLOCK"
+            ],
             "id": "define",
             "revisionDelta": 1,
             "status": "pass"
           },
           {
             "commandCount": 3,
+            "commandNames": [
+              "INSERT"
+            ],
             "id": "insert-attedit",
             "revisionDelta": 3,
             "status": "pass"
           },
           {
             "commandCount": 1,
+            "commandNames": [
+              "ATTEDIT"
+            ],
             "id": "attedit",
             "revisionDelta": 1,
             "status": "pass"
           },
           {
             "commandCount": 1,
+            "commandNames": [
+              "ARRAY"
+            ],
             "id": "array",
             "revisionDelta": 1,
             "status": "pass"
           },
           {
             "commandCount": 1,
+            "commandNames": [
+              "PATTERNMIRROR"
+            ],
             "id": "pattern-mirror",
             "revisionDelta": 1,
             "status": "pass"
@@ -496,24 +541,30 @@
         "phases": [
           {
             "commandCount": 1,
+            "commandNames": [],
             "id": "seed",
             "revisionDelta": 1,
             "status": "pass"
           },
           {
             "commandCount": 4,
+            "commandNames": [
+              "PAGESETUP"
+            ],
             "id": "layout",
             "revisionDelta": 4,
             "status": "pass"
           },
           {
             "commandCount": 4,
+            "commandNames": [],
             "id": "clone-publish",
             "revisionDelta": 3,
             "status": "pass"
           },
           {
             "commandCount": 2,
+            "commandNames": [],
             "id": "plot",
             "revisionDelta": 0,
             "status": "pass"
@@ -616,18 +667,32 @@
         "phases": [
           {
             "commandCount": 3,
+            "commandNames": [
+              "BOX"
+            ],
             "id": "primitives",
             "revisionDelta": 3,
             "status": "pass"
           },
           {
             "commandCount": 5,
+            "commandNames": [
+              "UNION",
+              "INTERSECT",
+              "BOX",
+              "SUBTRACT"
+            ],
             "id": "booleans",
             "revisionDelta": 5,
             "status": "pass"
           },
           {
             "commandCount": 3,
+            "commandNames": [
+              "MOVE3D",
+              "UCSNEW",
+              "SECTIONPLANE"
+            ],
             "id": "transforms-section",
             "revisionDelta": 3,
             "status": "pass"
@@ -715,18 +780,24 @@
         "phases": [
           {
             "commandCount": 3,
+            "commandNames": [
+              "STAIRRUN",
+              "ZONE"
+            ],
             "id": "authoring",
             "revisionDelta": 3,
             "status": "pass"
           },
           {
             "commandCount": 3,
+            "commandNames": [],
             "id": "properties-materials",
             "revisionDelta": 3,
             "status": "pass"
           },
           {
             "commandCount": 1,
+            "commandNames": [],
             "id": "schedules-qto",
             "revisionDelta": 1,
             "status": "pass"
@@ -833,18 +904,32 @@
         "phases": [
           {
             "commandCount": 4,
+            "commandNames": [
+              "WALLRUN",
+              "PLACEOPENING",
+              "SPACEGRID"
+            ],
             "id": "arch-toolset",
             "revisionDelta": 4,
             "status": "pass"
           },
           {
             "commandCount": 1,
+            "commandNames": [
+              "MEPRUN",
+              "MEPREPORT"
+            ],
             "id": "mep-toolset",
             "revisionDelta": 1,
             "status": "pass"
           },
           {
             "commandCount": 4,
+            "commandNames": [
+              "EQUIPADD",
+              "MEPCONNECT",
+              "RASTERATTACH"
+            ],
             "id": "mech-raster",
             "revisionDelta": 4,
             "status": "pass"
@@ -932,24 +1017,34 @@
         "phases": [
           {
             "commandCount": 1,
+            "commandNames": [
+              "XATTACH",
+              "XLIST",
+              "XRELOAD"
+            ],
             "id": "xrefs-attach",
             "revisionDelta": 1,
             "status": "pass"
           },
           {
             "commandCount": 1,
+            "commandNames": [
+              "XDETACH"
+            ],
             "id": "xrefs-detach",
             "revisionDelta": 1,
             "status": "pass"
           },
           {
             "commandCount": 3,
+            "commandNames": [],
             "id": "collab",
             "revisionDelta": 0,
             "status": "pass"
           },
           {
             "commandCount": 1,
+            "commandNames": [],
             "id": "recovery",
             "revisionDelta": 0,
             "status": "pass"

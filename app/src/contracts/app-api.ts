@@ -646,7 +646,15 @@ export type QueryName =
   // raster references, docs annotations — ok/dangling/source_loss/
   // missing/stale outcomes, deterministic ordering + digest). ---
   | "parametrics.capabilities"
-  | "assoc.report";
+  | "assoc.report"
+  // --- CAD-PARITY-019 rev 2 (additive, the architect review on PR #125):
+  // the certification corpus catalog (non-mutating, pure data, computed
+  // fresh every call from the version-pinned corpus — the single source of
+  // truth the Certification workbench renders: the version pin + sha256,
+  // the auditable Autodesk reference manifest, the command bindings
+  // (documented + semantic analogs) and the derived per-workflow
+  // phases/expectations counts; nothing is hard-coded in the UI). ---
+  | "certification.corpusCatalog";
 
 export interface Command {
   readonly type: "command";

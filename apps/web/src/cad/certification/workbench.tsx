@@ -2,11 +2,17 @@
 
 /**
  * Offisos Certification Workbench — Web host surface
- * (CAD-PARITY-019 / Issue #122).
+ * (CAD-PARITY-019 / Issue #122; rev 2 — the architect review on PR #125).
  *
  * A REAL workflow, not a mockup: the version-pinned corpus catalog (the
  * certified AutoCAD professional workflow corpus — the certification
- * evidence basis, front and center); the LIVE interoperability
+ * evidence basis, front and center — DERIVED LIVE through the governed App
+ * API's certification.corpusCatalog query: the version pin, the auditable
+ * version-pinned Autodesk reference manifest, the command bindings (the
+ * Autodesk-documented invocations + the EXPLICIT semantic-analog map) and
+ * the per-workflow phases/expectations counts are NEVER hard-coded in this
+ * UI — the canonical corpus is the single source of truth, so the catalog
+ * cannot drift); the LIVE interoperability
  * classification of the CURRENT document through the governed App API
  * (dxf.export's honest skip report + interop.roundtripReport's DRY field
  * classification + interop.toolsetsReport's concept × surface matrix —
@@ -18,41 +24,55 @@
  */
 
 import * as React from "react";
-import { BadgeCheck, FileSearch, RefreshCw, ShieldCheck, Table2 } from "lucide-react";
+import { BadgeCheck, BookOpen, FileSearch, RefreshCw, ShieldCheck, Table2, ArrowRightLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { send } from "@/cad/client/http-transport";
 
 // ---------------------------------------------------------------------------
-// The certified corpus catalog (the P019 certification evidence basis —
-// the version pin + the representative workflow inventory; the full corpus
-// is the pinned artifact app/src/certification/corpus.ts).
+// The derived corpus catalog (rev 2 — fetched LIVE through the governed App
+// API's certification.corpusCatalog query; the canonical corpus in
+// app/src/certification/corpus.ts is the SINGLE SOURCE OF TRUTH: the pin,
+// the version-pinned Autodesk reference manifest, the command bindings and
+// the per-workflow counts are all derived there — NOTHING is hard-coded in
+// this UI, so the catalog can never drift from the canonical corpus).
 // ---------------------------------------------------------------------------
 
-const CORPUS_PIN = {
-  corpusId: "autocad-p019-corpus",
-  version: "1",
-  reference: "AutoCAD 2024 (base) + AutoCAD Architecture 2024 (AEC) + AutoCAD MEP 2024 (MEP)",
-  basis: "Autodesk AutoCAD 2024 Help / Command Reference (documented command behavior, declared per workflow)",
-};
+interface CatalogSource {
+  readonly id: string;
+  readonly product: string;
+  readonly title: string;
+  readonly locator: string;
+  readonly docId: string;
+  readonly scope: string;
+}
 
-const CORPUS_CATALOG: readonly {
-  id: string;
-  title: string;
-  discipline: string;
-  phases: number;
-  expectations: number;
-}[] = [
-  { id: "wf-plan-drafting", title: "Architectural floor-plan drafting", discipline: "drafting", phases: 5, expectations: 15 },
-  { id: "wf-annotation-docs", title: "Dimensioned annotated drawing documentation", discipline: "annotation", phases: 4, expectations: 11 },
-  { id: "wf-symbol-blocks", title: "Reusable symbol library and placement", discipline: "blocks", phases: 6, expectations: 13 },
-  { id: "wf-sheet-publication", title: "Sheet set assembly and deterministic publication", discipline: "sheet", phases: 4, expectations: 8 },
-  { id: "wf-model3d-mass", title: "3D massing model with exact sections", discipline: "model3d", phases: 3, expectations: 12 },
-  { id: "wf-bim-quantities", title: "Building model with schedules and quantities", discipline: "bim", phases: 3, expectations: 11 },
-  { id: "wf-specialized-toolsets", title: "Architecture/MEP/mechanical specialized toolset workflows", discipline: "toolsets", phases: 3, expectations: 11 },
-  { id: "wf-collab-automation", title: "Collaborative recoverable automated document workflow", discipline: "collab", phases: 4, expectations: 10 },
-];
+interface CatalogCommand {
+  readonly command?: string;
+  readonly autodeskCommand?: string;
+  readonly offisosSurface?: string;
+  readonly surface?: string;
+  readonly autodeskReference?: string;
+  readonly source: string;
+  readonly scope?: string;
+}
+
+interface CatalogWorkflow {
+  readonly id: string;
+  readonly title: string;
+  readonly discipline: string;
+  readonly phases: number;
+  readonly expectations: number;
+}
+
+interface CorpusCatalog {
+  readonly corpus: { readonly id: string; readonly version: string; readonly referenceProduct: string; readonly sha256: string };
+  readonly sources: readonly CatalogSource[];
+  readonly commandBindings: { readonly autodeskDocumented: readonly CatalogCommand[]; readonly semanticAnalogs: readonly CatalogCommand[] };
+  readonly workflows: readonly CatalogWorkflow[];
+  readonly totals: { readonly workflows: number; readonly phases: number; readonly expectations: number; readonly interop: number };
+}
 
 const OUTCOME_STYLE: Record<string, string> = {
   exact: "bg-emerald-100 text-emerald-800 border-emerald-300",
@@ -89,11 +109,32 @@ interface ToolsetsRowView {
 }
 
 export function CertificationWorkbench() {
+  const [catalog, setCatalog] = React.useState<CorpusCatalog | null>(null);
   const [dxf, setDxf] = React.useState<DxfLiveState | null>(null);
   const [rows, setRows] = React.useState<readonly ToolsetsRowView[] | null>(null);
   const [sheetDigest, setSheetDigest] = React.useState<{ format: string; stable: boolean; sha12: string } | null>(null);
   const [busy, setBusy] = React.useState<string | null>(null);
   const [error, setError] = React.useState<string | null>(null);
+
+  // The canonical corpus catalog — fetched LIVE through the governed App API
+  // (certification.corpusCatalog): the pin, the reference manifest, the
+  // command bindings and the per-workflow counts are DERIVED from the
+  // canonical version-pinned corpus, never hard-coded here (rev 2).
+  React.useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const r = await send({ type: "query", name: "certification.corpusCatalog", payload: {} });
+        if (!r.ok) throw new Error(`${r.code}: ${r.message}`);
+        if (!cancelled) setCatalog(r.value as CorpusCatalog);
+      } catch (e) {
+        if (!cancelled) setError((e as Error).message);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const runDxf = React.useCallback(async () => {
     setBusy("dxf");
@@ -170,38 +211,135 @@ export function CertificationWorkbench() {
             <ShieldCheck className="h-4 w-4" /> The version-pinned AutoCAD certification corpus
           </CardTitle>
           <CardDescription className="text-xs">
-            {CORPUS_PIN.corpusId}/{CORPUS_PIN.version} — pinned against {CORPUS_PIN.reference}. {CORPUS_PIN.basis}.
-            Every certification claim is measured against this declared corpus (feature checklists alone are never sufficient).
+            {catalog === null ? (
+              "Loading the canonical corpus catalog through the governed App API…"
+            ) : (
+              <>
+                {catalog.corpus.id}/{catalog.corpus.version} (sha256 {catalog.corpus.sha256.slice(0, 12)}…) — pinned against{" "}
+                {catalog.corpus.referenceProduct}. Every expectation is bound to a version-pinned authoritative Autodesk
+                source (the reference manifest below, included in the corpus digest) — independently auditable, and every
+                measurement is against THIS declared corpus.
+              </>
+            )}
           </CardDescription>
         </CardHeader>
         <CardContent className="pb-2">
-          <ScrollArea className="max-h-56">
-            <table className="w-full text-xs">
-              <thead>
-                <tr className="border-b text-left text-muted-foreground">
-                  <th className="py-1 pr-2 font-medium">Workflow</th>
-                  <th className="py-1 pr-2 font-medium">Discipline</th>
-                  <th className="py-1 pr-2 font-medium text-right">Phases</th>
-                  <th className="py-1 text-right font-medium">Expectations</th>
-                </tr>
-              </thead>
-              <tbody>
-                {CORPUS_CATALOG.map((wf) => (
-                  <tr key={wf.id} className="border-b last:border-0">
-                    <td className="py-1 pr-2">
-                      <span className="font-mono text-[10px] text-muted-foreground">{wf.id}</span>
-                      <div>{wf.title}</div>
-                    </td>
-                    <td className="py-1 pr-2 text-muted-foreground">{wf.discipline}</td>
-                    <td className="py-1 pr-2 text-right tabular-nums">{wf.phases}</td>
-                    <td className="py-1 text-right tabular-nums">{wf.expectations}</td>
+          {catalog === null ? (
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <RefreshCw className="h-3 w-3 animate-spin" /> Deriving the catalog from the canonical corpus…
+            </div>
+          ) : (
+            <ScrollArea className="max-h-56">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="border-b text-left text-muted-foreground">
+                    <th className="py-1 pr-2 font-medium">Workflow</th>
+                    <th className="py-1 pr-2 font-medium">Discipline</th>
+                    <th className="py-1 pr-2 font-medium text-right">Phases</th>
+                    <th className="py-1 text-right font-medium">Expectations</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </ScrollArea>
+                </thead>
+                <tbody>
+                  {catalog.workflows.map((wf) => (
+                    <tr key={wf.id} className="border-b last:border-0">
+                      <td className="py-1 pr-2">
+                        <span className="font-mono text-[10px] text-muted-foreground">{wf.id}</span>
+                        <div>{wf.title}</div>
+                      </td>
+                      <td className="py-1 pr-2 text-muted-foreground">{wf.discipline}</td>
+                      <td className="py-1 pr-2 text-right tabular-nums">{wf.phases}</td>
+                      <td className="py-1 text-right tabular-nums">{wf.expectations}</td>
+                    </tr>
+                  ))}
+                  <tr className="border-t font-medium">
+                    <td className="py-1 pr-2">Total (derived from the canonical corpus)</td>
+                    <td />
+                    <td className="py-1 pr-2 text-right tabular-nums">{catalog.totals.phases}</td>
+                    <td className="py-1 text-right tabular-nums">{catalog.totals.expectations}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </ScrollArea>
+          )}
         </CardContent>
       </Card>
+
+      {catalog !== null && (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="flex items-center gap-2 text-sm">
+              <BookOpen className="h-4 w-4" /> The auditable Autodesk reference manifest (version-pinned, digest-bound)
+            </CardTitle>
+            <CardDescription className="text-xs">
+              The authoritative Autodesk documentation sources every workflow/expectation cites (URL + document ID +
+              command/topic scope) — included in the corpus sha256, so any reference change changes the corpus identity.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="pb-2">
+            <ScrollArea className="max-h-40">
+              <ul className="space-y-1 text-xs">
+                {catalog.sources.map((s) => (
+                  <li key={s.id} className="border-b pb-1 last:border-0">
+                    <span className="font-mono text-[10px] text-muted-foreground">{s.id}</span>
+                    <div>
+                      <span className="font-medium">{s.product}</span> — {s.title}
+                    </div>
+                    <a href={s.locator} target="_blank" rel="noreferrer" className="block truncate font-mono text-[10px] text-primary underline">
+                      {s.locator}
+                    </a>
+                    <div className="text-[10px] text-muted-foreground">docId {s.docId}</div>
+                  </li>
+                ))}
+              </ul>
+            </ScrollArea>
+          </CardContent>
+        </Card>
+      )}
+
+      {catalog !== null && (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="flex items-center gap-2 text-sm">
+              <ArrowRightLeft className="h-4 w-4" /> The command bindings (Autodesk-documented + the explicit semantic analogs)
+            </CardTitle>
+            <CardDescription className="text-xs">
+              Every command-line surface the corpus drives is bound: the Autodesk-documented 2024 commands (direct references)
+              and the Offisos surfaces that are NOT Autodesk commands (semantic analogs of the documented behaviors — never
+              claimed Autodesk command names; the honest rev-2 disclosure).
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="pb-2">
+            <ScrollArea className="max-h-48">
+              <div className="space-y-2 text-xs">
+                <div>
+                  <div className="mb-1 font-medium">Autodesk-documented commands invoked ({catalog.commandBindings.autodeskDocumented.length}):</div>
+                  <div className="flex flex-wrap gap-1">
+                    {catalog.commandBindings.autodeskDocumented.map((c) => (
+                      <span key={c.command} title={`${c.autodeskCommand} — source ${c.source}`} className="inline-flex items-center rounded border border-emerald-300 bg-emerald-50 px-1.5 py-0.5 font-mono text-[10px] text-emerald-800">
+                        {c.command}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <div className="mb-1 font-medium">Offisos semantic analogs (bound to their Autodesk references):</div>
+                  <table className="w-full">
+                    <tbody>
+                      {catalog.commandBindings.semanticAnalogs.map((a) => (
+                        <tr key={a.offisosSurface} className="border-b last:border-0 align-top">
+                          <td className="py-1 pr-2 font-mono text-[10px] whitespace-nowrap">{a.offisosSurface}</td>
+                          <td className="py-1 pr-2 text-[10px] text-muted-foreground">{a.surface}</td>
+                          <td className="py-1">{a.autodeskReference}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </ScrollArea>
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardHeader className="pb-2">
@@ -296,7 +434,12 @@ export function CertificationWorkbench() {
         real UI task completion, interoperability (explicit EXACT/LOSSY/UNSUPPORTED) and performance/robustness against the
         version-pinned corpus. The certification evidence is produced by the deterministic certification engine
         (app/src/certification) through the real command registry and the App API — pinned by the certification fixture and
-        re-proven on every CI run.
+        re-proven on every CI run. <span className="font-medium">Certification boundary (explicit):</span> the certification
+        verdict is only ever produced by the deterministic engine with the pinned toolchain (the pinned fixture basis). A
+        run of the same corpus against a deployed serverless environment (where the Python IfcOpenShell toolchain is
+        unavailable and the ifc probes decline typed <span className="font-mono">ifc_unavailable</span>) is a{" "}
+        <span className="font-medium">DIAGNOSTIC boundary observation only — never certification evidence</span>; the
+        observed serverless result is not a certification reproduction.
       </div>
     </div>
   );

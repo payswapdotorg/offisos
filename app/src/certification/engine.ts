@@ -98,6 +98,12 @@ export interface PhaseResult {
   readonly id: string;
   readonly status: "pass" | "fail";
   readonly commandCount: number;
+  /** The command-line command names actually invoked by this phase's script
+   *  (the canonical registry names, in first-invocation order — the
+   *  auditable command stream; the corpus invariant test binds every one of
+   *  them to either an Autodesk-documented 2024 command binding or an
+   *  explicit semantic-analog entry). */
+  readonly commandNames: readonly string[];
   readonly revisionDelta: number;
 }
 
@@ -148,6 +154,7 @@ export interface CertificationReport {
 interface PhaseRunState {
   readonly labeled: Map<string, DriverResult>;
   readonly echoLines: string[];
+  readonly invokedCommands: string[];
   revisionsBefore: number;
   revisionsAfter: number;
   commandCount: number;
@@ -427,6 +434,7 @@ async function runWorkflow(
     const phaseState: PhaseRunState = {
       labeled: new Map(labeled),
       echoLines: [],
+      invokedCommands: [],
       revisionsBefore: revisionCount(snap),
       revisionsAfter: revisionCount(snap),
       commandCount: 0,
@@ -455,12 +463,31 @@ async function runWorkflow(
         // each emitted CommandPlan executes through the driver BEFORE the
         // next event is applied. The shared prompt-engine reducer stays the
         // ONLY command semantics source (runCommandScript's loop, unrolled
-        // for live pick resolution).
+        // for live pick resolution). The invoked canonical command names are
+        // recorded for the auditable command stream: a command STARTS either
+        // as an interactive command (the output carries its commandName) or
+        // as an instant command (the output's first line IS the command
+        // name — the prompt engine's instant-command convention) — the
+        // completion events of already-started interactive commands are NOT
+        // re-recorded.
         let promptState = IDLE_PROMPT_STATE;
         for (const step of phase.script) {
+          const wasIdle = promptState.commandId === null;
           const ev = toPromptEvent(snap, step);
           const result = applyPromptEvent(promptState, ev, contextFor(snap));
           promptState = result.state;
+          if (wasIdle && ev.type === "typed") {
+            if (result.output.commandName !== null) {
+              if (!phaseState.invokedCommands.includes(result.output.commandName)) {
+                phaseState.invokedCommands.push(result.output.commandName);
+              }
+            } else if (result.output.plan !== null && result.output.lines.length > 0 && typeof result.output.lines[0] === "string" && result.output.lines[0].length > 0) {
+              const instantName = result.output.lines[0];
+              if (!phaseState.invokedCommands.includes(instantName)) {
+                phaseState.invokedCommands.push(instantName);
+              }
+            }
+          }
           phaseState.echoLines.push(...result.output.lines);
           if (result.output.plan !== null) {
             for (const entry of result.output.plan.appApi) {
@@ -500,6 +527,7 @@ async function runWorkflow(
       id: phase.id,
       status: phaseFailed ? "fail" : "pass",
       commandCount: phaseState.commandCount,
+      commandNames: [...phaseState.invokedCommands],
       revisionDelta: phaseState.revisionsAfter - phaseState.revisionsBefore,
     });
     log(lines, `P019 CERTIFICATION:   phase ${phase.id} ${phaseFailed ? "FAIL" : "pass"} (${phaseState.commandCount} commands, Δrev ${phaseState.revisionsAfter - phaseState.revisionsBefore})`);

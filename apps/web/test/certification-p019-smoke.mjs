@@ -1,8 +1,8 @@
 // CAD-PARITY-019 / Issue #122: Web host AutoCAD parity certification smoke —
-// the NINETEENTH workspace smoke.
+// the NINETEENTH workspace smoke (rev 2 — the architect review on PR #125).
 //
 // Drives the VERSION-PINNED AutoCAD professional workflow corpus
-// (autocad-p019-corpus/1, app/src/certification/corpus.ts) through the
+// (autocad-p019-corpus/2, app/src/certification/corpus.ts) through the
 // REAL web app over HTTP: every workflow's command-line script compiles
 // through the SHARED prompt-engine command registry, every emitted App API
 // plan executes through the running dev server, every declared reference
@@ -106,4 +106,26 @@ if (WRITE_FIXTURE) {
     `the web-host certification projection must be byte-identical to the pinned fixture (the app-suite parity basis): fixture ${fixture.reportSha256} ≠ smoke ${sha}`,
   );
   console.log("CERTIFICATION P019 SMOKE: verdict projection byte-identical to the pinned fixture — pass");
+}
+
+// --- the rev-2 catalog drift guard (the stale-workbench correction) --------
+// The Certification workbench renders the corpus catalog through the REAL
+// app's certification.corpusCatalog query (nothing hard-coded) — the query
+// must return the CANONICAL derived catalog, and its counts must agree with
+// THIS smoke run's report (the drift guard through the real web app).
+{
+  const { corpusCatalog, CORPUS_REFERENCE } = await import(join(REPO_ROOT, "app", "src", "certification", "corpus.ts"));
+  const r = await send({ type: "query", name: "certification.corpusCatalog", payload: {} });
+  if (!r.ok) throw new Error(`ASSERTION FAILED: certification.corpusCatalog declined: ${JSON.stringify(r).slice(0, 200)}`);
+  const canonical = corpusCatalog();
+  assert(
+    JSON.stringify(r.value) === JSON.stringify(canonical),
+    "the real web app's certification.corpusCatalog returns the canonical derived catalog (the single source of truth the workbench renders)",
+  );
+  const cat = r.value;
+  assert(cat.corpus.version === CORPUS_REFERENCE.corpusVersion, "the catalog pins the current corpus version");
+  assert(cat.totals.workflows === report.summary.workflows, "the catalog workflow count equals the certification report");
+  assert(cat.totals.expectations === report.summary.expectations.total, "the catalog expectation count equals the certification report");
+  assert(cat.totals.interop === report.summary.interop.total, "the catalog interop count equals the certification report");
+  console.log(`CERTIFICATION P019 SMOKE: the canonical corpus catalog derived live through the real app — ${cat.totals.workflows} workflows / ${cat.totals.phases} phases / ${cat.totals.expectations} expectations / ${cat.totals.interop} interop probes (rev ${cat.corpus.version}, sha256 ${cat.corpus.sha256.slice(0, 12)}…) — no drift, pass`);
 }

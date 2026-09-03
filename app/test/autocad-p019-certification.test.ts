@@ -1,9 +1,12 @@
 /**
  * CAD-PARITY-019 (Issue #122) — the AutoCAD parity certification app-suite
- * test: the version-pinned corpus (autocad-p019-corpus/1) executed through
- * the REAL App API handler (the reference bundle + the pinned IfcOpenShell
- * interop adapter), assessed by the certification engine, pinned by the
- * fixture (app/test/fixtures/cad-parity-019-certification.json).
+ * test: the version-pinned corpus (autocad-p019-corpus/2 — rev 2, the
+ * architect review on PR #125: the auditable version-pinned Autodesk
+ * reference manifest + the explicit command-analog map, both bound into
+ * the corpus digest) executed through the REAL App API handler (the
+ * reference bundle + the pinned IfcOpenShell interop adapter), assessed
+ * by the certification engine, pinned by the fixture
+ * (app/test/fixtures/cad-parity-019-certification.json).
  *
  * The certification dimensions (the P019 record's evidence requirements):
  *  1. SEMANTIC FIDELITY — every declared reference expectation is evaluated
@@ -24,7 +27,9 @@
  *
  * The pinned fixture is the NORMALIZED certification report (the run-unique
  * identity tokenized; every semantic field pinned verbatim; perf samples
- * excluded). Regenerate with --write-fixture.
+ * excluded — the phase command streams are pinned too: the invoked command
+ * names are part of the auditable certification basis). Regenerate with
+ * --write-fixture.
  */
 
 import { test } from "node:test";
@@ -37,7 +42,15 @@ import { createReferenceAdapterBundle } from "../src/adapters/reference/index.js
 import { createIfcInteropAdapter } from "../src/adapters/ifc/index.js";
 import { ifcSkip } from "./ifc-availability.js";
 import { runCertification, pinnedProjection, reportSha256, type CertDriver } from "../src/certification/engine.js";
-import { P019_WORKFLOWS, corpusSha256, CORPUS_REFERENCE } from "../src/certification/corpus.js";
+import {
+  P019_WORKFLOWS,
+  corpusSha256,
+  corpusCatalog,
+  CORPUS_REFERENCE,
+  CORPUS_REFERENCE_MANIFEST,
+  CORPUS_AUTODESK_COMMANDS,
+  CORPUS_COMMAND_ANALOGS,
+} from "../src/certification/corpus.js";
 import type { CommandQueryResponse, Command, Query } from "../src/contracts/app-api.js";
 
 const HERE = fileURLToPath(new URL(".", import.meta.url));
@@ -110,6 +123,46 @@ test("CAD-PARITY-019: the AutoCAD parity certification over the version-pinned c
   const normalized = pinnedProjection(report);
   const sha = reportSha256(normalized);
   console.log(`P019 CERTIFICATION TEST: pinned report sha256 ${sha}`);
+
+  // --- the rev-2 command-stream binding (the architect review on PR #125) -
+  // Every command-line name the certification ACTUALLY invoked is bound in
+  // the corpus: either an Autodesk-documented 2024 command entry or an
+  // explicit semantic-analog entry — no unbound Offisos command can be
+  // presented as AutoCAD command behavior.
+  const documented = new Set(CORPUS_AUTODESK_COMMANDS.map((c) => c.command));
+  const analogNames = new Set(CORPUS_COMMAND_ANALOGS.map((a) => a.offisosSurface.split(" (")[0]));
+  const invoked = new Set<string>();
+  for (const wf of report.workflows) {
+    for (const phase of wf.phases) {
+      for (const name of phase.commandNames) invoked.add(name);
+    }
+  }
+  const unbound = [...invoked].filter((n) => !documented.has(n) && !analogNames.has(n));
+  assert.deepEqual(unbound, [], "every invoked command-line name is bound (Autodesk-documented entry or explicit semantic-analog entry)");
+  assert.ok(invoked.size >= 20, `the certification exercised a representative command-line surface (${invoked.size} distinct commands)`);
+
+  // --- the rev-2 catalog drift guard (the stale-workbench correction) -----
+  // The derived catalog (the certification.corpusCatalog App API surface)
+  // must agree with THIS run's report counts — the single source of truth
+  // is the canonical corpus, so the UI can never drift.
+  const cat = corpusCatalog();
+  assert.equal(cat.corpus.version, CORPUS_REFERENCE.corpusVersion, "the catalog pins the current corpus version");
+  assert.equal(cat.corpus.sha256, corpusSha256(), "the catalog pins the current corpus sha256");
+  assert.equal(cat.totals.workflows, report.summary.workflows, "the catalog workflow count equals the report");
+  assert.equal(cat.totals.expectations, report.summary.expectations.total, "the catalog expectation count equals the report");
+  assert.equal(cat.totals.interop, report.summary.interop.total, "the catalog interop count equals the report");
+  for (const row of cat.workflows) {
+    const wf = report.workflows.find((w) => w.id === row.id);
+    assert.ok(wf !== undefined, `the catalog row ${row.id} exists in the report`);
+    assert.equal(row.phases, wf.phases.length, `the catalog row ${row.id} phase count equals the report`);
+    assert.equal(row.expectations, wf.expectations.length, `the catalog row ${row.id} expectation count equals the report`);
+  }
+  // And the App API query itself returns the canonical catalog (the REAL
+  // handler — the same surface the Certification workbench renders).
+  const catQuery = await driver.query("certification.corpusCatalog", {});
+  assert.ok(catQuery.ok, `the certification.corpusCatalog query succeeds: ${JSON.stringify(catQuery).slice(0, 200)}`);
+  assert.deepEqual((catQuery as { ok: true; value: unknown }).value, cat, "the App API returns the canonical derived catalog byte-identically");
+
   if (WRITE_FIXTURE || !existsSync(FIXTURE_PATH)) {
     mkdirSync(join(HERE, "fixtures"), { recursive: true });
     writeFileSync(FIXTURE_PATH, `${JSON.stringify({ reportSha256: sha, normalized: JSON.parse(normalized) }, null, 2)}\n`);
@@ -145,4 +198,75 @@ test("CAD-PARITY-019: the corpus itself is pinned and well-formed (the first-del
   // a pure function of the corpus data.
   assert.match(corpusSha256(), /^[0-9a-f]{64}$/, "the corpus digest is a stable sha256");
   assert.equal(corpusSha256(), corpusSha256(), "the corpus digest is deterministic");
+});
+
+test("CAD-PARITY-019 rev 2: the reference basis is independently auditable (the version-pinned Autodesk reference manifest + the explicit command bindings — the architect review on PR #125)", async () => {
+  // --- the manifest: authoritative, version-pinned, well-formed ----------
+  const manifestIds = new Set(CORPUS_REFERENCE_MANIFEST.map((s) => s.id));
+  assert.ok(CORPUS_REFERENCE_MANIFEST.length >= 7, "the manifest covers the reference family (base + Architecture + MEP + DXF + sheet-set + -XREF + IFC)");
+  for (const s of CORPUS_REFERENCE_MANIFEST) {
+    assert.ok(s.id.length > 3 && s.product.length > 3 && s.title.length > 3, `manifest entry ${s.id} has id/product/title`);
+    assert.ok(/^https:\/\/help\.autodesk\.com\//.test(s.locator), `manifest entry ${s.id} locator is an Autodesk Help URL`);
+    assert.ok(/2024\/ENU/.test(s.locator), `manifest entry ${s.id} locator is version-pinned to 2024/ENU`);
+    assert.ok(s.docId.length > 3, `manifest entry ${s.id} carries its Autodesk document id`);
+    assert.ok(s.scope.length > 40, `manifest entry ${s.id} declares its command/topic scope`);
+  }
+
+  // --- every workflow cites manifest sources ------------------------------
+  for (const wf of P019_WORKFLOWS) {
+    assert.ok(wf.sources.length >= 1, `workflow ${wf.id} cites at least one manifest source`);
+    for (const sid of wf.sources) {
+      assert.ok(manifestIds.has(sid), `workflow ${wf.id} source '${sid}' resolves in the manifest`);
+    }
+  }
+
+  // --- every expectation + interop expectation cites a manifest source ---
+  let expectationCount = 0;
+  let interopCount = 0;
+  for (const wf of P019_WORKFLOWS) {
+    for (const phase of wf.phases) {
+      for (const exp of phase.expectations) {
+        expectationCount += 1;
+        assert.ok(manifestIds.has(exp.source), `expectation ${exp.id} cites a resolvable manifest source '${exp.source}'`);
+      }
+    }
+    for (const io of wf.interop) {
+      interopCount += 1;
+      assert.ok(manifestIds.has(io.source), `interop ${io.id} cites a resolvable manifest source '${io.source}'`);
+    }
+  }
+  assert.equal(expectationCount, 100, "100 declared expectations, every one source-bound");
+  assert.equal(interopCount, 13, "13 interop probes, every one source-bound");
+
+  // --- the command bindings are closed and non-overlapping -----------------
+  const documented = new Set(CORPUS_AUTODESK_COMMANDS.map((c) => c.command));
+  const analogs = new Set(CORPUS_COMMAND_ANALOGS.map((a) => a.offisosSurface.split(" (")[0]));
+  for (const c of CORPUS_AUTODESK_COMMANDS) {
+    assert.ok(manifestIds.has(c.source), `documented command ${c.command} cites a resolvable source '${c.source}'`);
+    assert.ok(!analogs.has(c.command), `documented command ${c.command} is not also declared an analog (closed partition)`);
+  }
+  for (const a of CORPUS_COMMAND_ANALOGS) {
+    assert.ok(manifestIds.has(a.source), `analog ${a.offisosSurface} cites a resolvable source '${a.source}'`);
+    assert.ok(a.autodeskReference.length > 10, `analog ${a.offisosSurface} names its Autodesk reference`);
+    assert.ok(a.scope.length > 40, `analog ${a.offisosSurface} declares its honest mapping scope`);
+    assert.ok(a.surface === "command-line" || a.surface === "app-api", `analog ${a.offisosSurface} declares its surface`);
+  }
+  // The flagged Architecture/MEP names from the architect review are all
+  // explicitly modeled as analogs (never claimed Autodesk commands).
+  for (const flagged of ["WALLRUN", "PLACEOPENING", "SPACEGRID", "STAIRRUN", "ZONE", "MEPRUN", "MEPREPORT", "MEPCONNECT", "EQUIPADD", "RASTERATTACH", "PATTERNMIRROR", "MOVE3D", "UCSNEW", "XRELOAD", "XDETACH"]) {
+    assert.ok(analogs.has(flagged), `the Offisos surface ${flagged} is explicitly modeled as a semantic analog`);
+    assert.ok(!documented.has(flagged), `the Offisos surface ${flagged} is not presented as an Autodesk-documented command`);
+  }
+  // The architect-verified Autodesk Architecture 2024 commands the corpus's
+  // analog surfaces are the analogs OF are cited as the declared analog
+  // references — not as Offisos invocations. (ROOFADD/SLABADD/SCHEDULEADD
+  // from the architect's citation index are carried in the manifest scope
+  // of arch-2024-commands; no corpus surface currently maps to them.)
+  for (const verified of ["WALLADD", "DOORADD", "WINDOWADD", "SPACEADD", "STAIRADD"]) {
+    assert.ok(
+      CORPUS_COMMAND_ANALOGS.some((a) => a.autodeskReference.includes(verified)),
+      `the Autodesk Architecture 2024 command ${verified} is the declared analog reference (not an Offisos invocation)`,
+    );
+    assert.ok(!documented.has(verified), `${verified} is not claimed as an invoked Offisos command`);
+  }
 });

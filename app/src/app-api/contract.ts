@@ -109,6 +109,9 @@ import {
 import { geomFromElement } from "../workspace/geometry/bridge.js";
 import { canonicalStringify } from "../caddocument/serialization.js";
 import type { BlockDefinitionRecord, BlockEntityRecord, XrefRecord, ConstraintRecord } from "../contracts/caddocument.js";
+// CAD-PARITY-019 rev 2 (additive, the architect review on PR #125): the
+// version-pinned certification corpus (pure platform-independent data).
+import { corpusCatalog } from "../certification/corpus.js";
 // CAD-PARITY-007 (additive): the parametric-constraints core (engine-free —
 // the declared graph grammar, the deterministic propagation solver, the
 // constraint-aware editing cascades and the shared glyph painter).
@@ -1702,6 +1705,12 @@ export class AppApiHandler {
         return this.qParametricsCapabilities();
       case "assoc.report":
         return this.qAssocReport(query.payload);
+      // --- CAD-PARITY-019 rev 2 (additive, the architect review on PR
+      // #125): the certification corpus catalog (pure derived data over
+      // the version-pinned corpus — the single source of truth for the
+      // Certification workbench). ---
+      case "certification.corpusCatalog":
+        return this.qCertificationCorpusCatalog(query.payload);
       default: {
         const _exhaustive: never = query.name;
         return err("unknown_query", `unknown query: ${JSON.stringify(_exhaustive)}`);
@@ -11247,6 +11256,21 @@ export class AppApiHandler {
     } catch (e) {
       return this.parametricsFailure(e);
     }
+  }
+
+  /** certification.corpusCatalog (query, NON-VERSIONED) — CAD-PARITY-019
+   *  rev 2 (the architect review on PR #125): the derived corpus catalog —
+   *  the version pin + sha256, the auditable version-pinned Autodesk
+   *  reference manifest, the command bindings (the Autodesk-documented
+   *  invocations + the explicit semantic-analog map) and the per-workflow
+   *  phases/expectations counts. PURE derived data over the version-pinned
+   *  corpus (app/src/certification/corpus.ts): non-mutating, deterministic,
+   *  engine-free, computed fresh every call. This is the SINGLE SOURCE OF
+   *  TRUTH the Certification workbench renders through — the UI hard-codes
+   *  nothing, so the catalog can never drift from the canonical corpus. */
+  private qCertificationCorpusCatalog(_payload: unknown): CommandQueryResponse {
+    void _payload;
+    return ok(corpusCatalog());
   }
 
 }
