@@ -1,0 +1,30 @@
+{
+  "id": "ACR-005",
+  "title": "Sanction historical governance reconciliation for COMPAT-CAD-004",
+  "status": "PROPOSED",
+  "requested_by": "pectoraux",
+  "requested_at": "2026-09-03T11:55:00Z",
+  "problem": "COMPAT-CAD-004 reached MERGED and VERIFIED in the immutable ledger, but the recorded ARCHITECT_REVIEW -> APPROVED transition lacks its required decision reference, the APPROVED -> MERGED transition is recorded under an architect role that the frozen state machine does not authorize and lacks its required merge_commit reference, and the MERGED -> VERIFIED transition lacks its required decision reference. These are historical governance-record defects discovered during post-merge governance validation; they must not be repaired by rewriting the historical transitions.",
+  "evidence": [
+    "Governance validation run 33751859325: COMPAT-CAD-004 schema now passes, while transition-legality and decisions report the three historical lifecycle defects described above.",
+    "COMPAT-CAD-004 immutable transition history records ARCHITECT_REVIEW -> APPROVED at 2026-09-03T10:30:45Z, APPROVED -> MERGED at 2026-09-03T10:31:09Z with actor pectoraux/role architect, and MERGED -> VERIFIED at 2026-09-03T11:44:00Z.",
+    "The reconciliation mechanism is already established by ACR-003/ARCH-WF-002 and is explicitly limited to unauthorized-role, pre-existing temporal-ordering, and missing-prior-approved-decision defects on already-merged records; VERIFIED evidence gating remains non-waivable."
+  ],
+  "impact": "Introduce no architecture change and no validator weakening. This ACR sanctions one narrowly scoped reconciliation record for COMPAT-CAD-004 so its immutable historical defects are explicitly recorded and waived without altering the original transition facts, merge commit, evidence or verification revision binding.",
+  "alternatives": [
+    "Rewrite the historical COMPAT-CAD-004 transitions to insert or backdate decision references: rejected because it falsifies the audit trail.",
+    "Weaken the validator or add a blanket exception for COMPAT-CAD-004: rejected because it would weaken governance integrity.",
+    "Return COMPAT-CAD-004 to a pre-verified state by editing history: rejected because the physical merge and verification events already occurred and must remain immutable."
+  ],
+  "recommendation": "Use the existing ARCH-WF-002 reconciliation mechanism, exactly as established by ACR-003 and ACR-004: register this ACR, obtain Architect endorsement and Product Owner approval, stage REC-COMPAT-CAD-004 with verbatim citations of the historical defects, then record the Architect decision. The reconciliation may waive only the enumerated historical violation classes and must not waive VERIFIED evidence or revision-binding requirements.",
+  "migration_plan": "Create this ACR as PROPOSED, advance it through the normal ACR lifecycle to APPROVED, create governance/reconciliations/COMPAT-CAD-004.json as STAGED, then decide that reconciliation as Architect. Re-run governance validation. No protected schema, state-machine or validator changes are required.",
+  "compatibility": "All normal work-item lifecycle rules remain unchanged. The waiver applies only to COMPAT-CAD-004's already-recorded historical defects and preserves the exact merge commit, evidence and verification revision binding. Future work items remain subject to the ordinary lifecycle without waiver.",
+  "security_impact": "The reconciliation remains Architect-only, ACR-sanctioned, evidence-backed and tamper-evident. It cannot authorize implementation agents to approve or verify work, cannot waive evidence or revision-binding gates, and cannot alter Git history.",
+  "affected_requirements": ["FLOW-001", "FLOW-002"],
+  "affected_work_items": ["COMPAT-CAD-004"],
+  "architecture_version_from": "1.1",
+  "architecture_version_to": "1.1",
+  "authorized_paths": [],
+  "related_issue": 121,
+  "provenance": "Architect-directed remediation discovered during verification of COMPAT-CAD-004 after merge; the repository already contains the approved ARCH-WF-002 reconciliation mechanism and ACR-003/ACR-004 precedents."
+}
