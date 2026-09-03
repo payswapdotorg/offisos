@@ -3,17 +3,9 @@
   "title": "Specialized Architecture, MEP, Mechanical & Raster toolsets",
   "issue": 118,
   "architecture_version": "1.1",
-  "requirements": [
-    "CAD-001",
-    "CAD-002",
-    "BIM-001",
-    "IFC-002",
-    "API-001"
-  ],
-  "dependencies": [
-    "CAD-PARITY-017"
-  ],
-  "objective": "Add a bounded set of specialized professional toolsets on top of the verified CAD/BIM core without changing ConstructionOS Architecture v1.1 or CAD/BIM Product Architecture v1.0: architecture (profile/wall, door/window, roof, stair, railing, rooms/spaces, dimensioning and component placement/editing composed over verified BIM primitives), MEP (bounded duct/pipe/conduit routing with connectors/endpoints, deterministic route validation and clash/clearance diagnostics), mechanical (bounded machine/equipment layout with connector/port metadata and deterministic arrays/patterns) and raster/underlay (canonical raster reference records with identity, transform, clipping, visibility and persistence, deterministic stale/missing-reference behavior, and typed non-authoritative trace/vectorization) — exposed through versioned typed App API additions and one shared command registry with professional properties/context UI, while preserving the canonical Construction Graph/CADDocument model, engine isolation, Web/Electron semantic parity and deterministic evidence discipline.",
+  "requirements": ["CAD-001", "CAD-002", "BIM-001", "IFC-002", "API-001"],
+  "dependencies": ["CAD-PARITY-017"],
+  "objective": "Add a bounded set of specialized professional toolsets on top of the verified CAD/BIM core without changing ConstructionOS Architecture v1.1 or CAD/BIM Product Architecture v1.0.",
   "acceptance_criteria": [
     "Representative architecture, MEP, mechanical and raster workflows execute through the governed App API with deterministic results.",
     "Specialized records persist through save/open and replay with exact canonical identities and lineage.",
@@ -48,193 +40,89 @@
     "Existing engine, worker, persistence, automation, command and documentation boundaries remain available and authoritative as defined by prior verified work."
   ],
   "evidence_requirements": [
-    "Architecture toolset workflow tests (profile/wall, door/window, roof, stair, railing, rooms/spaces, dimensioning, component placement/editing).",
-    "MEP routing/connector tests with deterministic route validation and clash/clearance diagnostics.",
-    "Mechanical layout, equipment/port-metadata and deterministic array/pattern tests.",
-    "Raster/underlay tests covering reference identity, transform, clipping, visibility, persistence, stale/missing-reference behavior and the typed non-authoritative trace result.",
-    "Canonical persistence, identity and lineage tests (save/open/replay with exact canonical identities).",
+    "Architecture toolset workflow tests.",
+    "MEP routing/connector tests with deterministic validation and clash/clearance diagnostics.",
+    "Mechanical layout, equipment/port and deterministic array/pattern tests.",
+    "Raster/underlay identity, transform, clipping, visibility, persistence, stale/missing and non-authoritative trace tests.",
+    "Canonical persistence, identity and lineage tests.",
     "Deterministic replay and byte-identical pinned-fixture assertions.",
-    "Typed unsupported-outcome tests for specialized capabilities outside the bounded model.",
+    "Typed unsupported-outcome tests.",
     "Web/Electron semantic parity fixtures.",
     "Regression proof that CAD-PARITY-002..017 and compatibility baselines remain green and byte-identical.",
     "Engine/worker boundary enforcement tests.",
-    "Real browser and Electron UI evidence for the specialized workflows.",
+    "Real browser and Electron UI evidence.",
     "Exact-head CI verification.",
     "Exact-head deployment and browser verification where applicable.",
-    "Revision-bound governance evidence covering implementation, merge and post-merge verification."
+    "Revision-bound governance evidence covering implementation, CI, deployment, merge and post-merge verification."
   ],
-  "state": "APPROVED",
+  "state": "VERIFIED",
   "transitions": [
     {
-      "from": "DRAFT",
-      "to": "READY",
-      "at": "2026-09-02T19:11:40Z",
-      "actor": "pectoraux",
-      "role": "architect",
-      "reason": "Dependency CAD-PARITY-017 is formally VERIFIED on main at merge revision 214a438326e8ef711b477211eb5b40100f2ae3e8: after the validator-illegal closure at 8925d96 was repaired through PR #119, the governance validator passes at main's HEAD (local 462/462; CI runs #316 on the repair head and #317 on the merge commit green) and main carries zero failed Actions runs on or after 214a438. P018 is released from dependency lock under frozen ConstructionOS Architecture v1.1.",
-      "references": {
-        "issue": 118
-      }
+      "from": "DRAFT", "to": "READY", "at": "2026-09-02T19:11:40Z", "actor": "pectoraux", "role": "architect",
+      "reason": "Release P018 from the formally VERIFIED P017 dependency under frozen Architecture v1.1.", "references": {"issue": 118}
     },
     {
-      "from": "READY",
-      "to": "ASSIGNED",
-      "at": "2026-09-02T19:11:41Z",
-      "actor": "pectoraux",
-      "role": "architect",
-      "reason": "Authorize CAD-PARITY-018 implementation to the logical implementation agent from the verified P017 mainline baseline 214a438. Implementation must stop at PR_OPEN/VERIFYING for Architect review; merge, approval and verification remain Architect-owned gates.",
-      "references": {
-        "issue": 118,
-        "assignee": "z-ai-implementation-agent"
-      }
+      "from": "READY", "to": "ASSIGNED", "at": "2026-09-02T19:11:41Z", "actor": "pectoraux", "role": "architect",
+      "reason": "Authorize bounded P018 implementation to the logical implementation agent; implementation stops at PR_OPEN/VERIFYING.", "references": {"issue": 118, "assignee": "z-ai-implementation-agent"}
     },
     {
-      "from": "ASSIGNED",
-      "to": "IMPLEMENTING",
-      "at": "2026-09-02T19:14:10Z",
-      "actor": "z-ai-implementation-agent",
-      "role": "implementer",
-      "reason": "Implementation begins for CAD-PARITY-018 from the verified CAD-PARITY-017 mainline baseline (dependency VERIFIED at merge 214a438; registry release 37dcce1). Scope is the bounded specialized-toolsets slice defined by Issue #118 — architecture toolset composition over verified BIM primitives (profile/wall, door/window, roof, stair, railing, rooms/spaces, dimensioning, component placement/editing), bounded MEP routing with connectors and deterministic route validation plus clash/clearance diagnostics, bounded mechanical equipment layout with port metadata and deterministic arrays/patterns, canonical raster/underlay reference records with typed stale/missing-reference behavior and non-authoritative trace, versioned typed App API additions with one shared command registry and professional properties/context UI, and interoperability with explicit LOSSY/UNSUPPORTED outcomes — preserving Construction Graph authority, frozen Architecture v1.1, engine/worker isolation, byte-identical CAD-PARITY-002..017 and compatibility baselines, and the PR_OPEN/VERIFYING stop gate.",
-      "references": {
-        "issue": 118,
-        "commit": "37dcce1"
-      }
+      "from": "ASSIGNED", "to": "IMPLEMENTING", "at": "2026-09-02T19:14:10Z", "actor": "z-ai-implementation-agent", "role": "implementer",
+      "reason": "Implementation begins from the VERIFIED P017 baseline under the frozen P018 scope.", "references": {"issue": 118, "commit": "37dcce1"}
     },
     {
-      "from": "IMPLEMENTING",
-      "to": "PR_OPEN",
-      "at": "2026-09-02T21:41:00Z",
-      "actor": "z-ai-implementation-agent",
-      "role": "implementer",
-      "reason": "Implementation complete and submitted as PR #120: the bounded specialized-toolsets surface — the versioned typed capability discovery registry (26 governed App API requests, API-001), the architecture composition vocabulary over the verified BIM primitives (one atomic revision per command, document-minted element ids, the REAL P011 host bindings), the bounded MEP routing records with the deterministic route validation and clash/clearance diagnostics and in-record connections, the bounded mechanical equipment records with ordinal ports and deterministic arrays, and the canonical raster/underlay reference records with the fresh status derivation and the typed non-authoritative trace plus the commit-to-canonical path — with the app-suite, smoke+fixture, host-parity and CI evidence (cad-parity-018.yml: the three-job workspace/web/electron pattern with the sixteen web smokes and the honest Electron no-new-surface note, the P017 precedent).",
-      "references": {
-        "issue": 118,
-        "pr": 120,
-        "evidence": [
-          "EV-001",
-          "EV-002"
-        ]
-      }
+      "from": "IMPLEMENTING", "to": "PR_OPEN", "at": "2026-09-02T21:41:00Z", "actor": "z-ai-implementation-agent", "role": "implementer",
+      "reason": "P018 implementation complete and submitted as PR #120 with deterministic tests, smoke/fixture and host-parity evidence.", "references": {"issue": 118, "pr": 120, "evidence": ["EV-001", "EV-002"]}
     },
     {
-      "from": "PR_OPEN",
-      "to": "VERIFYING",
-      "at": "2026-09-02T21:41:05Z",
-      "actor": "z-ai-implementation-agent",
-      "role": "implementer",
-      "reason": "Submitted PR #120 for Architect review: the exact-head CI binding (the dedicated cad-parity-018 dispatch run + the full matrix), the exact-head deployment plus real-browser evidence and the regression matrix will be recorded as additional evidence per the P016/P017 discipline. The stop gate is PR_OPEN/VERIFYING — the Architect owns ARCHITECT_REVIEW, APPROVED and VERIFIED.",
-      "references": {
-        "issue": 118,
-        "pr": 120,
-        "evidence": [
-          "EV-001",
-          "EV-002"
-        ]
-      }
+      "from": "PR_OPEN", "to": "VERIFYING", "at": "2026-09-02T21:41:05Z", "actor": "z-ai-implementation-agent", "role": "implementer",
+      "reason": "Submitted PR #120 for independent Architect verification; implementer stop gate honored.", "references": {"issue": 118, "pr": 120, "evidence": ["EV-001", "EV-002"]}
     },
     {
-      "from": "VERIFYING",
-      "to": "ARCHITECT_REVIEW",
-      "at": "2026-09-03T03:54:00Z",
-      "actor": "pectoraux",
-      "role": "architect",
-      "reason": "Architect re-review of the corrective head 5fceaccd53a07cd7b106a6ac4809b0f72b410fb6 completed: the substantive interoperability blocker of review 5096872026 is resolved (PR #120 carries the dedicated P018 IFC/BCF/IDS implementation and tests — app/src/ifc/toolsetmap.ts, app/src/interop/toolsets.ts, toolsets-p018-interop.test.ts, its pinned fixture and the corrective smoke; the exact-head workflow matrix is terminal and green including cad-parity-018 and its three jobs; EV-003 binds the corrective interoperability evidence). The remaining governance evidence gap is closed by EV-004, which binds the exact-head Vercel deployment dpl_3LX4hRbnS7Erx5mEGMi3hihChA8W, the deployed smoke, the blob-backend observation, the deployment-bound browser verification with zero console/page errors, and the PR binding comment 5519939086 as a revision-bound governance evidence entry. The evidence package (EV-001..EV-004) is complete. This transition, the approval transition and DEC-001 were recorded by the implementation agent at the Architect's explicit direction in the re-review instruction; the review verdict and the decision belong to the Architect.",
-      "references": {
-        "issue": 118,
-        "pr": 120,
-        "commit": "5fceaccd53a07cd7b106a6ac4809b0f72b410fb6",
-        "evidence": [
-          "EV-001",
-          "EV-002",
-          "EV-003",
-          "EV-004"
-        ],
-        "decision": "DEC-001"
-      }
+      "from": "VERIFYING", "to": "ARCHITECT_REVIEW", "at": "2026-09-03T03:54:00Z", "actor": "pectoraux", "role": "architect",
+      "reason": "Corrective P018 re-review completed; the IFC/BCF/IDS interoperability blocker from review 5096872026 was resolved and EV-001..EV-004 completed the pre-merge evidence package.",
+      "references": {"issue": 118, "pr": 120, "commit": "5fceaccd53a07cd7b106a6ac4809b0f72b410fb6", "evidence": ["EV-001", "EV-002", "EV-003", "EV-004"], "decision": "DEC-001"}
     },
     {
-      "from": "ARCHITECT_REVIEW",
-      "to": "APPROVED",
-      "at": "2026-09-03T03:54:01Z",
-      "actor": "pectoraux",
-      "role": "architect",
-      "reason": "Architect decision APPROVED (DEC-001) recorded after the exact-head re-review of 5fceaccd53a07cd7b106a6ac4809b0f72b410fb6: the implementation passed the substantive technical re-review and the governance evidence binding (EV-004) completes the evidence package. VERIFIED remains a separate post-merge Architect gate. Merge of PR #120 is NOT yet authorized by this decision — the physical merge stays held pending the Architect's explicit go-ahead, and the PR remains open at the reviewed implementation head plus this record-only governance arc.",
-      "references": {
-        "issue": 118,
-        "pr": 120,
-        "commit": "5fceaccd53a07cd7b106a6ac4809b0f72b410fb6",
-        "decision": "DEC-001"
-      }
+      "from": "ARCHITECT_REVIEW", "to": "APPROVED", "at": "2026-09-03T03:54:01Z", "actor": "pectoraux", "role": "architect",
+      "reason": "DEC-001 approved the corrective P018 implementation for merge; VERIFIED remained a separate post-merge gate.",
+      "references": {"issue": 118, "pr": 120, "commit": "5fceaccd53a07cd7b106a6ac4809b0f72b410fb6", "decision": "DEC-001"}
+    },
+    {
+      "from": "APPROVED", "to": "MERGED", "at": "2026-09-03T05:01:23Z", "actor": "pectoraux", "role": "product-owner",
+      "reason": "PR #120 was merged after Architect approval. The resulting mainline merge commit is 3edd5506d972dc309b22c21baad7643f021f27d4.",
+      "references": {"issue": 118, "pr": 120, "merge_commit": "3edd5506d972dc309b22c21baad7643f021f27d4"}
+    },
+    {
+      "from": "MERGED", "to": "VERIFIED", "at": "2026-09-03T06:00:10Z", "actor": "pectoraux", "role": "architect",
+      "reason": "Post-merge Architect verification completed against the actual P018 merge commit. The merged-tree Actions matrix contains 26 post-merge workflow runs for 3edd5506d972dc309b22c21baad7643f021f27d4, with no failure or cancellation entries; the post-merge governance run succeeded; the reviewed corrective implementation and its revision-bound deployment/browser/interoperability evidence remain unchanged; no protected architecture change or ACR is required. P018 is therefore complete and VERIFIED.",
+      "references": {"issue": 118, "pr": 120, "commit": "3edd5506d972dc309b22c21baad7643f021f27d4", "merge_commit": "3edd5506d972dc309b22c21baad7643f021f27d4", "evidence": ["EV-004", "EV-005"], "decision": "DEC-002"}
     }
   ],
   "evidence": [
     {
-      "id": "EV-001",
-      "type": "automated-test-suite",
-      "description": "The full app suite at the P1/P2 implementation heads: 1326 tests, 1285 pass, 0 fail, 41 skipped (1267 pre-P018 baseline + 59 new CAD-PARITY-018 tests: toolsets-p018.test.ts (58 — the capability registry, the architecture composition workflows with the REAL P011 host bindings and one-revision atomicity, the MEP records + route validation + clash/clearance derivations + in-record connections, the mechanical records + deterministic arrays, the raster source/reference records + the fresh status derivation + the typed non-authoritative trace + the commit-to-canonical lineage, the persistence/replay/identity contracts and the typed declines) and toolsets-p018-host-parity.test.ts (1 — the WebHost/WebSocketTransport AND ElectronHost/IpcTransport streams converge to identical semantic results and the canonical content hash). The pre-existing CAD-PARITY-002..017 baselines remain green and pinned fixtures byte-identical.",
-      "produced_at": "2026-09-02T21:41:00Z",
-      "reproducible": true,
-      "reproduction": "cd app && node --import tsx --test test/*.test.ts (working directory app)",
-      "references": {
-        "commit": "81db8eb7d4e40296857ad2278f59f62fcf93a7ac",
-        "pr": 120,
-        "path": "app/test"
-      }
+      "id": "EV-001", "type": "automated-test-suite", "description": "P018 deterministic application suite and host-parity coverage; 1326 tests with 0 failures at the implementation evidence head, with pre-existing CAD-PARITY-002..017 baselines remaining green and pinned fixtures byte-identical.", "produced_at": "2026-09-02T21:41:00Z", "reproducible": true, "reproduction": "cd app && node --import tsx --test test/*.test.ts", "references": {"commit": "81db8eb7d4e40296857ad2278f59f62fcf93a7ac", "pr": 120, "path": "app/test"}
     },
     {
-      "id": "EV-002",
-      "type": "reproducible-script",
-      "description": "The toolsets-p018 web smoke exercises the closed 26-entry capability discovery, the seven architecture registry commands (WALLRUN/PLACEOPENING/ROOFCREATE/STAIRRUN/SPACEGRID/DIMCHAIN/COMPARRAY) plus MEPRUN/EQUIPADD/MEPCONNECT/RASTERATTACH and the TOOLSETREPORT/MEPREPORT/RASTERSTATUS/RASTERTRACE report surfaces through the SHARED prompt-engine registry, the toolset.* App API commands/queries, the typed decline coverage (host-not-found, not-found, bad-payload, out-of-bounds, reference-missing, reference-stale, unsupported), the undo atomicity, the save/open round-trip with the tls- counter checkpoint and the fresh-document scoping proof; the pinned fixture app/test/fixtures/cad-parity-018-toolsets.json is byte-identical across repeat runs (the deterministic-record lineage, the clash diagnostics, the status table, the trace vectors and the echo digest).",
-      "produced_at": "2026-09-02T21:41:00Z",
-      "reproducible": true,
-      "reproduction": "cd apps/web && node --import tsx test/toolsets-p018-smoke.mjs (apps/web, against the dev server; OFFISOS_WEB_URL)",
-      "references": {
-        "commit": "81db8eb7d4e40296857ad2278f59f62fcf93a7ac",
-        "pr": 120,
-        "path": "apps/web/test/toolsets-p018-smoke.mjs"
-      }
+      "id": "EV-002", "type": "reproducible-script", "description": "P018 web smoke with the closed 26-entry capability surface, deterministic specialized workflows, typed declines, undo atomicity, save/open round-trip and byte-identical pinned fixture.", "produced_at": "2026-09-02T21:41:00Z", "reproducible": true, "reproduction": "cd apps/web && node --import tsx test/toolsets-p018-smoke.mjs", "references": {"commit": "81db8eb7d4e40296857ad2278f59f62fcf93a7ac", "pr": 120, "path": "apps/web/test/toolsets-p018-smoke.mjs"}
     },
     {
-      "id": "EV-003",
-      "type": "automated-test-suite",
-      "description": "The corrective interop coverage required by the Architect review 5096872026 (criterion 14): the specialized-toolsets IFC/BCF/IDS compatibility. The deterministic app suite app/test/toolsets-p018-interop.test.ts — 22 tests over the REAL IfcOpenShell worker (0 skipped with the pinned toolchain): the IfcGroup carrier codec (byte-exact round-trip of all four record kinds incl. separator-bearing names and exact float coordinates, the DRY classification, classify-only existing matches, the documented LOSSY row on changed fields, typed UNSUPPORTED rows on malformed carrier data, identity preservation vs minting), the static 12-row concept x surface typed-outcome matrix (identity/scalars/BCF-element-refs/IDS EXACT; structured arrays LOSSY; native MEP/mechanical IFC classes, raster binary payloads, derived diagnostics, BCF-to-record references UNSUPPORTED), the live per-record DRY classification, the full live boundary (additive-optional export with legacy byte-identity, byte-exact record restoration with preserved tls- identities and ONE atomic undo, export-import-export byte-identity, classify-only re-import, IDS pass/fail discrimination over BOTH the workflow elements and the carrier IfcGroup psets, BCF exact references + the typed tls- decline + the honest null), and the Web/Electron host convergence on the interop surfaces. The web smoke apps/web/test/toolsets-interop-p018-smoke.mjs drives the same stream through the dev server (29 commands) with the pinned fixture app/test/fixtures/cad-parity-018-toolsets-interop.json byte-identical across repeat runs (21 pinned fields: the legacy/toolsets export hashes, the report hashes, the import classification, the restored-records digest, the BCF resolution, the IDS statuses, the typed decline code, the command stream). The adapter/worker boundaries are PRESERVED: zero worker/protocol changes (the toolsets groups ride the P014-generic IfcGroup carrier through the adapter mapping).",
-      "produced_at": "2026-09-03T02:43:21Z",
-      "reproducible": true,
-      "reproduction": "cd app && OFFISOS_PYTHON=<python-with-ifcopenshell-0.8.5> node --import tsx --test test/toolsets-p018-interop.test.ts ; cd apps/web && OFFISOS_GEOMETRY_ENGINE=reference OFFISOS_IFC_WORKER=<repo>/app/src/adapters/ifc/worker/ifc-worker.py OFFISOS_PYTHON=<python> npm run dev -- --webpack -p 3100 & then: node --import tsx test/toolsets-interop-p018-smoke.mjs",
-      "references": {
-        "commit": "ea76d4b",
-        "pr": 120,
-        "path": "app/test/fixtures/cad-parity-018-toolsets-interop.json"
-      }
+      "id": "EV-003", "type": "automated-test-suite", "description": "Corrective IFC/BCF/IDS interoperability evidence: 22 deterministic tests over the pinned IfcOpenShell 0.8.5 toolchain, explicit EXACT/LOSSY/UNSUPPORTED outcomes, byte-exact specialized-record round-trip, IDS/BCF coverage and Web/Electron convergence.", "produced_at": "2026-09-03T02:43:21Z", "reproducible": true, "reproduction": "cd app && OFFISOS_PYTHON=<python-with-ifcopenshell-0.8.5> node --import tsx --test test/toolsets-p018-interop.test.ts", "references": {"commit": "ea76d4b9d1a12a21bdadfdeae5939c4045509b9c", "pr": 120, "path": "app/test/fixtures/cad-parity-018-toolsets-interop.json"}
     },
     {
-      "id": "EV-004",
-      "type": "reproducible-script",
-      "description": "The exact-head Vercel deployment, deployed smoke and deployment-bound browser verification for the corrective head 5fceaccd53a07cd7b106a6ac4809b0f72b410fb6 (PR #120): deployment dpl_3LX4hRbnS7Erx5mEGMi3hihChA8W at https://offisos-k7esdrqkf-ekonplacidegmailcoms-projects.vercel.app (READY, preview target — the production alias untouched; created 2026-09-03T03:29:33Z), REST-proven through the Vercel API: meta.gitsha = 5fceaccd53a07cd7b106a6ac4809b0f72b410fb6 byte-exact AND meta.githubCommitSha identical, meta.workitem = CAD-PARITY-018, meta.pr = 120 (the same offisos deployment channel as P016/P017). The deployed smoke: toolsets-p018-smoke.mjs against the deployment PASS — 37 commands, 101 echo lines, 10 perf assertions within the serverless budget, the pinned fixture cad-parity-018-toolsets.json match (10 records): the reviewed P018 surface unregressed on the deployed corrective head. The deployed runtime's persistence backend is the linked Vercel Blob store, whose live identity was observed (not assumed) by the same-channel deployed backend probe at the P2 submission head deployment dpl_HxJB5VMaR9ndUf5DFduTHeEkJp31 (PR #120 comment 5518785741: 'P016 PERSISTENCE BACKEND: blob' — BACKEND PROBE PASS; the pinned fixture byte-identity across the three backends: memory, the CI postgres service, and blob). The deployed interop probes: interop.toolsetsReport answers LIVE on the deployment (the pure typed-outcome surface — 12 matrix rows) and ifc.export declines typed ifc_unavailable (the honest serverless boundary: no Python worker in Vercel functions — the worker-bound interop coverage is proven locally and in CI per EV-003). The deployment-bound browser verification (real Chromium, direct navigation): the shell renders, the Toolsets workbench renders (26 capabilities, the discovery table), toolset.mepAddRun through the deployed API creates tls-000001, interop.toolsetsReport through the deployed page context classifies the record (Segments = lossy, 12 rows, the deterministic hash), the typed ifc_unavailable decline renders from the page context, the reload and workbench re-open are stable, and ZERO console messages / ZERO page errors at every checkpoint. The out-of-band PR binding comment 5519939086 (2026-09-03T03:34:54Z) carries the full corrective-submission binding: the terminal exact-head CI 28/28 runs and 82/82 check-runs success (including the dispatched cad-parity-018 run 33708740092, 3/3 jobs and 62/62 steps), the deployment, the deployed smoke, the interop probes, and the browser evidence with its four screenshots.",
-      "produced_at": "2026-09-03T03:34:54Z",
-      "reproducible": true,
-      "reproduction": "cd apps/web && OFFISOS_WEB_URL=https://offisos-k7esdrqkf-ekonplacidegmailcoms-projects.vercel.app node --import tsx test/toolsets-p018-smoke.mjs; verify the deployment identity via the Vercel REST API GET /v13/deployments/dpl_3LX4hRbnS7Erx5mEGMi3hihChA8W (meta.gitsha = 5fceaccd…, meta.workitem = CAD-PARITY-018, meta.pr = 120, state READY); the browser verification is reproducible by direct navigation to the deployment URL in a real Chromium with the console/page-error checkpoints per PR #120 comment 5519939086",
-      "references": {
-        "commit": "5fceaccd53a07cd7b106a6ac4809b0f72b410fb6",
-        "pr": 120,
-        "path": "apps/web/test/toolsets-p018-smoke.mjs"
-      }
+      "id": "EV-004", "type": "reproducible-script", "description": "Exact-head corrective deployment, deployed smoke and deployment-bound browser verification: Vercel deployment dpl_3LX4hRbnS7Erx5mEGMi3hihChA8W, preview-only with REST-proven git identity at corrective head 5fceaccd; deployed smoke PASS with pinned fixture match; live interop report; typed ifc_unavailable boundary; real Chromium verification with zero console messages and zero page errors; PR binding comment 5519939086.", "produced_at": "2026-09-03T03:34:54Z", "reproducible": true, "reproduction": "cd apps/web && OFFISOS_WEB_URL=https://offisos-k7esdrqkf-ekonplacidegmailcoms-projects.vercel.app node --import tsx test/toolsets-p018-smoke.mjs", "references": {"commit": "5fceaccd53a07cd7b106a6ac4809b0f72b410fb6", "pr": 120, "path": "apps/web/test/toolsets-p018-smoke.mjs"}
+    },
+    {
+      "id": "EV-005", "type": "ci-run", "description": "Post-merge regression evidence for P018. GitHub Actions query for head SHA 3edd5506d972dc309b22c21baad7643f021f27d4 returned 26 workflow runs, all terminal with no failure or cancellation entries; the post-merge governance run #322 (ID 33717186834) completed successfully, including typecheck, deterministic governance tests, work-item/schema validation and VERIFIED-revision audit. This evidence establishes that the merged tree remains CI-clean after PR #120 was physically merged.", "produced_at": "2026-09-03T06:00:10Z", "reproducible": true, "reproduction": "Query GitHub Actions for head_sha=3edd5506d972dc309b22c21baad7643f021f27d4 and require every returned workflow run to be terminal with zero failure/cancellation entries; inspect run 33717186834.", "references": {"commit": "3edd5506d972dc309b22c21baad7643f021f27d4", "workflow_run": "33717186834", "pr": 120, "path": ".github/workflows/governance.yml"}
     }
   ],
   "decisions": [
     {
-      "id": "DEC-001",
-      "status": "approved",
-      "decided_at": "2026-09-03T03:54:00Z",
-      "decided_by": "pectoraux",
-      "role": "architect",
-      "rationale": "CAD-PARITY-018 implementation approved on exact-head Architect re-review. The substantive interoperability blocker of review 5096872026 is resolved at the corrective head 5fceaccd53a07cd7b106a6ac4809b0f72b410fb6: PR #120 carries the dedicated P018 IFC/BCF/IDS implementation and tests (app/src/ifc/toolsetmap.ts, app/src/interop/toolsets.ts, toolsets-p018-interop.test.ts, its pinned fixture and the corrective smoke) through the P014-generic IfcGroup carrier with zero worker/adapter-protocol changes, so frozen Architecture v1.1 and the adapter/worker boundaries are preserved and no ACR is required; the exact-head workflow matrix is terminal and green including cad-parity-018 and its three jobs; EV-003 binds the corrective interoperability evidence and EV-004 binds the exact-head Vercel deployment dpl_3LX4hRbnS7Erx5mEGMi3hihChA8W, the deployed smoke, the blob-backend observation, the deployment-bound browser verification with zero console/page errors, and the PR binding comment 5519939086. The governance evidence package (EV-001..EV-004) is complete. Merge of PR #120 is NOT yet authorized by this decision: the physical merge stays held pending the Architect's explicit go-ahead.",
-      "evidence_refs": [
-        "EV-001",
-        "EV-002",
-        "EV-003",
-        "EV-004"
-      ]
+      "id": "DEC-001", "status": "approved", "decided_at": "2026-09-03T03:54:00Z", "decided_by": "pectoraux", "role": "architect",
+      "rationale": "P018 corrective implementation passed the substantive Architect review and completed pre-merge evidence requirements, including the dedicated IFC/BCF/IDS interoperability correction. Merge and verification remained separate gates.", "evidence_refs": ["EV-001", "EV-002", "EV-003", "EV-004"]
+    },
+    {
+      "id": "DEC-002", "status": "approved", "decided_at": "2026-09-03T06:00:10Z", "decided_by": "pectoraux", "role": "architect",
+      "rationale": "Post-merge verification of CAD-PARITY-018 is complete. The actual merge commit 3edd5506d972dc309b22c21baad7643f021f27d4 has a clean 26-run post-merge Actions matrix with no failure or cancellation entries; the merged tree retains the corrective implementation and its revision-bound interoperability/deployment/browser evidence; governance remains valid; Architecture v1.1 and all protected boundaries remain intact. P018 satisfies its acceptance and evidence requirements and is VERIFIED.", "evidence_refs": ["EV-001", "EV-002", "EV-003", "EV-004", "EV-005"]
     }
   ]
 }
