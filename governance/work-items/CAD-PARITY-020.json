@@ -1,0 +1,49 @@
+{
+  "id": "CAD-PARITY-020",
+  "title": "Archicad parity certification",
+  "issue": 123,
+  "architecture_version": "1.1",
+  "requirements": ["CAD-001", "CAD-002", "BIM-001", "IFC-002", "API-001"],
+  "dependencies": ["CAD-PARITY-019"],
+  "objective": "Certify integrated Archicad-class BIM and documentation workflows against a representative professional workflow corpus without changing ConstructionOS Architecture v1.1.",
+  "acceptance_criteria": [
+    "A representative Archicad-class BIM/documentation workflow corpus is defined and version-pinned before certification evidence is produced.",
+    "Representative workflows pass BIM/document semantics and behavioral-fidelity assessment against declared reference behavior.",
+    "Representative workflows pass persistence and document round-trip durability assessment with deterministic canonical identities and lineage.",
+    "Representative workflows are completed through real Web/Electron UI paths rather than API-only mocks.",
+    "Interoperability is assessed with explicit EXACT, LOSSY and UNSUPPORTED outcomes and no fabricated semantics.",
+    "Performance and robustness are assessed against declared corpus-specific targets and recorded as revision-bound evidence.",
+    "Feature checklist presence alone is explicitly insufficient for certification.",
+    "The certified workflow remains consistent with the P019 baseline wherever shared CAD semantics and infrastructure are involved.",
+    "Construction Graph, CADDocument, App API, command registry and native engine/worker boundaries remain unchanged and respected.",
+    "Certification evidence is reproducible, revision-bound and sufficient for an Architect VERIFIED decision."
+  ],
+  "non_goals": [
+    "Claiming unrestricted or perfect Archicad/Revit parity.",
+    "Adding unrelated features solely to increase checklist coverage.",
+    "Changing Architecture v1.1 without an Architecture Change Request.",
+    "Replacing the Construction Graph or CADDocument authority model.",
+    "Bypassing the established engine adapter or worker boundary."
+  ],
+  "risk_assumptions": [
+    "P019 is VERIFIED before P020 execution.",
+    "Architecture v1.1 remains frozen throughout certification.",
+    "Reference BIM/documentation workflow expectations are documented and reproducible enough to support certification claims.",
+    "The P019-certified shared workflow infrastructure remains the baseline where applicable."
+  ],
+  "evidence_requirements": [
+    "Version-pinned representative Archicad-class BIM/documentation workflow corpus and reference expectations.",
+    "Deterministic BIM semantic-fidelity results for the declared corpus.",
+    "Persistence and document round-trip evidence for representative workflows.",
+    "Real browser/Electron UI task-completion evidence.",
+    "Interop evidence with explicit EXACT/LOSSY/UNSUPPORTED classification.",
+    "Performance and robustness benchmark artifacts.",
+    "Regression proof over P019 and earlier verified CAD/BIM baselines.",
+    "Exact-head CI verification and deployment/browser evidence where applicable.",
+    "Revision-bound governance evidence covering certification implementation, review and final verification."
+  ],
+  "state": "DRAFT",
+  "transitions": [],
+  "evidence": [],
+  "decisions": []
+}
