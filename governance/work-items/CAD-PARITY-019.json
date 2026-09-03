@@ -1,0 +1,49 @@
+{
+  "id": "CAD-PARITY-019",
+  "title": "AutoCAD parity certification",
+  "issue": 122,
+  "architecture_version": "1.1",
+  "requirements": ["CAD-001", "CAD-002", "BIM-001", "IFC-002", "API-001"],
+  "dependencies": ["CAD-PARITY-018", "COMPAT-CAD-004"],
+  "objective": "Certify integrated AutoCAD-class professional workflows against a representative workflow corpus without changing ConstructionOS Architecture v1.1.",
+  "acceptance_criteria": [
+    "A representative professional workflow corpus is defined and version-pinned before certification evidence is produced.",
+    "Representative workflows pass semantics and behavioral-fidelity assessment against declared AutoCAD reference behavior.",
+    "Representative workflows pass persistence and round-trip durability assessment with deterministic canonical identities and lineage.",
+    "Representative workflows are completed through real Web/Electron UI paths rather than API-only mocks.",
+    "Interoperability is assessed with explicit EXACT, LOSSY and UNSUPPORTED outcomes and no fabricated semantics.",
+    "Performance and robustness are assessed against declared corpus-specific targets and recorded as revision-bound evidence.",
+    "Feature checklist presence alone is explicitly insufficient for certification.",
+    "Construction Graph, CADDocument, App API, command registry and native engine/worker boundaries remain unchanged and respected.",
+    "Existing verified CAD/BIM regressions remain green and pinned fixtures remain byte-identical where applicable.",
+    "Certification evidence is reproducible, revision-bound and sufficient for an Architect VERIFIED decision."
+  ],
+  "non_goals": [
+    "Claiming unrestricted or perfect AutoCAD feature parity.",
+    "Adding unrelated AutoCAD features solely to increase checklist coverage.",
+    "Changing Architecture v1.1 without an Architecture Change Request.",
+    "Replacing the Construction Graph or CADDocument authority model.",
+    "Bypassing the established engine adapter or worker boundary."
+  ],
+  "risk_assumptions": [
+    "P018 is VERIFIED and provides the specialized professional toolset baseline.",
+    "COMPAT-CAD-004 is completed and VERIFIED before P019 execution.",
+    "Architecture v1.1 remains frozen throughout certification.",
+    "Reference workflow expectations are documented and reproducible enough to support certification claims."
+  ],
+  "evidence_requirements": [
+    "Version-pinned representative AutoCAD workflow corpus and reference expectations.",
+    "Deterministic semantic-fidelity results for the declared corpus.",
+    "Persistence and round-trip evidence for representative workflows.",
+    "Real browser/Electron UI task-completion evidence.",
+    "Interop evidence with explicit EXACT/LOSSY/UNSUPPORTED classification.",
+    "Performance and robustness benchmark artifacts.",
+    "Regression proof over verified CAD/BIM baselines.",
+    "Exact-head CI verification and deployment/browser evidence where applicable.",
+    "Revision-bound governance evidence covering certification implementation, review and final verification."
+  ],
+  "state": "DRAFT",
+  "transitions": [],
+  "evidence": [],
+  "decisions": []
+}
