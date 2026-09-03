@@ -72,11 +72,11 @@ test("CAD-PARITY-019: the AutoCAD parity certification converges byte-identicall
   const electron = makeHostRenderer("electron");
 
   const webRun = await runCertification(web.driver, {
-    driverKind: "web-host-transport",
+    driverKind: "websocket-transport",
     basisNote: "The host-parity certification basis: the reference adapter + the pinned IfcOpenShell interop adapter through the Web host's REAL WebSocketTransport.",
   });
   const electronRun = await runCertification(electron.driver, {
-    driverKind: "electron-host-transport",
+    driverKind: "ipc-transport",
     basisNote: "The host-parity certification basis: the reference adapter + the pinned IfcOpenShell interop adapter through the Electron host's REAL IpcTransport.",
   });
 

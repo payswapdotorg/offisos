@@ -63,7 +63,10 @@ export interface CertDriver {
 }
 
 /** The driver kind recorded in the report (honest basis disclosure). */
-export type DriverKind = "in-process-renderer" | "web-host-transport" | "electron-host-transport" | "web-http";
+/** The driver kinds (the honest basis disclosure labels): the in-process
+ *  App API handler, the Web host's WebSocket transport, the Electron
+ *  host's IPC transport, and the real web app over HTTP. */
+export type DriverKind = "in-process" | "websocket-transport" | "ipc-transport" | "web-http";
 
 // ---------------------------------------------------------------------------
 // Report types.

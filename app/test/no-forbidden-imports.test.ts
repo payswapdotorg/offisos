@@ -61,7 +61,12 @@ const FORBIDDEN_SPECIFIERS = [
 // src/parametrics joined the protected set with COMPAT-CAD-004 (Issue #121):
 // the consolidated parametrics/associative/patterns core is
 // platform-independent.
-const PROTECTED_DIRS = ["src/contracts", "src/renderer", "src/app-api", "src/caddocument", "src/graph", "src/impact", "src/drafting", "src/bim", "src/docs", "src/ifc", "src/workspace", "src/interop", "src/quantities", "src/recovery", "src/collab", "src/jobs", "src/modelstream", "src/persist", "src/automation", "src/toolsets", "src/parametrics"];
+// src/certification joined the protected set with CAD-PARITY-019 (Issue
+// #122): the version-pinned corpus + the deterministic certification
+// engine are platform-independent (type-only imports + the pure
+// prompt-engine compiler + the canonical serializer; the driver seam keeps
+// every host boundary outside).
+const PROTECTED_DIRS = ["src/contracts", "src/renderer", "src/app-api", "src/caddocument", "src/graph", "src/impact", "src/drafting", "src/bim", "src/docs", "src/ifc", "src/workspace", "src/interop", "src/quantities", "src/recovery", "src/collab", "src/jobs", "src/modelstream", "src/persist", "src/automation", "src/toolsets", "src/parametrics", "src/certification"];
 
 function* walk(dir: string): Generator<string> {
   for (const entry of readdirSync(dir)) {

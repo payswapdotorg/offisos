@@ -74,7 +74,7 @@ function toDriverResult(r: CommandQueryResponse): { ok: true; value: unknown } |
 test("CAD-PARITY-019: the AutoCAD parity certification over the version-pinned corpus (semantics, persistence, interop, robustness) — the pinned certification report", { skip: skipIfc }, async () => {
   const { driver } = makeDriver();
   const { report } = await runCertification(driver, {
-    driverKind: "in-process-renderer",
+    driverKind: "in-process",
     basisNote: "The app-suite certification basis: the deterministic engine-free reference adapter + the pinned IfcOpenShell 0.8.5 interop adapter, driven in-process through the REAL App API handler and the shared prompt-engine command registry.",
   });
 
