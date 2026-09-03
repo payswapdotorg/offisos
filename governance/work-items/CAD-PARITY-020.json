@@ -3,8 +3,16 @@
   "title": "Archicad parity certification",
   "issue": 123,
   "architecture_version": "1.1",
-  "requirements": ["CAD-001", "CAD-002", "BIM-001", "IFC-002", "API-001"],
-  "dependencies": ["CAD-PARITY-019"],
+  "requirements": [
+    "CAD-001",
+    "CAD-002",
+    "BIM-001",
+    "IFC-002",
+    "API-001"
+  ],
+  "dependencies": [
+    "CAD-PARITY-019"
+  ],
   "objective": "Certify integrated Archicad-class BIM and documentation workflows against a representative professional workflow corpus without changing ConstructionOS Architecture v1.1.",
   "acceptance_criteria": [
     "A representative Archicad-class BIM/documentation workflow corpus is defined and version-pinned before certification evidence is produced.",
@@ -42,7 +50,7 @@
     "Exact-head CI verification and deployment/browser evidence where applicable.",
     "Revision-bound governance evidence covering certification implementation, review and final verification."
   ],
-  "state": "ASSIGNED",
+  "state": "IMPLEMENTING",
   "transitions": [
     {
       "from": "DRAFT",
@@ -52,7 +60,9 @@
       "role": "architect",
       "timestamp": "2026-09-03T20:10:00Z",
       "reason": "P019 is VERIFIED, issue #123 is fully specified with objective, scope, acceptance criteria, non-goals, dependency, architecture constraints and revision-bound evidence requirements; it is eligible for assignment under the repository lifecycle.",
-      "references": {"issue": 123}
+      "references": {
+        "issue": 123
+      }
     },
     {
       "from": "READY",
@@ -62,7 +72,22 @@
       "role": "architect",
       "timestamp": "2026-09-03T20:15:00Z",
       "reason": "Authorize CAD-PARITY-020 implementation to the same logical implementation agent used for the preceding governed parity milestones. The implementation-side stop gate remains PR_OPEN/VERIFYING; Architect owns approval and verification.",
-      "references": {"issue": 123, "assignee": "z-ai-implementation-agent"}
+      "references": {
+        "issue": 123,
+        "assignee": "z-ai-implementation-agent"
+      }
+    },
+    {
+      "from": "ASSIGNED",
+      "to": "IMPLEMENTING",
+      "at": "2026-09-03T20:51:00Z",
+      "actor": "z-ai-implementation-agent",
+      "role": "implementer",
+      "reason": "Begin the CAD-PARITY-020 Archicad parity certification implementation on the VERIFIED P019 baseline (282993a): the certification-first execution rule applies — the version-pinned representative Archicad-class BIM/documentation workflow corpus and its reference expectations (bound to the version-pinned Graphisoft Archicad 27 reference manifest, every Offisos surface explicitly modeled as a semantic analog — Archicad documents no command-line interface) are defined and pinned BEFORE any certification evidence is produced; then the deterministic certification engine (semantics, persistence round-trip, real-UI command-stream completion, explicit EXACT/LOSSY/UNSUPPORTED interop, performance/robustness) is driven against that corpus, with the app-suite certification test, the Web/Electron host-parity convergence, the web-host certification smoke and the Certification workbench corpus catalog. Architecture v1.1 stays frozen (the Construction Graph, CADDocument, App API, command registry and engine/worker boundaries unchanged; the P019-certified shared workflow infrastructure remains the baseline); the implementation-side stop gate remains PR_OPEN/VERIFYING.",
+      "references": {
+        "issue": 123,
+        "commit": "282993aebaf5e0e064eebbf1f1bffdea7825d0eb"
+      }
     }
   ],
   "evidence": [],
