@@ -50,6 +50,66 @@ import {
   type CorpusScriptStep,
   type CorpusWorkflow,
 } from "./corpus.js";
+import { ARCHICAD_WORKFLOWS, ARCHICAD_CORPUS_REFERENCE, archicadCorpusSha256 } from "./corpus-archicad.js";
+
+// ---------------------------------------------------------------------------
+// The corpus bundle seam (CAD-PARITY-020, additive): the engine executes ANY
+// version-pinned corpus through the same deterministic machinery. The P019
+// AutoCAD corpus remains the DEFAULT (the existing callers and the pinned
+// P019 fixture are byte-stable); the P020 Archicad corpus is the second
+// bundle. Each bundle carries its own identity (the log/run prefix, the
+// report contract, the reference pin, the workflow set and the digest
+// functions) — the certification measures the SAME dimensions (semantics,
+// persistence, real-UI command-stream completion, interop,
+// performance/robustness) over whichever corpus it is given.
+// ---------------------------------------------------------------------------
+
+/** A version-pinned certification corpus the engine can execute. */
+export interface CorpusBundle {
+  /** The run/log prefix (e.g. "P019" — the runId stem and the console lines). */
+  readonly prefix: string;
+  /** The certification report contract id (pinned by the fixture). */
+  readonly contract: string;
+  /** The corpus reference pin (id/version/product). */
+  readonly reference: { readonly corpusId: string; readonly corpusVersion: string; readonly referenceProduct: string };
+  /** The corpus workflows. */
+  readonly workflows: readonly CorpusWorkflow[];
+  /** The canonical corpus encoding (the digest basis). */
+  readonly canonicalJson: () => string;
+  /** The stable corpus digest (the version pin bound into the report). */
+  readonly sha256: () => string;
+  /** The default basis note (the honest per-corpus disclosure). */
+  readonly defaultBasisNote: string;
+}
+
+/** The P019 AutoCAD corpus bundle (the DEFAULT — byte-identical behavior). */
+export const P019_CORPUS_BUNDLE: CorpusBundle = {
+  prefix: "P019",
+  contract: "offisos-p019-certification/1",
+  reference: CORPUS_REFERENCE,
+  workflows: P019_WORKFLOWS,
+  canonicalJson: corpusCanonicalJsonReexport,
+  sha256: corpusSha256,
+  defaultBasisNote:
+    "The certification basis is the deterministic engine-free reference adapter with the pinned IfcOpenShell 0.8.5 interop adapter (the CAD-PARITY-009/014 parity basis); engine-backed exactness (OCCT) is evidenced by the VERIFIED CAD-PARITY-010 suite and cited in the corpus notes.",
+};
+
+/** The P020 Archicad-class corpus bundle (CAD-PARITY-020 / Issue #123). */
+export const P020_ARCHICAD_CORPUS_BUNDLE: CorpusBundle = {
+  prefix: "P020",
+  contract: "offisos-p020-certification/1",
+  reference: ARCHICAD_CORPUS_REFERENCE,
+  workflows: ARCHICAD_WORKFLOWS,
+  canonicalJson: archicadCorpusCanonicalJsonReexport,
+  sha256: archicadCorpusSha256,
+  defaultBasisNote:
+    "The certification basis is the deterministic engine-free reference adapter with the pinned IfcOpenShell 0.8.5 interop adapter (the CAD-PARITY-009/014 parity basis — the same basis family the VERIFIED P019 certification used); the Offisos surfaces are driven through the shared prompt-engine command registry and modeled as the declared Graphisoft Archicad 27 semantic analogs (Archicad documents no command-line interface).",
+};
+
+// The canonicalJson re-exports (the corpus modules export the functions
+// directly; the bundle interface wants the nullary call shape).
+import { corpusCanonicalJson as corpusCanonicalJsonReexport } from "./corpus.js";
+import { archicadCorpusCanonicalJson as archicadCorpusCanonicalJsonReexport } from "./corpus-archicad.js";
 
 // ---------------------------------------------------------------------------
 // The driver seam.
@@ -125,7 +185,11 @@ export interface WorkflowCertification {
 }
 
 export interface CertificationReport {
-  readonly contract: "offisos-p019-certification/1";
+  /** The certification report contract id (the P019 AutoCAD corpus pins
+   *  "offisos-p019-certification/1"; the P020 Archicad corpus pins
+   *  "offisos-p020-certification/1" — each corpus bundle carries its own
+   *  report contract, pinned verbatim by its fixture). */
+  readonly contract: string;
   readonly corpus: {
     readonly id: string;
     readonly version: string;
@@ -227,12 +291,17 @@ function resolveRef(snap: StateSnapshot, ref: { by: "nth"; type: string; nth: nu
   return { id: el.id, kind: el.kind, props: el.props };
 }
 
-function contextFor(snap: StateSnapshot): CommandContext {
+function contextFor(snap: StateSnapshot, activeStoryId: string | null = null): CommandContext {
   // The REAL host context contract (the same snapshot tables the Web/Electron
-  // shell feeds the shared registry — the smokes' engineCtx shape).
+  // shell feeds the shared registry — the smokes' engineCtx shape). The
+  // activeStoryId mirrors the shell's story.activateCreated UI-action
+  // binding (CAD-PARITY-020): the story-scoped commands place on the active
+  // story exactly like the real host workflow. Default null = the P019
+  // behavior (byte-stable — the P019 corpus never drives story creation).
   return defaultCommandContext({
     activeLayer: (snap.draftingSettings?.activeLayer as string | undefined) ?? "0",
     elementCount: snap.elements.length,
+    activeStoryId,
     storyCount: snap.elements.filter((e) => (e.props as Record<string, unknown> | undefined)?.type === "bim.story").length,
     currentSelection: [],
     layers: snap.layers as never,
@@ -251,6 +320,16 @@ function contextFor(snap: StateSnapshot): CommandContext {
     activeUcsId: (snap.draftingSettings?.activeUcs as string | undefined) ?? "world",
     view3d: (snap.draftingSettings?.view3d ?? null) as never,
     model3dSolidCount: snap.elements.filter((e) => (e.props as Record<string, unknown> | undefined)?.type === "model3d.solid").length,
+    // The documentation tables (CAD-PARITY-020, additive — mirrors the REAL
+    // Web/Electron shell's engineCtx contract exactly, as the P013 smoke
+    // documents it: the docs views, the navigator nodes, the title blocks
+    // and the publisher sets are part of the host context the shared
+    // registry consumes). P019 never drives the commands that read these
+    // tables, so the P019 behavior is byte-stable.
+    docsViews: (snap.docsViews ?? []) as never,
+    navigatorNodes: (snap.navigatorNodes ?? []) as never,
+    titleBlocks: (snap.titleBlocks ?? []) as never,
+    publisherSets: (snap.publisherSets ?? []) as never,
   });
 }
 
@@ -308,6 +387,10 @@ export interface RunOptions {
   readonly basisNote?: string;
   /** Restrict to specific workflow ids (used by the host-parity proof). */
   readonly only?: readonly string[];
+  /** The corpus bundle to certify (CAD-PARITY-020, additive). Defaults to the
+   *  P019 AutoCAD corpus — the existing callers and the pinned P019 fixture
+   *  are byte-stable. */
+  readonly corpus?: CorpusBundle;
 }
 
 export interface RunOutcome {
@@ -322,7 +405,8 @@ const log = (lines: string[], msg: string) => {
 
 export async function runCertification(driver: CertDriver, options: RunOptions): Promise<RunOutcome> {
   const lines: string[] = [];
-  const runId = `p019-${Math.random().toString(16).slice(2, 10)}`;
+  const bundle = options.corpus ?? P019_CORPUS_BUNDLE;
+  const runId = `${bundle.prefix.toLowerCase()}-${Math.random().toString(16).slice(2, 10)}`;
 
   // The perf collector: every driver call is timed; per-workflow budgets are
   // asserted; the samples are reported to the run log and NEVER pinned.
@@ -334,14 +418,14 @@ export async function runCertification(driver: CertDriver, options: RunOptions):
     return out;
   };
 
-  const selected = options.only !== undefined ? P019_WORKFLOWS.filter((w) => options.only!.includes(w.id)) : P019_WORKFLOWS;
+  const selected = options.only !== undefined ? bundle.workflows.filter((w) => options.only!.includes(w.id)) : bundle.workflows;
   const workflowResults: WorkflowCertification[] = [];
 
-  log(lines, `P019 CERTIFICATION: corpus ${CORPUS_REFERENCE.corpusId}/${CORPUS_REFERENCE.corpusVersion} sha256 ${corpusSha256().slice(0, 12)}… — ${selected.length} workflows on ${options.driverKind}`);
+  log(lines, `${bundle.prefix} CERTIFICATION: corpus ${bundle.reference.corpusId}/${bundle.reference.corpusVersion} sha256 ${bundle.sha256().slice(0, 12)}… — ${selected.length} workflows on ${options.driverKind}`);
 
   for (const wf of selected) {
     const perfBefore = perfSamples.length;
-    const result = await runWorkflow(driver, wf, runId, call, lines);
+    const result = await runWorkflow(driver, wf, runId, call, lines, bundle);
     workflowResults.push(result);
     const perf = perfSamples.slice(perfBefore);
     for (const target of wf.perf) {
@@ -349,7 +433,7 @@ export async function runCertification(driver: CertDriver, options: RunOptions):
       if (total > target.budgetMs) {
         throw new Error(`PERF BUDGET EXCEEDED — ${target.label}: ${total}ms > ${target.budgetMs}ms`);
       }
-      log(lines, `P019 CERTIFICATION: PERF ${target.label}: ${total}ms <= ${target.budgetMs}ms`);
+      log(lines, `${bundle.prefix} CERTIFICATION: PERF ${target.label}: ${total}ms <= ${target.budgetMs}ms`);
     }
   }
 
@@ -362,19 +446,17 @@ export async function runCertification(driver: CertDriver, options: RunOptions):
   const workflowsPassed = workflowResults.filter((w) => w.status === "pass").length;
 
   const report: CertificationReport = {
-    contract: "offisos-p019-certification/1",
+    contract: bundle.contract,
     corpus: {
-      id: CORPUS_REFERENCE.corpusId,
-      version: CORPUS_REFERENCE.corpusVersion,
-      sha256: corpusSha256(),
+      id: bundle.reference.corpusId,
+      version: bundle.reference.corpusVersion,
+      sha256: bundle.sha256(),
       workflowCount: selected.length,
     },
     basis: {
       driverKind: options.driverKind,
-      referenceProduct: CORPUS_REFERENCE.referenceProduct,
-      note:
-        options.basisNote ??
-        "The certification basis is the deterministic engine-free reference adapter with the pinned IfcOpenShell 0.8.5 interop adapter (the CAD-PARITY-009/014 parity basis); engine-backed exactness (OCCT) is evidenced by the VERIFIED CAD-PARITY-010 suite and cited in the corpus notes.",
+      referenceProduct: bundle.reference.referenceProduct,
+      note: options.basisNote ?? bundle.defaultBasisNote,
     },
     workflows: workflowResults,
     summary: {
@@ -411,20 +493,45 @@ async function runWorkflow(
   runId: string,
   call: (kind: "command" | "query", name: string, payload: unknown) => Promise<DriverResult>,
   lines: string[],
+  bundle: CorpusBundle = P019_CORPUS_BUNDLE,
 ): Promise<WorkflowCertification> {
   const t0 = Date.now();
-  log(lines, `P019 CERTIFICATION: workflow ${wf.id} — ${wf.title}`);
+  log(lines, `${bundle.prefix} CERTIFICATION: workflow ${wf.id} — ${wf.title}`);
 
   const docKey = `${runId}-${wf.id}`;
   const created = await call("command", "document.create", {
     entityId: docKey,
     format: "offisos-reference",
     formatVersion: "1",
-    createdBy: "p019-certification",
+    createdBy: `${bundle.prefix.toLowerCase()}-certification`,
   });
   if (!created.ok) throw new Error(`document.create failed for ${wf.id}: ${JSON.stringify(created).slice(0, 200)}`);
 
   let snap = await getState(driver);
+  // The ACTIVE-STORY TRACKING (CAD-PARITY-020, additive — mirrors the REAL
+  // Web/Electron shell's story.activateCreated UI-action binding exactly):
+  // after a bim.createElements call whose created ids include a bim.story,
+  // the shell activates that story (the first created story in document
+  // order). The engine's command context therefore carries the SAME
+  // activeStoryId the real hosts would feed the shared registry — the
+  // story-scoped commands (WALL/SLAB/ROOF/STAIR…) place on the active story
+  // exactly like the real UI workflow. P019 never drives story-creating
+  // batches, so the default (null) is byte-stable for the P019 fixture.
+  let activeStoryId: string | null = null;
+  const trackStoryActivation = (res: DriverResult) => {
+    if (!res.ok) return;
+    const value = res.value as { created?: unknown } | null;
+    const createdIds = value?.created;
+    if (!Array.isArray(createdIds) || createdIds.length === 0 || typeof createdIds[0] !== "string") return;
+    const idSet = new Set<string>(createdIds as string[]);
+    for (const el of snap.elements) {
+      const props = el.props as Record<string, unknown> | undefined;
+      if (idSet.has(el.id) && props?.type === "bim.story") {
+        activeStoryId = el.id;
+        return;
+      }
+    }
+  };
   const labeled = new Map<string, DriverResult>();
   const phaseResults: PhaseResult[] = [];
   const expectationResults: ExpectationResult[] = [];
@@ -444,17 +551,18 @@ async function runWorkflow(
       for (const c of phase.commands ?? []) {
         const res = await call("command", c.name, c.payload);
         phaseState.commandCount += 1;
-        if (c.as) {
-          labeled.set(c.as, res);
-          phaseState.labeled.set(c.as, res);
-        }
         // Commands that DECLINE are only legal when an expectation in this
         // phase declares that decline (the honest-refusal rule).
         const declaresDecline = phase.expectations.some((e) => e.check.kind === "decline" && e.check.command === c.name);
         if (!res.ok && !declaresDecline) {
           throw new Error(`phase ${phase.id}: command ${c.name} failed: ${JSON.stringify(res).slice(0, 300)}`);
         }
+        if (c.as) {
+          labeled.set(c.as, res);
+          phaseState.labeled.set(c.as, res);
+        }
         snap = await getState(driver);
+        if (c.name === "bim.createElements") trackStoryActivation(res);
       }
       if (phase.script) {
         // The LIVE event loop: entity picks resolve against the CURRENT
@@ -474,7 +582,7 @@ async function runWorkflow(
         for (const step of phase.script) {
           const wasIdle = promptState.commandId === null;
           const ev = toPromptEvent(snap, step);
-          const result = applyPromptEvent(promptState, ev, contextFor(snap));
+          const result = applyPromptEvent(promptState, ev, contextFor(snap, activeStoryId));
           promptState = result.state;
           if (wasIdle && ev.type === "typed") {
             if (result.output.commandName !== null) {
@@ -496,6 +604,10 @@ async function runWorkflow(
               if (!res.ok) {
                 throw new Error(`phase ${phase.id}: plan command ${entry.name} failed: ${JSON.stringify(res).slice(0, 300)}`);
               }
+              if (entry.name === "bim.createElements") {
+                snap = await getState(driver);
+                trackStoryActivation(res);
+              }
             }
             snap = await getState(driver);
           }
@@ -509,7 +621,7 @@ async function runWorkflow(
       snap = await getState(driver);
     } catch (err) {
       phaseFailed = true;
-      log(lines, `P019 CERTIFICATION:   phase ${phase.id} EXECUTION ERROR: ${(err as Error).message}`);
+      log(lines, `${bundle.prefix} CERTIFICATION:   phase ${phase.id} EXECUTION ERROR: ${(err as Error).message}`);
     }
     snap = await getState(driver);
     phaseState.revisionsAfter = revisionCount(snap);
@@ -520,7 +632,7 @@ async function runWorkflow(
       if (r.status === "fail") {
         workflowFailed = true;
         phaseFailed = true;
-        log(lines, `P019 CERTIFICATION:   FAIL ${exp.id} [${exp.outcome}]: ${r.detail ?? ""}`);
+        log(lines, `${bundle.prefix} CERTIFICATION:   FAIL ${exp.id} [${exp.outcome}]: ${r.detail ?? ""}`);
       }
     }
     phaseResults.push({
@@ -530,7 +642,7 @@ async function runWorkflow(
       commandNames: [...phaseState.invokedCommands],
       revisionDelta: phaseState.revisionsAfter - phaseState.revisionsBefore,
     });
-    log(lines, `P019 CERTIFICATION:   phase ${phase.id} ${phaseFailed ? "FAIL" : "pass"} (${phaseState.commandCount} commands, Δrev ${phaseState.revisionsAfter - phaseState.revisionsBefore})`);
+    log(lines, `${bundle.prefix} CERTIFICATION:   phase ${phase.id} ${phaseFailed ? "FAIL" : "pass"} (${phaseState.commandCount} commands, Δrev ${phaseState.revisionsAfter - phaseState.revisionsBefore})`);
   }
 
   // --- the cross-cutting arms -------------------------------------------
@@ -551,7 +663,7 @@ async function runWorkflow(
     const postDigest = digestOf(await getState(driver));
     undoRedo = preDigest === postDigest ? "pass" : "fail";
     if (undoRedo === "fail") workflowFailed = true;
-    log(lines, `P019 CERTIFICATION:   undoRedo(${wf.robustness.undoRedoSteps}) ${undoRedo}`);
+    log(lines, `${bundle.prefix} CERTIFICATION:   undoRedo(${wf.robustness.undoRedoSteps}) ${undoRedo}`);
   }
 
   // Persistence round-trip: save → open → save again — the canonical
@@ -582,7 +694,7 @@ async function runWorkflow(
       roundTrip = "fail";
     }
     if (roundTrip === "fail") workflowFailed = true;
-    log(lines, `P019 CERTIFICATION:   roundTrip(save→open→save, content+history byte-identical; live editorState excluded) ${roundTrip}`);
+    log(lines, `${bundle.prefix} CERTIFICATION:   roundTrip(save→open→save, content+history byte-identical; live editorState excluded) ${roundTrip}`);
   }
 
   // Replay determinism: the SAME workflow in a FRESH document reproduces
@@ -594,7 +706,7 @@ async function runWorkflow(
     replayStable =
       normalize(replay.finalDigest, `${runId}b-${wf.id}`) === normalize(finalDigest, `${runId}-${wf.id}`) ? "pass" : "fail";
     if (replayStable === "fail") workflowFailed = true;
-    log(lines, `P019 CERTIFICATION:   replayStable ${replayStable}`);
+    log(lines, `${bundle.prefix} CERTIFICATION:   replayStable ${replayStable}`);
   }
 
   // Interop probes: the REAL carrier codecs/reports (never narrative).
@@ -604,14 +716,14 @@ async function runWorkflow(
     interopResults.push(r);
     if (r.status === "fail") {
       workflowFailed = true;
-      log(lines, `P019 CERTIFICATION:   interop FAIL ${io.id}: expected ${io.expected}, observed ${r.observed}`);
+      log(lines, `${bundle.prefix} CERTIFICATION:   interop FAIL ${io.id}: expected ${io.expected}, observed ${r.observed}`);
     } else {
-      log(lines, `P019 CERTIFICATION:   interop ${io.id} [${io.surface}/${io.concept}] expected ${io.expected} — observed ${r.observed} — pass`);
+      log(lines, `${bundle.prefix} CERTIFICATION:   interop ${io.id} [${io.surface}/${io.concept}] expected ${io.expected} — observed ${r.observed} — pass`);
     }
   }
 
   const ms = Date.now() - t0;
-  log(lines, `P019 CERTIFICATION: workflow ${wf.id} ${workflowFailed ? "FAIL" : "pass"} (${ms}ms)`);
+  log(lines, `${bundle.prefix} CERTIFICATION: workflow ${wf.id} ${workflowFailed ? "FAIL" : "pass"} (${ms}ms)`);
 
   return {
     id: wf.id,
@@ -743,23 +855,45 @@ async function replayWorkflow(
   });
   if (!created.ok) throw new Error(`replay document.create failed for ${wf.id}`);
   let snap = await getState(drv);
+  // The SAME shell-mirroring story activation (the replay must reproduce the
+  // run's story-scoped placements exactly — otherwise the digest diverges).
+  let activeStoryId: string | null = null;
+  const trackStoryActivation = (res: DriverResult) => {
+    if (!res.ok) return;
+    const value = res.value as { created?: unknown } | null;
+    const createdIds = value?.created;
+    if (!Array.isArray(createdIds) || createdIds.length === 0 || typeof createdIds[0] !== "string") return;
+    const idSet = new Set<string>(createdIds as string[]);
+    for (const el of snap.elements) {
+      const props = el.props as Record<string, unknown> | undefined;
+      if (idSet.has(el.id) && props?.type === "bim.story") {
+        activeStoryId = el.id;
+        return;
+      }
+    }
+  };
   for (const phase of wf.phases) {
     for (const c of phase.commands ?? []) {
       const res = await call("command", c.name, c.payload);
       const declaresDecline = phase.expectations.some((e) => e.check.kind === "decline" && e.check.command === c.name);
       if (!res.ok && !declaresDecline) throw new Error(`replay phase ${phase.id}: ${c.name} failed: ${JSON.stringify(res).slice(0, 200)}`);
       snap = await getState(drv);
+      if (c.name === "bim.createElements") trackStoryActivation(res);
     }
     if (phase.script) {
       let promptState = IDLE_PROMPT_STATE;
       for (const step of phase.script) {
         const ev = toPromptEvent(snap, step);
-        const result = applyPromptEvent(promptState, ev, contextFor(snap));
+        const result = applyPromptEvent(promptState, ev, contextFor(snap, activeStoryId));
         promptState = result.state;
         if (result.output.plan !== null) {
           for (const entry of result.output.plan.appApi) {
             const res = await call("command", entry.name, entry.payload);
             if (!res.ok) throw new Error(`replay phase ${phase.id}: ${entry.name} failed: ${JSON.stringify(res).slice(0, 200)}`);
+            if (entry.name === "bim.createElements") {
+              snap = await getState(drv);
+              trackStoryActivation(res);
+            }
           }
           snap = await getState(drv);
         }
