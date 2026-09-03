@@ -18,30 +18,24 @@ This file is the first stop for any new LLM Architect, reviewer, or implementati
 
 ## Milestones
 
-P016 is VERIFIED. P017 is VERIFIED. P018 has now been **MERGED** but is intentionally **not yet VERIFIED** on main.
+P016 is VERIFIED. P017 is VERIFIED. **P018 is VERIFIED.**
 
 P018 GitHub Issue: **#118**
 P018 PR: **#120**
 P018 merge commit: **3edd5506d972dc309b22c21baad7643f021f27d4**
 P018 reviewed corrective implementation head before merge: **714a34e5712abf8b4a1dd015b806958ff9568ec2**
-P018 implementation evidence head referenced by the original evidence package: **3a124946a4713ebdf1b43c37d96166f76adac9fd**
+P018 corrective interop implementation: **ea76d4b9d1a12a21bdadfdeae5939c4045509b9c**
 P018 approval decision: **DEC-001**
+P018 post-merge verification decision: **DEC-002**
 Architect review that triggered the interoperability correction: **5096872026**
 
-### Important P018 review history
+## P018 verification closure
 
-The first P018 review identified a substantive evidence gap: the original implementation proved regression compatibility with the existing IFC/BCF/IDS stack, but did not itself provide specialized-toolset interoperability coverage.
+The original substantive P018 blocker was dedicated IFC/BCF/IDS interoperability coverage for the new specialized semantics. The corrective revision added the specialized IFC carrier, typed EXACT/LOSSY/UNSUPPORTED classification, deterministic interop tests and pinned smoke coverage without changing Architecture v1.1 or the engine/worker boundary.
 
-Before merge, that gap was addressed on the corrective P018 head by adding the dedicated specialized IFC/BCF/IDS implementation and tests, including:
+Post-merge verification then bound the actual merge commit to the governance ledger and checked the merge-head Actions matrix. The merge-head matrix was terminal with no failure or cancellation entries; the post-merge governance run succeeded. The final governance transition is `MERGED → VERIFIED` with DEC-002.
 
-- `app/src/ifc/toolsetmap.ts`
-- `app/src/interop/toolsets.ts`
-- `app/test/toolsets-p018-interop.test.ts`
-- the corresponding pinned fixture / corrective smoke coverage
-
-The governance record on the corrective head records EV-003 for this interoperability package and EV-004 for deployment/browser evidence. The Architect then recorded `VERIFYING → ARCHITECT_REVIEW → APPROVED` with DEC-001 before the merge.
-
-## P018 scope
+## Verified P018 scope
 
 Architecture: bounded profile/wall, hosted door/window, roof, stair, railing, rooms/spaces, dimensioning, component placement/editing over verified BIM primitives.
 
@@ -55,29 +49,18 @@ Shared API/UI: versioned typed App API, one shared command registry, Toolsets wo
 
 Interoperability: IFC/BCF/IDS support for the bounded specialized semantics, with explicit LOSSY/UNSUPPORTED outcomes outside the supported model.
 
-Non-goals include full AutoCAD Architecture/MEP/Mechanical parity, full Revit MEP solving, general mechanical feature/history modeling, full raster reconstruction/OCR authoring, unrestricted plugin execution, replacement of canonical boundaries, or architecture changes without an ACR.
+## Current successor
 
-## P018 verification status after merge
+`COMPAT-CAD-004` is the next governed work item and is now **ASSIGNED**.
 
-Do **not** infer VERIFIED from the green pre-merge evidence. The final governance gate is still required.
+- GitHub Issue: **#121**
+- Governance record: `governance/work-items/COMPAT-CAD-004.json`
+- State: `ASSIGNED`
+- Dependency: P018 VERIFIED at `3edd5506d972dc309b22c21baad7643f021f27d4`
+- Scope: bounded parametric constraints, associative drafting, reusable 2D symbols/blocks, deterministic mirror/array/pattern operations, shared App API/command registry, and bounded interoperability.
+- Implementer stop gate: `PR_OPEN/VERIFYING`.
 
-The next Architect must:
-
-1. Verify that main is actually at `3edd5506d972dc309b22c21baad7643f021f27d4`.
-2. Confirm the merged PR #120 corresponds to the reviewed corrective head and contains the interoperability correction.
-3. Reconcile the governance record from `APPROVED` to `MERGED` using the exact merge commit `3edd5506...` and the repository's legal transition schema.
-4. Poll the post-merge Actions matrix to terminal and require zero failures/cancellations.
-5. Re-check the dedicated P018 workflow and the corrective IFC/BCF/IDS evidence against the merged tree.
-6. Re-check the exact-head deployment evidence bound to the corrective head / deployment record and verify that the production alias was not implicitly changed by the preview deployment process.
-7. Verify the real-browser evidence and the documented serverless/session boundary honestly.
-8. Only after all evidence is revision-bound to the merged implementation and post-merge tree, record `MERGED → VERIFIED` with an approved Architect decision and qualifying evidence IDs.
-9. Run the governance validator on the resulting mainline tree and require it to succeed.
-
-Until those steps succeed, the truthful state is **P018 MERGED / pending post-merge Architect verification**.
-
-## P019 / successor rule
-
-No successor work item should be released merely because P018 is merged. The dependency gate is P018 **VERIFIED**, not merely MERGED. The next Architect should inspect the frozen roadmap and only release the next work item after the P018 verification gate closes.
+This is the planned **complete-enough CAD/BIM boundary** in `spec/roadmap-v1.1.md`. After this work item is VERIFIED, CAD/BIM feature expansion pauses while broader ConstructionOS platform work proceeds.
 
 ## Primary repository authorities
 
@@ -93,6 +76,7 @@ Read these before making architectural decisions:
 - `governance/protected-paths.json`
 - `governance/work-items/CAD-PARITY-017.json`
 - `governance/work-items/CAD-PARITY-018.json`
+- `governance/work-items/COMPAT-CAD-004.json`
 - `docs/LLM-ARCHITECT-HANDOFF.md`
 - `IMPLEMENTATION.md`
 - `AGENTS.md`
