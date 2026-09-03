@@ -42,7 +42,7 @@
     "Exact-head CI verification and deployment/browser evidence where applicable.",
     "Revision-bound governance evidence covering certification implementation, review and final verification."
   ],
-  "state": "READY",
+  "state": "ASSIGNED",
   "transitions": [
     {
       "from": "DRAFT",
@@ -51,7 +51,18 @@
       "actor": "pectoraux",
       "role": "architect",
       "timestamp": "2026-09-03T20:10:00Z",
-      "reason": "P019 is VERIFIED, issue #123 is fully specified with objective, scope, acceptance criteria, non-goals, dependency, architecture constraints and revision-bound evidence requirements; it is eligible for assignment under the repository lifecycle."
+      "reason": "P019 is VERIFIED, issue #123 is fully specified with objective, scope, acceptance criteria, non-goals, dependency, architecture constraints and revision-bound evidence requirements; it is eligible for assignment under the repository lifecycle.",
+      "references": {"issue": 123}
+    },
+    {
+      "from": "READY",
+      "to": "ASSIGNED",
+      "label": "assign",
+      "actor": "pectoraux",
+      "role": "architect",
+      "timestamp": "2026-09-03T20:15:00Z",
+      "reason": "Authorize CAD-PARITY-020 implementation to the same logical implementation agent used for the preceding governed parity milestones. The implementation-side stop gate remains PR_OPEN/VERIFYING; Architect owns approval and verification.",
+      "references": {"issue": 123, "assignee": "z-ai-implementation-agent"}
     }
   ],
   "evidence": [],
