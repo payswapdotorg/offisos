@@ -134,7 +134,7 @@
       "reproducible": true,
       "reproduction": "cd app && node --import tsx --test test/*.test.ts (working directory app)",
       "references": {
-        "commit": "6640c7821da20517514575314bfb1458097d966b",
+        "commit": "e8fd320165493402504975552ed2553eca931d13",
         "pr": 124,
         "path": "app/test"
       }
@@ -147,7 +147,7 @@
       "reproducible": true,
       "reproduction": "cd apps/web && OFFISOS_GEOMETRY_ENGINE=reference OFFISOS_P016_PERSIST=memory npm run dev -- --webpack -p 3100 & then: OFFISOS_WEB_URL=http://localhost:3100 node --import tsx test/parametrics-cad004-smoke.mjs",
       "references": {
-        "commit": "6640c7821da20517514575314bfb1458097d966b",
+        "commit": "e8fd320165493402504975552ed2553eca931d13",
         "pr": 124,
         "path": "apps/web/test/parametrics-cad004-smoke.mjs"
       }
