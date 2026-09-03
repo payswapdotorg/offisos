@@ -51,7 +51,7 @@
       "actor": "pectoraux",
       "role": "architect",
       "reason": "P019 is fully specified as the next certification milestone on the authoritative roadmap. Its dependencies P018 and COMPAT-CAD-004 are VERIFIED, Architecture v1.1 is frozen, the certification acceptance/evidence contract is explicit, and the corpus-first certification boundary is preserved.",
-      "references": {"issue": 122, "dependencies": ["CAD-PARITY-018", "COMPAT-CAD-004"]}
+      "references": {"issue": 122}
     },
     {
       "from": "READY",
