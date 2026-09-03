@@ -2789,6 +2789,10 @@ export const QUERY_PAYLOAD_SCHEMAS: Readonly<Record<QueryName, object>> = {
     },
     required: ["format"],
   },
+  // CAD-PARITY-018 (additive, Issue #118 criterion 14 — the corrective
+  // interop coverage): the specialized-toolsets typed-outcome report (no
+  // payload — a pure classification over the current document state).
+  "interop.toolsetsReport": { type: "object", properties: {} },
   // --- CAD-PARITY-016 (additive, Issue #112): the collaboration/recovery/
   // scale query payloads. ---
   "recovery.list": { type: "object", properties: {} },

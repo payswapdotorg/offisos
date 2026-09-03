@@ -58,7 +58,7 @@ on:
 #     tables, composition outcomes, record inventories, deterministic
 #     derivations, status/trace views, committed trace elements, the
 #     save/open round-trip inventory and the typed declines)
-#   - the web host runs the SIXTEEN parity smokes (the fifteen regression
+#   - the web host runs the SEVENTEEN parity smokes (the fifteen regression
 #     fixtures byte-identical + the NEW pinned CAD-PARITY-018 fixture -
 #     toolsets-p018-smoke.mjs drives the App API specialized-toolsets
 #     surface (the seven architecture registry commands WALLRUN/
@@ -77,6 +77,14 @@ on:
 #     additive-optional snapshot proof in the app suite ARE the
 #     persistence evidence; the P016/P017 restart proofs remain (their
 #     state is still durable project record state).
+#     (CORRECTIVE, review 5096872026 / criterion 14) toolsets-interop-p018-smoke.mjs
+#     drives the IFC/BCF/IDS compatibility of the specialized semantics:
+#     the IfcGroup carrier export/import round-trip (preserved tls-
+#     identities, byte-identical re-export), the interop.toolsetsReport
+#     typed EXACT/LOSSY/UNSUPPORTED classification, the BCF exchange over
+#     the committed canonical elements with the typed tls- decline, the IDS
+#     validation over the carrier groups + the workflow walls, and the
+#     pinned interop fixture cad-parity-018-toolsets-interop.json.
 #   - the electron host runs the EIGHTEEN existing smokes unchanged - the
 #     honest no-new-electron-surface decision for this slice (the P017
 #     precedent): P018 adds no new Electron-only UI surface (the
@@ -88,7 +96,10 @@ on:
 #     ElectronHost/IpcTransport - identical capability tables,
 #     composition outcomes, record inventories, derivations, status/
 #     trace views, committed elements, round-trip inventories and typed
-#     declines) + the unchanged smoke:docs regression above
+#     declines) + toolsets-p018-interop (the CORRECTIVE interop surfaces:
+#     the toolsets interop report hash, the IFC export bytes and the
+#     import classification converge across both hosts) + the unchanged
+#     smoke:docs regression above
 #
 # Engine isolation (LOCK-003/018): no engine import leaks into the
 # renderer, CADDocument, App API or the workspace cores (enforced by the
@@ -163,7 +174,7 @@ jobs:
           if-no-files-found: warn
 
   web-host-workspace:
-    name: Web host (Next.js 16 + ALL SIXTEEN workspace smokes + ALL SIXTEEN parity fixtures + the P016/P017 durable persistence on a REAL postgres service)
+    name: Web host (Next.js 16 + ALL SEVENTEEN workspace smokes + ALL SEVENTEEN parity fixtures + the P016/P017 durable persistence on a REAL postgres service)
     runs-on: ubuntu-latest
     # CAD-PARITY-016/017 (the established precedent): a REAL PostgreSQL
     # service — the authoritative structured-state backend (Architecture
@@ -231,7 +242,7 @@ jobs:
         working-directory: apps/web
         run: npm run build
 
-      - name: Web host workspace workflow smokes (dev server + shared prompt engine + ALL SIXTEEN parity fixtures)
+      - name: Web host workspace workflow smokes (dev server + shared prompt engine + ALL SEVENTEEN parity fixtures)
         working-directory: apps/web
         env:
           OFFISOS_OCCT_WORKER: ${{ github.workspace }}/app/src/adapters/occt/worker/occt-worker.py
@@ -329,6 +340,14 @@ jobs:
             node --import tsx apps/web/test/toolsets-p018-smoke.mjs
             SMOKE_STATUS=$?
           fi
+          # CAD-PARITY-018 corrective (review 5096872026, criterion 14): the
+          # specialized-toolsets IFC/BCF/IDS interop smoke — the deterministic
+          # carrier round-trip, the typed LOSSY/UNSUPPORTED outcome surface,
+          # the BCF/IDS exchange and the pinned interop fixture.
+          if [ $SMOKE_STATUS -eq 0 ]; then
+            node --import tsx apps/web/test/toolsets-interop-p018-smoke.mjs
+            SMOKE_STATUS=$?
+          fi
           # Reap the whole dev-server process group (the restart-proof steps
           # below start their own dev server from the same directory — a
           # surviving grandchild would hold Next's dev-instance lock).
@@ -364,6 +383,7 @@ jobs:
             app/test/fixtures/cad-parity-016-collab.json
             app/test/fixtures/cad-parity-017-automation.json
             app/test/fixtures/cad-parity-018-toolsets.json
+            app/test/fixtures/cad-parity-018-toolsets-interop.json
           if-no-files-found: warn
 
   electron-host-workspace:

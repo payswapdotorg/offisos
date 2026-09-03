@@ -284,6 +284,13 @@ import {
   type IfcDocsMint,
   type IfcDocsTargetState,
 } from "../ifc/index.js";
+// CAD-PARITY-018 (additive, Issue #118 criterion 14 — the corrective
+// interop coverage): the specialized-toolsets IfcGroup carrier + reconcile.
+import {
+  buildIfcToolsetsExport,
+  reconcileIfcToolsets,
+  type IfcToolsetsReconcileOutcome,
+} from "../ifc/index.js";
 // CAD-PARITY-014 (additive, Issue #107): the bounded interoperability shared
 // core (pure, engine-free, LOCK-018 — the dxf writer/reader/import mapping,
 // the Sheet-IR→Plot-IR bridge, the exchange report, the archival registry
@@ -291,6 +298,7 @@ import {
 import {
   archivalList,
   buildInteropExchangeReport,
+  buildToolsetsInteropReport,
   dxfRoundtripReport,
   looksLikeDwg,
   readDxf,
@@ -1613,6 +1621,8 @@ export class AppApiHandler {
         return this.qInteropExchangeReport();
       case "interop.archivalList":
         return this.qInteropArchivalList();
+      case "interop.toolsetsReport":
+        return this.qInteropToolsetsReport();
       case "interop.roundtripReport":
         return await this.qInteropRoundtripReport(query.payload);
       // --- CAD-PARITY-016 (additive, Issue #112): the collaboration/
@@ -7934,9 +7944,18 @@ export class AppApiHandler {
         tables.publisherSets.length > 0
           ? buildIfcDocumentationExport(tables, (snapshot.docsSheets ?? []).length)
           : null;
+      // CAD-PARITY-018 (Issue #118 criterion 14 — the corrective interop
+      // coverage): the specialized records exchange through the SAME IfcGroup
+      // carrier (ifc/toolsetmap.ts — the adapter maps the groups onto the
+      // worker's generic group writer; zero worker change). Attached ONLY
+      // when the specialized table is non-empty (the legacy byte-identity
+      // invariant — the pinned P014/P018 fixtures stay byte-identical).
+      const specialized = snapshot.specialized ?? [];
+      const toolsets = specialized.length > 0 ? buildIfcToolsetsExport(specialized) : null;
       const built = await adapter.build({
         ...outcome.request,
         ...(documentation !== null ? { documentation: { groups: documentation.groups } } : {}),
+        ...(toolsets !== null ? { toolsets: { groups: toolsets.groups } } : {}),
       });
       return ok({
         ifc: built.ifc,
@@ -7946,6 +7965,7 @@ export class AppApiHandler {
         engineVersion: built.engineVersion,
         counts: outcome.counts,
         ...(documentation !== null ? { documentation: documentation.counts } : {}),
+        ...(toolsets !== null ? { toolsets: toolsets.counts } : {}),
       });
     } catch (e) {
       if (isAdapterFailure(e)) return err(e.code, e.message, e.retryable);
@@ -8021,6 +8041,24 @@ export class AppApiHandler {
         documentationOutcome = reconcileIfcDocumentation(documentation, existing, mint);
         edits.push(...this.documentationEditsOf(documentationOutcome.drafts));
       }
+      // CAD-PARITY-018 (Issue #118 criterion 14 — the corrective interop
+      // coverage): the toolsets IfcGroup records reconcile against the
+      // current specialized table and re-create as document records
+      // (preserving well-formed declared identities, minting otherwise; the
+      // drafts re-validate through the SAME grammar at execute) — in the
+      // SAME atomic batch (one revision, one undo). Existing matches are
+      // classify-only (the document authority stays — the P014 docmap
+      // discipline).
+      const toolsetsParsed = parsed.toolsets ?? null;
+      let toolsetsOutcome: IfcToolsetsReconcileOutcome | null = null;
+      if (toolsetsParsed !== null && toolsetsParsed.records.length > 0) {
+        toolsetsOutcome = reconcileIfcToolsets(toolsetsParsed.records, snapshot.specialized ?? [], {
+          specialized: (): string => this.doc.mintSpecializedId(),
+        });
+        for (const record of toolsetsOutcome.records) {
+          edits.push({ type: "addSpecialized", record });
+        }
+      }
       edits.push({
         type: "addIfcImport",
         record: { ...outcome.record, id: "", at: AppApiHandler.IFC_IMPORT_NOW },
@@ -8048,6 +8086,15 @@ export class AppApiHandler {
                   revisions: documentationOutcome.drafts.revisions.length,
                   publisherSets: documentationOutcome.drafts.publisherSets.length,
                 },
+              },
+            }
+          : {}),
+        ...(toolsetsOutcome !== null
+          ? {
+              toolsets: {
+                report: toolsetsOutcome.report,
+                reportHash: toolsetsOutcome.reportHash,
+                created: toolsetsOutcome.records.map((r) => r.id),
               },
             }
           : {}),
@@ -8500,6 +8547,21 @@ export class AppApiHandler {
     return ok(archivalList());
   }
 
+  /** interop.toolsetsReport (query, NON-VERSIONED) — CAD-PARITY-018 (Issue
+   *  #118 criterion 14 — the corrective interop coverage): the typed IFC/
+   *  BCF/IDS OUTCOME surface for the specialized semantics. The static
+   *  concept × surface matrix (the durable EXACT/LOSSY/UNSUPPORTED table —
+   *  including the explicit typed refusals: native MEP/mechanical IFC
+   *  classes, raster binary payloads, derived diagnostics, BCF references
+   *  to tls- records) + the live per-record DRY classification through the
+   *  REAL carrier codec (encode → decode → compare: the per-field
+   *  exactness is PROVEN for THIS document, not asserted). Pure, engine-free
+   *  and deterministic — no adapter required. */
+  private qInteropToolsetsReport(): CommandQueryResponse {
+    const snapshot = this.doc.snapshot();
+    return ok(buildToolsetsInteropReport(snapshot.specialized ?? []));
+  }
+
   /** interop.roundtripReport (query, NON-VERSIONED) — the format round-trip
    *  verification loops (D6). "dxf" is pure TS (export → parse → the DRY
    *  mapping + the per-element field classification + the source sha);
@@ -8552,11 +8614,17 @@ export class AppApiHandler {
           elementIdByDomainId,
         }, null)
         : null;
+      // CAD-PARITY-018 (Issue #118 criterion 14): the toolsets dimension of
+      // the DRY loop (classify-only — the round-trip never mutates).
+      const toolsetsOutcome = parsed.toolsets !== undefined && parsed.toolsets.records.length > 0
+        ? reconcileIfcToolsets(parsed.toolsets.records, this.doc.snapshot().specialized ?? [], null)
+        : null;
       const report = {
         format: "ifc" as const,
         sourceSha256,
         elements: elementsOutcome.report,
         ...(docsOutcome !== null ? { documentation: docsOutcome.report } : {}),
+        ...(toolsetsOutcome !== null ? { toolsets: toolsetsOutcome.report } : {}),
       };
       return ok({
         ...report,

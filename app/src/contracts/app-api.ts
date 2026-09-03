@@ -552,6 +552,12 @@ export type QueryName =
   | "interop.exchangeReport"
   | "interop.archivalList"
   | "interop.roundtripReport"
+  // CAD-PARITY-018 (additive, Issue #118 criterion 14 — the corrective
+  // interop coverage): the specialized-toolsets IFC/BCF/IDS typed-outcome
+  // surface (the static concept × surface matrix + the live per-record DRY
+  // classification through the REAL carrier codec; non-mutating, pure,
+  // deterministic — no adapter required).
+  | "interop.toolsetsReport"
   // --- CAD-PARITY-016 (additive, Issue #112): the collaboration/recovery/
   // scale query surfaces (non-mutating, computed fresh every call, never
   // persisted stale). recovery.list = the retained checkpoint inventory +

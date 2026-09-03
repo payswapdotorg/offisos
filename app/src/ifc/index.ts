@@ -32,6 +32,30 @@ export {
   type IfcDocsReport,
   type IfcDocsTargetState,
 } from "./docmap.js";
+// CAD-PARITY-018 (additive, Issue #118 criterion 14): the specialized
+// toolsets exchange carrier (the same IfcGroup discipline, zero worker
+// change — the adapter maps these groups onto the generic group carrier).
+export {
+  buildIfcToolsetsExport,
+  encodeToolsetRecord,
+  ifcToolsetsReportHash,
+  isToolsetsDomainKind,
+  reconcileIfcToolsets,
+  TOOLSETS_IFC_KINDS,
+  TOOLSETS_IFC_KIND_MEP_RUN,
+  TOOLSETS_IFC_KIND_MECH_EQUIPMENT,
+  TOOLSETS_IFC_KIND_RASTER_SOURCE,
+  TOOLSETS_IFC_KIND_RASTER_REFERENCE,
+  type IfcToolsetsExport,
+  type IfcToolsetsMint,
+  type IfcToolsetsReconcileOutcome,
+} from "./toolsetmap.js";
+export type {
+  IfcToolsetRecord,
+  IfcToolsetsInput,
+  IfcParsedToolsetRecord,
+  IfcParsedToolsets,
+} from "../contracts/ifc.js";
 export {
   ifcReportHash,
   IFC_ROUNDTRIP_TOLERANCE_MM,

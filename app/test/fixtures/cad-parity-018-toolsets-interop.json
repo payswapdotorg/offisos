@@ -1,0 +1,102 @@
+{
+  "legacyExportSha256": "bb14b3d8d449aa062a53d0295c8405e8bddf801e1019475b77fa063649f1cd31",
+  "legacyExportSize": 4677,
+  "ifcExportSha256": "942ee07aa55093efe55cc6a5ba8d04076684050cb9cd6040335d38dc741e87e8",
+  "ifcExportSize": 9035,
+  "toolsetsExportCounts": {
+    "mepRuns": 1,
+    "equipment": 1,
+    "rasterSources": 1,
+    "rasterReferences": 1
+  },
+  "toolsetsInteropReportHash": "77d4020ebbba4a63d38634afa1ac73708edcd2b6f967fc682453e50033cbd335",
+  "toolsetsInteropSummary": {
+    "exact": 26,
+    "lossy": 4,
+    "unsupported": 1
+  },
+  "toolsetsInteropCounts": {
+    "records": 4,
+    "mepRuns": 1,
+    "equipment": 1,
+    "rasterSources": 1,
+    "rasterReferences": 1
+  },
+  "importToolsetsReportHash": "fc3fbd1c195646918a65e2b4d285c5fe3dd73ae2c9fbe24e8d97526e623ee865",
+  "importCreatedIds": [
+    "tls-000001",
+    "tls-000003",
+    "tls-000002",
+    "tls-000004"
+  ],
+  "importRecordsSha256": "4f4c0dcfc2a2d0b86535c60bc1f41ca6a56249c799a9e73b45ef390521437613",
+  "reexportSha256": "942ee07aa55093efe55cc6a5ba8d04076684050cb9cd6040335d38dc741e87e8",
+  "reimportClassifySummary": {
+    "created": 0,
+    "reconciled": 0,
+    "unchanged": 4,
+    "unsupported": 0,
+    "exact": 30,
+    "tolerance": 0,
+    "lossy": 0,
+    "unsupportedFields": 0
+  },
+  "roundtripToolsetsSummary": {
+    "created": 0,
+    "reconciled": 0,
+    "unchanged": 4,
+    "unsupported": 0,
+    "exact": 30,
+    "tolerance": 0,
+    "lossy": 0,
+    "unsupportedFields": 0
+  },
+  "bcfSourceRevision": null,
+  "bcfResolvedCanonicalIds": [
+    "el-000001",
+    "wall-south"
+  ],
+  "carrierIdsStatuses": [
+    "pass",
+    "fail"
+  ],
+  "carrierIdsPassingGuids": [
+    "0EnZVyqGq6H7dU$h6gn7yt"
+  ],
+  "elementIdsStatuses": [
+    "fail",
+    "pass"
+  ],
+  "tlsDeclineCode": "ifc_invalid",
+  "commandStream": [
+    "document.create",
+    "bim.createElements",
+    "ifc.export",
+    "ifc.export",
+    "toolset.mepAddRun",
+    "toolset.mechAddEquipment",
+    "toolset.rasterAddSource",
+    "toolset.rasterAttach",
+    "toolset.mepConnect",
+    "toolset.rasterCommitTrace",
+    "document.getState",
+    "interop.toolsetsReport",
+    "ifc.export",
+    "ifc.export",
+    "document.create",
+    "ifc.import",
+    "document.getState",
+    "ifc.export",
+    "ifc.import",
+    "interop.roundtripReport",
+    "toolset.rasterCommitTrace",
+    "ifc.bcfCreate",
+    "ifc.bcfParse",
+    "ifc.bcfCreate",
+    "ifc.idsValidate",
+    "ifc.idsValidate",
+    "document.applyEdit",
+    "document.applyEdit",
+    "ifc.idsValidate"
+  ]
+}
