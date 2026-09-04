@@ -44,99 +44,19 @@
   ],
   "state": "APPROVED",
   "transitions": [
-    {
-      "from": "DRAFT",
-      "to": "READY",
-      "at": "2026-09-03T20:10:00Z",
-      "actor": "pectoraux",
-      "role": "architect",
-      "reason": "P019 is VERIFIED, issue #123 is fully specified with objective, scope, acceptance criteria, non-goals, dependency, architecture constraints and revision-bound evidence requirements; it is eligible for assignment under the repository lifecycle.",
-      "references": {"issue": 123}
-    },
-    {
-      "from": "READY",
-      "to": "ASSIGNED",
-      "at": "2026-09-03T20:15:00Z",
-      "actor": "pectoraux",
-      "role": "architect",
-      "reason": "Authorize CAD-PARITY-020 implementation to the same logical implementation agent used for the preceding governed parity milestones. The implementation-side stop gate remains PR_OPEN/VERIFYING; Architect owns approval and verification.",
-      "references": {"issue": 123, "assignee": "z-ai-implementation-agent"}
-    },
-    {
-      "from": "ASSIGNED",
-      "to": "IMPLEMENTING",
-      "at": "2026-09-03T20:51:00Z",
-      "actor": "z-ai-implementation-agent",
-      "role": "implementer",
-      "reason": "Begin the CAD-PARITY-020 Archicad parity certification implementation on the VERIFIED P019 baseline (282993a): the certification-first execution rule applies — the version-pinned representative Archicad-class BIM/documentation workflow corpus and its reference expectations (bound to the version-pinned Graphisoft Archicad 27 reference manifest, every Offisos surface explicitly modeled as a semantic analog — Archicad documents no command-line interface) are defined and pinned BEFORE any certification evidence is produced; then the deterministic certification engine (semantics, persistence round-trip, real-UI command-stream completion, explicit EXACT/LOSSY/UNSUPPORTED interop, performance/robustness) is driven against that corpus, with the app-suite certification test, the Web/Electron host-parity convergence, the web-host certification smoke and the Certification workbench corpus catalog. Architecture v1.1 stays frozen (the Construction Graph, CADDocument, App API, command registry and engine/worker boundaries unchanged; the P019-certified shared workflow infrastructure remains the baseline); the implementation-side stop gate remains PR_OPEN/VERIFYING.",
-      "references": {"issue": 123, "commit": "282993aebaf5e0e064eebbf1f1bffdea7825d0eb"}
-    },
-    {
-      "from": "IMPLEMENTING",
-      "to": "PR_OPEN",
-      "at": "2026-09-03T21:47:00Z",
-      "actor": "z-ai-implementation-agent",
-      "role": "implementer",
-      "reason": "The certification implementation is complete at the PR head 27502cb: the version-pinned Archicad-class corpus (the first deliverable — the Graphisoft Archicad 27 reference manifest with every locator verified live, the explicit command-analog map, 8 representative BIM/documentation workflows with the honest outcome spread), the certification engine through the corpus-bundle seam (the P019-certified engine, the P019 fixture byte-stable), the app-suite certification test with the pinned fixture, the Web/Electron host-parity convergence, the TWENTIETH web certification smoke and the Certification workbench corpus selector. The governance gates at the implementation tree: validate 504/504, check-protected PASS, check-verified-revisions PASS, the root suite 199/199, the full app suite 1380/0 fail, web lint/typecheck/build clean.",
-      "references": {"pr": 126, "commit": "27502cb2a496d3c2144a3fc3ed0137016f8ad9d6"}
-    },
-    {
-      "from": "PR_OPEN",
-      "to": "VERIFYING",
-      "at": "2026-09-03T21:47:00Z",
-      "actor": "z-ai-implementation-agent",
-      "role": "implementer",
-      "reason": "Submit CAD-PARITY-020 for verification: EV-001 (the full app suite incl. the four CAD-PARITY-020 tests — the certification, the invariants, the auditability, the host-parity) and EV-002 (the pinned certification fixture + the byte-identical cross-host parity through the in-process basis, both host transports and the real web app over HTTP) are recorded; the exact-head CI matrix + the dispatch run, the exact-head deployment with the deployed diagnostic (explicitly a diagnostic boundary observation only — never certification evidence, the serverless ifc_unavailable boundary) and the browser verification follow as the out-of-band PR evidence comments (the P016/P017/P018/P019 discipline). The implementation-side stop gate is honored: the Architect alone owns ARCHITECT_REVIEW → APPROVED → MERGED → VERIFIED.",
-      "references": {"pr": 126}
-    },
-    {
-      "from": "VERIFYING",
-      "to": "ARCHITECT_REVIEW",
-      "at": "2026-09-04T00:55:00Z",
-      "actor": "pectoraux",
-      "role": "architect",
-      "reason": "Independent Architect review completed against PR #126. The evidence package is complete and internally consistent: the Archicad 27 (INT) corpus is version-pinned with a digest-bound Graphisoft reference manifest and explicit semantic-analog partition; the eight integrated workflows cover BIM authoring, documentation, quantities, IFC exchange and teamwork; deterministic persistence/round-trip, undo/redo and replay evidence is present; Web/Electron host parity converges; the real web application exercises the certification smoke and live derived Archicad catalog; exact-head CI is terminal and green; the exact-head preview deployment and browser checks are clean. The serverless IFC limitation is explicitly diagnostic-only and does not support the certification verdict. No protected Architecture v1.1 artifact is changed and no ACR is required.",
-      "references": {"issue": 123, "pr": 126, "commit": "3fbe45aa2b3bb0a33fe4dffb144224448bf261e2", "evidence": ["EV-001", "EV-002"]}
-    },
-    {
-      "from": "ARCHITECT_REVIEW",
-      "to": "APPROVED",
-      "at": "2026-09-04T00:56:00Z",
-      "actor": "pectoraux",
-      "role": "architect",
-      "reason": "DEC-001 approves PR #126 for merge at the reviewed implementation head. The acceptance and evidence contract is satisfied: corpus-first and source-bound, integrated workflow certification, deterministic persistence and robustness, real Web/Electron transport parity, explicit interop outcome classes, exact-head CI/deployment/browser evidence, and governance-bound reproducibility. The reviewed changes remain additive to the frozen Architecture v1.1 and preserve the Construction Graph/CADDocument and engine/worker authority boundaries. Merge is authorized; MERGED → VERIFIED remains a separate post-merge Architect gate.",
-      "references": {"issue": 123, "pr": 126, "commit": "3fbe45aa2b3bb0a33fe4dffb144224448bf261e2", "decision": "DEC-001", "evidence": ["EV-001", "EV-002"]}
-    }
+    {"from":"DRAFT","to":"READY","at":"2026-09-03T20:10:00Z","actor":"pectoraux","role":"architect","reason":"P019 is VERIFIED, issue #123 is fully specified with objective, scope, acceptance criteria, non-goals, dependency, architecture constraints and revision-bound evidence requirements; it is eligible for assignment under the repository lifecycle.","references":{"issue":123}},
+    {"from":"READY","to":"ASSIGNED","at":"2026-09-03T20:15:00Z","actor":"pectoraux","role":"architect","reason":"Authorize CAD-PARITY-020 implementation to the same logical implementation agent used for the preceding governed parity milestones. The implementation-side stop gate remains PR_OPEN/VERIFYING; Architect owns approval and verification.","references":{"issue":123,"assignee":"z-ai-implementation-agent"}},
+    {"from":"ASSIGNED","to":"IMPLEMENTING","at":"2026-09-03T20:51:00Z","actor":"z-ai-implementation-agent","role":"implementer","reason":"Begin the CAD-PARITY-020 Archicad parity certification implementation on the VERIFIED P019 baseline (282993a): the certification-first execution rule applies — the version-pinned representative Archicad-class BIM/documentation workflow corpus and its reference expectations (bound to the version-pinned Graphisoft Archicad 27 reference manifest, every Offisos surface explicitly modeled as a semantic analog — Archicad documents no command-line interface) are defined and pinned BEFORE any certification evidence is produced; then the deterministic certification engine (semantics, persistence round-trip, real-UI command-stream completion, explicit EXACT/LOSSY/UNSUPPORTED interop, performance/robustness) is driven against that corpus, with the app-suite certification test, the Web/Electron host-parity convergence, the web-host certification smoke and the Certification workbench corpus catalog. Architecture v1.1 stays frozen (the Construction Graph, CADDocument, App API, command registry and engine/worker boundaries unchanged; the P019-certified shared workflow infrastructure remains the baseline); the implementation-side stop gate remains PR_OPEN/VERIFYING.","references":{"issue":123,"commit":"282993aebaf5e0e064eebbf1f1bffdea7825d0eb"}},
+    {"from":"IMPLEMENTING","to":"PR_OPEN","at":"2026-09-03T21:47:00Z","actor":"z-ai-implementation-agent","role":"implementer","reason":"The certification implementation is complete at the PR head 27502cb: the version-pinned Archicad-class corpus (the first deliverable — the Graphisoft Archicad 27 reference manifest with every locator verified live, the explicit command-analog map, 8 representative BIM/documentation workflows with the honest outcome spread), the certification engine through the corpus-bundle seam (the P019-certified engine, the P019 fixture byte-stable), the app-suite certification test with the pinned fixture, the Web/Electron host-parity convergence, the TWENTIETH web certification smoke and the Certification workbench corpus selector. The governance gates at the implementation tree: validate 504/504, check-protected PASS, check-verified-revisions PASS, the root suite 199/199, the full app suite 1380/0 fail, web lint/typecheck/build clean.","references":{"pr":126,"commit":"27502cb2a496d3c2144a3fc3ed0137016f8ad9d6"}},
+    {"from":"PR_OPEN","to":"VERIFYING","at":"2026-09-03T21:47:00Z","actor":"z-ai-implementation-agent","role":"implementer","reason":"Submit CAD-PARITY-020 for verification: EV-001 and EV-002 are recorded; exact-head CI, exact-head deployment, deployed diagnostic and browser verification were supplied in PR evidence comments. The implementation-side stop gate is honored: the Architect alone owns ARCHITECT_REVIEW → APPROVED → MERGED → VERIFIED.","references":{"pr":126}},
+    {"from":"VERIFYING","to":"ARCHITECT_REVIEW","at":"2026-09-04T00:55:00Z","actor":"pectoraux","role":"architect","reason":"Independent Architect review completed against PR #126. The evidence package is complete and internally consistent: the Archicad 27 (INT) corpus is version-pinned with a digest-bound Graphisoft reference manifest and explicit semantic-analog partition; the eight integrated workflows cover BIM authoring, documentation, quantities, IFC exchange and teamwork; deterministic persistence/round-trip, undo/redo and replay evidence is present; Web/Electron host parity converges; the real web application exercises the certification smoke and live derived Archicad catalog; exact-head CI is terminal and green; the exact-head preview deployment and browser checks are clean. The serverless IFC limitation is explicitly diagnostic-only and does not support the certification verdict. No protected Architecture v1.1 artifact is changed and no ACR is required.","references":{"issue":123,"pr":126,"commit":"3fbe45aa2b3bb0a33fe4dffb144224448bf261e2","evidence":["EV-001","EV-002"]}},
+    {"from":"ARCHITECT_REVIEW","to":"APPROVED","at":"2026-09-04T00:56:00Z","actor":"pectoraux","role":"architect","reason":"DEC-001 approves PR #126 for merge at the reviewed implementation head. The acceptance and evidence contract is satisfied: corpus-first and source-bound, integrated workflow certification, deterministic persistence and robustness, real Web/Electron transport parity, explicit interop outcome classes, exact-head CI/deployment/browser evidence, and governance-bound reproducibility. The reviewed changes remain additive to the frozen Architecture v1.1 and preserve the Construction Graph/CADDocument and engine/worker authority boundaries. Merge is authorized; MERGED → VERIFIED remains a separate post-merge Architect gate.","references":{"issue":123,"pr":126,"commit":"3fbe45aa2b3bb0a33fe4dffb144224448bf261e2","decision":"DEC-001","evidence":["EV-001","EV-002"]}}
   ],
   "evidence": [
-    {
-      "id": "EV-001",
-      "type": "automated-test-suite",
-      "description": "The full deterministic app suite at the CAD-PARITY-020 implementation head 27502cb: 1380 tests, 1335 pass, 0 fail, 45 skipped (the OCCT-gated suites run in CI with the pinned toolchains — the dedicated cad-parity-020 workflow installs OCCT 7.8.1.1 + ifcopenshell 0.8.5 + IfcTester 0.8.5). The four CAD-PARITY-020 tests: the app-suite Archicad-class parity certification (the version-pinned corpus archicad-p020-corpus/1 through the REAL App API handler + the shared prompt-engine command registry with the shell-mirroring story activation — 8/8 workflows CERTIFIED, 52 declared reference expectations with the honest outcome spread 50 exact / 2 typed-unsupported, 14 live interop probes 9 exact / 1 lossy / 4 unsupported, zero failures), the corpus well-formedness invariants, the reference-basis auditability invariants (the version-pinned Graphisoft Archicad 27 manifest — every locator a live help.graphisoft.com/AC/27/INT URL — and the closed command-analog partition over the engine-recorded invoked command stream: Archicad documents no command-line interface, so every invoked name is the declared semantic analog), and the Web/Electron host-parity convergence (the same corpus through WebHost/WebSocketTransport AND ElectronHost/IpcTransport — byte-identical certification verdicts). The P019 AutoCAD certification remains byte-stable within the same suite (the pinned P019 report sha256 3c7d53ff… unchanged through the engine corpus-bundle seam).",
-      "produced_at": "2026-09-03T21:45:00Z",
-      "references": {"commit": "27502cb2a496d3c2144a3fc3ed0137016f8ad9d6", "path": "app/test/archicad-p020-certification.test.ts", "pr": 126},
-      "reproducible": true,
-      "reproduction": "Actions re-run: cad-parity-020.yml → workspace-shell (full app suite with both pinned engines). Local: cd app && OFFISOS_GEOMETRY_ENGINE=reference OFFISOS_PYTHON=<venv> node --import tsx --test test/archicad-p020-certification.test.ts test/archicad-p020-host-parity.test.ts"
-    },
-    {
-      "id": "EV-002",
-      "type": "reproducible-script",
-      "description": "The pinned certification fixture (app/test/fixtures/cad-parity-020-certification.json, report sha256 d246a6b0c39b3feebf76017e1a0af17b831bb14587e42f6653c775e4a452fee4) — deterministic verdict projection of the Archicad-class certification report: the corpus pin (archicad-p020-corpus/1, sha256 eb1a1dd4…), per-workflow phases with auditable invoked-command streams, expectation/interop verdicts with exact/lossy/unsupported classifications, robustness arms and aggregate summary — byte-identical across runs and across the in-process/Web/Electron/real-web-app paths. The certification-p020 smoke asserts the same projection against the running dev server, plus the certification.archicadCatalog drift guard.",
-      "produced_at": "2026-09-03T21:46:00Z",
-      "references": {"commit": "27502cb2a496d3c2144a3fc3ed0137016f8ad9d6", "path": "app/test/fixtures/cad-parity-020-certification.json", "pr": 126},
-      "reproducible": true,
-      "reproduction": "Actions re-run: cad-parity-020.yml → web-host-workspace (certification-p020 smoke). Local: cd apps/web (dev server on :3100, reference engine + pinned IFC worker) && node --import tsx test/certification-p020-smoke.mjs"
-    }
+    {"id":"EV-001","type":"automated-test-suite","description":"The full deterministic app suite at the CAD-PARITY-020 implementation head 27502cb: 1380 tests, 1335 pass, 0 fail, 45 skipped. The four P020 tests cover certification, corpus invariants, reference-basis auditability and Web/Electron host-parity; P019 remains byte-stable.","produced_at":"2026-09-03T21:45:00Z","references":{"commit":"27502cb2a496d3c2144a3fc3ed0137016f8ad9d6","path":"app/test/archicad-p020-certification.test.ts","pr":126},"reproducible":true,"reproduction":"Actions: cad-parity-020.yml workspace-shell. Local: cd app && OFFISOS_GEOMETRY_ENGINE=reference OFFISOS_PYTHON=<venv> node --import tsx --test test/archicad-p020-certification.test.ts test/archicad-p020-host-parity.test.ts"},
+    {"id":"EV-002","type":"reproducible-script","description":"The pinned certification fixture at d246a6b0… and certification-p020-smoke.mjs provide deterministic P020 verdicts across in-process, Web/Electron transport and real web HTTP paths, with the canonical Archicad catalog drift guard.","produced_at":"2026-09-03T21:46:00Z","references":{"commit":"27502cb2a496d3c2144a3fc3ed0137016f8ad9d6","path":"app/test/fixtures/cad-parity-020-certification.json","pr":126},"reproducible":true,"reproduction":"Actions: cad-parity-020.yml web-host-workspace. Local: cd apps/web && node --import tsx test/certification-p020-smoke.mjs"}
   ],
   "decisions": [
-    {
-      "id": "DEC-001",
-      "status": "approved",
-      "decided_at": "2026-09-04T00:56:00Z",
-      "decided_by": "pectoraux",
-      "role": "architect",
-      "rationale": "Independent Architect review confirms the P020 acceptance contract is met at PR #126: version-pinned Graphisoft Archicad 27 reference basis, explicit analog mapping rather than claiming an Archicad CLI, eight integrated representative workflows, deterministic persistence/round-trip and robustness, real Web/Electron transport parity, explicit interop classifications, exact-head CI/deployment/browser evidence, and preservation of frozen Architecture v1.1. Merge is authorized; post-merge verification remains separate.",
-      "evidence_refs": ["EV-001", "EV-002"]
-    }
+    {"id":"DEC-001","status":"approved","decided_at":"2026-09-04T00:56:00Z","decided_by":"pectoraux","role":"architect","rationale":"Independent Architect review confirms the P020 acceptance contract is met at PR #126: version-pinned Graphisoft Archicad 27 reference basis, explicit analog mapping rather than claiming an Archicad CLI, eight integrated representative workflows, deterministic persistence/round-trip and robustness, real Web/Electron transport parity, explicit interop classifications, exact-head CI/deployment/browser evidence, and preservation of frozen Architecture v1.1. Merge is authorized; post-merge verification remains separate.","evidence_refs":["EV-001","EV-002"]}
   ]
 }
