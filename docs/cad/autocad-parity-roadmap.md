@@ -2,11 +2,12 @@
 
 **Status:** ACTIVE
 **Architecture:** ConstructionOS Architecture v1.1 — FROZEN
-**Current baseline:** `main` at `f4a1a735dfbfa58d9b24197ffc1808d4cdf84db6`
-**Current production benchmark:** CAD-BENCH-RW-001 — 18/100
+**Current repository main:** `93ce43152a744a0ddb0e1869e1ec2f2ac850e8d0`
+**Current product benchmark baseline:** CAD-BENCH-RW-001 — 18/100 at product revision `f4a1a735dfbfa58d9b24197ffc1808d4cdf84db6`
 **Current active work item:** `COMPAT-CAD-005` — GitHub Issue #135
 **Current implementation stop gate:** `PR_OPEN / VERIFYING`
 **Primary verification instrument:** independent browser-agent black-box testing against the deployed application
+**Autonomous return protocol:** `docs/governance/architect-return-protocol.md`
 
 > This document is the authoritative roadmap for the AutoCAD-class product improvement program. It is the repository source of truth for CAD parity sequencing, phase gates, score tracking, and successor selection. Chat discussion is not authoritative.
 
@@ -34,26 +35,50 @@ Every roadmap work item follows this loop. There are no exceptions for apparentl
 ```text
 FROZEN SCOPE
     ↓
-IMPLEMENT
+IMPLEMENTATION WORKER
     ↓
 DETERMINISTIC TESTS + CI
     ↓
+WORKER RETURNS PR_OPEN / VERIFYING
+    ↓
+AUTONOMOUS ARCHITECT RETURN PROTOCOL
+    ↓
 ARCHITECT REVIEW
     ↓
-MERGE
+APPROVED → MERGED
     ↓
-DEPLOY EXACT REVISION
+POST-MERGE CI + EXACT REVISION CHECK
+    ↓
+EXACT-HEAD DEPLOYMENT
     ↓
 INDEPENDENT BROWSER-AGENT BLACK-BOX REGRESSION
     ↓
 COMPARE AGAINST PREVIOUS BASELINE
     ↓
-PASS ───────────────────────→ RELEASE NEXT WORK ITEM
-    │
-    └─ FAIL → remediation work item / return to same phase
+VERIFIED
+    ↓
+ROADMAP + GOVERNANCE UPDATE
+    ↓
+NEXT WORK ITEM + REPOSITORY IMPLEMENTATION PROMPT
+    ↓
+NEXT WORKER
 ```
 
-The browser test is a release gate, not merely a final certification activity.
+A failure follows the same autonomous path until the Architect reaches a terminal handoff:
+
+```text
+BROWSER / REVIEW FAILURE
+    ↓
+EXACT FINDING + EVIDENCE
+    ↓
+LEGAL REMEDIATION TRANSITION
+    ↓
+REPOSITORY-BACKED REMEDIATION PROMPT
+    ↓
+WORKER
+```
+
+The browser test is a release gate, not merely a final certification activity. The Architect does not stop between routine gates to request `next`, `go`, `continue`, or equivalent user input. See `docs/governance/architect-return-protocol.md`.
 
 ## 3. Evidence rule
 
@@ -128,7 +153,6 @@ COMPAT-CAD-005
       │                                         └──→ COMPAT-CAD-010 ←────┘
       │
       ├──→ COMPAT-CAD-011 ──→ COMPAT-CAD-012
-      │
       ├──→ COMPAT-CAD-013
       ├──→ COMPAT-CAD-014
       └──→ COMPAT-CAD-015
@@ -173,9 +197,11 @@ A work item is not complete when its code exists. It is complete when all of the
 [H] Previously fixed defects remain fixed
 [I] New defects are recorded, triaged and dispositioned
 [J] Architect verifies the evidence and governance record
+[K] Roadmap is updated on mainline
+[L] Next work-item/prompt handoff is persisted when the phase passes
 ```
 
-Any item A–I may block `VERIFIED`.
+Any item A–I may block `VERIFIED`. Item L is required before the Architect reports a successful phase as fully handed off.
 
 ## 7. Browser-agent protocol
 
@@ -191,6 +217,8 @@ The browser agent must behave as a real user for acceptance testing:
 - repeat critical flows after reload and after state-reset boundaries when relevant.
 
 Each gate should produce a machine-readable result plus human-auditable artifacts. The benchmark score must be recalculated from observed behavior, not inferred from implementation coverage.
+
+The Architect continues immediately after the browser agent returns. A successful gate leads directly into governance closure and successor release; a failed gate leads directly into repository-backed remediation. No intermediate user prompt is required.
 
 ## 8. Scoring and anti-gaming rule
 
@@ -217,7 +245,8 @@ After every verified work item, the Architect updates this file on the repositor
 4. defects newly discovered;
 5. the next authorized work item;
 6. any dependency or scope changes;
-7. the next browser gate.
+7. the next browser gate;
+8. the next repository-backed implementation prompt.
 
 No successor is authorized solely by chat agreement.
 
@@ -242,6 +271,8 @@ No successor is authorized solely by chat agreement.
 **Required browser gate:** G1, G3, G5, G7, G8, G9 and G10 plus direct probes for every changed failure mode.
 
 **Implementation stop:** `PR_OPEN/VERIFYING`.
+
+**Architect continuation:** once the worker returns this PR, follow `docs/governance/architect-return-protocol.md` without awaiting a user `next/go` message.
 
 ## 11. Defect retirement matrix
 
@@ -279,12 +310,14 @@ A new Architect can resume deterministically by reading, in this order:
 2. `AI_CONTINUATION.md`
 3. `spec/architecture-lock.md`
 4. `spec/development-workflow.md`
-5. this file (`docs/cad/autocad-parity-roadmap.md`)
-6. `docs/cad/autocad-real-world-benchmark.md`
-7. `docs/cad/autocad-benchmark-corpus.json`
-8. the current active governance record in `governance/work-items/`
-9. the active work item's GitHub issue and PR
-10. exact-head CI and browser evidence
+5. `docs/governance/architect-return-protocol.md`
+6. this file (`docs/cad/autocad-parity-roadmap.md`)
+7. `docs/cad/browser-agent-phase-gate.md`
+8. `docs/cad/autocad-real-world-benchmark.md`
+9. `docs/cad/autocad-benchmark-corpus.json`
+10. the current active governance record in `governance/work-items/`
+11. the active work item's GitHub issue and PR
+12. exact-head CI and browser evidence
 
 The Architect should then verify that the roadmap status, governance state, main SHA, deployment SHA and evidence references agree. Any disagreement is a handoff defect and must be reconciled before approving new work.
 
