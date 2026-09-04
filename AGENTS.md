@@ -7,9 +7,10 @@ This repository is designed to be executable by an LLM Architect plus one or mor
 1. `spec/architecture-lock.md` and other architecture-controlled artifacts.
 2. `spec/development-workflow.md` and `governance/workflow-states.json`.
 3. The relevant roadmap/work-item definition and its governance record.
-4. Existing VERIFIED milestones and their revision-bound evidence.
-5. Implementation code and tests.
-6. PR descriptions/comments are supporting evidence, not canonical architecture authority.
+4. For CAD parity sequencing specifically: `docs/cad/autocad-parity-roadmap.md` and `docs/cad/browser-agent-phase-gate.md`.
+5. Existing VERIFIED milestones and their revision-bound evidence.
+6. Implementation code and tests.
+7. PR descriptions/comments are supporting evidence, not canonical architecture authority.
 
 When two sources conflict, stop and reconcile against the higher authority rather than guessing.
 
@@ -25,6 +26,8 @@ The Architect is the independent technical reviewer and owns:
 - `MERGED → VERIFIED`.
 
 The Architect must never mark VERIFIED from implementation status alone.
+
+For CAD roadmap work, the Architect must also verify the exact deployed revision through the mandatory browser-agent black-box gate before `VERIFIED`.
 
 ### Implementation agent
 
@@ -64,19 +67,13 @@ A new real work-item record must be born in the legal initial state (`DRAFT`) an
 
 `VERIFIED` evidence must be one of the accepted reproducible evidence types and revision-bound to the implementation under verification. Screenshot/narrative/demo evidence alone can never justify VERIFIED.
 
-## P018-specific handoff
+## CAD roadmap operating rule
 
-P018 (`CAD-PARITY-018`, Issue #118, PR #120) is merged at:
+The authoritative AutoCAD-class roadmap is `docs/cad/autocad-parity-roadmap.md`.
 
-`3edd5506d972dc309b22c21baad7643f021f27d4`
+Every CAD work item must pass `docs/cad/browser-agent-phase-gate.md` after merge and exact-head deployment. The Architect updates the roadmap with the measured score, retired/new defects, exact evidence and next authorized work item before releasing a successor.
 
-It is **not automatically VERIFIED by the merge**. The next Architect must complete the post-merge verification gate documented in `AI_CONTINUATION.md` and `docs/LLM-ARCHITECT-HANDOFF.md`.
-
-The P018 corrective head that received the final Architect re-review was:
-
-`714a34e5712abf8b4a1dd015b806958ff9568ec2`
-
-The earlier exact evidence head was `3a124946...`; do not confuse historical pre-correction evidence with the final corrective implementation. The final corrective head added dedicated IFC/BCF/IDS specialized-toolset interoperability coverage before approval and merge.
+Do not use stale historical P019/P020 sequencing or old COMPAT-CAD-001 evidence as current CAD product authority. Current black-box behavior and the authoritative CAD roadmap control sequencing after the verified P020 baseline.
 
 ## Implementation stop gate
 
@@ -101,4 +98,4 @@ The canonical answer belongs in repository files, governance records, tests/fixt
 
 ## Security
 
-Never place GitHub PATs, Vercel tokens, deployment credentials, database secrets, or other credentials in tracked files, PR bodies, comments, fixtures, screenshots, or logs.
+Never place GitHub PATs, Vercel tokens, deployment credentials, database secrets, or other credentials in tracked files, PR bodies, comments, fixtures, or logs.
