@@ -24,53 +24,29 @@ VERIFYING → ARCHITECT_REVIEW
   ↓
 Independent requirements / architecture / engineering / evidence review
   ↓
-┌────────────────────────────────────────────────────────────┐
-│ ACCEPT                                                     │
-│  ↓                                                         │
-│ APPROVED                                                   │
-│  ↓                                                         │
-│ MERGE                                                      │
-│  ↓                                                         │
-│ bind exact merge revision                                  │
-│  ↓                                                         │
-│ poll post-merge checks to terminal                          │
-│  ↓                                                         │
-│ verify merged tree                                         │
-│  ↓                                                         │
-│ exact-head deployment                                      │
-│  ↓                                                         │
-│ required browser / black-box gate                          │
-│  ↓                                                         │
-│ evidence reconciliation                                    │
-│  ↓                                                         │
-│ MERGED → VERIFIED                                          │
-│  ↓                                                         │
-│ update governance record                                   │
-│  ↓                                                         │
-│ update authoritative roadmap                               │
-│  ↓                                                         │
-│ create next legal work item                                │
-│  ↓                                                         │
-│ create repository-backed implementation prompt             │
-│  ↓                                                         │
-│ release/assign next worker through legal lifecycle          │
-│  ↓                                                         │
-│ STOP only after next implementation handoff is persisted    │
-└────────────────────────────────────────────────────────────┘
+PASS
+  ↓
+APPROVED → MERGED → exact merge binding → post-merge CI to terminal
+  ↓
+merged-tree reconciliation → exact-head deployment → browser-agent gate
+  ↓
+evidence reconciliation → MERGED → VERIFIED
+  ↓
+update governance record → update authoritative roadmap
+  ↓
+create next legal work item + repository implementation prompt
+  ↓
+assign/release next worker → STOP with next handoff persisted
 
-┌────────────────────────────────────────────────────────────┐
-│ REJECT / CHANGES REQUIRED                                  │
-│  ↓                                                         │
-│ record Architect finding / decision                        │
-│  ↓                                                         │
-│ legal return to IMPLEMENTING                               │
-│  ↓                                                         │
-│ write exact remediation scope                               │
-│  ↓                                                         │
-│ update issue/PR + repository implementation prompt          │
-│  ↓                                                         │
-│ STOP                                                       │
-└────────────────────────────────────────────────────────────┘
+FAIL / CHANGES REQUIRED
+  ↓
+record Architect finding / decision
+  ↓
+legal return to IMPLEMENTING
+  ↓
+write exact remediation scope + repository implementation prompt
+  ↓
+STOP
 ```
 
 ## 3. No intermediate user prompts
@@ -90,7 +66,7 @@ A missing `next/go/continue` message is never a reason to stop.
 
 Before approval, the Architect independently reconciles:
 
-- relevant requirement coverage;
+- requirement coverage;
 - architecture and protected-path compliance;
 - exact PR head and changed-file scope;
 - deterministic tests and CI;
@@ -109,45 +85,35 @@ Approval is not verification.
 
 After merge, the Architect must:
 
-1. record the exact merge commit;
-2. wait for required post-merge workflows to reach terminal states and classify any failures/cancellations/queue blocks;
+1. bind the exact merge commit in the governance record;
+2. poll required post-merge workflows to terminal and classify failures/cancellations/queue blocks;
 3. verify the merged tree corresponds to the reviewed implementation except for explicitly recorded governance-only deltas;
-4. deploy the exact revision where the work item requires deployment evidence;
-5. execute the required black-box/browser gate through the visible product UI;
-6. compare the result with the predecessor benchmark/golden baseline;
+4. deploy the exact revision where required;
+5. execute the required browser/black-box gate through the visible product UI;
+6. compare with the predecessor baseline and permanent regression set;
 7. bind qualifying evidence to the exact revision;
-8. record the Architect decision and `MERGED → VERIFIED` transition only when all governance requirements are satisfied.
+8. perform `MERGED → VERIFIED` only when all requirements are satisfied.
 
 ## 6. CAD-specific rule
 
-For CAD roadmap work, the browser-agent protocol in `docs/cad/browser-agent-phase-gate.md` is part of the autonomous loop, not an optional later activity.
+For every CAD roadmap work item, `docs/cad/browser-agent-phase-gate.md` is a mandatory part of this autonomous loop.
 
-After a passing CAD gate, the Architect must update `docs/cad/autocad-parity-roadmap.md` with:
-
-- verified work item and exact revision;
-- exact deployment/evidence bindings;
-- measured score and category deltas;
-- defects retired;
-- new defects discovered;
-- next authorized work item;
-- next browser gate.
-
-Only then may the next CAD implementation prompt be released.
+After a passing CAD gate, the Architect updates `docs/cad/autocad-parity-roadmap.md` with the verified revision, deployment/evidence bindings, measured score and category delta, retired/new defects, next work item and next browser gate. Only then is the next CAD implementation prompt released.
 
 ## 7. Next-work-item release
 
-A successful work item ends with a persisted handoff for its successor, not with a chat instruction.
+A successful work item ends with a persisted successor handoff, not a chat instruction.
 
 The Architect must:
 
 - select the successor from the authoritative roadmap;
-- confirm all declared dependencies are `VERIFIED`;
-- create the next governance record in legal initial state `DRAFT`;
-- move it through `READY → ASSIGNED` only when its scope is actually ready and authorization exists;
-- create the repository implementation prompt containing exact scope, requirements, dependencies, acceptance, evidence and stop gate;
+- confirm dependencies are `VERIFIED`;
+- create the successor governance record in legal `DRAFT` state;
+- transition `DRAFT → READY → ASSIGNED` only when authorized and complete;
+- create the repository implementation prompt with exact scope, requirements, dependencies, acceptance, evidence and stop gate;
 - link the prompt from the GitHub issue/work-item record;
 - assign the authorized implementation agent;
-- leave the repository as the complete source of truth for the next worker and next Architect.
+- leave the repository as the complete source of truth.
 
 No successor may be released solely through chat agreement.
 
@@ -155,19 +121,19 @@ No successor may be released solely through chat agreement.
 
 When changes are required, the Architect must not merely say “please fix”. The repository must contain:
 
-- the specific failed acceptance criteria;
+- failed acceptance criteria;
 - exact reproduction/evidence;
-- architectural or semantic reason for failure;
-- exact required remediation;
+- reason for failure;
+- exact remediation;
 - required regression coverage;
 - required post-fix browser gate;
-- the legal governance state transition back to `IMPLEMENTING`.
+- legal governance transition back to `IMPLEMENTING`.
 
 The updated implementation prompt is the worker's next deterministic instruction set.
 
 ## 9. Fresh-Architect rule
 
-A fresh Architect must be able to discover the complete next action from repository state without reading chat history. The minimum source chain is:
+A fresh Architect must discover the complete next action without chat history:
 
 ```text
 AGENTS.md
@@ -180,4 +146,4 @@ AGENTS.md
 → exact revision evidence
 ```
 
-If those sources disagree, the Architect reconciles them before making a governance decision.
+Any disagreement is a handoff defect and must be reconciled before approval or successor release.
