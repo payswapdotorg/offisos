@@ -91,9 +91,10 @@
       "at": "2026-09-05T00:31:00Z",
       "actor": "z-ai-implementation-agent",
       "role": "implementation",
-      "reason": "Evidence package attached (EV-001/EV-002 below + the PR evidence comments): deterministic tests, web/electron parity, regression baselines green, real-browser golden workflows G1/G2/G3/G5/G7/G8/G9/G10. Stopping at VERIFYING per the governance gate \u2014 the Architect owns ARCHITECT_REVIEW/APPROVED/VERIFIED.",
+      "reason": "Evidence package attached (EV-001/EV-002 below + the PR evidence comments): deterministic tests, web/electron parity, regression baselines green, real-browser golden workflows G1/G2/G3/G5/G7/G8/G9/G10. Stopping at VERIFYING per the governance gate \u2014 the Architect owns ARCHITECT_REVIEW/APPROVED/VERIFIED. The PR head advanced to 599378cd with a test-file typing fix only (CommandPlan/query union types for the CI typecheck gate \u2014 no source or semantics change; the full app suite re-ran green at that head: 1392 tests / 1336 pass / 0 fail).",
       "references": {
-        "pr": 137
+        "pr": 137,
+        "head": "599378cdd7e5d4b219abd4f2826fea82b5eea3d5"
       }
     }
   ],
@@ -106,7 +107,8 @@
       "references": {
         "commit": "f10162f21524df064369104e2c647cdcda32bc58",
         "path": "app/test/compat-cad-005.test.ts",
-        "pr": 137
+        "pr": 137,
+        "head": "599378cdd7e5d4b219abd4f2826fea82b5eea3d5"
       },
       "reproducible": true,
       "reproduction": "cd app && npm test (local); Actions governance + parity workflows run the same suite on the exact PR head."
@@ -119,7 +121,8 @@
       "references": {
         "commit": "f10162f21524df064369104e2c647cdcda32bc58",
         "path": "apps/web/test/compat-cad-005-smoke.mjs",
-        "pr": 137
+        "pr": 137,
+        "head": "599378cdd7e5d4b219abd4f2826fea82b5eea3d5"
       },
       "reproducible": true,
       "reproduction": "cd apps/web && npm run dev -- -p 3100 & then OFFISOS_WEB_URL=http://localhost:3100 node --import tsx apps/web/test/compat-cad-005-smoke.mjs; electron: cd apps/electron && npm run smoke-drafting / smoke:bim / smoke:layouts / smoke:blocks / smoke:workspace."
