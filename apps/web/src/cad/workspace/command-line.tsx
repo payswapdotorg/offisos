@@ -41,11 +41,20 @@ export function CommandLine(props: CommandLineProps): React.JSX.Element {
     props.onSubmit(text);
   };
 
+  // COMPAT-CAD-005: FIXED-HEIGHT panel. The history area previously grew
+  // with every echo line (min-h-[92px] → ~138px), which REFLOWED the Model
+  // canvas above it: toWorld() depends on canvasH, so every echo shifted the
+  // world position of already-drawn entities and made clicks computed
+  // against the previous layout miss by 20–50 world units — the root cause
+  // of the CAD-BENCH-RW-001 DEF-006 "object picking is non-functional"
+  // finding (a deterministic pickbox cannot survive a viewport that moves
+  // under the cursor). The panel now has a constant height; only the
+  // history scrolls inside it. The canvas NEVER resizes because of echoes.
   return (
-    <div className="flex min-h-[92px] flex-col border-t bg-background" data-testid="command-line">
+    <div className="flex h-[114px] shrink-0 flex-col border-t bg-background" data-testid="command-line">
       <div
         ref={scrollRef}
-        className="max-h-28 flex-1 overflow-y-auto px-3 py-1 font-mono text-xs leading-5 text-muted-foreground"
+        className="min-h-0 flex-1 overflow-y-auto px-3 py-1 font-mono text-xs leading-5 text-muted-foreground"
         aria-live="polite"
         aria-label="command history"
         data-testid="command-history"
