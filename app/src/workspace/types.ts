@@ -385,3 +385,18 @@ export function defaultCommandContext(overrides?: Partial<CommandContext>): Comm
     ...overrides,
   };
 }
+
+/**
+ * COMPAT-CAD-005: resolve a canonical layer id to its display NAME for
+ * command-line echo text (the identity the user typed — `-LAYER M
+ * A-WALL-TEST`, `CLAYER A-WALL-TEST`). The CAD-BENCH-RW-001 benchmark found
+ * every layer-attribution echo reporting raw minted ids (`on layer
+ * 'ly-000001'`), which reads as an internal token, not a layer the user
+ * knows (DEF-001/DEF-022). The id remains the canonical currency in every
+ * payload; only the echo resolves the name (falling back to the raw id when
+ * the table does not contain it — honest, never a guess).
+ */
+export function layerNameOrId(ctx: CommandContext, layerId: string): string {
+  const layer = ctx.layers.find((l) => l.id === layerId);
+  return layer?.name ?? layerId;
+}

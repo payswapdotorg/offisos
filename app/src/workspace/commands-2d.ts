@@ -39,6 +39,7 @@ import type {
   PromptStep,
   PromptValue,
 } from "./types.js";
+import { layerNameOrId } from "./types.js";
 import { optionValue } from "./prompt-engine.js";
 import { geomFromElement, isDraftingGeometry } from "./geometry/bridge.js";
 import { regionFromGeom } from "./geometry/editops.js";
@@ -217,7 +218,7 @@ export const COMMANDS_2D: readonly WorkspaceCommand[] = [
             },
           },
         ],
-        [`ELLIPSE: center (${fmtPoint(pointValue(values, "center"))}), axes ${trimNum(rx)} × ${trimNum(ry)} on layer '${ctx.activeLayer}'.`],
+        [`ELLIPSE: center (${fmtPoint(pointValue(values, "center"))}), axes ${trimNum(rx)} × ${trimNum(ry)} on layer '${layerNameOrId(ctx, ctx.activeLayer)}'.`],
       );
     },
   },
@@ -266,7 +267,7 @@ export const COMMANDS_2D: readonly WorkspaceCommand[] = [
             },
           },
         ],
-        [`SPLINE: ${pts.length} control points (degree ${degree}${closed ? ", closed" : ""}) on layer '${ctx.activeLayer}'.`],
+        [`SPLINE: ${pts.length} control points (degree ${degree}${closed ? ", closed" : ""}) on layer '${layerNameOrId(ctx, ctx.activeLayer)}'.`],
       );
     },
   },
@@ -288,7 +289,7 @@ export const COMMANDS_2D: readonly WorkspaceCommand[] = [
             payload: { entities: [{ type: "point", layer: ctx.activeLayer, x: p[0], y: p[1] }] },
           },
         ],
-        [`POINT: (${fmtPoint(p)}) on layer '${ctx.activeLayer}'.`],
+        [`POINT: (${fmtPoint(p)}) on layer '${layerNameOrId(ctx, ctx.activeLayer)}'.`],
       );
     },
   },
@@ -395,7 +396,7 @@ export const COMMANDS_2D: readonly WorkspaceCommand[] = [
       return plan(
         [{ name: "entity.create", payload: { entities } }],
         [
-          `REGION: ${entities.length} region${entities.length === 1 ? "" : "s"} created on layer '${ctx.activeLayer}'${skipped.length > 0 ? `; skipped: ${skipped.join("; ")}` : ""}.`,
+          `REGION: ${entities.length} region${entities.length === 1 ? "" : "s"} created on layer '${layerNameOrId(ctx, ctx.activeLayer)}'${skipped.length > 0 ? `; skipped: ${skipped.join("; ")}` : ""}.`,
         ],
       );
     },

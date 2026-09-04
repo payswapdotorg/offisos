@@ -1031,9 +1031,27 @@ export class CADDocument {
     return historyHash(this.historyState);
   }
 
-  /** Replace the editor selection. Does NOT bump the version or push undo. */
+  /** Replace the editor selection. Does NOT bump the version or push undo.
+   *  COMPAT-CAD-005: the selection is PRUNED TO LIVE ELEMENTS — ids that do
+   *  not resolve to an element in the current document are dropped (never
+   *  stored, never round-tripped). The CAD-BENCH-RW-001 black-box benchmark
+   * proved the unfiltered store accumulates phantom ids (status bar counts
+   * entities that neither render nor pick — DEF-014/DEF-008); one canonical
+   * selection state means every read site (command selection, canvas
+   * picking, Properties palette) observes the SAME live-element set. */
   setSelection(ids: readonly string[]): void {
-    this.#selection = [...ids];
+    this.#selection = ids.filter((id) => this.elements.has(id));
+  }
+
+  /** COMPAT-CAD-005: prune the editor selection to live elements after any
+   *  content mutation (execute/undo/redo). AutoCAD-class behavior: removing
+   *  an entity removes it from the selection set — the selection can never
+   *  reference entities the document no longer contains (no "Sel 1" + "No
+   *  selection" desync after UNDO/ERASE). */
+  private pruneSelection(): void {
+    if (this.#selection.length === 0) return;
+    if (this.#selection.every((id) => this.elements.has(id))) return;
+    this.#selection = this.#selection.filter((id) => this.elements.has(id));
   }
 
   /** COMPAT-CAD-001: replace the drafting workspace settings (validated +
@@ -1109,6 +1127,7 @@ export class CADDocument {
       nextRevisionSequence: this.nextRevisionSequence,
       nextPublisherSetSequence: this.nextPublisherSetSequence,
     });
+    this.pruneSelection();
     return inverse;
   }
 
@@ -1171,6 +1190,7 @@ export class CADDocument {
       nextRevisionSequence: this.nextRevisionSequence,
       nextPublisherSetSequence: this.nextPublisherSetSequence,
     });
+    this.pruneSelection();
     return entry.forward;
   }
 
@@ -1217,6 +1237,7 @@ export class CADDocument {
       nextRevisionSequence: this.nextRevisionSequence,
       nextPublisherSetSequence: this.nextPublisherSetSequence,
     });
+    this.pruneSelection();
     return entry.forward;
   }
 

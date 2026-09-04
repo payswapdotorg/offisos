@@ -100,6 +100,28 @@ export const DEFAULT_PRECISION: PrecisionSettings = {
   tracking: true,
 };
 
+// --- Picking tolerance (COMPAT-CAD-005) ------------------------------------
+
+/**
+ * COMPAT-CAD-005: the DECLARED object-pick tolerance in SCREEN PIXELS —
+ * the pickbox size, the single deterministic constant both host renderers
+ * convert to world units as `PICKBOX_SCREEN_PX / zoom` before every
+ * entity pick (command select phases, idle click selection, window-select
+ * hit tests, hover emphasis). AutoCAD's default pickbox is 10 px; the
+ * conversion is a pure function of the current zoom, so a click at screen
+ * distance ≤ 10 px from rendered geometry selects it — deterministically,
+ * on every host, at every zoom level (the CAD-BENCH-RW-001 DEF-006
+ * finding: an undeclared 8 px aperture combined with a viewport that
+ * reflowed on every echo line made object picking unusable).
+ */
+export const PICKBOX_SCREEN_PX = 10;
+
+/** COMPAT-CAD-005: the world-unit pick aperture at a given zoom (the
+ *  pickbox converted through the view transform — deterministic). */
+export function pickApertureWorld(zoom: number): number {
+  return PICKBOX_SCREEN_PX / zoom;
+}
+
 // --- Snap points -----------------------------------------------------------
 
 export interface SnapCandidate {

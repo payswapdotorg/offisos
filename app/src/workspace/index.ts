@@ -24,6 +24,7 @@ export {
   applyPromptEvent,
   describePrompt,
   runCommandScript,
+  splitEchoTiming,
   type PromptEngineState,
   type PromptEvent,
   type PromptEngineOutput,
@@ -89,8 +90,10 @@ export type { Geom, GeomType } from "./geometry/types.js";
 export {
   DEFAULT_PRECISION,
   OSNAP_LABELS,
+  PICKBOX_SCREEN_PX,
   constrainPoint,
   gripsOf,
+  pickApertureWorld,
   pickAt as pickAt2d,
   resolveSnap,
   selectWindow,

@@ -46,6 +46,7 @@ import type {
   PromptStep,
   PromptValue,
 } from "./types.js";
+import { layerNameOrId } from "./types.js";
 import type { WorkspaceCommand } from "./commands.js";
 import { optionValue } from "./prompt-engine.js";
 import {
@@ -383,7 +384,7 @@ export const COMMANDS_COORDINATION: readonly WorkspaceCommand[] = [
             },
           },
         ],
-        [`REVCLOUD: (${trimNum(a[0])},${trimNum(a[1])}) → (${trimNum(b[0])},${trimNum(b[1])}) on layer '${ctx.activeLayer}'.`],
+        [`REVCLOUD: (${trimNum(a[0])},${trimNum(a[1])}) → (${trimNum(b[0])},${trimNum(b[1])}) on layer '${layerNameOrId(ctx, ctx.activeLayer)}'.`],
       );
     },
   },
