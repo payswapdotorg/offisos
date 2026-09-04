@@ -3,8 +3,12 @@
   "title": "Restore real-world 2D drafting foundation from CAD-BENCH-RW-001",
   "issue": 135,
   "architecture_version": "1.1",
-  "requirements": ["CAD-001"],
-  "dependencies": ["CAD-PARITY-020"],
+  "requirements": [
+    "CAD-001"
+  ],
+  "dependencies": [
+    "CAD-PARITY-020"
+  ],
   "objective": "Restore a trustworthy 2D drafting foundation on current mainline, beginning with canonical document/layer/selection state integrity exposed by the CAD-BENCH-RW-001 production black-box benchmark, without changing frozen Architecture v1.1 or Construction Graph authority.",
   "acceptance_criteria": [
     "UI-created and command-created layers resolve to one canonical document layer table and active-layer changes cause newly created entities to use the selected canonical layer.",
@@ -39,7 +43,7 @@
     "Production or exact preview browser evidence rerunning the targeted CAD-BENCH-RW-001 golden workflows.",
     "Evidence that Architecture v1.1, Construction Graph authority and engine/worker boundaries remain intact."
   ],
-  "state": "ASSIGNED",
+  "state": "IMPLEMENTING",
   "transitions": [
     {
       "from": "DRAFT",
@@ -60,6 +64,14 @@
         "issue": 135,
         "assignee": "z-ai-implementation-agent"
       }
+    },
+    {
+      "from": "ASSIGNED",
+      "to": "IMPLEMENTING",
+      "at": "2026-09-05T00:00:00Z",
+      "actor": "z-ai-implementation-agent",
+      "role": "implementation",
+      "reason": "Begin the first foundation slice from main 311815f: layer identity unification via authoritative snapshot adoption, NEW full editor reset, unified/pruned selection state, declared screen-space pick tolerance with a stable viewport, and commit-authoritative command echo."
     }
   ]
 }
