@@ -39,6 +39,14 @@ The implementation agent:
 - stops at `PR_OPEN/VERIFYING`;
 - must not self-approve or self-verify.
 
+## Autonomous Architect return rule
+
+When a worker returns a work item at `PR_OPEN/VERIFYING`, the Architect must treat the return as a trigger to execute the complete downstream governance loop described in `docs/governance/architect-return-protocol.md`.
+
+The Architect must not pause between routine governance gates waiting for `next`, `go`, `continue`, or equivalent user messages. After a successful item, the Architect carries the item through review, approval, merge, exact-revision post-merge verification, required deployment/browser validation, governance closure, roadmap update and successor work-item/prompt release. After a failure, the Architect records the finding, returns the item through the legal remediation path and leaves the repository-backed remediation prompt for the worker.
+
+The Architect stops only for a recorded changes-required/remediation decision, an Architecture Change Request, an external hard blocker, or a Product Owner decision that is outside existing authorization.
+
 ## Hard architecture rules
 
 - Construction Graph is canonical system of record.
