@@ -2893,6 +2893,10 @@ export const QUERY_PAYLOAD_SCHEMAS: Readonly<Record<QueryName, object>> = {
   // certification corpus catalog (no payload — pure derived data over the
   // version-pinned corpus).
   "certification.corpusCatalog": { type: "object", properties: {} },
+  // CAD-PARITY-020 (additive, Issue #123): the derived ARCHICAD corpus
+  // catalog (no payload — pure derived data over the version-pinned
+  // Archicad-class corpus).
+  "certification.archicadCatalog": { type: "object", properties: {} },
 };
 
 export const WIRE_ENVELOPE_SCHEMA = {

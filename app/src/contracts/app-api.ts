@@ -654,7 +654,12 @@ export type QueryName =
   // the auditable Autodesk reference manifest, the command bindings
   // (documented + semantic analogs) and the derived per-workflow
   // phases/expectations counts; nothing is hard-coded in the UI). ---
-  | "certification.corpusCatalog";
+  | "certification.corpusCatalog"
+  // --- CAD-PARITY-020 (additive, Issue #123): the derived ARCHICAD corpus
+  // catalog — the second version-pinned certification corpus (the Graphisoft
+  // Archicad 27 reference manifest + the command-analog map + the derived
+  // per-workflow counts; nothing hard-coded in the UI). ---
+  | "certification.archicadCatalog";
 
 export interface Command {
   readonly type: "command";

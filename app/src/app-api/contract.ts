@@ -112,6 +112,7 @@ import type { BlockDefinitionRecord, BlockEntityRecord, XrefRecord, ConstraintRe
 // CAD-PARITY-019 rev 2 (additive, the architect review on PR #125): the
 // version-pinned certification corpus (pure platform-independent data).
 import { corpusCatalog } from "../certification/corpus.js";
+import { archicadCorpusCatalog } from "../certification/corpus-archicad.js";
 // CAD-PARITY-007 (additive): the parametric-constraints core (engine-free —
 // the declared graph grammar, the deterministic propagation solver, the
 // constraint-aware editing cascades and the shared glyph painter).
@@ -1711,6 +1712,11 @@ export class AppApiHandler {
       // Certification workbench). ---
       case "certification.corpusCatalog":
         return this.qCertificationCorpusCatalog(query.payload);
+      // --- CAD-PARITY-020 (additive, Issue #123): the derived ARCHICAD
+      // corpus catalog — the second certification corpus for the workbench's
+      // corpus selector. ---
+      case "certification.archicadCatalog":
+        return this.qCertificationArchicadCatalog(query.payload);
       default: {
         const _exhaustive: never = query.name;
         return err("unknown_query", `unknown query: ${JSON.stringify(_exhaustive)}`);
@@ -11271,6 +11277,22 @@ export class AppApiHandler {
   private qCertificationCorpusCatalog(_payload: unknown): CommandQueryResponse {
     void _payload;
     return ok(corpusCatalog());
+  }
+
+  /** certification.archicadCatalog (query, NON-VERSIONED) — CAD-PARITY-020
+   *  (additive, Issue #123): the derived ARCHICAD corpus catalog — the
+   *  version pin + sha256, the auditable version-pinned Graphisoft Archicad
+   *  27 reference manifest and the explicit command-analog map (Archicad
+   *  documents no command-line interface — every Offisos surface is a
+   *  declared semantic analog) and the per-workflow phases/expectations
+   *  counts. PURE derived data over the version-pinned Archicad-class corpus
+   *  (app/src/certification/corpus-archicad.ts): non-mutating, deterministic,
+   *  engine-free, computed fresh every call. The SECOND single source of
+   *  truth the Certification workbench's corpus selector renders — the UI
+   *  hard-codes nothing, so the catalog can never drift. */
+  private qCertificationArchicadCatalog(_payload: unknown): CommandQueryResponse {
+    void _payload;
+    return ok(archicadCorpusCatalog());
   }
 
 }
