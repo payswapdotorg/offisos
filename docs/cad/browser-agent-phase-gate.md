@@ -22,6 +22,8 @@ implementation
   → next work item authorization
 ```
 
+Once the implementation worker has returned the PR, the Architect executes this sequence autonomously. There is no intermediate user prompt between the governance steps.
+
 ## Browser-agent behavior
 
 The agent uses the visible application as a real user: command line, ribbon, palettes, canvas clicks and keyboard input. It must not use hidden APIs to perform the workflow being validated.
@@ -55,6 +57,14 @@ The browser agent records:
 - measured score/category delta.
 
 The evidence is stored in the repository under a deterministic path associated with the work item/verification revision.
+
+## Autonomous Architect continuation
+
+When the browser gate finishes, the Architect does not stop to request `next`, `go`, or equivalent input.
+
+On **PASS**, the Architect continues immediately to evidence reconciliation, governance verification, `MERGED → VERIFIED`, authoritative roadmap update, and creation/release of the next legal work item and repository implementation prompt as required by `docs/governance/architect-return-protocol.md`.
+
+On **FAIL**, the Architect records the finding, classifies the failure, performs the legal remediation transition, updates the issue/work item, and writes the exact remediation implementation prompt into the repository before stopping.
 
 ## Failure handling
 
