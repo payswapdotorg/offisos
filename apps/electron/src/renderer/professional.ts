@@ -94,11 +94,13 @@ import {
   describePrompt,
   effectiveStep,
   optionValue,
+  splitEchoTiming,
   type PromptEngineState,
 } from "@offisos/cad-app-shell/workspace/prompt-engine";
 // CAD-PARITY-003: the SAME shared precision engine the Web host renderer and
 // the server-side precision queries run — parity by construction.
 import {
+  pickApertureWorld,
   pickAt as pickAtGeom,
   resolveSnap as resolveSnapPrecision,
   selectWindow as selectWindowGeom,
@@ -408,7 +410,10 @@ const PRO_CSS = `
 .pro-menu .items button:hover { background:#f1f5f9; }
 .pro-menu .items .sep { border-top:1px solid var(--border); margin:4px 0; }
 .pro-cmdline { border-top:1px solid var(--border); background:var(--bg); font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }
-.pro-cmdline .history { max-height:110px; overflow-y:auto; padding:4px 12px; font-size:11px; color:var(--muted); line-height:1.45; }
+/* COMPAT-CAD-005: FIXED-height history (the Web host's fixed command-line
+   mirror): the panel never grows with echo lines, so the layout under it
+   stays byte-stable across a session. */
+.pro-cmdline .history { height:110px; overflow-y:auto; padding:4px 12px; font-size:11px; color:var(--muted); line-height:1.45; }
 .pro-cmdline .prompt { padding:0 12px; font-size:11px; font-weight:600; color:var(--fg); }
 .pro-cmdline .entry { display:flex; align-items:center; gap:6px; border-top:1px solid var(--border); padding:4px 10px; }
 .pro-cmdline .entry input { flex:1; border:0; outline:none; font-family:inherit; font-size:13px; background:transparent; color:var(--fg); }
@@ -812,13 +817,39 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
     });
   }
 
-  async function executePlan(plan: CommandPlan): Promise<void> {
+  // COMPAT-CAD-005: authoritative snapshot adoption — the mirror of the Web
+  // shell's adoptSnapshot. Successful commands that return a post-commit
+  // snapshot adopt it immediately (version-monotonic guard: a stale response
+  // never rolls the renderer back), closing the stale-context window between
+  // commit and refresh (DEF-001/002 layer-identity desync).
+  function adoptSnapshot(value: unknown): void {
+    if (typeof value !== "object" || value === null) return;
+    const next = value as CADDocumentSnapshot;
+    if (typeof next?.version?.version_number !== "number" || !Array.isArray(next?.layers)) return;
+    const current = state.snapshot;
+    if (current !== null && next.version.version_number < current.version.version_number) return;
+    state.snapshot = next;
+  }
+
+  async function executePlan(plan: CommandPlan, deferredEcho: readonly string[] = []): Promise<boolean> {
+    // COMPAT-CAD-005: COMMIT-AUTHORITATIVE plan execution (the Web host's
+    // mirror): a failed App API entry is THE one authoritative failure —
+    // *ERROR* line, abort of the remaining entries, SUPPRESSED outcome
+    // echoes (no success claim before or after a rejected transaction —
+    // CAD-BENCH-RW-001 DEF-027); every successful entry's snapshot is
+    // adopted immediately.
+    let failed = false;
     for (const entry of plan.appApi) {
       state.busy = true;
       const res = await command(entry.name, entry.payload);
       if (!res.ok) {
         pushLines([`*ERROR* ${entry.name}: ${res.code} — ${res.message}`]);
-      } else if (entry.name === "bim.createElements") {
+        failed = true;
+        state.busy = false;
+        break;
+      }
+      adoptSnapshot((res.value as { snapshot?: CADDocumentSnapshot } | null)?.snapshot);
+      if (entry.name === "bim.createElements") {
         const value = res.value as { created?: string[] } | null;
         if (value !== null && Array.isArray(value.created) && value.created.length > 0) {
           const stateRes = await query("document.getState");
@@ -830,7 +861,7 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
             if (story !== undefined) state.activeStoryId = story.id;
           }
         }
-      } else if (res.ok && (entry.name === "plot.export" || entry.name === "plot.publish")) {
+      } else if (entry.name === "plot.export" || entry.name === "plot.publish") {
         // CAD-PARITY-008: PLOT/PUBLISH deliver the deterministic artifact —
         // save through the main-process dialog (the Web host downloads; the
         // SAME App API command produces the SAME bytes on both hosts).
@@ -925,22 +956,60 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
           state.selection = [];
           break;
         case "selection.selectAll": {
-          const visible = new Set((state.snapshot?.layers ?? []).filter((l: LayerRecord) => l.visible).map((l: LayerRecord) => l.id));
-          const ids = (state.snapshot?.elements ?? [])
+          // COMPAT-CAD-005: compute from the AUTHORITATIVE document state (a
+          // fresh getState — not the possibly stale state.snapshot), adopt it,
+          // and adopt the server's effective (live-pruned) selection — the
+          // Web host's mirror (CAD-BENCH-RW-001 DEF-014 phantom counts).
+          const stateRes = await query("document.getState");
+          if (!stateRes.ok) {
+            pushLines([`*ERROR* document.getState: ${stateRes.code} — ${stateRes.message}`]);
+            failed = true;
+            break;
+          }
+          const fresh = stateRes.value as CADDocumentSnapshot;
+          state.snapshot = fresh;
+          const visible = new Set((fresh.layers ?? []).filter((l: LayerRecord) => l.visible).map((l: LayerRecord) => l.id));
+          const ids = (fresh.elements ?? [])
             .filter((el) => {
               const props = el.props as Record<string, unknown>;
               if (el.kind === "bim") return props.type === "bim.wall" || props.type === "bim.slab";
               return typeof props.layer === "string" && visible.has(props.layer);
             })
             .map((el) => el.id);
-          await command("document.setSelection", { ids });
-          state.selection = ids;
+          const selRes = await command("document.setSelection", { ids });
+          if (selRes.ok) {
+            const eff = (selRes.value as { selection?: string[] } | null)?.selection;
+            state.selection = Array.isArray(eff) ? eff : ids;
+          } else {
+            state.selection = ids;
+          }
           break;
         }
-        case "file.new":
-          await command("document.create", { entityId: `electron-workspace-${Date.now().toString(36)}` });
-          state.activeStoryId = null;
+        case "file.new": {
+          // COMPAT-CAD-005: NEW is a FULL editor-session reset driven by the
+          // canonical create response (the Web host's mirror — DEF-003/
+          // DEF-014): adopt the fresh snapshot, clear the selection, the
+          // active story, the transient command state and the canvas view.
+          const res = await command("document.create", { entityId: `electron-workspace-${Date.now().toString(36)}` });
+          if (!res.ok) {
+            failed = true;
+            break;
+          }
+          const snap = res.value as CADDocumentSnapshot;
+          if (typeof snap?.version?.version_number === "number") {
+            state.snapshot = snap;
+            state.selection = [];
+            state.activeStoryId = null;
+            state.pan = { x: -20, y: -20 };
+            state.zoom = 0.14;
+            if (state.engine.commandId !== null) {
+              state.engine = IDLE_PROMPT_STATE;
+              pushLines(["*Cancel*"]);
+            }
+            renderModel();
+          }
           break;
+        }
         case "file.save": {
           const res = await command("document.save", {});
           if (res.ok) pushLines(["SAVE: document saved through the App API."]);
@@ -993,6 +1062,11 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
       }
     }
     await refresh();
+    // COMPAT-CAD-005: the deferred outcome echoes print ONLY after every
+    // plan entry (App API + ui actions) committed — the commit-authoritative
+    // feedback channel (DEF-027; the Web host's mirror).
+    if (!failed && deferredEcho.length > 0) pushLines(deferredEcho);
+    return !failed;
   }
 
   function pushLines(lines: readonly string[]): void {
@@ -1016,10 +1090,16 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
     // CAD-PARITY-009: accumulate the ENGINE echo lines (the parity record —
     // identical to the Web host's runCommandScript lines for the same events).
     for (const line of result.output.lines) echoLog.push(line);
-    if (result.output.lines.length > 0) pushLines(result.output.lines);
+    // COMPAT-CAD-005: interactive echoes render immediately; the plan's
+    // OUTCOME claims are deferred until every plan entry commits (the Web
+    // host's splitEchoTiming mirror — DEF-027). echoLog keeps the FULL
+    // engine output (the parity record is the engine's own output, not the
+    // host's render timing).
+    const { interactive, deferred } = splitEchoTiming(result.output.lines, result.output.plan);
+    if (interactive.length > 0) pushLines(interactive);
     renderCommandLine();
     renderModel();
-    if (result.output.plan !== null) await executePlan(result.output.plan);
+    if (result.output.plan !== null) await executePlan(result.output.plan, deferred);
   }
 
   async function startCommand(commandId: string): Promise<void> {
@@ -2528,7 +2608,9 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
    *  surface IS the render surface). Closest distance wins; ties break by
    *  element id. */
   function pickEntityAt(world: Vec2, geoms: readonly GeomEntity[], visible: readonly Element[]): { id: string; d: number } | null {
-    const aperture = 8 / state.zoom;
+    // COMPAT-CAD-005: the DECLARED pickbox (see precision-2d) — the one
+    // deterministic screen-space tolerance, the Web host's mirror.
+    const aperture = pickApertureWorld(state.zoom);
     const probe = { x: world[0], y: world[1] };
     const canonical = pickAtGeom(geoms, probe, aperture);
     let canonicalBest: { id: string; d: number } | null = null;
@@ -2626,8 +2708,12 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
         const hit = picked !== null ? (state.snapshot?.elements ?? []).find((el) => el.id === picked.id) : undefined;
         if (hit !== undefined) {
           void dispatchEngine({ type: "entity", entity: { id: hit.id, kind: hit.kind, props: hit.props as Record<string, unknown> } });
+        } else {
+          // COMPAT-CAD-005: a pick MISS is visible "0 found" feedback —
+          // never a silent drop (the Web host's mirror; DEF-006).
+          pushLines([`0 found — nothing within the pickbox at (${Math.round(world[0])}, ${Math.round(world[1])}).`]);
         }
-        return; // miss: the prompt stays (the command line shows guidance)
+        return;
       }
       // CAD-PARITY-003 entityPoint step: pick the object under the cursor AND
       // dispatch the RAW world point — the pick location is semantic for
@@ -2644,8 +2730,11 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
               point: [world[0], world[1]],
             });
           }
+        } else {
+          // COMPAT-CAD-005: visible "0 found" feedback (the Web host's mirror).
+          pushLines([`0 found — nothing within the pickbox at (${Math.round(world[0])}, ${Math.round(world[1])}).`]);
         }
-        return; // miss: the prompt stays
+        return;
       }
       const { point } = constrainSnap(world, e.shiftKey);
       void dispatchEngine({ type: "pick", point });
@@ -2657,14 +2746,14 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
     const geoms = toEntities(visible);
     const picked = pickEntityAt(world, geoms, visible);
     if (picked !== null) {
-      const hits = hitTest(world, 8 / state.zoom, visible);
+      const hits = hitTest(world, pickApertureWorld(state.zoom), visible);
       if (hits.length > 0 && hits[0]!.id === picked.id) {
         // Legacy pickability — stacked-hit cycling preserved.
         const now = Date.now();
         let chosen = hits[0]!.id;
         let index = 0;
         if (lastClick !== null && now - lastClick.at < 700) {
-          const cycled = cyclePick(world, 8 / state.zoom, visible, lastClick.index);
+          const cycled = cyclePick(world, pickApertureWorld(state.zoom), visible, lastClick.index);
           if (cycled !== null) {
             chosen = cycled.id;
             index = cycled.index;
