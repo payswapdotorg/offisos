@@ -39,6 +39,7 @@ import {
   splitEchoTiming,
   type CommandScriptStep,
 } from "../src/workspace/prompt-engine.js";
+import type { CommandPlan } from "../src/workspace/types.js";
 import { defaultCommandContext, layerNameOrId } from "../src/workspace/types.js";
 import { PICKBOX_SCREEN_PX, pickApertureWorld } from "../src/workspace/precision-2d.js";
 
@@ -116,7 +117,7 @@ test("LINE stamps the resolved active-layer id and echoes the layer NAME (DEF-00
       { id: "ly-000001", name: "A-WALL-TEST", color: "#111827", visible: true },
     ],
   });
-  const plans: { appApi: { name: string; payload: unknown }[]; echo: string[] }[] = [];
+  const plans: CommandPlan[] = [];
   const { lines } = runCommandScript(
     [
       { event: { type: "start", commandId: "line" } },
@@ -300,7 +301,8 @@ test("layer/selection/NEW flows are byte-identical through WebHost and ElectronH
     cmd("document.create", {}),
   ];
   type Outline = { layers: string[]; activeLayer: string | undefined; elements: number; selection: string[] };
-  const outline = async (host: { execute(cmd: Command): Promise<CommandQueryResponse> }): Promise<Outline> => {
+  type Exec = { execute(request: Command | Query): Promise<CommandQueryResponse> };
+  const outline = async (host: Exec): Promise<Outline> => {
     const out: CommandQueryResponse[] = [];
     for (const c of script) out.push(await host.execute(c));
     // adopt the final create response (the host reset semantics)
@@ -323,7 +325,7 @@ test("layer/selection/NEW flows are byte-identical through WebHost and ElectronH
   assert.deepEqual(webOutline, electronOutline, "Web and Electron converge on the identical post-script document state");
   assert.deepEqual(webOutline, { layers: ["0"], activeLayer: undefined, elements: 0, selection: [] }, "the final NEW reset state is the canonical fresh document");
   // The undo pruned selection, the redo did not resurrect it — same on both hosts.
-  const webSel = val<string[]>(await web.execute(q("document.getSelection")));
+  const webSel = val<string[]>(await webHandler.handle(q("document.getSelection")));
   assert.deepEqual(webSel, [], "post-NEW selection is empty through the Web host transport");
 });
 
@@ -339,7 +341,7 @@ test("CLAYER resolves the name through the (adopted) layer table and emits a lay
       { id: "ly-000001", name: "A-WALL-TEST", color: "#111827", visible: true },
     ],
   });
-  const plans: { appApi: { name: string; payload: unknown }[] }[] = [];
+  const plans: CommandPlan[] = [];
   const { lines } = runCommandScript(
     [
       { event: { type: "typed", text: "CLAYER" } },
