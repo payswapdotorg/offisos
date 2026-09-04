@@ -12,8 +12,10 @@ Read, in order:
 6. `spec/requirements.md`
 7. the relevant GitHub Issue and governance work-item record
 8. the latest VERIFIED predecessor record and its evidence
+9. for CAD work, `docs/cad/autocad-parity-roadmap.md` and `docs/cad/browser-agent-phase-gate.md`
+10. `docs/governance/architect-return-protocol.md`
 
-Confirm the dependency is `VERIFIED` before entering implementation.
+Confirm the dependency is `VERIFIED` before entering implementation, unless the governing work item explicitly authorizes a different legal state.
 
 ## Working method
 
@@ -55,31 +57,43 @@ Implementation agent lifecycle:
 
 `ASSIGNED → IMPLEMENTING → PR_OPEN → VERIFYING`
 
-At `PR_OPEN/VERIFYING`, stop. Do not add Architect approval or VERIFIED transitions from the implementation side.
+At `PR_OPEN/VERIFYING`, stop implementation-side lifecycle advancement. Do not add Architect approval or VERIFIED transitions from the implementation side.
 
-## Architect review
+The worker's return of the PR is the handoff trigger for the Architect; no additional `next/go/continue` instruction is expected.
 
-The Architect independently reviews the exact implementation head and evidence. A review finding must be recorded and either resolved with new revision-bound evidence or left explicitly open. A green CI result does not erase a semantic acceptance gap.
+## Architect review and automatic continuation
+
+The Architect independently reviews the exact implementation head and evidence. A review finding must be recorded and either resolved with new revision-bound evidence or left explicitly open.
+
+When the worker returns at `PR_OPEN/VERIFYING`, the Architect must follow `docs/governance/architect-return-protocol.md` and continue through all legal downstream governance steps without an intermediate user prompt.
+
+A successful item proceeds through approval, merge, post-merge verification, exact-head deployment/browser validation, `MERGED → VERIFIED`, governance closure, roadmap update and successor work-item/prompt release in the same execution cycle. A failed item proceeds to a repository-backed remediation directive and prompt, then stops for worker action.
 
 ## Merge / verification
 
-Merge is a separate act from verification. After merge:
+Merge is a separate act from verification. The Architect must not equate a successful merge with `VERIFIED`.
 
-1. record `APPROVED → MERGED` with the exact merge commit;
-2. poll post-merge workflows to terminal;
-3. verify merged-tree regression safety;
-4. only then perform `MERGED → VERIFIED` with an approved Architect decision and qualifying evidence.
+After approval and merge, the Architect:
 
-Never equate a successful merge with VERIFIED.
+1. binds the exact merge commit;
+2. polls required post-merge workflows to terminal and classifies failures/cancellations/queue blocks;
+3. verifies the merged tree against the reviewed implementation;
+4. performs the required exact-revision deployment;
+5. executes the required black-box/browser verification;
+6. reconciles the evidence and score/regression result;
+7. records the qualifying Architect decision and `MERGED → VERIFIED` only when the verification gate passes;
+8. updates the authoritative roadmap and releases the successor through the repository.
 
-## P018 concrete state
+## Stop conditions
 
-At the time this file was added:
+The Architect must not stop merely because one governance gate completed. It stops only when the autonomous loop reaches a defined terminal condition:
 
-- P017: VERIFIED
-- P018 / Issue #118 / PR #120: **MERGED, pending post-merge Architect verification**
-- merge commit: `3edd5506d972dc309b22c21baad7643f021f27d4`
-- final corrective pre-merge implementation head reviewed by Architect: `714a34e5712abf8b4a1dd015b806958ff9568ec2`
-- P018 review blocker from review `5096872026` was resolved before merge by dedicated IFC/BCF/IDS specialized-toolset coverage.
+- changes requested and remediation prompt persisted;
+- Architecture Change Request required and routed;
+- external hard blocker recorded with exact unblock condition;
+- Product Owner decision required outside existing authorization; or
+- successful verification followed by a fully persisted successor handoff.
 
-The next Architect must reconcile the governance record and complete the final post-merge verification gate. See `AI_CONTINUATION.md` for the exact checklist.
+## P018 historical note
+
+Historical P018 details may remain in older handoff records for traceability. They do not override the current `AI_CONTINUATION.md`, authoritative roadmap, or active governance record.
