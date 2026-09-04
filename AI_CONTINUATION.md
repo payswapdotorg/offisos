@@ -16,6 +16,14 @@ This is the first stop for a new LLM Architect, reviewer, or implementation agen
 - Architect owns `ARCHITECT_REVIEW → APPROVED → VERIFIED`.
 - Implementation agents stop at `PR_OPEN/VERIFYING`.
 
+## Architect continuation rule
+
+When the implementation worker returns a work item at `PR_OPEN/VERIFYING`, that return is the trigger for the Architect to execute the complete downstream governance loop defined in `docs/governance/architect-return-protocol.md`.
+
+The Architect does not wait for `next`, `go`, `continue`, or equivalent chat input between routine governance gates. A successful returned work item is carried through independent review, approval, merge, exact-revision post-merge checks, deployment/browser validation, `VERIFIED`, roadmap update, and the next repository-backed work-item implementation prompt. A failed item is carried through the legal remediation path until the repository contains the exact changes-required directive and worker prompt.
+
+The Architect stops only for an explicit changes-required/remediation handoff, Architecture Change Request, external hard blocker, or Product Owner decision outside existing authorization.
+
 ## CAD product roadmap authority
 
 The authoritative AutoCAD-class product roadmap is:
@@ -32,13 +40,15 @@ These documents govern CAD parity sequencing, phase completion, benchmark score 
 
 P020 / CAD-PARITY-020 — Archicad parity certification — is **VERIFIED**.
 
-Current production/main baseline:
+Current production/main baseline for the CAD benchmark:
 
-`main` = `f4a1a735dfbfa58d9b24197ffc1808d4cdf84db6`
+`f4a1a735dfbfa58d9b24197ffc1808d4cdf84db6`
+
+The current repository main is later at the roadmap/governance documentation commit and must be discovered from the `main` ref rather than inferred from this historical benchmark baseline.
 
 CAD-BENCH-RW-001 independently tested the production application and recorded **18/100** across 25 realistic AutoCAD workflow types, with 27 root defects and a permanent Golden 10 regression set.
 
-The next CAD work is no longer P019/P020. The active remediation program starts with:
+The active remediation program starts with:
 
 `COMPAT-CAD-005` — Restore real-world 2D drafting foundation from CAD-BENCH-RW-001
 
@@ -76,7 +86,7 @@ IMPLEMENT
 → evidence review
 → MERGED → VERIFIED
 → update roadmap
-→ authorize successor
+→ next repository-backed implementation prompt
 ```
 
 The browser agent must operate through the visible application UI as a real user. It may inspect diagnostics as supporting evidence but must not use hidden APIs to perform the workflow under test.
@@ -86,15 +96,17 @@ The browser agent must operate through the visible application UI as a real user
 Read in this order before making a CAD decision:
 
 1. `AGENTS.md`
-2. `spec/architecture-lock.md`
-3. `spec/development-workflow.md`
-4. `docs/cad/autocad-parity-roadmap.md`
-5. `docs/cad/browser-agent-phase-gate.md`
-6. `docs/cad/autocad-real-world-benchmark.md`
-7. `docs/cad/autocad-benchmark-corpus.json`
-8. active governance record under `governance/work-items/`
-9. active GitHub issue/PR
-10. exact-head CI, deployment and browser evidence
+2. `AI_CONTINUATION.md`
+3. `spec/architecture-lock.md`
+4. `spec/development-workflow.md`
+5. `docs/governance/architect-return-protocol.md`
+6. `docs/cad/autocad-parity-roadmap.md`
+7. `docs/cad/browser-agent-phase-gate.md`
+8. `docs/cad/autocad-real-world-benchmark.md`
+9. `docs/cad/autocad-benchmark-corpus.json`
+10. active governance record under `governance/work-items/`
+11. active GitHub issue/PR
+12. exact-head CI, deployment and browser evidence
 
 Reconcile any disagreement before authorizing work. The canonical work-item governance records and frozen architecture specifications remain authoritative for lifecycle and architecture rules.
 
