@@ -1,6 +1,6 @@
 # ConstructionOS / Offisos — AI Continuation
 
-This file is the first stop for any new LLM Architect, reviewer, or implementation agent taking over without prior conversation context.
+This is the first stop for a new LLM Architect, reviewer, or implementation agent taking over without chat history.
 
 ## Current authoritative state
 
@@ -16,120 +16,91 @@ This file is the first stop for any new LLM Architect, reviewer, or implementati
 - Architect owns `ARCHITECT_REVIEW → APPROVED → VERIFIED`.
 - Implementation agents stop at `PR_OPEN/VERIFYING`.
 
-## Milestones
+## CAD product roadmap authority
 
-P016 is VERIFIED. P017 is VERIFIED. **P018 is VERIFIED.** **COMPAT-CAD-004 is VERIFIED.** **P019 / CAD-PARITY-019 is ASSIGNED.**
+The authoritative AutoCAD-class product roadmap is:
 
-P018 GitHub Issue: **#118**
-P018 PR: **#120**
-P018 merge commit: **3edd5506d972dc309b22c21baad7643f021f27d4**
-P018 reviewed corrective implementation head before merge: **714a34e5712abf8b4a1dd015b806958ff9568ec2**
-P018 corrective interop implementation: **ea76d4b9d1a12a21bdadfdeae5939c4045509b9c**
-P018 approval decision: **DEC-001**
-P018 post-merge verification decision: **DEC-002**
-Architect review that triggered the interoperability correction: **5096872026**
+`docs/cad/autocad-parity-roadmap.md`
 
-COMPAT-CAD-004 GitHub Issue: **#121**
-COMPAT-CAD-004 PR: **#124**
-COMPAT-CAD-004 final implementation head: **d67475f28619297090fc6822798856feeceb39a4**
-COMPAT-CAD-004 merge commit: **3844bff4a1141b5536d432e7f4653b78a182d821**
-COMPAT-CAD-004 post-merge governance run: **33744735354**
-COMPAT-CAD-004 dedicated post-merge run: **33744735415**
-COMPAT-CAD-004 exact-head deployment: **dpl_BGjdkQ8zo51PmaSNhwqfaRmmPEQn**
-COMPAT-CAD-004 governance record: `governance/work-items/COMPAT-CAD-004.json` — **VERIFIED**
+The mandatory browser-agent phase gate protocol is:
 
-P019 / CAD-PARITY-019 GitHub Issue: **#122**
-P019 governance record: `governance/work-items/CAD-PARITY-019.json` — **ASSIGNED**
-P019 dependencies: **P018 VERIFIED + COMPAT-CAD-004 VERIFIED**
-P019 implementation stop gate: **PR_OPEN/VERIFYING**
+`docs/cad/browser-agent-phase-gate.md`
 
-## P018 verification closure
+These documents govern CAD parity sequencing, phase completion, benchmark score progression, successor selection and the required post-deployment black-box browser verification. Chat discussion is not authoritative.
 
-The original substantive P018 blocker was dedicated IFC/BCF/IDS interoperability coverage for the new specialized semantics. The corrective revision added the specialized IFC carrier, typed EXACT/LOSSY/UNSUPPORTED classification, deterministic interop tests and pinned smoke coverage without changing Architecture v1.1 or the engine/worker boundary.
+## Current CAD state
 
-Post-merge verification then bound the actual merge commit to the governance ledger and checked the merge-head Actions matrix. The merge-head matrix was terminal with no failure or cancellation entries; the post-merge governance run succeeded. The final governance transition is `MERGED → VERIFIED` with DEC-002.
+P020 / CAD-PARITY-020 — Archicad parity certification — is **VERIFIED**.
 
-## COMPAT-CAD-004 verification closure
+Current production/main baseline:
 
-COMPAT-CAD-004 completed the bounded pre-certification CAD/BIM hardening slice under frozen Architecture v1.1. The delivered surface includes the versioned typed capability registry, bounded deterministic parametric/associative/pattern semantics, reflected block-instance placement, one-revision associative refresh, shared App API/command registry surfaces, the Parametrics Web workbench, Web/Electron semantic parity, persistence/replay/undo evidence and explicit typed declines outside the supported vocabulary.
+`main` = `f4a1a735dfbfa58d9b24197ffc1808d4cdf84db6`
 
-The final implementation head `d67475f28619297090fc6822798856feeceb39a4` had the full app suite at **1372/1372 pass, 0 fail, 0 skipped**, exact-head deployment/browser evidence, and dedicated CI evidence. After merge at `3844bff4a1141b5536d432e7f4653b78a182d821`, **27/27 workflow runs completed** with no queued, in-progress, failed, or cancelled workflow runs. The dedicated COMPAT-CAD-004 post-merge workflow and post-merge governance workflow both completed successfully.
+CAD-BENCH-RW-001 independently tested the production application and recorded **18/100** across 25 realistic AutoCAD workflow types, with 27 root defects and a permanent Golden 10 regression set.
 
-The authoritative governance lifecycle for COMPAT-CAD-004 is recorded as `DRAFT → READY → ASSIGNED → IMPLEMENTING → PR_OPEN → VERIFYING → ARCHITECT_REVIEW → APPROVED → MERGED → VERIFIED`. Issue #121 is closed as completed.
+The next CAD work is no longer P019/P020. The active remediation program starts with:
 
-## P019 execution boundary
+`COMPAT-CAD-005` — Restore real-world 2D drafting foundation from CAD-BENCH-RW-001
 
-P019 is the next gated milestone and is explicitly a **certification program**, not a feature sprint. The first implementation deliverable is a representative, version-pinned AutoCAD professional workflow corpus plus reproducible reference expectations. All subsequent parity evidence must be measured against that declared corpus.
+GitHub Issue: **#135**
+Governance record: `governance/work-items/COMPAT-CAD-005.json`
+Current state: **ASSIGNED**
+Implementation stop gate: **PR_OPEN/VERIFYING**
 
-The certification dimensions are semantics/behavioral fidelity, persistence/round-trip durability, real Web/Electron task completion, interoperability with explicit EXACT/LOSSY/UNSUPPORTED outcomes, and performance/robustness. Feature-list presence alone cannot establish parity.
+## COMPAT-CAD-005 gate
 
-P019 is now `ASSIGNED` under the governance record, with the implementation agent authorized to work and a hard stop at `PR_OPEN/VERIFYING`. Architect verification remains required for the final certification decision.
+The first slice fixes canonical layer identity/activation, complete NEW reset, unified selection, deterministic screen-space picking, phantom/stale graph state and authoritative post-commit command feedback.
 
-## Verified P018 scope
+Its browser acceptance gate is G1/G3/G5/G7/G8/G9/G10 plus targeted probes for every changed defect. Viewport clipping/navigation and ARRAY materialization are explicitly successor work unless a directly entangled root cause requires otherwise.
 
-Architecture: bounded profile/wall, hosted door/window, roof, stair, railing, rooms/spaces, dimensioning, component placement/editing over verified BIM primitives.
+## CAD successor sequence
 
-MEP: bounded duct/pipe/conduit routing, connectors/endpoints, route validation, deterministic clash/clearance diagnostics.
+The repository roadmap currently defines:
 
-Mechanical: bounded equipment layout, ordinal ports, deterministic rectangular arrays/patterns.
+`COMPAT-CAD-005 → 006 → 007 → 008 → 009 → 010 → 011 → 012 → 013 → 014 → 015 → 016 → 017 → 018 → 019 → 020 → 021 → CAD-CERT-001`
 
-Raster/underlay: canonical raster source/reference records, transforms, clipping, visibility, persistence, stale/missing status, typed non-authoritative trace, explicit commit-to-canonical path.
+Do not release a successor merely because implementation or CI passes. The predecessor must be verified and the roadmap updated with revision-bound browser evidence.
 
-Shared API/UI: versioned typed App API, one shared command registry, Toolsets workbench, Web/Electron semantic parity.
+## Mandatory browser validation rule
 
-Interoperability: IFC/BCF/IDS support for the bounded specialized semantics, with explicit LOSSY/UNSUPPORTED outcomes outside the supported model.
+Every CAD work item must follow:
 
-## CAD/BIM successor sequence
+```text
+IMPLEMENT
+→ deterministic tests
+→ CI
+→ Architect review
+→ MERGE
+→ exact-head deployment
+→ independent browser-agent black-box regression
+→ evidence review
+→ MERGED → VERIFIED
+→ update roadmap
+→ authorize successor
+```
 
-P018 is the VERIFIED specialized-toolset milestone and COMPAT-CAD-004 is the VERIFIED pre-certification hardening milestone. The intended successor sequence is:
+The browser agent must operate through the visible application UI as a real user. It may inspect diagnostics as supporting evidence but must not use hidden APIs to perform the workflow under test.
 
-1. `COMPAT-CAD-004` — **VERIFIED** under Issue **#121**; governance record `governance/work-items/COMPAT-CAD-004.json`. This is the completed bounded pre-certification hardening slice.
-2. **P019 / CAD-PARITY-019** — **ASSIGNED** for AutoCAD parity certification. GitHub Issue **#122**; governance record `governance/work-items/CAD-PARITY-019.json`. This is a certification program, not another feature sprint. The first deliverable is a version-pinned professional workflow corpus and reference expectations; certification then evaluates semantics, persistence, real UI task completion, interoperability, and performance/robustness.
-3. **P020 / CAD-PARITY-020** — **DRAFT** for Archicad parity certification. GitHub Issue **#123**; governance record `governance/work-items/CAD-PARITY-020.json`; depends on P019 VERIFIED.
+## Fresh Architect takeover order
 
-The authoritative roadmap therefore reads **P018 → COMPAT-CAD-004 → P019 → P020 → broader ConstructionOS platform build**.
+Read in this order before making a CAD decision:
 
-P019 and P020 are distinct governed milestones and must not be collapsed into COMPAT-CAD-004 or treated as ordinary feature implementation sprints. Their acceptance must be evidence-backed, revision-bound and reproducible under the normal governance lifecycle.
+1. `AGENTS.md`
+2. `spec/architecture-lock.md`
+3. `spec/development-workflow.md`
+4. `docs/cad/autocad-parity-roadmap.md`
+5. `docs/cad/browser-agent-phase-gate.md`
+6. `docs/cad/autocad-real-world-benchmark.md`
+7. `docs/cad/autocad-benchmark-corpus.json`
+8. active governance record under `governance/work-items/`
+9. active GitHub issue/PR
+10. exact-head CI, deployment and browser evidence
 
-After P020 is VERIFIED, CAD/BIM feature expansion becomes a separate, non-blocking compatibility program. The broader ConstructionOS platform continues under Architecture v1.1.
+Reconcile any disagreement before authorizing work. The canonical work-item governance records and frozen architecture specifications remain authoritative for lifecycle and architecture rules.
 
-## Parallel tracks
+## Broader ConstructionOS roadmap
 
-Project/scheduling and Office/Sheets may proceed independently once their own dependency gates are satisfied:
-
-- Project: `RESEARCH-PM-001 → RESEARCH-PM-002 → COMPAT-PM-001 → COMPAT-PM-002`
-- Office: `RESEARCH-OFFICE-001 → COMPAT-SHEET-001 / COMPAT-DOC-001 / COMPAT-OFFICE-001`
-
-These tracks converge on the shared platform rather than creating separate architectures.
-
-## Platform sequence
-
-Once the first Project/Sheets baselines can exercise shared services, the common platform proceeds:
-
-`PLATFORM-001 → PLATFORM-002 → PLATFORM-003 → PLATFORM-004 → PLATFORM-005 → PLATFORM-006`
-
-Then the Construction Graph, collaboration, AI/tool intelligence, knowledge/uncertainty, cost/procurement, construction intelligence, extensions/public API and full-system benchmarks proceed according to their governed dependencies.
-
-## Primary repository authorities
-
-Read these before making architectural decisions:
-
-- `spec/architecture-lock.md`
-- `spec/architecture.md`
-- `spec/development-workflow.md`
-- `spec/roadmap-v1.1.md`
-- `spec/requirements.md`
-- `governance/workflow-states.json`
-- `governance/schemas/work-item.schema.json`
-- `governance/protected-paths.json`
-- `governance/work-items/CAD-PARITY-017.json`
-- `governance/work-items/CAD-PARITY-018.json`
-- `governance/work-items/COMPAT-CAD-004.json`
-- `governance/work-items/CAD-PARITY-019.json`
-- `governance/work-items/CAD-PARITY-020.json`
-- `docs/LLM-ARCHITECT-HANDOFF.md`
-- `IMPLEMENTATION.md`
-- `AGENTS.md`
+CAD remains a product track inside Architecture v1.1 and must not create a separate canonical data authority. Project, Office, platform, Graph, collaboration, AI and intelligence tracks continue according to their own governed dependencies.
 
 ## Essential commands
 
@@ -140,12 +111,6 @@ npm run governance -- check-protected --base main
 npm run governance -- check-verified-revisions
 npm test
 ```
-
-For CAD/BIM work, also install the pinned toolchains specified by the relevant workflow before interpreting environment-gated evidence.
-
-## Evidence rule
-
-Evidence is only qualifying for VERIFIED when it is accepted by the governance evidence policy, reproducible, revision-bound, and cited by the verifying transition. Screenshots and narrative claims alone are never sufficient.
 
 ## Security
 
