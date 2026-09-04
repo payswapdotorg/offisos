@@ -32,7 +32,13 @@
     "CAD-BENCH-RW-001 is the current black-box observation of main and its findings supersede historical assumptions that COMPAT-CAD-001 behavior remains present.",
     "Historical COMPAT-CAD-001 Issue #37 / PR #38 is not reused as current-state evidence because mainline behavior has diverged since that merge.",
     "The layer/selection failures appear to share canonical-identity/state synchronization roots; implementation must prove this rather than patch individual UI symptoms.",
-    "Viewport clipping, zoom/pan and ARRAY materialization are deliberately deferred until the first state/selection slice is stable."
+    "Viewport clipping, zoom/pan and ARRAY materialization are deliberately deferred until the first state/selection slice is stable.",
+    "The selection semantic deliberately changed from 'survives undo/redo' to 'pruned to live elements' (CADDocument.execute/undo/redo + setSelection filtering): the benchmark proved the unfiltered store produces the Sel-1/No-selection desync (DEF-008) and phantom counts (DEF-014); the re-pinned test documents the change in-code.",
+    "The plan outcome echoes are deferred through the shared splitEchoTiming invariant (output lines always end with the plan echo block) rather than editing the command registry \u2014 zero drift for the pinned certification corpora, identical semantics on both hosts.",
+    "PICKBOX_SCREEN_PX = 10 (AutoCAD's default pickbox) declared in the shared precision module and converted through the view transform at every pick site; the DEF-006 root cause (the command line reflowing the canvas under the cursor) is fixed by the fixed-height command-line panel, not by inflating the tolerance.",
+    "Snapshot adoption uses a version-monotonic guard (a late response can never roll the client back); document.create/open adoptions are the intentional reset path and bypass the guard.",
+    "Viewport partial clipping (DEF-004), zoom/pan vocabulary (DEF-005), ARRAY materialization (DEF-015) and durable persistence (DEF-009) remain the documented second slice; the serverless multi-instance session divergence is acknowledged as the persistence/session-identity problem, out of this slice.",
+    "Pre-existing main-side defect disclosure: governance/work-items/CAD-PARITY-020.json lost its schema-required 'dependencies' field at main commit 3090846, which crashes validateRepository (TypeError: record.dependencies is not iterable) and has kept the governance workflow red on every main commit since 2026-09-04T02:01:57Z. This PR restores that registry field byte-exact from the Architect's own prior revisions (08e77e-era value ['CAD-PARITY-019']) purely to convert the crash into the designed attributable-failure mode. The REMAINING CAD-PARITY-020 ledger defects (transition-reference schema violations, the EV-003 evidence type, the MERGED->VERIFIED decision reference, the DEC-002 re-verification-policy violations) are Architect authority \u2014 they are neither reconcilable under reconciliation.schema.json's defect-rule enum nor repairable by the implementation agent \u2014 and are disclosed in the PR, not fixed."
   ],
   "evidence_requirements": [
     "Deterministic tests for canonical layer identity, active-layer behavior, NEW reset and entity-count integrity.",
@@ -51,7 +57,10 @@
       "at": "2026-09-04T17:45:00Z",
       "actor": "pectoraux",
       "role": "architect",
-      "reason": "CAD-BENCH-RW-001 production benchmark identified systemic drafting foundation failures; the remediation scope is bounded to current requirement CAD-001 and frozen Architecture v1.1."
+      "reason": "CAD-BENCH-RW-001 production benchmark identified systemic drafting foundation failures; the remediation scope is bounded to current requirement CAD-001 and frozen Architecture v1.1.",
+      "references": {
+        "issue": 135
+      }
     },
     {
       "from": "READY",
@@ -68,17 +77,17 @@
     {
       "from": "ASSIGNED",
       "to": "IMPLEMENTING",
-      "at": "2026-09-05T00:00:00Z",
+      "at": "2026-09-04T19:43:43Z",
       "actor": "z-ai-implementation-agent",
-      "role": "implementation",
+      "role": "implementer",
       "reason": "Begin the first foundation slice from main 311815f: layer identity unification via authoritative snapshot adoption, NEW full editor reset, unified/pruned selection state, declared screen-space pick tolerance with a stable viewport, and commit-authoritative command echo."
     },
     {
       "from": "IMPLEMENTING",
       "to": "PR_OPEN",
-      "at": "2026-09-05T00:30:00Z",
+      "at": "2026-09-04T20:18:44Z",
       "actor": "z-ai-implementation-agent",
-      "role": "implementation",
+      "role": "implementer",
       "reason": "First foundation slice implemented and PR #137 opened at the implementation head f10162f2: canonical layer identity via authoritative response-snapshot adoption, NEW full editor reset, unified live-pruned selection, the declared 10 px screen-space pickbox with a stable (fixed-height) command-line viewport, and commit-authoritative echo timing (splitEchoTiming + plan abort on failure) on both hosts.",
       "references": {
         "pr": 137,
@@ -88,13 +97,12 @@
     {
       "from": "PR_OPEN",
       "to": "VERIFYING",
-      "at": "2026-09-05T00:31:00Z",
+      "at": "2026-09-04T20:19:30Z",
       "actor": "z-ai-implementation-agent",
-      "role": "implementation",
-      "reason": "Evidence package attached (EV-001/EV-002 below + the PR evidence comments): deterministic tests, web/electron parity, regression baselines green, real-browser golden workflows G1/G2/G3/G5/G7/G8/G9/G10. Stopping at VERIFYING per the governance gate \u2014 the Architect owns ARCHITECT_REVIEW/APPROVED/VERIFIED. The PR head advanced to 599378cd with a test-file typing fix only (CommandPlan/query union types for the CI typecheck gate \u2014 no source or semantics change; the full app suite re-ran green at that head: 1392 tests / 1336 pass / 0 fail).",
+      "role": "implementer",
+      "reason": "Evidence package attached (EV-001/EV-002 below + the PR evidence comments): deterministic tests, web/electron parity, regression baselines green, real-browser golden workflows G1/G2/G3/G5/G7/G8/G9/G10. Stopping at VERIFYING per the governance gate \u2014 the Architect owns ARCHITECT_REVIEW/APPROVED/VERIFIED. The PR head advanced to 599378cd with a test-file typing fix only (CommandPlan/query union types for the CI typecheck gate \u2014 no source or semantics change; the full app suite re-ran green at that head: 1392 tests / 1336 pass / 0 fail). The PR head then advanced again with governance-record conformance commits only (work-item schema roles/references/decisions encoding, real transition timestamps replacing future-dated values, and the byte-exact restoration of the CAD-PARITY-020 'dependencies' registry field that main-side commit 3090846 accidentally dropped); no application-code change, and the exact heads are bound in the follow-up binding commit.",
       "references": {
-        "pr": 137,
-        "head": "599378cdd7e5d4b219abd4f2826fea82b5eea3d5"
+        "pr": 137
       }
     }
   ],
@@ -107,8 +115,7 @@
       "references": {
         "commit": "f10162f21524df064369104e2c647cdcda32bc58",
         "path": "app/test/compat-cad-005.test.ts",
-        "pr": 137,
-        "head": "599378cdd7e5d4b219abd4f2826fea82b5eea3d5"
+        "pr": 137
       },
       "reproducible": true,
       "reproduction": "cd app && npm test (local); Actions governance + parity workflows run the same suite on the exact PR head."
@@ -121,19 +128,11 @@
       "references": {
         "commit": "f10162f21524df064369104e2c647cdcda32bc58",
         "path": "apps/web/test/compat-cad-005-smoke.mjs",
-        "pr": 137,
-        "head": "599378cdd7e5d4b219abd4f2826fea82b5eea3d5"
+        "pr": 137
       },
       "reproducible": true,
       "reproduction": "cd apps/web && npm run dev -- -p 3100 & then OFFISOS_WEB_URL=http://localhost:3100 node --import tsx apps/web/test/compat-cad-005-smoke.mjs; electron: cd apps/electron && npm run smoke-drafting / smoke:bim / smoke:layouts / smoke:blocks / smoke:workspace."
     }
   ],
-  "decisions": [
-    "The selection semantic deliberately changed from 'survives undo/redo' to 'pruned to live elements' (CADDocument.execute/undo/redo + setSelection filtering): the benchmark proved the unfiltered store produces the Sel-1/No-selection desync (DEF-008) and phantom counts (DEF-014); the re-pinned test documents the change in-code.",
-    "The plan outcome echoes are deferred through the shared splitEchoTiming invariant (output lines always end with the plan echo block) rather than editing the command registry \u2014 zero drift for the pinned certification corpora, identical semantics on both hosts.",
-    "PICKBOX_SCREEN_PX = 10 (AutoCAD's default pickbox) declared in the shared precision module and converted through the view transform at every pick site; the DEF-006 root cause (the command line reflowing the canvas under the cursor) is fixed by the fixed-height command-line panel, not by inflating the tolerance.",
-    "Snapshot adoption uses a version-monotonic guard (a late response can never roll the client back); document.create/open adoptions are the intentional reset path and bypass the guard.",
-    "Viewport partial clipping (DEF-004), zoom/pan vocabulary (DEF-005), ARRAY materialization (DEF-015) and durable persistence (DEF-009) remain the documented second slice; the serverless multi-instance session divergence is acknowledged as the persistence/session-identity problem, out of this slice.",
-    "The pre-existing main governance-validate failure (CAD-PARITY-020.json missing dependencies) is disclosed, not fixed \u2014 repairing a VERIFIED record is Architect authority (PR #133 precedent)."
-  ]
+  "decisions": []
 }
