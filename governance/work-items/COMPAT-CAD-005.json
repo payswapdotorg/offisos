@@ -43,7 +43,7 @@
     "Production or exact preview browser evidence rerunning the targeted CAD-BENCH-RW-001 golden workflows.",
     "Evidence that Architecture v1.1, Construction Graph authority and engine/worker boundaries remain intact."
   ],
-  "state": "IMPLEMENTING",
+  "state": "VERIFYING",
   "transitions": [
     {
       "from": "DRAFT",
@@ -72,6 +72,65 @@
       "actor": "z-ai-implementation-agent",
       "role": "implementation",
       "reason": "Begin the first foundation slice from main 311815f: layer identity unification via authoritative snapshot adoption, NEW full editor reset, unified/pruned selection state, declared screen-space pick tolerance with a stable viewport, and commit-authoritative command echo."
+    },
+    {
+      "from": "IMPLEMENTING",
+      "to": "PR_OPEN",
+      "at": "2026-09-05T00:30:00Z",
+      "actor": "z-ai-implementation-agent",
+      "role": "implementation",
+      "reason": "First foundation slice implemented and PR #137 opened at the implementation head f10162f2: canonical layer identity via authoritative response-snapshot adoption, NEW full editor reset, unified live-pruned selection, the declared 10 px screen-space pickbox with a stable (fixed-height) command-line viewport, and commit-authoritative echo timing (splitEchoTiming + plan abort on failure) on both hosts.",
+      "references": {
+        "pr": 137,
+        "commit": "f10162f21524df064369104e2c647cdcda32bc58"
+      }
+    },
+    {
+      "from": "PR_OPEN",
+      "to": "VERIFYING",
+      "at": "2026-09-05T00:31:00Z",
+      "actor": "z-ai-implementation-agent",
+      "role": "implementation",
+      "reason": "Evidence package attached (EV-001/EV-002 below + the PR evidence comments): deterministic tests, web/electron parity, regression baselines green, real-browser golden workflows G1/G2/G3/G5/G7/G8/G9/G10. Stopping at VERIFYING per the governance gate \u2014 the Architect owns ARCHITECT_REVIEW/APPROVED/VERIFIED.",
+      "references": {
+        "pr": 137
+      }
     }
+  ],
+  "evidence": [
+    {
+      "id": "EV-001",
+      "type": "automated-test-suite",
+      "description": "Deterministic coverage: app/test/compat-cad-005.test.ts (12 tests \u2014 layer identity/authoritative snapshots, NEW full reset, entity-count integrity across repeated NEW/draw cycles, the declared pickbox tolerance, splitEchoTiming echo partition, the one-authoritative-failure contract, and WebHost/ElectronHost transport parity) plus the honest re-pin of the selection semantic in selection-create-save.test.ts. Full app suite at the implementation tree: 1392 tests / 1336 pass / 0 fail / 56 OCCT-gated skips; P019/P020 certification fixtures byte-stable.",
+      "produced_at": "2026-09-04T20:05:00Z",
+      "references": {
+        "commit": "f10162f21524df064369104e2c647cdcda32bc58",
+        "path": "app/test/compat-cad-005.test.ts",
+        "pr": 137
+      },
+      "reproducible": true,
+      "reproduction": "cd app && npm test (local); Actions governance + parity workflows run the same suite on the exact PR head."
+    },
+    {
+      "id": "EV-002",
+      "type": "reproducible-script",
+      "description": "The web-host golden smoke apps/web/test/compat-cad-005-smoke.mjs (the -LAYER M/CLAYER/NEW/selection-integrity/typed-failure/count-integrity flows against the running web host) plus the regression smokes (workspace, layers-styles, annotation, blocks, docs-p013, layouts, constraints, model3d, schedules-p015, parametrics-cad004 \u2014 fixtures byte-matched) and the Electron real-UI smokes (smoke, smoke-drafting, smoke:bim, smoke:layouts, smoke:blocks, smoke:workspace \u2014 Web/Electron semantic stream MATCH). Real-browser golden workflows G1/G2/G3/G5/G7/G8/G9/G10 driven through the actual UI on the dev server and the exact-head preview deployment, zero console/page errors.",
+      "produced_at": "2026-09-04T20:10:00Z",
+      "references": {
+        "commit": "f10162f21524df064369104e2c647cdcda32bc58",
+        "path": "apps/web/test/compat-cad-005-smoke.mjs",
+        "pr": 137
+      },
+      "reproducible": true,
+      "reproduction": "cd apps/web && npm run dev -- -p 3100 & then OFFISOS_WEB_URL=http://localhost:3100 node --import tsx apps/web/test/compat-cad-005-smoke.mjs; electron: cd apps/electron && npm run smoke-drafting / smoke:bim / smoke:layouts / smoke:blocks / smoke:workspace."
+    }
+  ],
+  "decisions": [
+    "The selection semantic deliberately changed from 'survives undo/redo' to 'pruned to live elements' (CADDocument.execute/undo/redo + setSelection filtering): the benchmark proved the unfiltered store produces the Sel-1/No-selection desync (DEF-008) and phantom counts (DEF-014); the re-pinned test documents the change in-code.",
+    "The plan outcome echoes are deferred through the shared splitEchoTiming invariant (output lines always end with the plan echo block) rather than editing the command registry \u2014 zero drift for the pinned certification corpora, identical semantics on both hosts.",
+    "PICKBOX_SCREEN_PX = 10 (AutoCAD's default pickbox) declared in the shared precision module and converted through the view transform at every pick site; the DEF-006 root cause (the command line reflowing the canvas under the cursor) is fixed by the fixed-height command-line panel, not by inflating the tolerance.",
+    "Snapshot adoption uses a version-monotonic guard (a late response can never roll the client back); document.create/open adoptions are the intentional reset path and bypass the guard.",
+    "Viewport partial clipping (DEF-004), zoom/pan vocabulary (DEF-005), ARRAY materialization (DEF-015) and durable persistence (DEF-009) remain the documented second slice; the serverless multi-instance session divergence is acknowledged as the persistence/session-identity problem, out of this slice.",
+    "The pre-existing main governance-validate failure (CAD-PARITY-020.json missing dependencies) is disclosed, not fixed \u2014 repairing a VERIFIED record is Architect authority (PR #133 precedent)."
   ]
 }
