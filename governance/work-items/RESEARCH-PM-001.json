@@ -1,0 +1,67 @@
+{
+  "id": "RESEARCH-PM-001",
+  "title": "Evaluate Project/scheduling engine candidates",
+  "issue": 36,
+  "objective": "Determine whether a Project/scheduling engine foundation can satisfy ConstructionOS construction-project workflow requirements behind the frozen Project adapter boundary with reproducible semantic, API, replay, and licensing/composition evidence.",
+  "architecture_version": "1.1",
+  "requirements": ["PM-001", "PM-002", "PM-003", "PM-004", "PM-005"],
+  "dependencies": [],
+  "acceptance_criteria": [
+    "At least one representative construction schedule completes WBS, activities, calendars, dependencies and critical-path behavior deterministically.",
+    "Baseline and progress workflows are exercised with explicit assertions and reproducible expected outputs.",
+    "At least one delay scenario and one alternative sequencing scenario are reproduced and compared deterministically.",
+    "Resource/capacity behavior is evaluated to the degree required by the frozen requirements and limitations are explicit.",
+    "API and adapter conformance is demonstrated without leaking engine-native identifiers or state into canonical Construction Graph semantics.",
+    "Historical schedule state remains replayable across later revisions.",
+    "Exact-version licensing and composition constraints are documented, with legal questions clearly separated from factual evidence.",
+    "Results support a clear recommendation: proceed behind adapter, proceed with explicit constraints, reject/evaluate alternative, or require ACR/legal review.",
+    "Architecture v1.1 remains frozen and no protected architecture path is modified."
+  ],
+  "non_goals": [
+    "No production scheduling implementation.",
+    "No architecture change.",
+    "No final legal opinion.",
+    "No assumption that OpenProject is suitable merely because it is mature or feature-rich.",
+    "No implementation-agent approval or verification claim."
+  ],
+  "risk_assumptions": [
+    "CAD-PARITY-020/P020 is formally VERIFIED and establishes the CAD/BIM professional-complete milestone.",
+    "Construction Graph remains authoritative for shared project/domain identity.",
+    "Project engine identifiers remain provenance only and are not canonical domain identity.",
+    "The candidate may be rejected or constrained if deterministic behavior, replacement feasibility, or licensing/composition evidence is insufficient.",
+    "Architecture v1.1 remains active and frozen."
+  ],
+  "evidence_requirements": [
+    "Exact candidate versions/builds and runtime environment.",
+    "Reproducible non-trivial construction schedule fixture.",
+    "Deterministic WBS/activity/calendar/dependency/critical-path evidence.",
+    "Baseline/progress evidence.",
+    "Delay and alternative-scenario evidence.",
+    "Resource/capacity evidence and declared limitations.",
+    "API/adapter and Construction Graph identity/lineage evidence.",
+    "Historical revision/replay evidence.",
+    "Exact-version licensing/composition evidence with unresolved legal questions identified.",
+    "Governed PR and revision-bound Architect verification evidence."
+  ],
+  "state": "ASSIGNED",
+  "transitions": [
+    {
+      "from": "DRAFT",
+      "to": "READY",
+      "at": "2026-09-04T02:12:00Z",
+      "actor": "pectoraux",
+      "role": "architect",
+      "reason": "CAD-PARITY-020 is formally VERIFIED, clearing the roadmap sequencing gate for Project/scheduling feasibility research.",
+      "references": {"issue": 36, "commit": "df9470805776caa6b57bf224d76cef05b7480975"}
+    },
+    {
+      "from": "READY",
+      "to": "ASSIGNED",
+      "at": "2026-09-04T02:13:00Z",
+      "actor": "pectoraux",
+      "role": "architect",
+      "reason": "Authorize z-ai-implementation-agent to execute the Project/scheduling feasibility research from the verified mainline, stopping at PR_OPEN/VERIFYING.",
+      "references": {"issue": 36, "assignee": "z-ai-implementation-agent"}
+    }
+  ]
+}
