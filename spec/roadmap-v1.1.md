@@ -4,6 +4,8 @@
 **Status:** Current roadmap for implementation; Architecture v1.1 itself remains FROZEN.  
 **Authority:** Architecture rules are defined by `spec/architecture.md` and `spec/architecture-lock.md`. This document is the current implementation roadmap; `spec/work-items.md` is retained as the historical v1.0 backlog until a full administrative reconciliation is completed.
 
+> **CAD roadmap precedence:** P018/P019/P020 entries below preserve milestone history. After P020 is VERIFIED, the active AutoCAD product/parity sequence is governed by `docs/cad/autocad-parity-roadmap.md`, and its browser-agent verification by `docs/cad/browser-agent-phase-gate.md`. Do not interpret the historical P019/P020 text below as the current CAD successor queue.
+
 ## Roadmap policy
 
 The roadmap may evolve by adding explicit work items, but implementation must remain inside Architecture v1.1. Any change to frozen architecture requires an Architecture Change Request and a new architecture version.
@@ -42,51 +44,29 @@ Project/scheduling and Office work may proceed in parallel with the CAD/BIM trac
 
 - CAD-PARITY-018 / **P018** — specialized Architecture, MEP, Mechanical & Raster toolsets — **VERIFIED**
 
-P018 is the specialized-toolset expansion milestone. It adds bounded professional Architecture, MEP, Mechanical and Raster/underlay capabilities without changing ConstructionOS Architecture v1.1 or the established CAD/BIM product architecture. Specialized capabilities remain modular and must not distort the core architecture. fileciteturn120file0
+P018 is the specialized-toolset expansion milestone. It adds bounded professional Architecture, MEP, Mechanical and Raster/underlay capabilities without changing ConstructionOS Architecture v1.1 or the established CAD/BIM product architecture. Specialized capabilities remain modular and must not distort the core architecture.
 
-### Pre-certification product hardening — active
+### Pre-certification product hardening — historical
 
-- COMPAT-CAD-004 — bounded parametric constraints, associative drafting, reusable 2D symbols/blocks, and deterministic mirror/array/pattern operations.
+- COMPAT-CAD-004 — bounded parametric constraints, associative drafting, reusable 2D symbols/blocks, and deterministic mirror/array/pattern operations — **VERIFIED**.
 
-`COMPAT-CAD-004` is treated as a bounded product-hardening slice between the VERIFIED P018 specialized-toolset baseline and the parity-certification program. It is not itself a parity certification and does not authorize an architecture change.
+### P019 — AutoCAD parity certification — historical
 
-### P019 — AutoCAD parity certification
+- **P019 / CAD-PARITY-019** — AutoCAD parity certification — **VERIFIED**.
 
-- **P019 / CAD-PARITY-019** — AutoCAD parity certification.
+P019 is retained here as milestone history. The post-certification remediation program triggered by the independent production benchmark is now governed exclusively by `docs/cad/autocad-parity-roadmap.md`.
 
-P019 is **not another feature sprint**. It is a certification program against a representative professional workflow corpus. Certification must evaluate integrated workflows across:
+### P020 — Archicad parity certification — historical / complete
 
-- semantics and behavioral fidelity;
-- persistence and round-trip durability;
-- real UI task completion;
-- interoperability and explicit EXACT/LOSSY/UNSUPPORTED behavior; and
-- performance/robustness.
+- **P020 / CAD-PARITY-020** — Archicad parity certification — **VERIFIED**.
 
-Feature checklists alone do not constitute parity certification. The certification result must be evidence-backed, revision-bound and reproducible under the governance lifecycle.
-
-P019 depends on the VERIFIED P018 baseline and completion/verification of the bounded pre-certification hardening needed to exercise the representative AutoCAD workflow corpus.
-
-### P020 — Archicad parity certification
-
-- **P020 / CAD-PARITY-020** — Archicad parity certification.
-
-P020 uses the same certification principle against an Archicad-class BIM/documentation workflow corpus. The goal is to prove an integrated professional BIM/documentation workflow rather than merely verify that individual commands exist.
-
-Certification must cover, at minimum:
-
-- BIM/document semantics and behavioral fidelity;
-- persistence and document round-trip durability;
-- real UI workflow completion;
-- interoperability and explicit EXACT/LOSSY/UNSUPPORTED behavior; and
-- performance/robustness across representative workflows.
-
-P020 depends on the certified P019 baseline where shared CAD workflow infrastructure is involved and must preserve Architecture v1.1 and the Construction Graph / CADDocument / engine-worker boundaries.
+P020 remains the Archicad certification milestone. Its verification established the CAD/BIM professional baseline but does not supersede the subsequent AutoCAD black-box benchmark findings.
 
 ### CAD/BIM professional boundary
 
-After **P020 is VERIFIED**, the initial CAD/BIM professional-complete milestone is established. CAD/BIM feature expansion then pauses as a primary product-program focus while the broader ConstructionOS platform is built.
+After **P020 is VERIFIED**, CAD/BIM feature expansion becomes a separate compatibility/product program. The current AutoCAD product-quality program is the authoritative sequence in `docs/cad/autocad-parity-roadmap.md`, beginning at `COMPAT-CAD-005` from the measured **18/100** benchmark baseline.
 
-Later CAD/BIM expansion remains a separate, non-blocking program. Deeper AutoCAD or Archicad-class feature work after P020 must be justified by benchmark-defined gaps and measurable fidelity/performance targets, and must not block Project, Office, platform, Graph, collaboration, AI or intelligence development.
+Later CAD/BIM expansion remains separate and must be justified by benchmark-defined gaps and measurable fidelity/performance targets. It must not change the frozen architecture or create a competing roadmap authority.
 
 ## 2. Project / scheduling track
 
@@ -200,5 +180,5 @@ These consume model/quantity/project data through the Construction Graph and eve
 3. Shared code is integrated through stable domain/application contracts, not branch-to-branch coupling.
 4. A dependent work item cannot enter execution until its declared dependencies are `VERIFIED`.
 5. Architecture v1.1 remains frozen throughout this roadmap.
-6. CAD/BIM professional completeness is established by the P018 specialized-toolset milestone plus the P019 and P020 certification gates; it is a product milestone, not an architectural boundary.
-7. Later AutoCAD/Archicad parity expansion after P020 is separate and non-blocking; it does not replace or delay the broader ConstructionOS roadmap.
+6. CAD/BIM professional completeness is established by the verified professional milestones; the current AutoCAD remediation sequence is governed separately by `docs/cad/autocad-parity-roadmap.md`.
+7. Later AutoCAD/Archicad parity expansion remains separate and non-blocking; it does not replace or delay the broader ConstructionOS roadmap.
