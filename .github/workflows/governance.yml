@@ -71,3 +71,5 @@ jobs:
           name: governance-report
           path: governance-report.json
           if-no-files-found: warn
+          # Preserve workflow semantics; this comment also provides a durable marker
+          # for the forced post-merge verification rerun of stuck run 33823793186.
