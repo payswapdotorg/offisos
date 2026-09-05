@@ -1,0 +1,62 @@
+{
+  "id": "INFRA-002",
+  "title": "Neon PostgreSQL foundation (authoritative transactional store)",
+  "issue": 144,
+  "architecture_version": "1.1",
+  "requirements": ["DATA-001", "DATA-002", "DATA-003", "DATA-004", "DATA-005", "PLAT-004", "API-003"],
+  "dependencies": ["INFRA-001"],
+  "objective": "Implement the authoritative Neon PostgreSQL foundation defined by verified INFRA-001 without changing the existing v1 request path.",
+  "acceptance_criteria": [
+    "DocumentStore port applies P016 persistence discipline for document registry, append-only version chain, idempotency records and command log.",
+    "Neon adapter uses pooled connections, idempotent DDL, byte-preserving JSON semantics where required, and advisory-lock/CAS serialization.",
+    "MemoryDocumentStore exists for local development and deterministic tests.",
+    "FailClosedDocumentStore provides typed fail-closed behavior when production persistence is unconfigured.",
+    "Cross-backend fixtures prove byte-identical canonical persisted views.",
+    "CAS conflict and idempotency retry behavior are deterministic and tested.",
+    "CI exercises the adapter against a real PostgreSQL service.",
+    "Existing v1 request behavior is unchanged.",
+    "No R2, WireEnvelope v2, stateless request migration, Redis, worker service, or production environment wiring is introduced."
+  ],
+  "non_goals": [
+    "No Cloudflare R2.",
+    "No request-shape change or WireEnvelope v2.",
+    "No Upstash Redis integration.",
+    "No CAD/BIM worker service.",
+    "No production environment wiring."
+  ],
+  "risk_assumptions": [
+    "P016Persist is the architectural persistence precedent.",
+    "Neon is authoritative for transactional state; Redis and workers are not part of this work item.",
+    "Production remains fail-closed until INFRA-007 wiring.",
+    "Document persistence must not become a competing Construction Graph authority."
+  ],
+  "evidence_requirements": [
+    "Revision-bound automated tests.",
+    "Exact CI run using a real PostgreSQL service.",
+    "Reproducible cross-backend byte-identity script.",
+    "Governance/schema validation and changed-file scope proof."
+  ],
+  "state": "ASSIGNED",
+  "transitions": [
+    {
+      "from": "DRAFT",
+      "to": "READY",
+      "at": "2026-09-05T07:48:25Z",
+      "actor": "pectoraux",
+      "role": "architect",
+      "reason": "INFRA-001 is VERIFIED and its roadmap explicitly releases INFRA-002 as the dependency-ordered Neon successor. The implementation scope and evidence contract are frozen in the issue and successor prompt.",
+      "references": {"issue": 144, "predecessor": "INFRA-001", "verified_revision": "0e94680bcedc20bcfb4d4d51eeefb089d7e45665"}
+    },
+    {
+      "from": "READY",
+      "to": "ASSIGNED",
+      "at": "2026-09-05T07:48:25Z",
+      "actor": "pectoraux",
+      "role": "architect",
+      "reason": "Authorize the logical implementation worker z-ai-infra-agent. GitHub cannot represent that logical worker as an account assignee, so the assignment is canonicalized in this governance record and the issue body without inventing a GitHub username.",
+      "references": {"issue": 144, "assignee": "z-ai-infra-agent", "prompt": "docs/work-items/INFRA-002-ZAI-PROMPT.md"}
+    }
+  ],
+  "evidence": [],
+  "decisions": []
+}
