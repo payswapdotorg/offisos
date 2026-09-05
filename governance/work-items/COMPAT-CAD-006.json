@@ -3,12 +3,8 @@
   "title": "Restore viewport clipping, zoom, pan, regen and stable coordinate transforms",
   "issue": 138,
   "architecture_version": "1.1",
-  "requirements": [
-    "CAD-001"
-  ],
-  "dependencies": [
-    "COMPAT-CAD-005"
-  ],
+  "requirements": ["CAD-001"],
+  "dependencies": ["COMPAT-CAD-005"],
   "objective": "Restore deterministic CAD viewport/navigation behavior exposed by CAD-BENCH-RW-001 while preserving ConstructionOS Architecture v1.1, CADDocument authority and the canonical layer/selection semantics established by COMPAT-CAD-005.",
   "acceptance_criteria": [
     "Geometry that intersects the viewport is rendered deterministically even when part of the geometry lies outside the viewport; clipping does not drop the visible in-bounds portion.",
@@ -48,96 +44,22 @@
     "Real browser Golden G1/G2/G3 execution plus targeted off-viewport endpoint and zoom/pan probes.",
     "Revision-bound evidence recorded before Architect review."
   ],
-  "state": "VERIFYING",
+  "state": "APPROVED",
   "transitions": [
-    {
-      "from": "DRAFT",
-      "to": "READY",
-      "at": "2026-09-05T03:23:30Z",
-      "actor": "pectoraux",
-      "role": "architect",
-      "reason": "COMPAT-CAD-005 is VERIFIED and the next dependency-ordered roadmap phase is sufficiently bounded to release.",
-      "references": {
-        "issue": 138,
-        "predecessor": "COMPAT-CAD-005",
-        "verified_revision": "74d1b39578916f1915674e20d215bde79d1c10cd"
-      }
-    },
-    {
-      "from": "READY",
-      "to": "ASSIGNED",
-      "at": "2026-09-05T03:24:30Z",
-      "actor": "pectoraux",
-      "role": "architect",
-      "reason": "Authorize z-ai-implementation-agent to implement the frozen COMPAT-CAD-006 scope and stop at PR_OPEN/VERIFYING.",
-      "references": {
-        "issue": 138,
-        "assignee": "z-ai-implementation-agent",
-        "prompt": "docs/work-items/COMPAT-CAD-006-ZAI-PROMPT.md"
-      }
-    },
-    {
-      "from": "ASSIGNED",
-      "to": "IMPLEMENTING",
-      "at": "2026-09-05T04:10:00Z",
-      "actor": "z-ai-implementation-agent",
-      "role": "implementer",
-      "reason": "Begin the viewport/navigation slice from main a9867a8 (post-CC005 VERIFIED): the shared view-transform contract with deterministic partial clipping (the DEF-004 discipline), the ZOOM/PAN/REGEN vocabulary as view-only command plans, and the shared screen↔world transforms across every pick/render path on both hosts.",
-      "references": {
-        "issue": 138
-      }
-    },
-    {
-      "from": "IMPLEMENTING",
-      "to": "PR_OPEN",
-      "at": "2026-09-05T05:16:00Z",
-      "actor": "z-ai-implementation-agent",
-      "role": "implementer",
-      "reason": "First navigation slice implemented and PR #139 opened at the implementation head 6a93a71: the ONE shared view module (toScreen/toWorld exact inverses, Liang–Barsky partial clip, the pure navigation transforms, the declared zoom-limit vocabulary), ZOOM (window default + All/Extents/Previous/Scale), PAN (base+second / displacement), REGEN (ui+echo only — zero App API), the Web/Electron wiring through the identical functions, 34 deterministic tests + the 12-step real-UI Electron smoke + the web golden smoke.",
-      "references": {
-        "pr": 139,
-        "commit": "6a93a71c7d6ec144f3c9ab8b9db7c131117ef98e"
-      }
-    },
-    {
-      "from": "PR_OPEN",
-      "to": "VERIFYING",
-      "at": "2026-09-05T05:17:00Z",
-      "actor": "z-ai-implementation-agent",
-      "role": "implementer",
-      "reason": "Evidence package attached (EV-001/EV-002 + the PR evidence comments): 34 new deterministic tests (full suite 1426/1370/0 fail/56 skips), the 12/12 real-UI Electron navigation smoke, the web golden smoke + 11 regression smokes PASS, Web lint/typecheck/build clean, Electron typecheck + 7 real-UI smokes PASS, the real-browser G1/G2/G3 golden navigation flows with zero console errors, the negative no-mutation probes (elements/version byte-identical through every navigation; UNDO undoes the EDIT not the view). Stopping at VERIFYING per the governance gate — the Architect owns ARCHITECT_REVIEW/APPROVED/VERIFIED.",
-      "references": {
-        "pr": 139
-      }
-    }
+    {"from":"DRAFT","to":"READY","at":"2026-09-05T03:23:30Z","actor":"pectoraux","role":"architect","reason":"COMPAT-CAD-005 is VERIFIED and the next dependency-ordered roadmap phase is sufficiently bounded to release.","references":{"issue":138,"predecessor":"COMPAT-CAD-005","verified_revision":"74d1b39578916f1915674e20d215bde79d1c10cd"}},
+    {"from":"READY","to":"ASSIGNED","at":"2026-09-05T03:24:30Z","actor":"pectoraux","role":"architect","reason":"Authorize z-ai-implementation-agent to implement the frozen COMPAT-CAD-006 scope and stop at PR_OPEN/VERIFYING.","references":{"issue":138,"assignee":"z-ai-implementation-agent","prompt":"docs/work-items/COMPAT-CAD-006-ZAI-PROMPT.md"}},
+    {"from":"ASSIGNED","to":"IMPLEMENTING","at":"2026-09-05T04:10:00Z","actor":"z-ai-implementation-agent","role":"implementer","reason":"Begin the viewport/navigation slice from main a9867a8 (post-CC005 VERIFIED): the shared view-transform contract with deterministic partial clipping (the DEF-004 discipline), the ZOOM/PAN/REGEN vocabulary as view-only command plans, and the shared screen↔world transforms across every pick/render path on both hosts.","references":{"issue":138}},
+    {"from":"IMPLEMENTING","to":"PR_OPEN","at":"2026-09-05T05:16:00Z","actor":"z-ai-implementation-agent","role":"implementer","reason":"First navigation slice implemented and PR #139 opened at implementation head 6a93a71: the ONE shared view module (toScreen/toWorld exact inverses, Liang–Barsky partial clip, the pure navigation transforms, the declared zoom-limit vocabulary), ZOOM (window default + All/Extents/Previous/Scale), PAN (base+second / displacement), REGEN (ui+echo only — zero App API), the Web/Electron wiring through the identical functions, 34 deterministic tests + the 12-step real-UI Electron smoke + the web golden smoke.","references":{"pr":139,"commit":"6a93a71c7d6ec144f3c9ab8b9db7c131117ef98e"}},
+    {"from":"PR_OPEN","to":"VERIFYING","at":"2026-09-05T05:17:00Z","actor":"z-ai-implementation-agent","role":"implementer","reason":"Evidence package attached (EV-001/EV-002 + the PR evidence comments): 34 new deterministic tests (full suite 1426/1370/0 fail/56 skips), the 12/12 real-UI Electron navigation smoke, the web golden smoke + 11 regression smokes PASS, Web lint/typecheck/build clean, Electron typecheck + 7 real-UI smokes PASS, the real-browser G1/G2/G3 golden navigation flows with zero console errors, the negative no-mutation probes (elements/version byte-identical through every navigation; UNDO undoes the EDIT not the view). Stopping at VERIFYING per the governance gate — the Architect owns ARCHITECT_REVIEW/APPROVED/VERIFIED.","references":{"pr":139,"implementation_revision":"6a93a71c7d6ec144f3c9ab8b9db7c131117ef98e","governance_head":"c24fa8f69b248ec998e43e8192fb154bb6748f6b"}},
+    {"from":"VERIFYING","to":"ARCHITECT_REVIEW","at":"2026-09-05T05:40:00Z","actor":"pectoraux","role":"architect","reason":"Independent Architect review completed against PR #139. The material implementation is unchanged after 6a93a71; c24fa8f is governance-only drift. Exact-head CI on c24fa8f is terminal (30/30 workflow runs, 88/88 check-runs), with one governance failure byte-identical to clean main a9867a8 and attributable to the pre-existing CAD-PARITY-020 dependencies defect. Exact implementation tests, Web/Electron parity, real-UI smokes and browser G1/G2/G3 evidence satisfy the acceptance contract; no Architecture v1.1 boundary or canonical authority changed.","references":{"pr":139,"reviewed_implementation_revision":"6a93a71c7d6ec144f3c9ab8b9db7c131117ef98e","reviewed_pr_head":"c24fa8f69b248ec998e43e8192fb154bb6748f6b","ci_run":33946716126,"clean_main":"a9867a8ee59beeb424f20298f0c19b04823bc119"}},
+    {"from":"ARCHITECT_REVIEW","to":"APPROVED","at":"2026-09-05T05:41:00Z","actor":"pectoraux","role":"architect","reason":"DEC-003 authorizes merge. The approved material tree satisfies COMPAT-CAD-006, evidence is revision-bound to the implementation revision and remains valid because the only later PR delta is governance metadata; the pre-existing main-side governance red is explicitly not treated as a product failure. Formal GitHub APPROVE is unavailable because the connected identity is the PR author; the canonical governance decision is recorded here.","references":{"pr":139,"reviewed_pr_head":"c24fa8f69b248ec998e43e8192fb154bb6748f6b","decision":"DEC-003","evidence":["EV-001","EV-002","EV-003"]}}
   ],
   "evidence": [
-    {
-      "id": "EV-001",
-      "type": "automated-test-suite",
-      "description": "Deterministic coverage: app/test/compat-cad-006.test.ts (34 tests — the shared view-transform contract: exact round trips, the visible-rect consistency, the declared clamps, the wheel-anchor/center invariants; clipSegment: boundary-crossing, both-endpoints-outside, fully-outside, boundary-touching, real-scale-bounded screen coordinates; the navigation command vocabulary: every plan is ui+echo ONLY with ZERO App API commands, the immediate-acting ZOOM keywords, scale n/nX/nXP parsing + honest rejections, the degenerate-window rejection, PAN displacement mode, REGEN, the aliases; the negative document probes: repeated view persists leave elements/version/entity-content byte-identical and UNDO after navigation undoes the LAST EDIT; the WebHost/ElectronHost parity over the navigation script; the entity-P precedence regression pin). Full app suite at the implementation tree: 1426 tests / 1370 pass / 0 fail / 56 OCCT-gated skips.",
-      "produced_at": "2026-09-05T05:05:00Z",
-      "references": {
-        "commit": "6a93a71c7d6ec144f3c9ab8b9db7c131117ef98e",
-        "path": "app/test/compat-cad-006.test.ts",
-        "pr": 139
-      },
-      "reproducible": true,
-      "reproduction": "cd app && npm test (local); the Actions governance + parity workflows run the same suite on the exact PR head."
-    },
-    {
-      "id": "EV-002",
-      "type": "reproducible-script",
-      "description": "The real-UI host navigation proofs: the new Electron smoke:cad006 (12 steps PASS — the ZOOM/PAN/REGEN vocabulary through the REAL renderer command line with the shared-module transform values asserted exactly: the unclamped fit zoom, the window pan/zoom, the scale, the pan displacement, the previous-view restore; the zero-document-mutation negative probe; the entity-P precedence) and the web golden smoke compat-cad-006-smoke.mjs (the G2 real-scale flow, the five navigation plans through the prompt engine, the negative no-mutation probe through the REAL host transport). Plus the real-browser golden session: G2 real-scale partial render at the default view (the DEF-004 core proof), the full vocabulary, the click-picks through the shared pick transform (Sel 1 at world scale), G1 continuation (SELECTALL/ERASE-P/UNDO/layer flow), G3 parking stalls with two-point PAN — zero console errors, zero page errors, 8 screenshots.",
-      "produced_at": "2026-09-05T05:10:00Z",
-      "references": {
-        "commit": "6a93a71c7d6ec144f3c9ab8b9db7c131117ef98e",
-        "path": "apps/electron/test/smoke-cad006.mjs",
-        "pr": 139
-      },
-      "reproducible": true,
-      "reproduction": "cd apps/electron && npm run build && npm run smoke:cad006; cd apps/web && npm run dev -- -p 3100 & then OFFISOS_WEB_URL=http://localhost:3100 node --import tsx apps/web/test/compat-cad-006-smoke.mjs."
-    }
+    {"id":"EV-001","type":"automated-test-suite","description":"Deterministic coverage: app/test/compat-cad-006.test.ts (34 tests — the shared view-transform contract, clipping, navigation vocabulary, negative document probes, WebHost/ElectronHost parity and entity-P precedence). Full app suite at implementation revision: 1426 tests / 1370 pass / 0 fail / 56 OCCT-gated skips.","produced_at":"2026-09-05T05:05:00Z","references":{"commit":"6a93a71c7d6ec144f3c9ab8b9db7c131117ef98e","path":"app/test/compat-cad-006.test.ts","pr":139},"reproducible":true,"reproduction":"cd app && npm test (local); the Actions governance + parity workflows run the same suite on the exact PR head."},
+    {"id":"EV-002","type":"reproducible-script","description":"Real-UI navigation proofs: Electron smoke:cad006 12/12 PASS, web golden smoke and regressions PASS, plus real-browser G1/G2/G3 golden navigation evidence with zero console/page errors and negative no-mutation probes. Exact preview deployment was READY at gitsha c24fa8f with production alias untouched; deployed warm-session navigation and zero-mutation evidence passed, with serverless multi-instance/session divergence honestly disclosed as COMPAT-CAD-011 scope.","produced_at":"2026-09-05T05:10:00Z","references":{"commit":"6a93a71c7d6ec144f3c9ab8b9db7c131117ef98e","path":"apps/electron/test/smoke-cad006.mjs","pr":139,"preview_gitsha":"c24fa8f69b248ec998e43e8192fb154bb6748f6b"},"reproducible":true,"reproduction":"cd apps/electron && npm run build && npm run smoke:cad006; cd apps/web && npm run dev -- -p 3100 & then OFFISOS_WEB_URL=http://localhost:3100 node --import tsx apps/web/test/compat-cad-006-smoke.mjs; inspect the revision-bound browser session evidence in the PR thread."},
+    {"id":"EV-003","type":"governance-verification","description":"Exact-head governance evidence for PR #139 head c24fa8f: 30/30 workflow runs terminal and 88/88 check-runs terminal, with 29 successful workflow runs and one governance failure. The sole failure is pre-existing main-side governance drift: record.dependencies is not iterable in validate.ts:253, with the same six failing repository-integration tests and 199/193/6 totals as clean main. The PR compare from implementation revision 6a93a71 to c24fa8f is governance/work-item record only, so no material product path changed after EV-001/EV-002. The repository governance test explicitly permits governance-only drift after a binding revision without invalidating evidence.","produced_at":"2026-09-05T05:31:30Z","references":{"verified_revision":"c24fa8f69b248ec998e43e8192fb154bb6748f6b","implementation_revision":"6a93a71c7d6ec144f3c9ab8b9db7c131117ef98e","pr":139,"ci_run":33946716126,"clean_main":"a9867a8ee59beeb424f20298f0c19b04823bc119"},"reproducible":true,"reproduction":"Inspect PR #139, compare 6a93a71..c24fa8f, inspect workflow run 33946716126, and compare its governance failure signature with clean main."}
   ],
-  "decisions": []
+  "decisions": [
+    {"id":"DEC-003","status":"approved","decided_at":"2026-09-05T05:41:00Z","decided_by":"pectoraux","role":"architect","rationale":"Architect review confirms PR #139 satisfies the COMPAT-CAD-006 first navigation slice acceptance contract: deterministic partial clipping, stable shared screen/world transforms, ZOOM/PAN/REGEN as view-only navigation, preserved COMPAT-CAD-005 semantics, Web/Electron parity, real-browser G1/G2/G3 evidence, and no mutation of canonical CADDocument content/version/history. The implementation tree is unchanged after 6a93a71; the later c24fa8f delta is governance-only. The pre-existing main-side governance failure is not a product defect. Merge authorized; post-merge verification remains a separate gate.","evidence_refs":["EV-001","EV-002","EV-003"]}
+  ]
 }
