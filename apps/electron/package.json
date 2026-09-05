@@ -19,6 +19,7 @@
     "smoke:ifc": "node test/smoke-ifc.mjs",
     "smoke:components": "node test/smoke-components.mjs",
     "smoke:workspace": "node test/smoke-workspace.mjs",
+    "smoke:cad006": "node test/smoke-cad006.mjs",
     "smoke:annotation": "node test/smoke-annotation.mjs",
     "smoke:blocks": "node test/smoke-blocks.mjs",
     "smoke:constraints": "node test/smoke-constraints.mjs",

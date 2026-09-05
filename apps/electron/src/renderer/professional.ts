@@ -136,6 +136,29 @@ import {
 import { constrainCursor, DEFAULT_DRAFTING_AIDS, formatCoordinate, type DraftingAids } from "@offisos/cad-app-shell/workspace/feedback";
 import { mapKeyEvent } from "@offisos/cad-app-shell/workspace/keymap";
 import { defaultCommandContext, type CommandContext, type CommandPlan, type PromptValue } from "@offisos/cad-app-shell/workspace/types";
+// COMPAT-CAD-006 (Issue #138): the ONE shared screen↔world view-transform
+// contract — this host constructs the SAME ViewTransform (viewport 900×620
+// SVG user space) through the SAME pure functions the Web host uses: every
+// pick/render path and every navigation application is identical math.
+import {
+  CULL_MARGIN_PX,
+  DESKTOP_ZOOM_LIMITS,
+  SCALE_ZOOM_LIMITS,
+  clipSegment as sharedClipSegment,
+  expandRect as sharedExpandRect,
+  fitExtents as sharedFitExtents,
+  fitZoomOf as sharedFitZoomOf,
+  panBy as sharedPanBy,
+  rectsIntersect as sharedRectsIntersect,
+  toScreen as sharedToScreen,
+  toWorld as sharedToWorld,
+  viewTransformOf as sharedViewTransformOf,
+  visibleWorldRect as sharedVisibleWorldRect,
+  zoomAboutPoint as sharedZoomAboutPoint,
+  zoomScaleAboutCenter as sharedZoomScaleAboutCenter,
+  zoomWindow as sharedZoomWindow,
+  type ViewNavigationRequest,
+} from "@offisos/cad-app-shell/workspace/view";
 // CAD-PARITY-009 (Issue #90): the shared model3d core — the SAME camera /
 // projection / UCS / scene-SVG modules the Web 3D viewport and the App API
 // run (LOCK-004 parity by construction; pure + engine-free, LOCK-003/018).
@@ -302,6 +325,8 @@ interface WorldRect {
 /** The visible world rectangle of the pan/zoom view over the SVG viewport
  *  (the pan origin is the world point at the screen (0, SVG_H) corner). */
 function visibleWorldRectOf(pan: { readonly x: number; readonly y: number }, zoom: number): WorldRect {
+  // COMPAT-CAD-006: delegates to the ONE shared module (the fixed SVG user
+  // space viewport) — identical math to the Web host's visible rect.
   return {
     minX: pan.x,
     minY: pan.y,
@@ -908,6 +933,40 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
         }
         case "view.zoomExtents":
           zoomExtents();
+          break;
+        // COMPAT-CAD-006 (Issue #138): the navigation vocabulary — the
+        // ZOOM/PAN/REGEN builders emit these ui actions; both hosts
+        // translate them through the SAME shared view module (the Web
+        // shell's navigate() mirror).
+        case "view.zoomWindow": {
+          const payload = (action.payload as { corner1?: [number, number]; corner2?: [number, number] } | undefined) ?? undefined;
+          if (
+            payload !== undefined && Array.isArray(payload.corner1) && Array.isArray(payload.corner2) &&
+            payload.corner1.length === 2 && payload.corner2.length === 2
+          ) {
+            applyNavigation({ kind: "zoomWindow", corner1: [payload.corner1[0]!, payload.corner1[1]!], corner2: [payload.corner2[0]!, payload.corner2[1]!] });
+          }
+          break;
+        }
+        case "view.zoomScale": {
+          const payload = (action.payload as { factor?: number; relative?: boolean } | undefined) ?? undefined;
+          if (payload !== undefined && typeof payload.factor === "number" && Number.isFinite(payload.factor)) {
+            applyNavigation({ kind: "zoomScale", factor: payload.factor, relative: payload.relative === true });
+          }
+          break;
+        }
+        case "view.pan": {
+          const payload = (action.payload as { delta?: [number, number] } | undefined) ?? undefined;
+          if (payload !== undefined && Array.isArray(payload.delta) && payload.delta.length === 2) {
+            applyNavigation({ kind: "pan", delta: [payload.delta[0]!, payload.delta[1]!] });
+          }
+          break;
+        }
+        case "view.zoomPrevious":
+          applyNavigation({ kind: "zoomPrevious" });
+          break;
+        case "view.regen":
+          applyNavigation({ kind: "regen" });
           break;
         // CAD-PARITY-008 (Issue #88): the paper-space context switches + the
         // plot preview surface (host-local view state, LOCK-015 — the Web
@@ -1966,12 +2025,101 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
 
   // --- view transform ------------------------------------------------------------------
 
-  const toScreen = (p: Vec2): [number, number] => [(p[0] - state.pan.x) * state.zoom, SVG_H - (p[1] - state.pan.y) * state.zoom];
-  const toWorld = (sx: number, sy: number): Vec2 => [sx / state.zoom + state.pan.x, (SVG_H - sy) / state.zoom + state.pan.y];
+  // COMPAT-CAD-006 (Issue #138): the shared contract adapters — the local
+  // toScreen/toWorld now delegate to the ONE shared module (viewport = the
+  // fixed 900×620 SVG user space). Same math as the Web host by
+  // construction (LOCK-004/017/018).
+  const toScreen = (p: Vec2): [number, number] => sharedToScreen(sharedViewTransformOf(state.pan, state.zoom, { w: SVG_W, h: SVG_H }), p);
+  const toWorld = (sx: number, sy: number): Vec2 => sharedToWorld(sharedViewTransformOf(state.pan, state.zoom, { w: SVG_W, h: SVG_H }), sx, sy);
+  /** COMPAT-CAD-006: the shared viewport gate rect (margin-expanded visible
+   *  world rect) for the cull/pre-clip contract. */
+  const viewGateRect = () => sharedExpandRect(sharedVisibleWorldRect(sharedViewTransformOf(state.pan, state.zoom, { w: SVG_W, h: SVG_H })), CULL_MARGIN_PX, state.zoom);
+  /** COMPAT-CAD-006: cull verdict for one world bbox against the gate. */
+  const passesGate = (bb: { minX: number; minY: number; maxX: number; maxY: number }): boolean =>
+    sharedRectsIntersect(bb, viewGateRect());
+  /** COMPAT-CAD-006: the command-driven view history (ZOOM Previous) — the
+   *  mirror of the Web canvas stack (command navigations only, max 10). */
+  const viewHistory: { pan: { x: number; y: number }; zoom: number }[] = [];
+  /** COMPAT-CAD-006: apply ONE navigation request through the shared module
+   *  (the Web canvas navigation-effect mirror). View-only: no document
+   *  entities/version/history are touched; the desktop host keeps its
+   *  transient view policy (no setSettings persist on this host — the same
+   *  presentation policy it had before COMPAT-CAD-006). */
+  function applyNavigation(request: ViewNavigationRequest): void {
+    const current = sharedViewTransformOf(state.pan, state.zoom, { w: SVG_W, h: SVG_H });
+    if (request.kind === "regen") {
+      // Pure redraw — re-render the model, zero state change.
+      renderModel();
+      return;
+    }
+    if (request.kind === "zoomPrevious") {
+      if (viewHistory.length === 0) {
+        pushLines(["ZOOM: no previous view to restore."]);
+        return;
+      }
+      const prev = viewHistory.pop()!;
+      state.pan = { x: prev.pan.x, y: prev.pan.y };
+      state.zoom = prev.zoom;
+      renderModel();
+      return;
+    }
+    viewHistory.push({ pan: { ...state.pan }, zoom: state.zoom });
+    if (viewHistory.length > 10) viewHistory.shift();
+    if (request.kind === "zoomExtents") {
+      zoomExtents();
+      return;
+    }
+    if (request.kind === "zoomWindow") {
+      // No clamp: the user-specified window is the explicit target (the
+      // fit semantics — a real-scale window zooms to exactly what it spans).
+      const next = sharedZoomWindow(current, request.corner1, request.corner2);
+      if (next === null) {
+        viewHistory.pop();
+        pushLines(["ZOOM: window too small — no view change."]);
+        return;
+      }
+      state.pan = { x: next.pan.x, y: next.pan.y };
+      state.zoom = next.zoom;
+      renderModel();
+      return;
+    }
+    if (request.kind === "zoomScale") {
+      // The user-specified factor is honored exactly within the wide scale
+      // guards (NOT the interactive wheel floor — a real-scale view at a
+      // small zoom must be able to double).
+      let next;
+      if (request.relative) {
+        next = sharedZoomScaleAboutCenter(current, request.factor, SCALE_ZOOM_LIMITS);
+      } else {
+        // AutoCAD "n" (plain): scale relative to the extents fit — the
+        // deterministic reference zoom over the content bounds.
+        const bounds = contentBoundsOf();
+        const reference = sharedFitZoomOf({ w: SVG_W, h: SVG_H }, bounds ?? { minX: 0, minY: 0, maxX: 0, maxY: 0 }, 800);
+        const target = Math.min(SCALE_ZOOM_LIMITS.max, Math.max(SCALE_ZOOM_LIMITS.min, reference * request.factor));
+        next = sharedZoomScaleAboutCenter(current, target / current.zoom, SCALE_ZOOM_LIMITS);
+      }
+      state.pan = { x: next.pan.x, y: next.pan.y };
+      state.zoom = next.zoom;
+      renderModel();
+      return;
+    }
+    if (request.kind === "pan") {
+      const next = sharedPanBy(current, request.delta);
+      state.pan = { x: next.pan.x, y: next.pan.y };
+      renderModel();
+      return;
+    }
+  }
 
-  function zoomExtents(): void {
+  /** COMPAT-CAD-006: the deterministic CONTENT BOUNDS (the derivation the
+   *  shipped zoomExtents ran, extracted so the absolute-scale zoom shares
+   *  it) — canonical bounds first (BOTH storage conventions), block/xref
+   *  instances through their EXPANDED content bounds, BIM footprints next;
+   *  annotations contribute no bounds (mirrors the Web host). Null when the
+   *  document has no renderable content. */
+  function contentBoundsOf(): { minX: number; minY: number; maxX: number; maxY: number } | null {
     const elements = state.snapshot?.elements ?? [];
-    if (elements.length === 0) return;
+    if (elements.length === 0) return null;
     let minX = Infinity;
     let minY = Infinity;
     let maxX = -Infinity;
@@ -2010,12 +2158,19 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
         maxY = Math.max(maxY, p[1]);
       }
     }
-    if (!Number.isFinite(minX)) return;
-    const pad = 800;
-    const w = Math.max(maxX - minX + pad * 2, 1);
-    const h = Math.max(maxY - minY + pad * 2, 1);
-    state.zoom = Math.min(SVG_W / w, SVG_H / h);
-    state.pan = { x: minX - pad - (SVG_W / state.zoom - w) / 2, y: minY - pad - (SVG_H / state.zoom - h) / 2 };
+    if (!Number.isFinite(minX)) return null;
+    return { minX, minY, maxX, maxY };
+  }
+
+  function zoomExtents(): void {
+    const bounds = contentBoundsOf();
+    if (bounds === null) return;
+    // COMPAT-CAD-006: the fit through the ONE shared module (byte-exact
+    // extraction of the shipped desktop formula: pad 800 world units on
+    // every side, aspect-preserving zoom, centered in the slack axis).
+    const next = sharedFitExtents({ w: SVG_W, h: SVG_H }, bounds, 800);
+    state.zoom = next.zoom;
+    state.pan = { x: next.pan.x, y: next.pan.y };
     renderModel();
   }
 
@@ -2025,6 +2180,49 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
       return elementToDraftEntity(el);
     } catch {
       return null;
+    }
+  }
+
+  /** COMPAT-CAD-006: the conservative world bbox of a LEGACY draft entity
+   *  for the viewport cull gate (the Web host's legacyEntityRect mirror) —
+   *  null for shapes without a derivable rect (they draw; the surface
+   *  clips). */
+  function legacyRectOf(entity: DraftEntity): { minX: number; minY: number; maxX: number; maxY: number } | null {
+    switch (entity.type) {
+      case "line": {
+        const a = entity.from;
+        const b = entity.to;
+        return { minX: Math.min(a[0], b[0]), minY: Math.min(a[1], b[1]), maxX: Math.max(a[0], b[0]), maxY: Math.max(a[1], b[1]) };
+      }
+      case "polyline": {
+        if (entity.points.length === 0) return null;
+        let minX = Infinity;
+        let minY = Infinity;
+        let maxX = -Infinity;
+        let maxY = -Infinity;
+        for (const p of entity.points) {
+          minX = Math.min(minX, p[0]);
+          minY = Math.min(minY, p[1]);
+          maxX = Math.max(maxX, p[0]);
+          maxY = Math.max(maxY, p[1]);
+        }
+        return { minX, minY, maxX, maxY };
+      }
+      case "circle":
+      case "arc":
+        return { minX: entity.center[0] - entity.radius, minY: entity.center[1] - entity.radius, maxX: entity.center[0] + entity.radius, maxY: entity.center[1] + entity.radius };
+      case "rectangle": {
+        const a = entity.corner1;
+        const b = entity.corner2;
+        return { minX: Math.min(a[0], b[0]), minY: Math.min(a[1], b[1]), maxX: Math.max(a[0], b[0]), maxY: Math.max(a[1], b[1]) };
+      }
+      case "dim-linear": {
+        const a = entity.p1;
+        const b = entity.p2;
+        return { minX: Math.min(a[0], b[0]), minY: Math.min(a[1], b[1]), maxX: Math.max(a[0], b[0]), maxY: Math.max(a[1], b[1]) };
+      }
+      default:
+        return null;
     }
   }
 
@@ -2131,6 +2329,18 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
     d: { color: string; weightPx: number; dash: readonly number[] | null; alpha: number },
     selected: boolean,
   ): void {
+    // COMPAT-CAD-006 (Issue #138): the same viewport gate as the SVG path —
+    // lines pre-clipped (bounded screen coordinates), other types bbox-gated
+    // (rays/xlines pass; the painter clips them). The Web paint loop runs
+    // the identical contract.
+    if (g.type === "line") {
+      const seg = sharedClipSegment(viewGateRect(), [g.x1, g.y1], [g.x2, g.y2]);
+      if (seg === null) return;
+      g = { ...g, x1: seg[0][0], y1: seg[0][1], x2: seg[1][0], y2: seg[1][1] };
+    } else if (g.type !== "ray" && g.type !== "xline") {
+      const bb = geomBBox(g);
+      if (bb !== null && !passesGate(bb)) return;
+    }
     const s = (p: Pt): [number, number] => toScreen([p.x, p.y]);
     const isConstruction = g.type === "ray" || g.type === "xline";
     const stroke = (): void => {
@@ -2886,8 +3096,15 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
 
   svg.addEventListener("wheel", (e) => {
     e.preventDefault();
+    // COMPAT-CAD-006 (Issue #138): wheel zoom anchored at the cursor — the
+    // world point under the pointer stays at the same screen position (the
+    // shared zoomAboutPoint invariant, the Web wheel mirror). Clamped to the
+    // declared desktop limits; view-only.
     const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15;
-    state.zoom = Math.min(20, Math.max(0.005, state.zoom * factor));
+    const anchor = svgPoint(e);
+    const next = sharedZoomAboutPoint(sharedViewTransformOf(state.pan, state.zoom, { w: SVG_W, h: SVG_H }), factor, anchor, DESKTOP_ZOOM_LIMITS);
+    state.zoom = next.zoom;
+    state.pan = { x: next.pan.x, y: next.pan.y };
     renderModel();
   }, { passive: false });
 
@@ -3196,6 +3413,20 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
     geom: Geom,
     opts: { color: string; selected: boolean; dash?: readonly number[] | null; weightPx?: number; alpha?: number },
   ): void {
+    // COMPAT-CAD-006 (Issue #138): the deterministic viewport gate — LINE
+    // geoms are pre-clipped (shared Liang–Barsky) so the SVG coordinates
+    // stay bounded at any world scale (the explicit partial-clip contract —
+    // the visible portion of a boundary-crossing segment draws); every
+    // other geom type is bbox-gated (rays/xlines never culled — the painter
+    // clips them to the visible rect itself).
+    if (geom.type === "line") {
+      const seg = sharedClipSegment(viewGateRect(), [geom.x1, geom.y1], [geom.x2, geom.y2]);
+      if (seg === null) return;
+      geom = { ...geom, x1: seg[0][0], y1: seg[0][1], x2: seg[1][0], y2: seg[1][1] };
+    } else if (geom.type !== "ray" && geom.type !== "xline") {
+      const bb = geomBBox(geom);
+      if (bb !== null && !passesGate(bb)) return;
+    }
     const isConstruction = geom.type === "ray" || geom.type === "xline";
     const legacyWidth = isConstruction ? 1 : 1.6;
     drawGeomSvg(geom, {
@@ -3352,6 +3583,27 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
     };
 
     switch (cmd.id) {
+      // COMPAT-CAD-006 (Issue #138): the ZOOM window rubber band — the
+      // dashed cyan rectangle from the first corner to the cursor while the
+      // opposite-corner prompt is active (the Web canvas preview mirror).
+      case "zoom": {
+        const first = values.corner1;
+        if (first !== undefined && first.kind === "point") {
+          const a = toScreen(first.point);
+          const b = toScreen([cursor.x, cursor.y]);
+          const rect = svgNs("rect");
+          rect.setAttribute("x", String(Math.min(a[0], b[0])));
+          rect.setAttribute("y", String(Math.min(a[1], b[1])));
+          rect.setAttribute("width", String(Math.abs(b[0] - a[0])));
+          rect.setAttribute("height", String(Math.abs(b[1] - a[1])));
+          rect.setAttribute("fill", "none");
+          rect.setAttribute("stroke", "#0891b2");
+          rect.setAttribute("stroke-width", "1");
+          rect.setAttribute("stroke-dasharray", "5 4");
+          svg.append(rect);
+        }
+        break;
+      }
       case "ellipse": {
         const center = previewPointValue("center");
         if (center === null) break;
@@ -3675,6 +3927,10 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
       if (entity !== null) {
         const layer = layerById.get(entity.layer);
         const color = selected ? "#0ea5e9" : (display?.color ?? layer?.color ?? "#111827");
+        // COMPAT-CAD-006: the same viewport gate for the legacy SVG branch —
+        // conservative bbox; unknown shapes draw (the surface clips).
+        const gate = legacyRectOf(entity);
+        if (gate !== null && !passesGate(gate)) continue;
         const g = svgNs("g");
         g.setAttribute("stroke", color);
         g.setAttribute("fill", "none");
@@ -3754,6 +4010,18 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
 
       // BIM plan footprints.
       const props = el.props as Record<string, unknown>;
+      // COMPAT-CAD-006: the viewport gate for BIM footprints — walls/slabs
+      // by their wall-rect points (the thickness is covered by the declared
+      // 16 px device margin); anything without a derivable rect draws.
+      if (props.type === "bim.wall" && Array.isArray(props.start) && Array.isArray(props.end)) {
+        const a = props.start as unknown as [number, number];
+        const b = props.end as unknown as [number, number];
+        if (!passesGate({ minX: Math.min(a[0], b[0]), minY: Math.min(a[1], b[1]), maxX: Math.max(a[0], b[0]), maxY: Math.max(a[1], b[1]) })) continue;
+      } else if (props.type === "bim.slab" && Array.isArray(props.corner1) && Array.isArray(props.corner2)) {
+        const a = props.corner1 as unknown as [number, number];
+        const b = props.corner2 as unknown as [number, number];
+        if (!passesGate({ minX: Math.min(a[0], b[0]), minY: Math.min(a[1], b[1]), maxX: Math.max(a[0], b[0]), maxY: Math.max(a[1], b[1]) })) continue;
+      }
       if (props.type === "bim.wall" && Array.isArray(props.start) && Array.isArray(props.end) && typeof props.width === "number") {
         const start = props.start as unknown as Vec2;
         const end = props.end as unknown as Vec2;
