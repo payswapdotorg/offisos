@@ -45,10 +45,13 @@ These documents govern CAD parity sequencing, phase completion, benchmark score 
 - Governance record: `governance/work-items/COMPAT-CAD-007.json`.
 - Current governance state: **ASSIGNED**.
 - Implementation stop gate: **PR_OPEN/VERIFYING**.
+- Current governance/documentation reconciliation commits: `26c17f3226ee7c5d54c8a36b3df31203c2c6dccf`, `8ebef17ed04678da4fec6b385e28f3905ef0ff6a`, `125bdaae9b4a30895a7c5a7e2d2fb124b66d9594`, `d3adfe179381b505fe2316cda41c47ad08029fa4`.
 
 ## COMPAT-CAD-007 gate
 
 This slice restores deterministic object-selection and core modify workflows over the verified shared geometry, precision and viewport foundations. Required evidence includes deterministic automated tests, negative no-mutation/false-success tests, Web/Electron semantic parity, COMPAT-CAD-005/006 regressions, exact-head CI, exact deployment, and independent browser-agent Golden G1/G2/G4/G10 plus targeted DEF-006/007/021 probes.
+
+The worker directive is `docs/work-items/COMPAT-CAD-007-ZAI-PROMPT.md`; it is fork-local and names Issue #1 as the canonical work-item issue.
 
 Non-goals include ARRAY materialization (COMPAT-CAD-008), durable SAVE/OPEN and serverless multi-instance persistence (COMPAT-CAD-011 / infrastructure), DXF (COMPAT-CAD-012), layout/sheet identity (COMPAT-CAD-013), unrelated BIM/documentation/interop work, architecture changes, and benchmark score changes without a rerun.
 
