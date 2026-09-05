@@ -1,12 +1,12 @@
 {
-  "id": "INFRA-001",
-  "title": "Persistent serverless foundation — architecture audit and infrastructure design (Neon/R2/Upstash/worker model)",
-  "issue": 140,
-  "architecture_version": "1.1",
-  "requirements": ["DATA-001", "DATA-002", "DATA-003", "DATA-004", "DATA-005", "PLAT-004", "API-003"],
-  "dependencies": [],
-  "objective": "Audit the deployed serverless state problem (request A on instance A holding one in-memory CADDocument, request B on instance B holding another; cold instances starting empty; instance-local idempotency; payload-carried SAVE/OPEN) and design the correct persistent foundation within frozen Architecture v1.1: stateless Vercel application functions over authoritative Neon PostgreSQL + Cloudflare R2 with non-authoritative Upstash Redis coordination, plus a persistent CAD/BIM worker model and a dependency-ordered migration roadmap — documentation-only deliverables, zero code and zero protected-path changes.",
-  "acceptance_criteria": [
+  "id":"INFRA-001",
+  "title":"Persistent serverless foundation — architecture audit and infrastructure design (Neon/R2/Upstash/worker model)",
+  "issue":140,
+  "architecture_version":"1.1",
+  "requirements":["DATA-001","DATA-002","DATA-003","DATA-004","DATA-005","PLAT-004","API-003"],
+  "dependencies":[],
+  "objective":"Audit the deployed serverless state problem (request A on instance A holding one in-memory CADDocument, request B on instance B holding another; cold instances starting empty; instance-local idempotency; payload-carried SAVE/OPEN) and design the correct persistent foundation within frozen Architecture v1.1: stateless Vercel application functions over authoritative Neon PostgreSQL + Cloudflare R2 with non-authoritative Upstash Redis coordination, plus a persistent CAD/BIM worker model and a dependency-ordered migration roadmap — documentation-only deliverables, zero code and zero protected-path changes.",
+  "acceptance_criteria":[
     "The audit covers the governance/spec authority set (AGENTS.md, AI_CONTINUATION.md, IMPLEMENTATION.md, architecture-lock, development-workflow, architect-return-protocol, the CAD roadmap) and the application surfaces (apps/web host wiring incl. the /api/cad route and both P016 server adapters, apps/electron host, app/src app-api/caddocument/persist/collab/recovery/jobs/modelstream/adapters cores).",
     "The command flows NEW/LINE/UNDO/REDO/SELECTALL/SAVE/OPEN and the document session lifecycle are traced end-to-end (UI shell → transport → AppApiHandler → CADDocument → persistence) and every step's state placement is classified.",
     "The production deployment's actual configuration is established from repository evidence (PR #133 / the deployment guide branch): Vercel project identity, routes, no-external-secrets production state, engine availability boundaries — no assumed infrastructure.",
@@ -18,7 +18,7 @@
     "The design stays within frozen Architecture v1.1: Construction Graph authority (LOCK-019), engine/adapter boundaries (LOCK-003/018), versioned authority (LOCK-005), epistemic honesty (LOCK-007), secret isolation (LOCK-010) are preserved; no protected path is modified; no ACR is required.",
     "Security discipline: no credentials, tokens or environment secret values appear in any repository file, PR body, fixture or generated document."
   ],
-  "non_goals": [
+  "non_goals":[
     "No implementation code changes — this is the audit/design work item (documentation-only diff).",
     "No modification of frozen architecture-controlled artifacts or any protected path (no ACR).",
     "No store provisioning, no Vercel environment wiring, no production deployment changes.",
@@ -26,7 +26,7 @@
     "No successor governance records are created here — the Architect releases them per the return protocol; this PR defines their scope in the roadmap document.",
     "No self-approval or self-verification; the record stops at PR_OPEN/VERIFYING for independent Architect review."
   ],
-  "risk_assumptions": [
+  "risk_assumptions":[
     "The serverless state problem is a state-placement defect (the module-level handler singleton is the only holder of the live document), not a platform defect — Vercel stays the application platform on deployment evidence rather than ideology.",
     "Production currently runs with no external secrets (PR #133 evidence), so the durable P016 layer is CI-proven but production-unwired; the design treats fail-closed honesty as a feature to preserve, not a defect to silently patch.",
     "The P016Persist port family is the correct architectural precedent to extend (append serialization point, pure transitions, content-addressed blobs, cross-backend byte identity) rather than inventing a competing persistence style.",
@@ -34,118 +34,32 @@
     "The worker platform recommendation (Railway primary / Cloud Run alternative) is container- and protocol-neutral, so the choice is revisable on evidence without redesign.",
     "The CAD roadmap's COMPAT-CAD-011 (durable SAVE/OPEN) is the CAD-side consumer of this foundation; sequencing INFRA-002..004 ahead of it avoids double-building document persistence — a coordination recommendation to the Architect, not a roadmap edit."
   ],
-  "evidence_requirements": [
+  "evidence_requirements":[
     "Revision-bound documentation deliverables (the seven files under docs/infrastructure/ and docs/work-items/).",
     "Audit traceability: every load-bearing finding cites auditable repository locations (files/lines at the audited revision).",
     "The pre-existing main governance defect (CAD-PARITY-020.json missing dependencies, 13 failing tests on clean main — documented in PR #133) is disclosed and NOT fixed here (Architect authority over a VERIFIED record).",
     "Governance validation of this branch's own diff: check-protected passes (docs-only, non-protected paths); the record itself is born DRAFT and traverses legal transitions only.",
     "No test/regression claims beyond honesty: documentation-only change; the app suites are untouched."
   ],
-  "state": "VERIFYING",
-  "transitions": [
-    {
-      "from": "DRAFT",
-      "to": "READY",
-      "at": "2026-09-05T05:50:32Z",
-      "actor": "pectoraux",
-      "role": "product-owner",
-      "reason": "The Product Owner issued the INFRA-001 specification directly (full task directive: hard constraints, audit scope, five-category state inventory, persistence/job/worker/request models, security and local-dev models, migration strategy, deliverables list, implementation strategy and final-report format). The specification is complete and eligible for assignment.",
-      "references": {
-        "issue": 140,
-        "artifact": "docs/infrastructure/"
-      }
-    },
-    {
-      "from": "READY",
-      "to": "ASSIGNED",
-      "at": "2026-09-05T05:50:32Z",
-      "actor": "pectoraux",
-      "role": "product-owner",
-      "reason": "The task directive assigns z-ai-infra-agent as the Infrastructure Architect / Implementation Analyst for INFRA-001 with an explicit non-interference boundary against the parallel COMPAT-CAD-006 worker and an explicit stop gate at PR_OPEN/VERIFYING.",
-      "references": {
-        "issue": 140,
-        "assignee": "z-ai-infra-agent",
-        "artifact": "docs/work-items/INFRA-001-ZAI-PROMPT.md"
-      }
-    },
-    {
-      "from": "ASSIGNED",
-      "to": "IMPLEMENTING",
-      "at": "2026-09-05T05:53:06Z",
-      "actor": "z-ai-infra-agent",
-      "role": "implementer",
-      "reason": "Repository cloned at main a9867a8; branch work/infra-001-persistent-serverless-foundation created; the governance/spec authority set and the application surfaces audited (route wiring, AppApiHandler, CADDocument core, persist adapters, jobs/collab/recovery cores, workspace shell, CI workflows, production deployment evidence via PR #133); deliverable authoring started.",
-      "references": {
-        "issue": 140
-      }
-    },
-    {
-      "from": "IMPLEMENTING",
-      "to": "PR_OPEN",
-      "at": "2026-09-05T05:53:44Z",
-      "actor": "z-ai-infra-agent",
-      "role": "implementer",
-      "reason": "The full documentation-only diff (six docs/infrastructure deliverables, the successor implementation prompt, and this governance record) is pushed on the work branch and the implementation PR #141 is open against main. Zero code changes; check-protected passes against main. Revision binding corrected per the Architect's CHANGES REQUIRED decision on PR #141: the final implementation revision is the actual PR head, not the earlier deliverables-only head.",
-      "references": {
-        "pr": 141,
-        "commit": "6271cde2b9571b5545312a79f3d349c7f5a4daed",
-        "issue": 140
-      }
-    },
-    {
-      "from": "PR_OPEN",
-      "to": "VERIFYING",
-      "at": "2026-09-05T05:54:37Z",
-      "actor": "z-ai-infra-agent",
-      "role": "implementer",
-      "reason": "Verification evidence submitted for independent Architect review: the deliverables are revision-bound on the PR; the record is schema-valid with all validateWorkItem rule categories passing; governance check-protected passes; the deterministic governance test suite shows byte-identical pre/post results (the six failures are the pre-existing CAD-PARITY-020.json defect documented in PR #133 and are Architect authority). Implementation-side lifecycle advancement stops here. Round-2 timestamp anchoring per the CHANGES REQUIRED decision (PR #141 comment 5550030083): every transition and evidence time is an actual GitHub-recorded event time — issue #140 creation 2026-09-05T05:50:32Z (DRAFT→READY and READY→ASSIGNED, one directive event), the first branch commit 2026-09-05T05:53:06Z (IMPLEMENTING), PR #141 creation 2026-09-05T05:53:44Z (PR_OPEN), the 6271cde record-advancing commit 2026-09-05T05:54:37Z (this transition), and the c363858 evidence commit 2026-09-05T06:19:57Z (evidence produced_at); no timestamp is invented or inferred.",
-      "references": {
-        "pr": 141,
-        "commit": "6271cde2b9571b5545312a79f3d349c7f5a4daed",
-        "issue": 140,
-        "evidence": ["EV-001", "EV-002", "EV-003"]
-      }
-    }
+  "state":"VERIFIED",
+  "transitions":[
+    {"from":"DRAFT","to":"READY","at":"2026-09-05T05:50:32Z","actor":"pectoraux","role":"product-owner","reason":"The Product Owner issued the INFRA-001 specification directly (full task directive: hard constraints, audit scope, five-category state inventory, persistence/job/worker/request models, security and local-dev models, migration strategy, deliverables list, implementation strategy and final-report format). The specification is complete and eligible for assignment.","references":{"issue":140,"artifact":"docs/infrastructure/"}},
+    {"from":"READY","to":"ASSIGNED","at":"2026-09-05T05:50:32Z","actor":"pectoraux","role":"product-owner","reason":"The task directive assigns z-ai-infra-agent as the Infrastructure Architect / Implementation Analyst for INFRA-001 with an explicit non-interference boundary against the parallel COMPAT-CAD-006 worker and an explicit stop gate at PR_OPEN/VERIFYING.","references":{"issue":140,"assignee":"z-ai-infra-agent","artifact":"docs/work-items/INFRA-001-ZAI-PROMPT.md"}},
+    {"from":"ASSIGNED","to":"IMPLEMENTING","at":"2026-09-05T05:53:06Z","actor":"z-ai-infra-agent","role":"implementer","reason":"Repository cloned at main a9867a8; branch work/infra-001-persistent-serverless-foundation created; the governance/spec authority set and the application surfaces audited; deliverable authoring started.","references":{"issue":140}},
+    {"from":"IMPLEMENTING","to":"PR_OPEN","at":"2026-09-05T05:53:44Z","actor":"z-ai-infra-agent","role":"implementer","reason":"The full documentation-only diff was pushed and implementation PR #141 opened against main. Revision binding was corrected per the Architect's first CHANGES REQUIRED decision.","references":{"pr":141,"commit":"6271cde2b9571b5545312a79f3d349c7f5a4daed","issue":140}},
+    {"from":"PR_OPEN","to":"VERIFYING","at":"2026-09-05T05:54:37Z","actor":"z-ai-infra-agent","role":"implementer","reason":"Verification evidence submitted for independent Architect review. Round-2 timestamp anchoring per CHANGES REQUIRED comment 5550030083 replaced unsupported times with actual GitHub-recorded event times; no timestamp was invented or inferred.","references":{"pr":141,"commit":"6271cde2b9571b5545312a79f3d349c7f5a4daed","issue":140,"evidence":["EV-001","EV-002","EV-003"]}},
+    {"from":"VERIFYING","to":"ARCHITECT_REVIEW","at":"2026-09-05T07:39:09Z","actor":"pectoraux","role":"architect","reason":"Independent Architect review accepted the round-2 remediation. Corrected timestamps are GitHub-event-backed and monotonic; required 6271cde bindings and a9867a8 audit baseline are preserved; scope is documentation/governance-only; no protected architecture path changed and no deployment/browser gate applies.","references":{"pr":141,"review_comment":5550341950,"reviewed_head":"1038693b4342dfe3498408842b6174cdfcb21f26","evidence":["EV-001","EV-002","EV-003"]}},
+    {"from":"ARCHITECT_REVIEW","to":"APPROVED","at":"2026-09-05T07:39:09Z","actor":"pectoraux","role":"architect","reason":"DEC-001 authorized merge. Formal GitHub APPROVE is unavailable because the connected identity is the PR author; canonical Architect approval is recorded in PR comment 5550341950.","references":{"pr":141,"review_comment":5550341950,"decision":"DEC-001","reviewed_head":"1038693b4342dfe3498408842b6174cdfcb21f26","evidence":["EV-001","EV-002","EV-003"]}},
+    {"from":"APPROVED","to":"MERGED","at":"2026-09-05T07:39:09Z","actor":"pectoraux","role":"product-owner","reason":"PR #141 physically merged into main after Architect approval.","references":{"pr":141,"merge_commit":"0e94680bcedc20bcfb4d4d51eeefb089d7e45665","approved_revision":"1038693b4342dfe3498408842b6174cdfcb21f26"}},
+    {"from":"MERGED","to":"VERIFIED","at":"2026-09-05T07:45:37Z","actor":"pectoraux","role":"architect","reason":"Final post-merge Architect verification accepts INFRA-001. The verification event is anchored to the actual GitHub-recorded governance commit 95f2707afcc8be5735b60fbc399321a830ff1f3c, created after the merge. The merged tree contains the approved documentation/design set with no production behavior change; the known main-side governance defect remains disclosed and no deployment/browser gate applies.","references":{"pr":141,"merge_commit":"0e94680bcedc20bcfb4d4d51eeefb089d7e45665","verified_revision":"0e94680bcedc20bcfb4d4d51eeefb089d7e45665","verification_commit":"95f2707afcc8be5735b60fbc399321a830ff1f3c","verification_comment":5550353133,"evidence":["EV-001","EV-002","EV-003"]}}
   ],
-  "evidence": [
-    {
-      "id": "EV-001",
-      "type": "reproducible-script",
-      "description": "Governance validation of this branch's own diff: `npm run governance -- check-protected --base main` → PASS (0 protected paths; docs-only additions). The INFRA-001 record is schema-valid against governance/schemas/work-item.schema.json and passes all ten validateWorkItem rule categories (state-membership, transition-chain, transition-legality, temporal-ordering, architecture-version, requirements, dependencies, evidence, decisions, demo-marking) when exercised through the validator modules on the branch tree. Revision binding corrected per the Architect's CHANGES REQUIRED decision on PR #141: the final implementation/evidence revision is the actual PR head 6271cde2b9571b5545312a79f3d349c7f5a4daed; re-validated on the corrected branch tree post-remediation.",
-      "produced_at": "2026-09-05T06:19:57Z",
-      "references": {
-        "commit": "6271cde2b9571b5545312a79f3d349c7f5a4daed",
-        "path": "governance/work-items/INFRA-001.json",
-        "pr": 141
-      },
-      "reproducible": true,
-      "reproduction": "npm install && npm run governance -- check-protected --base main; node --import tsx -e \"import {readFileSync} from 'node:fs'; import Ajv from 'ajv'; import addFormats from 'ajv-formats'; const schema=JSON.parse(readFileSync('governance/schemas/work-item.schema.json','utf8')); const record=JSON.parse(readFileSync('governance/work-items/INFRA-001.json','utf8')); const ajv=new Ajv({strict:false,allErrors:true}); addFormats(ajv); console.log('schema valid:', ajv.compile(schema)(record));\""
-    },
-    {
-      "id": "EV-002",
-      "type": "automated-test-suite",
-      "description": "The deterministic governance suite result is byte-identical with and without this diff: 199 tests / 193 pass / 6 fail on the branch AND on clean main (verified by stash → run → pop). All six failures trace to the pre-existing CAD-PARITY-020.json missing-dependencies defect (TypeError at tools/governance/src/validate.ts:253, documented in PR #133) — disclosed here, not fixed (a VERIFIED record is Architect authority). npm run governance -- validate is blocked by the same pre-existing defect on clean main. Revision binding corrected per the Architect's CHANGES REQUIRED decision on PR #141 to the actual PR head 6271cde2b9571b5545312a79f3d349c7f5a4daed; the suite result is unchanged by the correction (governance-record-only diff).",
-      "produced_at": "2026-09-05T06:19:57Z",
-      "references": {
-        "commit": "6271cde2b9571b5545312a79f3d349c7f5a4daed",
-        "pr": 141
-      },
-      "reproducible": true,
-      "reproduction": "npm install && npm test  # 199/193/6, identical to clean main (git stash -u; npm test; git stash pop)"
-    },
-    {
-      "id": "EV-003",
-      "type": "inspectable-artifact",
-      "description": "The seven INFRA-001 deliverables are committed, revision-bound and traceable: docs/infrastructure/offisos-serverless-architecture.md, offisos-state-inventory.md, offisos-state-inventory.json, offisos-persistence-model.md, offisos-worker-model.md, offisos-infrastructure-roadmap.md, and docs/work-items/INFRA-001-ZAI-PROMPT.md. Every load-bearing audit finding cites auditable repository locations at audited main revision a9867a8; the production infrastructure facts (Vercel project identity, deployment binding, no-external-secrets state) derive from PR #133 and the README deployment branch — no assumed store capabilities. Revision binding corrected per the Architect's CHANGES REQUIRED decision on PR #141 to the actual PR head 6271cde2b9571b5545312a79f3d349c7f5a4daed; the audited main revision a9867a8 remains the audit baseline, unchanged.",
-      "produced_at": "2026-09-05T06:19:57Z",
-      "references": {
-        "commit": "6271cde2b9571b5545312a79f3d349c7f5a4daed",
-        "path": "docs/infrastructure/",
-        "pr": 141
-      },
-      "reproducible": true,
-      "reproduction": "Inspect the files on the PR head; cross-check cited paths/lines against main a9867a8; cross-check the production facts against PR #133 and the docs/vercel-production-deploy branch README section."
-    }
+  "evidence":[
+    {"id":"EV-001","type":"reproducible-script","description":"Governance validation of this branch's own diff: `npm run governance -- check-protected --base main` → PASS (0 protected paths; docs-only additions). The INFRA-001 record is schema-valid against governance/schemas/work-item.schema.json and passes all ten validateWorkItem rule categories when exercised through the validator modules on the corrected branch tree.","produced_at":"2026-09-05T06:19:57Z","references":{"commit":"6271cde2b9571b5545312a79f3d349c7f5a4daed","path":"governance/work-items/INFRA-001.json","pr":141},"reproducible":true,"reproduction":"npm install && npm run governance -- check-protected --base main; validate the work-item against governance/schemas/work-item.schema.json and the governance validator modules."},
+    {"id":"EV-002","type":"automated-test-suite","description":"The deterministic governance suite result is byte-identical with and without this diff: 199 tests / 193 pass / 6 fail on the branch AND clean main. All six failures trace to the pre-existing CAD-PARITY-020.json missing-dependencies defect (TypeError at tools/governance/src/validate.ts:253), documented in PR #133. Exact-head workflow 33950937172 reproduced the same failure signature and completed at 2026-09-05T06:53:09Z.","produced_at":"2026-09-05T06:53:09Z","references":{"commit":"1038693b4342dfe3498408842b6174cdfcb21f26","pr":141,"workflow_run":33950937172},"reproducible":true,"reproduction":"npm install && npm test; compare with clean main; inspect workflow run 33950937172."},
+    {"id":"EV-003","type":"inspectable-artifact","description":"The seven INFRA-001 deliverables are committed, revision-bound and traceable. Load-bearing audit findings cite auditable repository locations at audited main revision a9867a8; production infrastructure facts derive from PR #133 and the deployment guide branch. The corrected 6271cde implementation/evidence bindings are preserved; 1038693b and later governance closeout commits are record/roadmap-only.","produced_at":"2026-09-05T06:19:57Z","references":{"commit":"6271cde2b9571b5545312a79f3d349c7f5a4daed","path":"docs/infrastructure/","pr":141},"reproducible":true,"reproduction":"Inspect the seven deliverables on the merged PR tree; cross-check citations against main a9867a8 and production facts against PR #133 and the deployment guide branch."}
   ],
-  "decisions": []
+  "decisions":[
+    {"id":"DEC-001","status":"approved","decided_at":"2026-09-05T07:39:09Z","decided_by":"pectoraux","role":"architect","rationale":"INFRA-001 satisfied its documentation-only acceptance contract. Round-2 temporal correction is event-backed and monotonic, scope is contained, Architecture v1.1 remains unchanged, and the known main-side governance defect is disclosed.","evidence_refs":["EV-001","EV-002","EV-003"]},
+    {"id":"DEC-002","status":"verified","decided_at":"2026-09-05T07:45:37Z","decided_by":"pectoraux","role":"architect","rationale":"Final post-merge verification accepts PR #141 at merge commit 0e94680. No production behavior changed; no deployment/browser gate applies. Verification is anchored to actual governance commit 95f2707afcc8be5735b60fbc399321a830ff1f3c.","evidence_refs":["EV-001","EV-002","EV-003"]}
+  ]
 }

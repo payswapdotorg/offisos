@@ -1,14 +1,23 @@
 # Offisos Infrastructure Roadmap — Dependency-Ordered Work Items
 
-**Status:** DRAFT (INFRA-001 deliverable)
+**Status:** ACTIVE — INFRA-001 VERIFIED; INFRA-002 ASSIGNED
+**Verified foundation:** INFRA-001 @ `0e94680bcedc20bcfb4d4d51eeefb089d7e45665`
+**Current successor:** INFRA-002 — Neon PostgreSQL foundation (authoritative transactional store)
 **Purpose:** the authoritative decomposition of the persistent serverless foundation into
 releasable, independently verifiable work items, derived from the INFRA-001 audit
 (`offisos-state-inventory.md`, `offisos-persistence-model.md`,
 `offisos-worker-model.md`).
 **Sequencing authority:** the Architect releases successors per
 `docs/governance/architect-return-protocol.md` §7 — records are born `DRAFT` by the
-Architect at release time. This document defines the scope/order; it does not create
-their governance records.
+Architect at release time. This document defines the scope/order; governance records
+establish legal lifecycle state.
+
+## Current release state
+
+- **INFRA-001:** VERIFIED at merge commit `0e94680bcedc20bcfb4d4d51eeefb089d7e45665`; PR #141; Architect decision `DEC-001` approved and `DEC-002` verified.
+- **INFRA-002:** ASSIGNED; depends on INFRA-001 VERIFIED; worker: `z-ai-infra-agent`.
+- **COMPAT-CAD-007:** remains independently ASSIGNED; it is not blocked by INFRA-002.
+- **COMPAT-CAD-011:** remains coordinated behind INFRA-002/003/004 for durable SAVE/OPEN on the authoritative stores.
 
 ---
 
@@ -139,8 +148,8 @@ workflow (save/reload/DXF round-trip; DEF-009/010).
 ### Successor relationship summary
 
 ```text
-INFRA-001 (audit + design — this PR)
-  └→ INFRA-002 (Neon)
+INFRA-001 (VERIFIED — audit + design)
+  └→ INFRA-002 (ASSIGNED — Neon)
        └→ INFRA-003 (R2)
             └→ INFRA-004 (stateless requests + multi-instance proof)  ←─ COMPAT-CAD-011 builds here
                  └→ INFRA-006 (workers) ──┐
