@@ -437,7 +437,7 @@ function completeCommand(
  *  global command resolution, CANCELING the running command and starting
  *  another one ("UNDO" runs; LINE is lost). Word-forms now win — options
  *  are honored uniformly, exactly as the prompt advertises them. */
-function optionTokenMatches(token: string, option: { readonly keyword: string; readonly label: string }): boolean {
+export function optionTokenMatches(token: string, option: { readonly keyword: string; readonly label: string }): boolean {
   const t = token.toUpperCase();
   const kw = option.keyword.toUpperCase();
   if (t === kw) return true;

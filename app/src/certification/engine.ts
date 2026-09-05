@@ -39,7 +39,8 @@
 
 import { createHash } from "node:crypto";
 import { canonicalStringify } from "../caddocument/serialization.js";
-import { applyPromptEvent, IDLE_PROMPT_STATE, type PromptEvent } from "../workspace/prompt-engine.js";
+import { applyPromptEvent, IDLE_PROMPT_STATE, optionTokenMatches, type PromptEngineState, type PromptEvent } from "../workspace/prompt-engine.js";
+import { commandById, resolveCommand } from "../workspace/commands.js";
 import { defaultCommandContext, type CommandContext, type EntityPick } from "../workspace/types.js";
 import {
   CORPUS_REFERENCE,
@@ -349,6 +350,34 @@ function toPromptEvent(snap: StateSnapshot, step: CorpusScriptStep): PromptEvent
   }
 }
 
+/** COMPAT-CAD-007 (Issue #1; DEF-007): would a typed token have chained to a
+ *  new command under the superseded CAD-PARITY-002-era prompt convention the
+ *  PINNED certification corpora were authored against? The corpus chaining
+ *  condition (the pre-CC007 prompt-engine switch, replicated as HARNESS input
+ *  sequencing — never application semantics): a command is running, the
+ *  running step is not a text step, an option sub-prompt is not collecting,
+ *  the token is not the entity-step "P" (previous-selection) convention, the
+ *  token does not select the running step's option (keyword or advertised
+ *  word-form), and the token resolves as another command. */
+function corpusChainSwitch(state: PromptEngineState, text: string): boolean {
+  const t = text.trim();
+  if (t.length === 0 || state.commandId === null) return false;
+  if (state.optionCapture !== null) return false;
+  const cmd = commandById(state.commandId);
+  if (cmd === null) return false;
+  const step = state.steps?.[state.stepIndex] ?? cmd.steps[state.stepIndex] ?? null;
+  if (step === null || step.kind === "text") return false;
+  if ((step.kind === "entity" || step.kind === "entityPoint") && t.toUpperCase() === "P") return false;
+  if (step.options !== undefined) {
+    for (const o of step.options) {
+      if (o.keyword.toUpperCase() === t.toUpperCase()) return false;
+      if (optionTokenMatches(t, o)) return false;
+    }
+  }
+  const target = resolveCommand(t);
+  return target !== null && target.id !== cmd.id;
+}
+
 function revisionCount(snap: StateSnapshot): number {
   return snap.modelHistory?.revisions?.length ?? 0;
 }
@@ -582,6 +611,23 @@ async function runWorkflow(
         for (const step of phase.script) {
           const wasIdle = promptState.commandId === null;
           const ev = toPromptEvent(snap, step);
+          // COMPAT-CAD-007 (Issue #1; DEF-007): the shared prompt engine now
+          // OWNS its input — a typed token NEVER cancels a running command
+          // (the CAD-BENCH-RW-001 DEF-007 remediation). The PINNED P019/P020
+          // certification corpora were authored against the superseded
+          // CAD-PARITY-002-era chaining convention: a typed command token at
+          // a still-active prompt implicitly switched commands. The harness
+          // preserves the corpora's command-block intent by emitting that
+          // cancel EXPLICITLY — an input-sequencing adaptation in the replay
+          // harness only. The application's command semantics are untouched;
+          // the invoked command stream, the plans, the revisions and every
+          // pinned expectation reproduce exactly (the pinned normalized
+          // reports stay byte-stable).
+          if (ev.type === "typed" && corpusChainSwitch(promptState, ev.text)) {
+            const cancelled = applyPromptEvent(promptState, { type: "cancel" }, contextFor(snap, activeStoryId));
+            promptState = cancelled.state;
+            phaseState.echoLines.push(...cancelled.output.lines);
+          }
           const result = applyPromptEvent(promptState, ev, contextFor(snap, activeStoryId));
           promptState = result.state;
           if (wasIdle && ev.type === "typed") {
@@ -884,6 +930,13 @@ async function replayWorkflow(
       let promptState = IDLE_PROMPT_STATE;
       for (const step of phase.script) {
         const ev = toPromptEvent(snap, step);
+        // COMPAT-CAD-007 (Issue #1; DEF-007): the same corpus chaining
+        // adapter as the first run (replay determinism requires the SAME
+        // input sequencing — the explicit cancel before a chained command
+        // token, never an application-semantics change).
+        if (ev.type === "typed" && corpusChainSwitch(promptState, ev.text)) {
+          promptState = applyPromptEvent(promptState, { type: "cancel" }, contextFor(snap, activeStoryId)).state;
+        }
         const result = applyPromptEvent(promptState, ev, contextFor(snap, activeStoryId));
         promptState = result.state;
         if (result.output.plan !== null) {
