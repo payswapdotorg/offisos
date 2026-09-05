@@ -2,12 +2,11 @@
 
 **Status:** ACTIVE  
 **Architecture:** ConstructionOS Architecture v1.1 — FROZEN  
-**Latest verified product main:** `eb3406340df08d1ab39e771c40681d6248840d2e` (COMPAT-CAD-006 merge; governance close-out follows on main)  
+**Latest verified product main:** `eb3406340df08d1ab39e771c40681d6248840d2e` (COMPAT-CAD-006; CC007 is merged but its mandatory post-merge verification is externally blocked)  
 **Current product benchmark baseline:** CAD-BENCH-RW-001 — **18/100** at product revision `f4a1a735dfbfa58d9b24197ffc1808d4cdf84db6`  
-**Current active work item:** **COMPAT-CAD-007** — GitHub Issue **#142**  
-**Current implementation status:** **ASSIGNED**  
-**Current implementation stop gate:** `PR_OPEN / VERIFYING`  
-**Primary verification instrument:** independent browser-agent black-box testing against an exact-head deployment  
+**Current active execution:** **COMPAT-CAD-007 verification hold** — GitHub PR **#3** merged at `9232c90e4340475bcf5c6818a30d9748ea04330a`  
+**Current successor preparation:** **COMPAT-CAD-008** — GitHub Issue **#5**, governance state **DRAFT** only  
+**Verification instrument:** independent browser-agent black-box testing against an exact-head deployment  
 **Autonomous return protocol:** `docs/governance/architect-return-protocol.md`
 
 > This document is the authoritative roadmap for the AutoCAD-class product improvement program. Chat discussion is not authoritative.
@@ -68,8 +67,8 @@ The full 25-project CAD-BENCH-RW-001 corpus remains mandatory and may not be sil
 | 0 | CAD-BENCH-RW-001 | Empirical baseline | Full corpus | **BASELINED — 18/100** |
 | 1 | COMPAT-CAD-005 | Canonical drafting state | G1/G3/G5/G7/G8/G9/G10 | **VERIFIED** |
 | 2 | COMPAT-CAD-006 | Viewport clipping, zoom, pan, regen, transforms | G1/G2/G3 | **VERIFIED** |
-| 3 | **COMPAT-CAD-007** | Core editing and deterministic object selection | G1/G2/G4/G10 | **ASSIGNED** |
-| 4 | COMPAT-CAD-008 | Arrays/materialization/render/selectability | G3/G5/G6/G7 | **PLANNED** |
+| 3 | **COMPAT-CAD-007** | Core editing and deterministic object selection | G1/G2/G4/G10 | **MERGED — POST-MERGE CI BLOCKED** |
+| 4 | **COMPAT-CAD-008** | Arrays/materialization/render/selectability | G3/G5/G6/G7 | **PREPARED — DRAFT** |
 | 5 | COMPAT-CAD-009 | Blocks/inserts/attributes/symbols | G5/G7/G8 | **PLANNED** |
 | 6 | COMPAT-CAD-010 | Hatch/annotation/dimension/inspection | G1/G4/G6/G8 | **PLANNED** |
 | 7 | COMPAT-CAD-011 | Durable SAVE/OPEN/reload | G9 + restart/recovery | **PLANNED** |
@@ -119,35 +118,30 @@ Evidence included 34 targeted deterministic tests, a full app suite of 1426 test
 
 **Retired by this phase:** DEF-004 and DEF-005 are accepted as resolved for the targeted clipping/navigation behavior based on the phase evidence. The permanent benchmark score remains 18/100 pending the complete corpus rerun.
 
-## 11. Current authorized phase — COMPAT-CAD-007
+## 11. COMPAT-CAD-007 — merged, awaiting external post-merge verification
 
-**Issue:** #142  
-**Predecessor:** COMPAT-CAD-006 — VERIFIED at merge `eb3406340df08d1ab39e771c40681d6248840d2e`  
-**Status:** **ASSIGNED**  
+**GitHub PR:** #3  
+**Merge:** `9232c90e4340475bcf5c6818a30d9748ea04330a`  
 **Governance record:** `governance/work-items/COMPAT-CAD-007.json`  
-**Implementation prompt:** `docs/work-items/COMPAT-CAD-007-ZAI-PROMPT.md`  
-**Assigned role:** `z-ai-implementation-agent` (virtual governance role)
+**State:** **MERGED — post-merge CI externally blocked**
 
-### Objective
-Restore deterministic object-selection and core modify workflows over the verified shared geometry, precision and viewport foundations, targeting the roadmap ownership of **DEF-006 / DEF-007 / DEF-021**.
+The implementation satisfied its deterministic, real-host, exact-head deployment and independent browser gates before merge. The remaining required post-merge workflow fan-out for merge SHA `9232c90` is queued and has not produced terminal evidence. The Architect therefore does not mark CC007 `VERIFIED` until that gate is resolved.
 
-### Required browser gate
-**G1, G2, G4 and G10**, plus targeted DEF-006/007/021 selection/edit probes.
+The known `CAD-PARITY-020` governance defect has since been repaired on main by restoring its missing `dependencies` field (`CAD-PARITY-019`). This is independent governance debt cleanup and not part of CC007's implementation scope.
 
-### Mandatory boundaries
-- Construction Graph remains canonical.
-- CADDocument remains the editor/workspace representation.
-- Architecture v1.1 remains frozen.
-- Shared engine-free semantics first; Web/Electron must converge through the existing App API/transport contracts.
-- Interactive previews and transient selection are presentation state until canonical commit.
-- Mutations are atomic canonical revisions under the existing history model.
-- Unsupported/invalid behavior is typed and explicit; no fabrication or false success.
-- No ARRAY, durable persistence/serverless session, DXF, layout identity, unrelated BIM/documentation expansion, or architecture change.
+## 12. Prepared successor — COMPAT-CAD-008
 
-### Evidence required before PR_OPEN/VERIFYING
-Deterministic selection/edit tests; negative pre-commit/no-false-success tests; Web/Electron parity; COMPAT-CAD-005/006 regressions; exact-head CI; exact-head deployment; independent browser-agent G1/G2/G4/G10; exact revision-bound governance evidence.
+**Issue:** #5  
+**Predecessor:** COMPAT-CAD-007  
+**Status:** **DRAFT / PREPARATION ONLY**  
+**Governance record:** `governance/work-items/COMPAT-CAD-008.json`  
+**Implementation prompt:** `docs/work-items/COMPAT-CAD-008-ZAI-PROMPT.md`
 
-## 12. Defect retirement matrix
+CC008 owns **DEF-015** and the bounded ARRAY capability: deterministic rectangular/polar array semantics, materialized canonical members, rendering/selectability, stable identities and ordering, undo/redo, invalid/unsupported behavior, and Web/Electron parity. The preparation package deliberately does **not** advance CC008 to READY/ASSIGNED while CC007's required verification remains unresolved.
+
+The worker directive is repository-backed and explicitly limits current activity to preparation/spec/test design. No CC008 PR, approval, merge or verification claim is authorized until the Architect legally advances the work item.
+
+## 13. Defect retirement matrix
 
 | Defects | Primary phase |
 |---|---|
@@ -165,8 +159,8 @@ Deterministic selection/edit tests; negative pre-commit/no-false-success tests; 
 | DEF-020 | COMPAT-CAD-014 / 021 |
 | DEF-025 | COMPAT-CAD-016 |
 
-Known governance debt: `governance/work-items/CAD-PARITY-020.json` still lacks the required `dependencies` field and can keep the root governance suite red. It is pre-existing Architect-owned debt and is not modified by COMPAT-CAD-007.
+Known governance debt item repaired: `governance/work-items/CAD-PARITY-020.json` now declares the required `dependencies` field and points to `CAD-PARITY-019`.
 
-## 13. Relationship to the broader ConstructionOS roadmap
+## 14. Relationship to the broader ConstructionOS roadmap
 
 The CAD parity program remains a bounded product track within frozen ConstructionOS Architecture v1.1. Infrastructure work may proceed on its separate dependency graph; it does not silently alter CAD sequencing. The serverless persistence/session problem remains explicitly owned by the infrastructure/persistence workstream and COMPAT-CAD-011.
