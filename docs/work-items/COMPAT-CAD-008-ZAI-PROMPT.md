@@ -7,38 +7,54 @@ GitHub issue: `#5`
 Governance record: `governance/work-items/COMPAT-CAD-008.json`  
 Architecture: ConstructionOS Architecture v1.1 — **FROZEN**  
 Dependency: `COMPAT-CAD-007` — **VERIFIED** at physical merge `9232c90e4340475bcf5c6818a30d9748ea04330a`  
-Authorization repair revision: `f1d82dbfcd14e5e9a6386fe6a0863dd030720eaa`  
-State: **ASSIGNED — IMPLEMENTATION AUTHORIZED**  
+State: **IMPLEMENTING — ARCHITECT CHANGES REQUESTED**  
 Implementation agent: `z-ai-implementation-agent`  
+Current PR: **#11**, still open for remediation  
 Implementation stop gate: **PR_OPEN / VERIFYING**
 
-This is the current implementation directive. Earlier CC008 preparation-only comments and prompt versions are historical context and are superseded by the current governance record, authoritative roadmap and this directive.
+This is the current remediation directive. Earlier CC008 preparation-only comments and prompt versions are historical context. The canonical governance record, authoritative roadmap and this directive govern the remaining work.
 
 ## 1. Legal lifecycle boundary
 
-The repository state records the legal Architect release `DRAFT → READY → ASSIGNED`. The implementation agent may now perform the implementer-owned transition `ASSIGNED → IMPLEMENTING`, implement the frozen scope, then advance only through the implementer-owned path to `PR_OPEN → VERIFYING`.
+The recorded lifecycle is:
 
-The implementation agent **must stop at `PR_OPEN / VERIFYING`**. It must not self-approve, merge, or verify the work item. The Architect owns independent review, approval, merge, post-merge evidence reconciliation and final `MERGED → VERIFIED`.
+`DRAFT → READY → ASSIGNED → IMPLEMENTING → PR_OPEN → VERIFYING → ARCHITECT_REVIEW → IMPLEMENTING`
 
-## 2. Objective
+The last transition is an Architect `changes_requested` decision. The implementation agent may remediate the bounded scope and return through the implementer-owned path to `PR_OPEN → VERIFYING`.
 
-Implement the bounded ARRAY capability owned by the authoritative CAD roadmap and retire `DEF-015` within these frozen boundaries: deterministic rectangular and polar array semantics; path-array behavior only where genuinely supported by the frozen contract; canonical materialization of members; deterministic stable identities and ordering; rendering and selectability; explicit source/member ownership semantics; compatibility with existing edit/erase behavior; one atomic canonical revision; undo/redo; invalid and unsupported typed outcomes; deterministic serialization/byte identity; and Web/Electron semantic parity.
+The implementation agent **must stop at `PR_OPEN / VERIFYING`**. It must not self-approve, merge, or verify. The Architect owns independent review, approval, merge, post-merge evidence reconciliation and final `MERGED → VERIFIED`.
+
+## 2. Architect review disposition
+
+PR #11 was independently reviewed against the authoritative CC008 semantic contract. CI and the submitted deterministic suite were green, but the implementation was not acceptance-complete.
+
+Required remediation findings:
+
+1. **Canonical ARRAY provenance / ownership:** materialized members must have deterministic canonical provenance/ownership linking each member to the ARRAY operation and source occurrence, with deterministic member index/order metadata where supported by the existing model.
+2. **Source deletion semantics:** define and enforce a deterministic source/member ownership policy so deleting a source cannot leave orphaned ARRAY-owned canonical entities. Prove the policy through direct tests, including undo/redo and no-phantom-member behavior.
+3. **Typed unsupported behavior:** prove path-array unsupported behavior at the canonical semantic/App boundary where the existing error taxonomy supports such a typed outcome, or provide repository evidence that the existing prompt-level typed decline is intentionally the canonical boundary.
+
+These are bounded CC008 requirements. No architecture change is authorized or implied.
+
+## 3. Objective
+
+Implement the bounded ARRAY capability owned by the authoritative CAD roadmap and retire `DEF-015` within these frozen boundaries: deterministic rectangular and polar array semantics; path-array behavior only where genuinely supported by the frozen contract; canonical materialization of members; deterministic stable identities and ordering; explicit ARRAY/member provenance and ownership; rendering and selectability; deterministic source/member deletion semantics; compatibility with existing edit/erase behavior; one atomic canonical revision; undo/redo; invalid and unsupported typed outcomes; deterministic serialization/byte identity; and Web/Electron semantic parity.
 
 The detailed semantic contract is authoritative for array semantics and evidence fixture design:
 
 `docs/work-items/COMPAT-CAD-008-SEMANTIC-CONTRACT.md`
 
-## 3. Implementation input and base reconciliation
+## 4. Implementation input and base reconciliation
 
 The existing preparation branch is implementation input only:
 
 `work/compat-cad-008-array-preparation`
 
-The preparation spike was created before CC007 verification. Reconcile its useful implementation/test work onto the **current `main` ref at implementation start** before producing the implementation PR. Do not treat the old preparation base or commit `284bc28` as the current product revision.
+Reconcile only useful implementation/test work onto the **current `main` ref at implementation start**. Do not treat the old preparation base or commit `284bc28` as the current product revision.
 
-The authorization repair revisions (`f1d82db...` and later documentation-only commits) are governance history, not a product baseline for implementation. The worker must resolve the actual `main` ref before starting work.
+Resolve the current `main` ref immediately before continuing implementation. Governance/doc commits are not product baselines.
 
-## 4. Frozen architecture and ownership boundaries
+## 5. Frozen architecture and ownership boundaries
 
 - Construction Graph remains the canonical system of record.
 - `CADDocument` remains the editor/working representation.
@@ -52,10 +68,11 @@ The authorization repair revisions (`f1d82db...` and later documentation-only co
 - Every successful mutating ARRAY command produces exactly one canonical revision under the existing history semantics.
 - Unsupported and invalid behavior must be explicit typed failures; never fabricate geometry, semantics, confidence or success.
 - Web and Electron must converge through the same semantic command/query contracts.
+- ARRAY provenance must use the existing canonical entity/data model; do not introduce a competing application-local authority.
 
-Do not modify protected architecture artifacts. Any required architecture change must stop implementation and follow the existing ACR lifecycle.
+Do not modify protected architecture artifacts. Any genuinely required architecture change must stop implementation and follow the existing ACR lifecycle.
 
-## 5. Exact bounded scope
+## 6. Exact bounded scope
 
 ### Rectangular ARRAY
 
@@ -66,8 +83,10 @@ Implement and prove:
 - deterministic row-major member ordering;
 - deterministic member identity derivation;
 - canonical member materialization;
+- canonical ARRAY/source/member provenance and ownership;
 - rendering and selection of materialized members;
 - edit/erase interaction;
+- source deletion policy and orphan prevention;
 - invalid input behavior;
 - one atomic canonical revision.
 
@@ -81,8 +100,10 @@ Implement and prove:
 - deterministic orientation and ordering;
 - deterministic member identity derivation;
 - canonical member materialization;
+- canonical ARRAY/source/member provenance and ownership;
 - rendering and selection;
 - edit/erase interaction;
+- source deletion policy and orphan prevention;
 - invalid input behavior;
 - full-circle and partial-span boundary behavior defined by the frozen contract;
 - one atomic canonical revision.
@@ -91,19 +112,22 @@ Implement and prove:
 
 Implement path arrays **only where the existing frozen contract provides a genuine bounded supported behavior**. If a path variant is outside the supported contract, return an explicit typed unsupported outcome and preserve no-mutation guarantees. Do not fabricate path geometry merely to pass a test.
 
-### Source/member ownership
+## 7. Source/member ownership policy
 
-Define and implement deterministic source/member ownership, including delete, undo and redo behavior. Materialized members must live in the canonical entity partition and must not become hidden application-local duplicates.
+The remediation must make the ownership policy explicit in code and tests. At minimum establish:
 
-### Selection/render integration
+- what canonical record identifies the ARRAY operation;
+- how each member records its ARRAY provenance and source occurrence/index;
+- deterministic member ordering and stable identity derivation;
+- what happens when the source entity is erased;
+- what happens when an individual member is erased or modified;
+- how undo restores the exact pre-delete canonical state;
+- how redo restores the exact post-delete canonical state;
+- how selection/rendering avoid stale or orphaned members after these operations.
 
-Reuse the CC007 selection/prompt path. Rendering, hit-testing and command selection must identify the same canonical materialized members. No second selection system may be introduced.
+Use the existing canonical revision/history machinery. Do not add hidden state that is authoritative only in one host.
 
-### Determinism and parity
-
-Equivalent executions must produce the same semantic state, member ordering, identities and serialized representation, including byte-level identity wherever the existing evidence contract requires it. Web and Electron must produce equivalent affected canonical serialized state through the shared semantic command path.
-
-## 6. Required negative behavior
+## 8. Required negative behavior
 
 At minimum prove:
 
@@ -114,21 +138,25 @@ At minimum prove:
 - failed plans do not mutate canonical state and do not emit false success;
 - no phantom or duplicate members are created;
 - selection does not retain stale/ghost members after undo/redo;
-- source/member erase behavior is deterministic;
-- unsupported variants remain explicit and typed.
+- source deletion cannot leave orphaned ARRAY-owned members;
+- source deletion undo/redo is exact and deterministic;
+- individual member erase/modify follows the documented ownership policy;
+- unsupported variants remain explicit and typed at the canonical boundary where supported.
 
-## 7. Required deterministic evidence
+## 9. Required deterministic evidence
 
 Before returning the PR, produce reproducible evidence for:
 
 - rectangular happy paths and boundaries;
 - polar happy paths and boundaries;
 - supported/unsupported path behavior;
-- deterministic ordering and stable identities;
+- ARRAY operation provenance and member ownership;
+- deterministic member index/order and stable identities;
 - deterministic serialized/byte output;
 - no-mutation-before-commit;
 - one canonical revision per successful ARRAY mutation;
 - exact UNDO and REDO restoration;
+- source deletion, orphan prevention and undo/redo around source deletion;
 - immediate post-commit selectability of materialized members;
 - ERASE/modify interaction with members;
 - Web/Electron semantic parity;
@@ -136,7 +164,7 @@ Before returning the PR, produce reproducible evidence for:
 
 Evidence must record the exact implementation revision, invocation, output/result, environment details where material, and known limitations. Narrative-only evidence is insufficient.
 
-## 8. Required browser gate after merge
+## 10. Required browser gate after merge
 
 The Architect will run the mandatory independent black-box browser gate against the exact deployed revision. The implementation must therefore leave deterministic workflows for at least:
 
@@ -146,11 +174,12 @@ The Architect will run the mandatory independent black-box browser gate against 
 - targeted **DEF-015** probes;
 - invalid/negative ARRAY behavior;
 - UNDO/REDO;
+- source-deletion/orphan probes;
 - no-phantom-member checks.
 
 The browser agent must operate as a real user through the visible product UI and must not use hidden APIs to perform the workflow under test.
 
-## 9. Regression contract
+## 11. Regression contract
 
 Do not regress verified behavior from:
 
@@ -160,7 +189,7 @@ Do not regress verified behavior from:
 
 In particular preserve canonical selection, prompt ownership, transform behavior, viewport behavior, canonical revision semantics and no-mutation guarantees.
 
-## 10. Explicit non-goals
+## 12. Explicit non-goals
 
 Do **not** opportunistically implement:
 
@@ -175,13 +204,15 @@ Do **not** opportunistically implement:
 
 Do not widen scope merely because adjacent functionality is convenient to touch.
 
-## 11. Return package and stop gate
+## 13. Return package and stop gate
 
 Return at `PR_OPEN / VERIFYING` with:
 
 - implementation PR and exact head SHA;
 - changed-files summary and architecture-boundary statement;
 - deterministic test commands and exact results;
+- ARRAY provenance/ownership evidence;
+- source-deletion/orphan/undo/redo evidence;
 - Web/Electron parity evidence;
 - regression results;
 - negative/unsupported-path evidence;
@@ -192,6 +223,6 @@ Return at `PR_OPEN / VERIFYING` with:
 
 Do not add `APPROVED`, `MERGED` or `VERIFIED` transitions. Do not claim the benchmark score has changed.
 
-## 12. Security
+## 14. Security
 
 Never commit, print or expose GitHub tokens, deployment credentials, database credentials, private keys or other secrets. Evidence and fixtures must remain credential-free.
