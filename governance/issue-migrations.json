@@ -1,0 +1,22 @@
+{
+  "migrations": [
+    {
+      "work_item": "RESEARCH-CAD-001",
+      "from_issue": 1,
+      "to_issue": 6,
+      "reason": "Fork-local issue #1 is now COMPAT-CAD-007; preserve the historical source issue in the record while binding this work item to its dedicated fork issue #6."
+    },
+    {
+      "work_item": "RESEARCH-CAD-002",
+      "from_issue": 2,
+      "to_issue": 7,
+      "reason": "Fork-local issue #2 is now INFRA-002; preserve the historical source issue in the record while binding this work item to its dedicated fork issue #7."
+    },
+    {
+      "work_item": "RESEARCH-CAD-005",
+      "from_issue": 5,
+      "to_issue": 8,
+      "reason": "Fork-local issue #5 is now COMPAT-CAD-008; preserve the historical source issue in the record while binding this work item to its dedicated fork issue #8."
+    }
+  ]
+}
