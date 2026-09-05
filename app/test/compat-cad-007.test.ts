@@ -598,6 +598,85 @@ test("G4: the precision quadrilateral trim closure produces the exact closed geo
   assert.deepEqual([geom("el-000004").x1, geom("el-000004").y1, geom("el-000004").x2, geom("el-000004").y2], [0, 100, 0, 0]);
 });
 
+test("G4 (composed): eight excess picks, two per edge, compose to the exact closed square — the browser-discovered defect", async () => {
+  // The exact-head browser G4 gate picked BOTH overshoots of every edge
+  // (eight picks, two per entity). The pre-fix opTrim computed every pick
+  // against the ORIGINAL geometry and the edit application resolved the
+  // same-id replaces last-wins — silently discarding the first cut of every
+  // doubly-picked edge while echoing success for all eight targets. The
+  // composed semantics: picks on one entity accumulate as the union of the
+  // picked pieces (input is collected against the pre-commit geometry).
+  const h = AppApiHandler.create(CONFIG);
+  val(await h.handle(cmd("document.create", {})));
+  val(
+    await h.handle(
+      cmd("drafting.createEntities", {
+        entities: [
+          { type: "line", layer: "0", from: [-4, 0], to: [104, 0] },
+          { type: "line", layer: "0", from: [100, -4], to: [100, 104] },
+          { type: "line", layer: "0", from: [104, 100], to: [-4, 100] },
+          { type: "line", layer: "0", from: [0, 104], to: [0, -4] },
+        ],
+      }),
+    ),
+  );
+  const before = await stateOf(h);
+  const selectable = await selectableOf(h, LAYERS);
+  const ctx = ctxOf({ selectableElements: selectable });
+
+  const plans: CommandPlan[] = [];
+  const { state, lines } = runCommandScript(
+    [
+      { event: { type: "start", commandId: "trim" } },
+      { event: { type: "enter" }, note: "edges: implied all objects" },
+      { event: { type: "entityPoint", entity: selectable[0]!, point: [-2, 0] } },
+      { event: { type: "entityPoint", entity: selectable[0]!, point: [102, 0] } },
+      { event: { type: "entityPoint", entity: selectable[2]!, point: [102, 100] } },
+      { event: { type: "entityPoint", entity: selectable[2]!, point: [-2, 100] } },
+      { event: { type: "entityPoint", entity: selectable[1]!, point: [100, -2] } },
+      { event: { type: "entityPoint", entity: selectable[1]!, point: [100, 102] } },
+      { event: { type: "entityPoint", entity: selectable[3]!, point: [0, 102] } },
+      { event: { type: "entityPoint", entity: selectable[3]!, point: [0, -2] } },
+      // A stale re-pick of the piece the first pick already removed: an
+      // honest no-op, never a wrong re-cut of a different piece.
+      { event: { type: "entityPoint", entity: selectable[0]!, point: [-2, 0] } },
+      { event: { type: "enter" } },
+    ] as const satisfies readonly CommandScriptStep[],
+    ctx,
+    (plan) => plans.push(plan),
+  );
+  assert.equal(state.commandId, null, "TRIM completed");
+  assert.ok(
+    lines.includes("TRIM: 9 target(s) (implied all edges)."),
+    `the TRIM outcome echo: ${JSON.stringify(lines.slice(-4))}`,
+  );
+  assert.equal(plans.length, 1, "ONE plan for the whole trim");
+  let modifySummary = "";
+  for (const c of plans.flatMap((p) => p.appApi.map((e) => cmd(e.name as Command["name"], e.payload)))) {
+    const r = val<{ summary?: string }>(await h.handle(c));
+    if (c.payload && (c.payload as { op?: string }).op === "trim") modifySummary = r.summary ?? "";
+  }
+  assert.match(modifySummary, /^8 trims applied; skipped: el-000001: /, `the composed summary: ${modifySummary}`);
+  assert.match(
+    modifySummary,
+    /pick is off the remaining piece \(already trimmed in this command\)/,
+    `the stale pick is the honest skip: ${modifySummary}`,
+  );
+
+  const after = await stateOf(h);
+  assert.equal(after.elements.length, 4, "still four boundary entities (composed in place)");
+  assert.equal(after.version, before.version + 1, "one atomic revision for the whole composed trim");
+
+  const geom = (id: string): { x1: number; y1: number; x2: number; y2: number } => {
+    const el = after.elements.find((e) => e.id === id)!;
+    return el.props as never;
+  };
+  assert.deepEqual([geom("el-000001").x1, geom("el-000001").y1, geom("el-000001").x2, geom("el-000001").y2], [0, 0, 100, 0]);
+  assert.deepEqual([geom("el-000002").x1, geom("el-000002").y1, geom("el-000002").x2, geom("el-000002").y2], [100, 0, 100, 100]);
+  assert.deepEqual([geom("el-000003").x1, geom("el-000003").y1, geom("el-000003").x2, geom("el-000003").y2], [100, 100, 0, 100]);
+  assert.deepEqual([geom("el-000004").x1, geom("el-000004").y1, geom("el-000004").x2, geom("el-000004").y2], [0, 100, 0, 0]);
+});
+
 test("G10: undo/redo restores the exact prior state after ERASE ALL (and the selection view never inflates)", async () => {
   const h = AppApiHandler.create(CONFIG);
   val(await h.handle(cmd("document.create", {})));
@@ -779,6 +858,84 @@ test("the DEF-006/007/021 selection/edit stream is byte-identical through WebHos
   assert.equal(webState.elements.length, 2, "the undo restored the erased entity");
   const moved = (webState.elements as ElementRow[]).find((el) => el.id === "el-000001")!;
   assert.deepEqual(moved.props.from, [10, 10], "the move applied through the real transport");
+});
+
+test("the composed multi-pick TRIM converges byte-identically through WebHost and ElectronHost", async () => {
+  // The composed trim (union-of-picked-pieces; the browser-discovered
+  // defect) executed through BOTH real host transports: identical summaries,
+  // byte-identical final serialized state, the exact closed square.
+  const webHandler = AppApiHandler.create(CONFIG);
+  const electronHandler = AppApiHandler.create(CONFIG);
+  const web: Exec = createRenderer(new WebHost(new WebSocketTransport(webHandler)));
+  const electron: Exec = createRenderer(new ElectronHost(new IpcTransport(electronHandler)));
+  type Exec = { execute(request: Command | Query): Promise<CommandQueryResponse> };
+
+  const seed = async (host: Exec): Promise<void> => {
+    await host.execute(cmd("document.create", {}));
+    await host.execute(
+      cmd("drafting.createEntities", {
+        entities: [
+          { type: "line", layer: "0", from: [-4, 0], to: [104, 0] },
+          { type: "line", layer: "0", from: [100, -4], to: [100, 104] },
+          { type: "line", layer: "0", from: [104, 100], to: [-4, 100] },
+          { type: "line", layer: "0", from: [0, 104], to: [0, -4] },
+        ],
+      }),
+    );
+  };
+  await seed(web);
+  await seed(electron);
+
+  const versionOf = async (host: Exec): Promise<number> => {
+    const s = val<{ version: { version_number: number } }>(await host.execute(q("document.getState")));
+    return s.version.version_number;
+  };
+  const webBefore = await versionOf(web);
+  const electronBefore = await versionOf(electron);
+
+  const composed = {
+    op: "trim",
+    edges: [] as string[],
+    trims: [
+      { targetId: "el-000001", pick: { x: -2, y: 0 } },
+      { targetId: "el-000001", pick: { x: 102, y: 0 } },
+      { targetId: "el-000003", pick: { x: 102, y: 100 } },
+      { targetId: "el-000003", pick: { x: -2, y: 100 } },
+      { targetId: "el-000002", pick: { x: 100, y: -2 } },
+      { targetId: "el-000002", pick: { x: 100, y: 102 } },
+      { targetId: "el-000004", pick: { x: 0, y: 102 } },
+      { targetId: "el-000004", pick: { x: 0, y: -2 } },
+      // The stale re-pick: an honest skip on both hosts, never a re-cut.
+      { targetId: "el-000001", pick: { x: -2, y: 0 } },
+    ],
+  };
+  const webResult = val<{ summary: string }>(await web.execute(cmd("entity.modify", composed)));
+  const electronResult = val<{ summary: string }>(await electron.execute(cmd("entity.modify", composed)));
+  assert.equal(webResult.summary, electronResult.summary, "identical composed summaries on both hosts");
+  assert.ok(
+    webResult.summary.startsWith("8 trims applied; skipped: el-000001:"),
+    `the composed summary: ${webResult.summary}`,
+  );
+
+  assert.equal(await versionOf(web), webBefore + 1, "ONE atomic revision for the whole composed trim (web)");
+  assert.equal(await versionOf(electron), electronBefore + 1, "ONE atomic revision for the whole composed trim (electron)");
+
+  const outline = async (host: Exec): Promise<{ elements: unknown[]; version: number }> => {
+    const s = val<{ elements: unknown[]; version: { version_number: number } }>(await host.execute(q("document.getState")));
+    return { elements: s.elements, version: s.version.version_number };
+  };
+  assert.deepEqual(await outline(web), await outline(electron), "byte-identical post-trim serialized state");
+
+  const s = val<{ elements: ElementRow[] }>(await web.execute(q("document.getState")));
+  assert.equal(s.elements.length, 4, "four boundary entities");
+  const coords = (id: string): unknown[] => {
+    const p = s.elements.find((el) => el.id === id)!.props as Record<string, unknown>;
+    return [p.x1, p.y1, p.x2, p.y2];
+  };
+  assert.deepEqual(coords("el-000001"), [0, 0, 100, 0], "bottom closed");
+  assert.deepEqual(coords("el-000002"), [100, 0, 100, 100], "right closed");
+  assert.deepEqual(coords("el-000003"), [100, 100, 0, 100], "top closed");
+  assert.deepEqual(coords("el-000004"), [0, 100, 0, 0], "left closed");
 });
 
 // ---------------------------------------------------------------------------

@@ -306,6 +306,72 @@ val(
 }
 
 // ---------------------------------------------------------------------------
+step("G4 (composed): eight excess picks, two per edge, through the REAL server — the union-of-picked-pieces semantics");
+{
+  // The exact-head browser G4 gate picked BOTH overshoots of every edge; the
+  // pre-fix behavior silently discarded the first cut of every doubly-picked
+  // edge (last-replace-wins). The composed semantics: one closed square, one
+  // atomic revision, an honest skip for a stale re-pick.
+  await cmd("document.create", {});
+  val(
+    await cmd("drafting.createEntities", {
+      entities: [
+        { type: "line", layer: "0", from: [-4, 0], to: [104, 0] },
+        { type: "line", layer: "0", from: [100, -4], to: [100, 104] },
+        { type: "line", layer: "0", from: [104, 100], to: [-4, 100] },
+        { type: "line", layer: "0", from: [0, 104], to: [0, -4] },
+      ],
+    }),
+  );
+  const state = val(await q("document.getState", {}));
+  valSyncCache = { layers: state.layers, selectable: selectableOf(state), selection: [] };
+  const quadBefore = state.version?.version_number;
+  const selectable = selectableOf(state);
+  const plans = [];
+  const { lines } = runCommandScript(
+    [
+      { event: { type: "typed", text: "TRIM" } },
+      { event: { type: "enter" }, note: "cutting edges: implied all objects" },
+      { event: { type: "entityPoint", entity: selectable[0], point: [-2, 0] } },
+      { event: { type: "entityPoint", entity: selectable[0], point: [102, 0] } },
+      { event: { type: "entityPoint", entity: selectable[2], point: [102, 100] } },
+      { event: { type: "entityPoint", entity: selectable[2], point: [-2, 100] } },
+      { event: { type: "entityPoint", entity: selectable[1], point: [100, -2] } },
+      { event: { type: "entityPoint", entity: selectable[1], point: [100, 102] } },
+      { event: { type: "entityPoint", entity: selectable[3], point: [0, 102] } },
+      { event: { type: "entityPoint", entity: selectable[3], point: [0, -2] } },
+      { event: { type: "entityPoint", entity: selectable[0], point: [-2, 0] }, note: "the stale re-pick: an honest no-op" },
+      { event: { type: "enter" } },
+    ],
+    ctx(),
+    (plan) => plans.push(plan),
+  );
+  assert(lines.includes("TRIM: 9 target(s) (implied all edges)."), `the TRIM echo: ${JSON.stringify(lines.slice(-3))}`);
+  assert(plans.length === 1, "one plan for the whole composed trim");
+  let summary = "";
+  for (const entry of plans[0].appApi) {
+    const r = val(await cmd(entry.name, entry.payload));
+    if (entry.payload?.op === "trim") summary = r.summary ?? "";
+  }
+  assert(
+    summary.startsWith("8 trims applied; skipped: el-000001: "),
+    `the composed summary counts the honest skip: ${summary}`,
+  );
+  const after = val(await q("document.getState", {}));
+  assert((after.elements ?? []).length === 4, "four boundary entities remain");
+  assert(after.version?.version_number === quadBefore + 1, "one atomic revision for the composed trim");
+  const coordsOf = (id) => {
+    const el = (after.elements ?? []).find((e) => e.id === id);
+    const p = el?.props ?? {};
+    return [p.x1, p.y1, p.x2, p.y2];
+  };
+  assert(JSON.stringify(coordsOf("el-000001")) === JSON.stringify([0, 0, 100, 0]), `bottom composed: ${coordsOf("el-000001")}`);
+  assert(JSON.stringify(coordsOf("el-000002")) === JSON.stringify([100, 0, 100, 100]), `right composed: ${coordsOf("el-000002")}`);
+  assert(JSON.stringify(coordsOf("el-000003")) === JSON.stringify([100, 100, 0, 100]), `top composed: ${coordsOf("el-000003")}`);
+  assert(JSON.stringify(coordsOf("el-000004")) === JSON.stringify([0, 100, 0, 0]), `left composed: ${coordsOf("el-000004")}`);
+}
+
+// ---------------------------------------------------------------------------
 step("NEGATIVE: a failed edit is the typed failure — never false success, never a mutation");
 {
   const stateBefore = val(await q("document.getState", {}));
