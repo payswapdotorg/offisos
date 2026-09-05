@@ -5,8 +5,9 @@
  * revision it verified (a transition commit or commit-bound cited evidence);
  * the drift audit flags bound paths that changed after the binding revision
  * (later material implementation changes invalidate prior verification),
- * stays quiet for governance-only drift, rejects unresolvable bindings, and
- * skips demo fixtures.
+ * stays quiet for governance-only drift including governance/.github/tools
+ * paths even when such a path is explicitly cited, rejects unresolvable
+ * bindings, and skips demo fixtures.
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -84,15 +85,15 @@ function auditGit(changedAfterBinding: string[]): GitOperations {
   };
 }
 
-function verifiedRecordWithBoundPath(): ReturnType<typeof baseVerifiedRecord> {
+function verifiedRecordWithBoundPath(path = "app/test/fixtures/pinned.json"): ReturnType<typeof baseVerifiedRecord> {
   const record = baseVerifiedRecord();
-  record.evidence![0]!.references = { commit: "1234567", path: "app/test/fixtures/pinned.json" };
+  record.evidence![0]!.references = { commit: "1234567", path };
   const verify = record.transitions.find((t) => t.to === "VERIFIED")!;
   verify.references = { decision: "DEC-001", evidence: ["EV-001"] };
   return record;
 }
 
-test("a changed bound path makes the verification stale (invalidation)", () => {
+test("a changed bound material path makes the verification stale (invalidation)", () => {
   const record = verifiedRecordWithBoundPath();
   const { check } = computeVerifiedRevisionAudit([record], auditGit(["app/test/fixtures/pinned.json", "governance/work-items/X.json"]));
   assert.equal(check.status, "fail");
@@ -108,6 +109,17 @@ test("governance-only drift after the binding revision does not invalidate it", 
   );
   assert.equal(check.status, "pass");
   assert.ok((check.details ?? []).join(" ").includes("intact"));
+});
+
+test("a changed non-material bound path does not make the verification stale", () => {
+  const record = verifiedRecordWithBoundPath(".github/workflows/governance.yml");
+  const { check, entries } = computeVerifiedRevisionAudit(
+    [record],
+    auditGit([".github/workflows/governance.yml"]),
+  );
+  assert.equal(check.status, "pass");
+  assert.equal(entries[0]!.stale, false);
+  assert.deepEqual(entries[0]!.stalePaths, []);
 });
 
 test("an unresolvable binding revision is stale", () => {
