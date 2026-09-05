@@ -623,7 +623,7 @@ export const COMMANDS_PARAMETRICS: readonly WorkspaceCommand[] = [
           ...base,
           { id: "rows", kind: "number", prompt: "Enter number of rows <3>:", defaultValue: 3 },
           { id: "columns", kind: "number", prompt: "Enter number of columns <3>:", defaultValue: 3 },
-          { id: "rowSpacing", kind: "number", prompt: "Specify row spacing (between levels):", baseStep: "base" },
+          { id: "rowSpacing", kind: "number", prompt: "Specify row spacing (between levels):" },
           { id: "columnSpacing", kind: "number", prompt: "Specify column spacing (between items):" },
         ];
       }
@@ -657,9 +657,23 @@ export const COMMANDS_PARAMETRICS: readonly WorkspaceCommand[] = [
         if (!Number.isFinite(rowSpacing) || !Number.isFinite(columnSpacing)) {
           throw new Error("row/column spacings must be finite numbers");
         }
+        // COMPAT-CAD-008 (Issue #5, preparation spike): signed spacing is not
+        // defined by the frozen transform model — fail typed (mirrors the op
+        // layer's bad_input).
+        if (rowSpacing < 0 || columnSpacing < 0) {
+          throw new Error("row/column spacings must be non-negative (signed spacing is not defined by the frozen transform model)");
+        }
         const copies = rows * columns - 1;
+        // COMPAT-CAD-008 (Issue #5, preparation spike): the semantic contract
+        // requires an explicit deterministic NO-OP result under the existing
+        // command contract (not a fabricated second copy, not a cancel): an
+        // empty plan whose echo states the outcome. The op layer returns the
+        // same no-op (applied: false).
         if (copies <= 0) {
-          throw new Error("a 1x1 array creates nothing — rows x columns must exceed one item");
+          return plan(
+            [],
+            ["ARRAY Rectangular: 1 x 1 is a single item — nothing to create (deterministic no-op; no duplicate fabricated)."],
+          );
         }
         return plan(
           [
@@ -677,11 +691,20 @@ export const COMMANDS_PARAMETRICS: readonly WorkspaceCommand[] = [
         const center = pointValue(values, "center");
         const items = numberValue(values, "items", 6);
         const spanDeg = numberValue(values, "span", 360);
-        if (!Number.isInteger(items) || items < 2) {
-          throw new Error("item count must be an integer >= 2 (including the source)");
+        if (!Number.isInteger(items) || items < 1) {
+          throw new Error("item count must be an integer >= 1 (including the source)");
         }
         if (!Number.isFinite(spanDeg) || spanDeg <= 0) {
           throw new Error("angle to fill must be > 0 degrees");
+        }
+        // COMPAT-CAD-008 (Issue #5, preparation spike): count = 1 is the
+        // deterministic no-op (the source IS the single occurrence) — the
+        // same contract as the rectangular 1x1 case above.
+        if (items === 1) {
+          return plan(
+            [],
+            ["ARRAY Polar: 1 item is the single occurrence — nothing to create (deterministic no-op; no duplicate fabricated)."],
+          );
         }
         const angleSpan = spanDeg * DEG;
         return plan(

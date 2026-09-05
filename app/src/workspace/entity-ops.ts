@@ -916,6 +916,18 @@ function opArray(
     if (!Number.isFinite(rowSpacing) || !Number.isFinite(columnSpacing)) {
       throw new EntityOpError("array spacings must be finite", "bad_input");
     }
+    // COMPAT-CAD-008 (Issue #5, preparation spike): negative spacing is not
+    // defined by the frozen transform model (spacing is a distance, not a
+    // signed direction) — fail typed instead of silently mirroring the
+    // pattern. Zero spacing remains legal: the members stay uniquely
+    // canonical (distinct minted ids over identical geometry — the entity
+    // model permits exact duplicates; pinned by compat-cad-008 tests).
+    if (rowSpacing < 0 || columnSpacing < 0) {
+      throw new EntityOpError(
+        "array spacings must be non-negative (signed spacing is not defined by the frozen transform model)",
+        "bad_input",
+      );
+    }
     const copies = rows * columns - 1;
     if (copies <= 0) {
       return {
@@ -948,12 +960,25 @@ function opArray(
     throw new EntityOpError("polar array requires a finite center", "bad_input");
   }
   const items = op.items ?? 2;
-  if (!Number.isInteger(items) || items < 2) {
-    throw new EntityOpError("polar array requires an integer item count >= 2 (including the source)", "bad_input");
+  // COMPAT-CAD-008 (Issue #5, preparation spike): a count of 1 is the
+  // deterministic no-op the semantic contract requires (the source IS the
+  // single occurrence — no duplicate may be fabricated). Counts below 1 and
+  // non-integers remain typed bad_input.
+  if (!Number.isInteger(items) || items < 1) {
+    throw new EntityOpError("polar array requires an integer item count >= 1 (including the source)", "bad_input");
   }
   const span = op.angleSpan ?? Math.PI * 2;
   if (!Number.isFinite(span) || span <= 0) {
     throw new EntityOpError("polar array angle span must be > 0", "bad_input");
+  }
+  if (items === 1) {
+    return {
+      edit: null,
+      summary: "polar array is a single item (1) — nothing to create",
+      createdCount: 0,
+      modifiedCount: 0,
+      removedCount: 0,
+    };
   }
   const full = span >= Math.PI * 2 - 1e-9;
   const step = full ? Math.PI * 2 / items : span / (items - 1);
