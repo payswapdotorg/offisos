@@ -3,6 +3,7 @@
 **Status:** ACTIVE  
 **Architecture:** ConstructionOS Architecture v1.1 — FROZEN  
 **Latest verified product main:** `eb3406340df08d1ab39e771c40681d6248840d2e` (COMPAT-CAD-006; CC007 is merged but its mandatory post-merge verification is externally blocked)  
+**Latest verified infrastructure foundation:** **INFRA-002** — merge `f3d8a02f7c739c77ddfaa5aea93466aab3230fc0`, verified by Architect at `d436fa72080782e6506715e656757e09acfd2348`  
 **Current product benchmark baseline:** CAD-BENCH-RW-001 — **18/100** at product revision `f4a1a735dfbfa58d9b24197ffc1808d4cdf84db6`  
 **Current active execution:** **COMPAT-CAD-007 verification hold** — GitHub PR **#3** merged at `9232c90e4340475bcf5c6818a30d9748ea04330a`  
 **Current successor preparation:** **COMPAT-CAD-008** — GitHub Issue **#5**, governance state **DRAFT** only  
@@ -164,3 +165,15 @@ Known governance debt item repaired: `governance/work-items/CAD-PARITY-020.json`
 ## 14. Relationship to the broader ConstructionOS roadmap
 
 The CAD parity program remains a bounded product track within frozen ConstructionOS Architecture v1.1. Infrastructure work may proceed on its separate dependency graph; it does not silently alter CAD sequencing. The serverless persistence/session problem remains explicitly owned by the infrastructure/persistence workstream and COMPAT-CAD-011.
+
+## 15. Verified infrastructure milestone — INFRA-002
+
+**GitHub Issue:** #2  
+**Pull request:** #4  
+**Merge:** `f3d8a02f7c739c77ddfaa5aea93466aab3230fc0`  
+**Architect verification finalization:** `d436fa72080782e6506715e656757e09acfd2348`  
+**Result:** **VERIFIED**
+
+INFRA-002 delivered the authoritative Neon/PostgreSQL DocumentStore foundation with deterministic memory and PostgreSQL backends, cross-backend byte-identity fixtures, deterministic CAS/idempotency behavior, fail-closed corruption handling, and real-PostgreSQL CI. The final exact-head `infra-002` workflow run `33974833492` completed successfully for both workspace and real-PostgreSQL jobs. The standing governance workflow failure was the pre-existing `CAD-PARITY-020` missing-dependency defect and was separately repaired on main.
+
+INFRA-002 is infrastructure-track completion and does **not** change the CAD benchmark score or the legal dependency sequence for COMPAT-CAD-007/008.
