@@ -3,8 +3,8 @@
     {
       "work_item": "RESEARCH-CAD-001",
       "from_issue": 1,
-      "to_issue": 6,
-      "reason": "Fork-local issue #1 is now COMPAT-CAD-007; preserve the historical source issue in the record while binding this work item to its dedicated fork issue #6."
+      "to_issue": 10,
+      "reason": "Fork-local issue #1 is now COMPAT-CAD-007; preserve the historical source issue in the record while binding this work item to dedicated fork issue #10."
     },
     {
       "work_item": "RESEARCH-CAD-002",
