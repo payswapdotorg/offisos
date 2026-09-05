@@ -1,15 +1,17 @@
-# INFRA-002 — ZAI Implementation Directive
+# INFRA-002 — ZAI Implementation Directive (fork resubmission)
 
 ## Role
 
-You are `z-ai-infra-agent`, the implementation worker for **INFRA-002 — Neon PostgreSQL foundation (authoritative transactional store)** in `pectoraux/offisos`.
+You are `z-ai-infra-agent`, the implementation worker for **INFRA-002 — Neon PostgreSQL foundation (authoritative transactional store)** in `payswapdotorg/offisos`.
 
 The Architect has verified INFRA-001. Implement only the frozen scope below and stop at `PR_OPEN / VERIFYING`. Do not self-approve or self-verify.
 
 ## Authority and dependency
 
+- Repository: `payswapdotorg/offisos`.
+- GitHub issue: **#2**.
 - Architecture: **ConstructionOS Architecture v1.1 — FROZEN**.
-- Predecessor: **INFRA-001 VERIFIED** at `0e94680bcedc20bcfb4d4d51eeefb089d7e45665`.
+- Predecessor: **INFRA-001 VERIFIED** in the carried-forward infrastructure architecture baseline.
 - Primary specification: `governance/work-items/INFRA-002.json` and `docs/infrastructure/offisos-infrastructure-roadmap.md`.
 - Persistence precedent: existing P016 port/adapters under `app/src/persist/*` and the verified INFRA-001 persistence model.
 
@@ -27,6 +29,14 @@ Create the authoritative Neon PostgreSQL persistence foundation without changing
 6. Add deterministic tests for normal writes, CAS conflicts, retries/idempotency and failure behavior.
 7. Add CI coverage against a real PostgreSQL service using the repository's existing CI conventions.
 
+## Mandatory persistence-integrity remediation
+
+The previous execution on the old remote was reviewed by the Architect and found two defects. The fork resubmission must include these corrected semantics from the start:
+
+- PostgreSQL `body_bytes` must be `BIGINT NOT NULL`; defensive row mapping must reject a stored NULL or malformed/negative value with typed `DocumentStoreError("document_corrupt", ...)` rather than guessing.
+- `persistedView()` must fail closed with typed `document_corrupt` when a version references a `body_ref` with no corresponding content-addressed body. A direct `fetchBody()` lookup may continue to return `null` for a missing body.
+- Deterministic tests must cover both corruption cases, including a real-PostgreSQL proof for the adapter-specific path.
+
 ## Acceptance gates
 
 - Memory and Postgres produce byte-identical canonical persisted views for the fixture set.
@@ -35,6 +45,7 @@ Create the authoritative Neon PostgreSQL persistence foundation without changing
 - Real PostgreSQL is exercised in CI; tests do not only mock the adapter.
 - Missing production configuration fails closed with explicit typed behavior.
 - Existing v1 request/transport behavior remains unchanged.
+- The corruption invariants above are proven locally and in the real-PostgreSQL proof.
 - No R2 work, no WireEnvelope v2, no stateless request migration, no Redis integration, no worker service and no production environment wiring.
 
 ## Architecture constraints
@@ -49,6 +60,7 @@ Before returning:
 - deterministic automated-test result;
 - exact CI run including real PostgreSQL service;
 - reproducible cross-backend test script/output;
+- corruption-proof evidence for `body_bytes` and missing bodies;
 - schema/governance validation result;
 - changed-file list proving scope containment.
 
