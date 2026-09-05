@@ -287,9 +287,16 @@ function collectValue(
 
   // CAD-PARITY-003: option sub-prompt collection — the value is stored
   // under the option key and the flow returns to the real step.
+  // COMPAT-CAD-006 (Issue #138): ZOOM's Scale factor is the whole command —
+  // once the factor text is captured the command completes immediately
+  // (AutoCAD: "Enter a scale factor (nX or nXP): 2" → the view zooms; there
+  // is no further point prompt).
   if (state.optionCapture !== null) {
     const key = optionValueKey(state.optionCapture.stepId, state.optionCapture.keyword);
     const values: Record<string, PromptValue> = { ...state.values, [key]: value };
+    if (cmd.id === "zoom" && state.optionCapture.keyword === "S") {
+      return completeCommand({ ...state, values, optionCapture: null }, cmd, echo, ctx);
+    }
     const next: PromptEngineState = { ...state, values, optionCapture: null };
     return { state: next, output: activeOutput(next, echo) };
   }
@@ -464,6 +471,19 @@ function applyOptionKeyword(
     return { state, output: activeOutput(state, [option.unsupported]) };
   }
 
+  // COMPAT-CAD-006 (Issue #138): ZOOM's acting mode keywords (All/Extents/
+  // Previous — every casing variant) complete the command IMMEDIATELY with
+  // the mode stored (the POLYLINE-Close precedent: an option that IS the
+  // whole command). AutoCAD semantics: typing E at the ZOOM prompt zooms
+  // extents right away — no further point prompts. Window (W) is the
+  // default corner mode, so it keeps the flag re-prompt behavior below.
+  // (Checked BEFORE the generic flag branch so the acting keywords win.)
+  if (cmd.id === "zoom" && option.flag === true && ZOOM_ACT_KEYWORDS.has(option.keyword.toUpperCase())) {
+    const key = optionValueKey(step.id, option.keyword);
+    const values: Record<string, PromptValue> = { ...state.values, [key]: { kind: "text", text: option.keyword.toUpperCase() } };
+    return completeCommand({ ...state, values, optionCapture: null }, cmd, echoKeyword(option), ctx);
+  }
+
   // CAD-PARITY-005: a FLAG option — the keyword itself is the value: it is
   // stored under the option key and the step re-prompts (DIMLINEAR's
   // Horizontal/Vertical). The stored text is the keyword, uppercase.
@@ -503,6 +523,11 @@ function applyOptionKeyword(
 function echoKeyword(option: { readonly keyword: string; readonly label: string }): readonly string[] {
   return [`${option.keyword} — ${option.label}`];
 }
+
+/** COMPAT-CAD-006 (Issue #138): ZOOM option keywords that ACT (complete the
+ *  command immediately) rather than re-prompt: All/Extents/Previous. Window
+ *  (W/WINDOW) stays a plain flag — window picking is the default mode. */
+const ZOOM_ACT_KEYWORDS: ReadonlySet<string> = new Set(["A", "ALL", "E", "EXT", "EXTENTS", "P", "PREVIOUS"]);
 
 // ---------------------------------------------------------------------------
 // The reducer.
@@ -767,9 +792,15 @@ export function applyPromptEvent(
       // A command token typed while a command runs starts the new command
       // (canceling the current one) — except inside text steps, where the
       // token is legitimate input (e.g. a story named "Wall").
+      // COMPAT-CAD-006 (Issue #138): the ENTITY-step "P" (previous
+      // selection) convention WINS over the PAN command's P alias — the
+      // shipped selection semantics stay intact; PAN starts by its full
+      // name, or by P whenever no entity/entityPoint step is running.
       const runningStep = currentStep(state);
       if (runningStep !== null && runningStep.kind !== "text") {
-        const switchTarget = resolveCommand(text);
+        const prevSelectionToken =
+          (runningStep.kind === "entity" || runningStep.kind === "entityPoint") && text.toUpperCase() === "P";
+        const switchTarget = prevSelectionToken ? null : resolveCommand(text);
         if (switchTarget !== null) {
           const started = startCommand({ ...IDLE_PROMPT_STATE, lastCommandId: state.lastCommandId }, switchTarget, ctx);
           return { state: started.state, output: { ...started.output, lines: ["*Cancel*", ...started.output.lines] } };
