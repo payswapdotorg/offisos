@@ -7,7 +7,7 @@ GitHub issue: `#5`
 Governance record: `governance/work-items/COMPAT-CAD-008.json`  
 Architecture: ConstructionOS Architecture v1.1 — **FROZEN**  
 Dependency: `COMPAT-CAD-007` — **VERIFIED** at physical merge `9232c90e4340475bcf5c6818a30d9748ea04330a`  
-Current repository main at authorization repair: `f1d82dbfcd14e5e9a6386fe6a0863dd030720eaa`  
+Authorization repair revision: `f1d82dbfcd14e5e9a6386fe6a0863dd030720eaa`  
 State: **ASSIGNED — IMPLEMENTATION AUTHORIZED**  
 Implementation agent: `z-ai-implementation-agent`  
 Implementation stop gate: **PR_OPEN / VERIFYING**
@@ -16,7 +16,7 @@ This is the current implementation directive. Earlier CC008 preparation-only com
 
 ## 1. Legal lifecycle boundary
 
-The repository state already records the legal Architect release `DRAFT → READY → ASSIGNED`. The implementation agent may now perform the implementer-owned transition `ASSIGNED → IMPLEMENTING`, implement the frozen scope, then advance only through the implementer-owned path to `PR_OPEN → VERIFYING`.
+The repository state records the legal Architect release `DRAFT → READY → ASSIGNED`. The implementation agent may now perform the implementer-owned transition `ASSIGNED → IMPLEMENTING`, implement the frozen scope, then advance only through the implementer-owned path to `PR_OPEN → VERIFYING`.
 
 The implementation agent **must stop at `PR_OPEN / VERIFYING`**. It must not self-approve, merge, or verify the work item. The Architect owns independent review, approval, merge, post-merge evidence reconciliation and final `MERGED → VERIFIED`.
 
@@ -34,9 +34,9 @@ The existing preparation branch is implementation input only:
 
 `work/compat-cad-008-array-preparation`
 
-The preparation spike was created before CC007 verification. Reconcile its useful implementation/test work onto the then-current `main` before producing the implementation PR. Do not treat the old preparation base or commit `284bc28` as the current product revision.
+The preparation spike was created before CC007 verification. Reconcile its useful implementation/test work onto the **current `main` ref at implementation start** before producing the implementation PR. Do not treat the old preparation base or commit `284bc28` as the current product revision.
 
-Current authorization must be reconciled against current `main` rather than replaying stale lifecycle assumptions.
+The authorization repair revisions (`f1d82db...` and later documentation-only commits) are governance history, not a product baseline for implementation. The worker must resolve the actual `main` ref before starting work.
 
 ## 4. Frozen architecture and ownership boundaries
 
