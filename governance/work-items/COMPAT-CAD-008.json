@@ -1,0 +1,48 @@
+{
+  "id":"COMPAT-CAD-008",
+  "title":"Arrays, materialization, rendering and selectability",
+  "issue":5,
+  "architecture_version":"1.1",
+  "requirements":["CAD-001"],
+  "dependencies":["COMPAT-CAD-007"],
+  "objective":"Implement the bounded ARRAY capability owned by the CAD parity roadmap: deterministic array semantics, materialized members, rendering and selectability, canonical identities, undo/redo and Web/Electron parity, without changing Construction Graph authority or frozen Architecture v1.1 boundaries.",
+  "acceptance_criteria":[
+    "Rectangular, polar and path-style array workflows required by the benchmark are explicitly specified and unsupported variants fail typed rather than fabricating geometry.",
+    "Array members are canonical materialized entities with deterministic stable identities and deterministic ordering; rendering and selection expose the same canonical members.",
+    "Array creation is one atomic canonical revision and integrates with the existing undo/redo model without phantom members or stale selection.",
+    "Editing or deleting source/member geometry follows an explicit, deterministic policy and never creates hidden canonical duplicates.",
+    "Web and Electron execute the same engine-free semantic command path and converge on equivalent affected serialized state.",
+    "G3/G5/G6/G7 browser workflows exercise array creation, visibility and selection through the real UI, including negative/unsupported cases.",
+    "COMPAT-CAD-005, COMPAT-CAD-006 and COMPAT-CAD-007 verified behavior remains regression-green for selection, transforms, command prompts, canonical revisions and no-mutation guarantees.",
+    "Architecture v1.1, Construction Graph authority and engine/adapter boundaries remain unchanged unless an approved ACR is explicitly required."
+  ],
+  "non_goals":[
+    "No blocks/inserts/attributes/symbol libraries; COMPAT-CAD-009 owns these.",
+    "No hatch, annotation, dimension or inspection expansion; COMPAT-CAD-010 owns these.",
+    "No durable SAVE/OPEN or multi-instance persistence; COMPAT-CAD-011/infrastructure owns persistence completion.",
+    "No DXF import/export; COMPAT-CAD-012 owns interoperability.",
+    "No layout/sheet viewport identity; COMPAT-CAD-013 owns layouts.",
+    "No architecture change without an ACR.",
+    "No benchmark score increase claim without a measured benchmark rerun."
+  ],
+  "risk_assumptions":[
+    "COMPAT-CAD-007 is the required semantic and selection baseline, but its post-merge verification is currently externally blocked by CI and therefore this record remains DRAFT until that dependency is VERIFIED.",
+    "The existing engine-free shared geometry and canonical revision model are sufficient for materialized arrays; any native-engine dependency discovered during implementation must be isolated behind the existing adapter boundary.",
+    "Array previews remain presentation state until a single canonical commit.",
+    "Materialization must not create an application-local competing authority for shared objects.",
+    "The known CAD-PARITY-020 governance defect remains pre-existing and must not be silently changed by CC008."
+  ],
+  "evidence_requirements":[
+    "Deterministic automated tests for each supported array mode, invalid inputs, no-mutation-before-commit and typed unsupported behavior.",
+    "Deterministic identity/order and byte-serialization fixtures for materialized members.",
+    "Web/Electron parity evidence over the affected semantic command stream.",
+    "Regression evidence for COMPAT-CAD-005, COMPAT-CAD-006 and COMPAT-CAD-007 behavior.",
+    "Exact-head CI evidence with any pre-existing repository failures isolated honestly.",
+    "Exact-head deployment and independent browser-agent evidence for the required array Golden workflows.",
+    "Revision-bound governance evidence sufficient for an independent Architect to verify the work item."
+  ],
+  "state":"DRAFT",
+  "transitions":[],
+  "evidence":[],
+  "decisions":[]
+}
