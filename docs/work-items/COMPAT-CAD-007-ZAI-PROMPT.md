@@ -6,8 +6,8 @@ You are the implementation worker for Offisos. Implement **only** the frozen COM
 Do not approve, merge, or verify your own work. The Architect owns ARCHITECT_REVIEW → APPROVED → MERGED → VERIFIED.
 
 ## Repository / authority
-- Repository: `pectoraux/offisos`
-- GitHub issue: **#142**
+- Repository: `payswapdotorg/offisos`
+- GitHub issue: **#1**
 - Work-item record: `governance/work-items/COMPAT-CAD-007.json`
 - Architecture: ConstructionOS Architecture **v1.1 — FROZEN**
 - Verified predecessor: COMPAT-CAD-006 at merge `eb3406340df08d1ab39e771c40681d6248840d2e`
