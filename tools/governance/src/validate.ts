@@ -39,6 +39,17 @@ import { fail, pass } from "./state-machine.js";
 
 const TOOL = "offisos-governance/0.1.0";
 
+type IssueMigration = {
+  work_item: string;
+  from_issue: number;
+  to_issue: number;
+  reason: string;
+};
+
+type IssueMigrationFile = {
+  migrations: IssueMigration[];
+};
+
 export interface ValidateOutcome {
   report: GovernanceReport;
   exitCode: number;
@@ -82,6 +93,89 @@ function validateProtectedPathsManifest(file: ProtectedPathsFile, versions: Arch
   return details.length === 0
     ? pass("protected-paths/manifest", `Protected-path manifest valid (${file.patterns.length} pattern(s)) for architecture '${file.architecture_version}'.`)
     : fail("protected-paths/manifest", "Protected-path manifest is invalid.", details);
+}
+
+function validateIssueMigrations(
+  file: IssueMigrationFile,
+  workItems: Map<string, WorkItemRecord>,
+): CheckResult {
+  const details: string[] = [];
+  const targetOwners = new Map<number, string>();
+  const seenWorkItems = new Set<string>();
+  const seenSources = new Map<number, string>();
+
+  if (!Array.isArray(file.migrations)) {
+    return fail("registry/issue-migrations", "Issue migration registry must contain a migrations array.", []);
+  }
+
+  for (const migration of file.migrations) {
+    const record = workItems.get(migration.work_item);
+    if (record === undefined) {
+      details.push(`migration work item '${migration.work_item}' does not resolve to a registered work item.`);
+      continue;
+    }
+    if (record.demo === true) {
+      details.push(`migration work item '${migration.work_item}' is a demo fixture.`);
+    }
+    if (!Number.isInteger(migration.from_issue) || migration.from_issue <= 0) {
+      details.push(`migration '${migration.work_item}' has invalid from_issue '${migration.from_issue}'.`);
+    }
+    if (!Number.isInteger(migration.to_issue) || migration.to_issue <= 0) {
+      details.push(`migration '${migration.work_item}' has invalid to_issue '${migration.to_issue}'.`);
+    }
+    if (migration.from_issue === migration.to_issue) {
+      details.push(`migration '${migration.work_item}' must change the issue number.`);
+    }
+    if (record.issue !== migration.from_issue) {
+      details.push(
+        `migration '${migration.work_item}' declares source issue #${migration.from_issue}, but the record carries issue #${record.issue}.`,
+      );
+    }
+    if (migration.reason.trim().length === 0) {
+      details.push(`migration '${migration.work_item}' must explain why the issue number moved.`);
+    }
+    if (seenWorkItems.has(migration.work_item)) {
+      details.push(`work item '${migration.work_item}' is listed more than once in issue migrations.`);
+    }
+    seenWorkItems.add(migration.work_item);
+
+    const sourceOwner = seenSources.get(migration.from_issue);
+    if (sourceOwner !== undefined && sourceOwner !== migration.work_item) {
+      details.push(`source issue #${migration.from_issue} is claimed by both '${sourceOwner}' and '${migration.work_item}'.`);
+    }
+    seenSources.set(migration.from_issue, migration.work_item);
+
+    const targetOwner = targetOwners.get(migration.to_issue);
+    if (targetOwner !== undefined && targetOwner !== migration.work_item) {
+      details.push(`target issue #${migration.to_issue} is claimed by both '${targetOwner}' and '${migration.work_item}'.`);
+    }
+    targetOwners.set(migration.to_issue, migration.work_item);
+  }
+
+  const migratedTargetIssues = new Set(targetOwners.keys());
+  for (const record of workItems.values()) {
+    if (record.demo === true) continue;
+    const targetOwner = targetOwners.get(record.issue);
+    if (targetOwner !== undefined && targetOwner !== record.id) {
+      details.push(
+        `migrated target issue #${record.issue} for '${targetOwner}' collides with current issue ownership of '${record.id}'.`,
+      );
+    }
+  }
+  for (const target of migratedTargetIssues) {
+    const owner = targetOwners.get(target);
+    if (owner === undefined) continue;
+    for (const migration of file.migrations) {
+      if (migration.work_item === owner) continue;
+      if (migration.from_issue === target) {
+        details.push(`migration target issue #${target} is also used as a source issue by '${migration.work_item}'.`);
+      }
+    }
+  }
+
+  return details.length === 0
+    ? pass("registry/issue-migrations", `${file.migrations.length} historical issue migration(s) are explicit, unique and source/target consistent.`)
+    : fail("registry/issue-migrations", "Historical issue migration registry is invalid.", details);
 }
 
 export function validateRepository(root: string): ValidateOutcome {
@@ -207,19 +301,29 @@ export function validateRepository(root: string): ValidateOutcome {
     registry.set(record.id, record);
   }
 
+  const migrationFile = readJson<IssueMigrationFile>(join(root, "governance", "issue-migrations.json"));
+  checks.push(validateIssueMigrations(migrationFile, allWorkItems));
+
   const filenameMismatches: string[] = [];
   const duplicateIssues: string[] = [];
   const issueOwners = new Map<number, string>();
+  const issueMigrations = new Map<string, IssueMigration>();
+  for (const migration of migrationFile.migrations) issueMigrations.set(migration.work_item, migration);
+
   for (const { file, record } of loaded) {
     if (file !== `${record.id}.json`) {
       filenameMismatches.push(`'${file}' contains record id '${record.id}'; expected file name '${record.id}.json'.`);
     }
     if (record.demo === true) continue;
-    const previousOwner = issueOwners.get(record.issue);
+    const migration = issueMigrations.get(record.id);
+    const effectiveIssue = migration?.to_issue ?? record.issue;
+    const previousOwner = issueOwners.get(effectiveIssue);
     if (previousOwner !== undefined && previousOwner !== record.id) {
-      duplicateIssues.push(`issue #${record.issue} is referenced by both '${previousOwner}' and '${record.id}'.`);
+      duplicateIssues.push(
+        `effective issue #${effectiveIssue} is referenced by both '${previousOwner}' and '${record.id}'.`,
+      );
     }
-    issueOwners.set(record.issue, record.id);
+    issueOwners.set(effectiveIssue, record.id);
   }
   checks.push(
     duplicateIds.length === 0
@@ -233,7 +337,7 @@ export function validateRepository(root: string): ValidateOutcome {
   );
   checks.push(
     duplicateIssues.length === 0
-      ? pass("registry/unique-issues", "GitHub issues map to at most one real work-item record.")
+      ? pass("registry/unique-issues", "Current GitHub issues map to at most one real work-item record; historical aliases are resolved through explicit migrations.")
       : fail("registry/unique-issues", "GitHub issue numbers are reused across real work-item records.", duplicateIssues),
   );
 
