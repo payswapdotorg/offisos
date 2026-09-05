@@ -1,7 +1,7 @@
 {
   "id": "COMPAT-CAD-007",
   "title": "Core editing and deterministic object-selection workflows",
-  "issue": 142,
+  "issue": 1,
   "architecture_version": "1.1",
   "requirements": ["CAD-001"],
   "dependencies": ["COMPAT-CAD-006"],
@@ -52,7 +52,7 @@
       "role": "architect",
       "reason": "COMPAT-CAD-006 is VERIFIED at merge eb340634; the dependency-ordered Phase 3 CAD editing slice is bounded by the authoritative roadmap and Issue #142.",
       "references": {
-        "issue": 142,
+        "issue": 1,
         "predecessor": "COMPAT-CAD-006",
         "verified_revision": "eb3406340df08d1ab39e771c40681d6248840d2e"
       }
@@ -65,7 +65,7 @@
       "role": "architect",
       "reason": "Authorize z-ai-implementation-agent to implement the frozen COMPAT-CAD-007 scope and stop at PR_OPEN/VERIFYING.",
       "references": {
-        "issue": 142,
+        "issue": 1,
         "assignee": "z-ai-implementation-agent",
         "prompt": "docs/work-items/COMPAT-CAD-007-ZAI-PROMPT.md"
       }
