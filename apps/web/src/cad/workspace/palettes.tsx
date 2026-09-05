@@ -733,6 +733,16 @@ function DisplayEditors(props: {
           {(p.snapshot?.layers ?? []).map((l: LayerRecord) => (
             <option key={l.id} value={l.id}>{l.name}</option>
           ))}
+          {/* COMPAT-CAD-005: an explicit unknown-layer option — the entity's
+              layer id is not in the document layer table (CAD-BENCH-RW-001
+              DEF-002: the combobox used to silently render the raw internal
+              id as if it were a layer name). Never selectable: switching
+              away is one-way (honest), like AutoCAD's missing-layer row. */}
+          {props.layerId !== undefined && !(p.snapshot?.layers ?? []).some((l: LayerRecord) => l.id === props.layerId) && (
+            <option value={props.layerId} disabled>
+              unknown layer ({props.layerId})
+            </option>
+          )}
         </select>
       </PropRow>
     </>

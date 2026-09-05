@@ -49,6 +49,7 @@ import {
   type GripEditResult,
 } from "@offisos/cad-app-shell/workspace";
 import {
+  pickApertureWorld,
   pickAt as pickAtGeom,
   resolveSnap as resolveSnapPrecision,
   selectWindow,
@@ -168,6 +169,14 @@ export interface ModelCanvasProps {
   readonly onCommandStart: (commandId: string) => void;
   /** Increments when ZOOMEXTENTS runs — the canvas fits the visible model. */
   readonly zoomExtentsSignal: number;
+  /** COMPAT-CAD-005: increments when the document is swapped (NEW/OPEN) —
+  *  the canvas resets pan/zoom to the (new) document's persisted view; the
+  *  previous document's viewport must never survive a document swap. */
+  readonly viewResetSignal: number;
+  /** COMPAT-CAD-005: a pick MISS during a command select phase is visible
+   *  feedback ("0 found"), never a silent drop (CAD-BENCH-RW-001 DEF-006:
+   *  clicks vanished without a trace, leaving the prompt unchanged). */
+  readonly onPickMiss?: (world: Vec2) => void;
   /** CAD-PARITY-004: contextual layer/palette actions from the canvas
    *  right-click menu (dispatched by the shell through the App API). */
   readonly onContextAction: (action: string, payload?: unknown) => void;
@@ -260,6 +269,29 @@ export function ModelCanvas(props: ModelCanvasProps): React.JSX.Element {
       })();
     }
   }, [snapshot]);
+
+  // COMPAT-CAD-005: reset the view when the document is swapped (NEW/OPEN) —
+  // restores the incoming document's persisted view (or the default framing
+  // when it has none). Keyed on the shell's viewResetSignal so the reset is
+  // synchronous with the document swap, not the next snapshot arrival.
+  // (Applied after the await boundary like the initial restore above — the
+  // shell's document-swap state updates land in the same commit.)
+  const lastViewReset = React.useRef(props.viewResetSignal);
+  React.useEffect(() => {
+    if (props.viewResetSignal === lastViewReset.current) return;
+    lastViewReset.current = props.viewResetSignal;
+    const view = snapshot?.draftingSettings?.view;
+    void (async () => {
+      await Promise.resolve();
+      if (view !== undefined) {
+        setPan({ x: view.pan[0], y: view.pan[1] });
+        setZoom(view.zoom);
+      } else {
+        setPan({ x: -20, y: -20 });
+        setZoom(6);
+      }
+    })();
+  }, [props.viewResetSignal, snapshot]);
 
   // Track the canvas size (pure transforms below read state, not refs).
   React.useEffect(() => {
@@ -495,7 +527,10 @@ export function ModelCanvas(props: ModelCanvasProps): React.JSX.Element {
    *  distance wins; ties break by element id. */
   const pickEntityAt = React.useCallback(
     (world: Vec2): { id: string; d: number } | null => {
-      const aperture = 8 / zoom;
+      // COMPAT-CAD-005: the DECLARED pickbox (see precision-2d) — the one
+      // deterministic screen-space tolerance for every entity pick, converted
+      // to world units through the view transform.
+      const aperture = pickApertureWorld(zoom);
       const probe = { x: world[0], y: world[1] };
       const canonical = pickAtGeom(geomEntities, probe, aperture);
       let canonicalBest: { id: string; d: number } | null = null;
@@ -727,7 +762,8 @@ export function ModelCanvas(props: ModelCanvasProps): React.JSX.Element {
         const picked = pickEntityAt(world);
         const hit = picked !== null ? (snapshot?.elements ?? []).find((el) => el.id === picked.id) : undefined;
         if (hit !== undefined) props.onPickEntity(toEntityPick(hit));
-        return; // miss: the prompt stays (the command line shows guidance)
+        else props.onPickMiss?.(world); // COMPAT-CAD-005: visible "0 found" feedback
+        return;
       }
       // CAD-PARITY-003 entityPoint step: pick the object under the cursor AND
       // record the RAW pick point (the location selects the piece/corner to
@@ -737,8 +773,10 @@ export function ModelCanvas(props: ModelCanvasProps): React.JSX.Element {
         if (picked !== null) {
           const hit = (snapshot?.elements ?? []).find((el) => el.id === picked.id);
           if (hit !== undefined) props.onPickEntityPoint(toEntityPick(hit), world);
+        } else {
+          props.onPickMiss?.(world); // COMPAT-CAD-005: visible "0 found" feedback
         }
-        return; // miss: the prompt stays
+        return;
       }
       const { point } = constrainedSnapped(world, e.shiftKey);
       if (activeStep.kind === "point") props.onPickPoint(point);
@@ -749,7 +787,7 @@ export function ModelCanvas(props: ModelCanvasProps): React.JSX.Element {
     // Selection mode.
     const picked = pickEntityAt(world);
     if (picked !== null) {
-      const hits = hitTest(world, 8 / zoom, visibleEntities);
+      const hits = hitTest(world, pickApertureWorld(zoom), visibleEntities);
       if (hits.length > 0 && hits[0]!.id === picked.id) {
         // Legacy pickability — stacked-hit cycling preserved.
         const last = lastClickRef.current;
@@ -757,7 +795,7 @@ export function ModelCanvas(props: ModelCanvasProps): React.JSX.Element {
         let chosen = hits[0]!.id;
         let index = 0;
         if (last !== null && now - last.at < 700 && Math.hypot(last.screen[0] - sx, last.screen[1] - sy) < 6) {
-          const cycled = cyclePick(world, 8 / zoom, visibleEntities, last.index);
+          const cycled = cyclePick(world, pickApertureWorld(zoom), visibleEntities, last.index);
           if (cycled !== null) {
             chosen = cycled.id;
             index = cycled.index;

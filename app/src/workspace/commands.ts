@@ -44,6 +44,7 @@ import type {
   PromptStep,
   PromptValue,
 } from "./types.js";
+import { layerNameOrId } from "./types.js";
 
 // ---------------------------------------------------------------------------
 // Registry types.
@@ -308,7 +309,7 @@ export const WORKSPACE_COMMANDS: readonly WorkspaceCommand[] = [
             },
           },
         ],
-        [`LINE: (${fmtPoint(from)}) → (${fmtPoint(to)}) on layer '${ctx.activeLayer}'.`],
+        [`LINE: (${fmtPoint(from)}) → (${fmtPoint(to)}) on layer '${layerNameOrId(ctx, ctx.activeLayer)}'.`],
       );
     },
   },
@@ -354,7 +355,7 @@ export const WORKSPACE_COMMANDS: readonly WorkspaceCommand[] = [
             },
           },
         ],
-        [`POLYLINE: ${vertices.length} vertices${closed ? " (closed)" : ""} on layer '${ctx.activeLayer}'.`],
+        [`POLYLINE: ${vertices.length} vertices${closed ? " (closed)" : ""} on layer '${layerNameOrId(ctx, ctx.activeLayer)}'.`],
       );
     },
   },
@@ -384,7 +385,7 @@ export const WORKSPACE_COMMANDS: readonly WorkspaceCommand[] = [
             },
           },
         ],
-        [`CIRCLE: center (${fmtPoint(center)}), radius ${trimNum(radius)} on layer '${ctx.activeLayer}'.`],
+        [`CIRCLE: center (${fmtPoint(center)}), radius ${trimNum(radius)} on layer '${layerNameOrId(ctx, ctx.activeLayer)}'.`],
       );
     },
   },
@@ -469,7 +470,7 @@ export const WORKSPACE_COMMANDS: readonly WorkspaceCommand[] = [
             },
           },
         ],
-        [`RECTANGLE: (${fmtPoint(corner1)}) → (${fmtPoint(corner2)}) on layer '${ctx.activeLayer}'.`],
+        [`RECTANGLE: (${fmtPoint(corner1)}) → (${fmtPoint(corner2)}) on layer '${layerNameOrId(ctx, ctx.activeLayer)}'.`],
       );
     },
   },

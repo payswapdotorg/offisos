@@ -53,6 +53,7 @@ import type {
   PromptStep,
   PromptValue,
 } from "./types.js";
+import { layerNameOrId } from "./types.js";
 import { optionValue } from "./prompt-engine.js";
 import { geomFromElement } from "./geometry/bridge.js";
 import { lineLine } from "./geometry/math2d.js";
@@ -252,7 +253,7 @@ export const COMMANDS_ANNO: readonly WorkspaceCommand[] = [
           },
         ],
         [
-          `TEXT: "${value}" at (${fmtPoint(start)}), height ${trimNum(height)}${fixed > 0 ? ` (fixed by style '${ctx.currentTextStyle}')` : ""}, rotation ${trimNum(rotation / DEG)}° on layer '${ctx.activeLayer}'.`,
+          `TEXT: "${value}" at (${fmtPoint(start)}), height ${trimNum(height)}${fixed > 0 ? ` (fixed by style '${ctx.currentTextStyle}')` : ""}, rotation ${trimNum(rotation / DEG)}° on layer '${layerNameOrId(ctx, ctx.activeLayer)}'.`,
         ],
       );
     },
@@ -301,7 +302,7 @@ export const COMMANDS_ANNO: readonly WorkspaceCommand[] = [
           },
         ],
         [
-          `MTEXT: ${value.split("\n").length} line(s) at (${fmtPoint(corner)}), width ${trimNum(width)}, height ${trimNum(height)}${fixed > 0 ? ` (fixed by style '${ctx.currentTextStyle}')` : ""} on layer '${ctx.activeLayer}'.`,
+          `MTEXT: ${value.split("\n").length} line(s) at (${fmtPoint(corner)}), width ${trimNum(width)}, height ${trimNum(height)}${fixed > 0 ? ` (fixed by style '${ctx.currentTextStyle}')` : ""} on layer '${layerNameOrId(ctx, ctx.activeLayer)}'.`,
         ],
       );
     },
@@ -608,7 +609,7 @@ export const COMMANDS_ANNO: readonly WorkspaceCommand[] = [
           },
         ],
         [
-          `LEADER: ${pts.length} points${value !== undefined ? `, annotation "${value}"` : " (no text)"} on layer '${ctx.activeLayer}'.`,
+          `LEADER: ${pts.length} points${value !== undefined ? `, annotation "${value}"` : " (no text)"} on layer '${layerNameOrId(ctx, ctx.activeLayer)}'.`,
         ],
       );
     },
@@ -650,7 +651,7 @@ export const COMMANDS_ANNO: readonly WorkspaceCommand[] = [
           },
         ],
         [
-          `MLEADER: (${fmtPoint(arrow)}) → (${fmtPoint(landing)}), ${value.split("\n").length} content line(s) on layer '${ctx.activeLayer}'.`,
+          `MLEADER: (${fmtPoint(arrow)}) → (${fmtPoint(landing)}), ${value.split("\n").length} content line(s) on layer '${layerNameOrId(ctx, ctx.activeLayer)}'.`,
         ],
       );
     },

@@ -105,17 +105,30 @@ test("selection is NOT in the snapshot — hosts with different selections still
   );
 });
 
-test("selection survives undo/redo (cleared only on open/create)", async () => {
+// COMPAT-CAD-005 (Issue #135): this pinned semantic was DELIBERATELY CHANGED
+// from "selection survives undo/redo" to "selection is pruned to live
+// elements" — the CAD-BENCH-RW-001 production black-box benchmark (PR #134)
+// proved the unfiltered selection desyncs the status bar ("Sel 1") from the
+// Properties palette ("No selection") the moment UNDO/ERASE removes a
+// selected entity (DEF-008/DEF-014), and setSelection stored phantom ids
+// that neither render nor pick. The canonical selection can now never
+// reference an element the document does not contain (AutoCAD-class: an
+// entity removed from the model is removed from the selection set). The
+// change is reviewed under the COMPAT-CAD-005 governance record.
+test("selection is pruned to live elements on undo/redo (COMPAT-CAD-005)", async () => {
   const h = AppApiHandler.create(CONFIG);
   await h.handle(addBox("e1"));
   await h.handle(cmd("document.setSelection", { ids: ["e1"] }));
   assert.deepEqual(val<string[]>(await h.handle(q("document.getSelection"))), ["e1"]);
-  // undo removes e1; selection persists (editor state survives undo)
+  // undo removes e1; the selection is pruned — it can never hold a dead id
   await h.handle(cmd("document.undo", {}));
-  assert.deepEqual(val<string[]>(await h.handle(q("document.getSelection"))), ["e1"], "selection survives undo");
-  // redo re-adds e1; selection still persists
+  assert.deepEqual(val<string[]>(await h.handle(q("document.getSelection"))), [], "undo prunes the removed entity from the selection");
+  // redo re-adds e1; the pruned selection stays pruned (redo does not reselect)
   await h.handle(cmd("document.redo", {}));
-  assert.deepEqual(val<string[]>(await h.handle(q("document.getSelection"))), ["e1"], "selection survives redo");
+  assert.deepEqual(val<string[]>(await h.handle(q("document.getSelection"))), [], "redo does not resurrect the pruned selection");
+  // setSelection rejects ids that do not exist in the document (no phantom ids)
+  await h.handle(cmd("document.setSelection", { ids: ["e1", "ghost"] }));
+  assert.deepEqual(val<string[]>(await h.handle(q("document.getSelection"))), ["e1"], "setSelection drops ids that are not live elements");
 });
 
 test("document.save returns file bytes; open(save) round-trips the versioned content", async () => {

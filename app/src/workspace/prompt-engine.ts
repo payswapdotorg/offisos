@@ -116,6 +116,40 @@ export interface PromptEngineResult {
   readonly output: PromptEngineOutput;
 }
 
+/**
+ * COMPAT-CAD-005: split one prompt-engine output into the two echo classes
+ * the hosts must render at DIFFERENT times.
+ *
+ * Structural invariant of this engine (held by every plan-emitting path —
+ * `startCommand`'s instant branch, the chained-command branch of
+ * `collectValue`, and `completeCommand`): whenever `output.plan !== null`
+ * the emitted `output.lines` END with exactly the plan's own `echo` block
+ * (`[...interactiveEcho, ...plan.echo]`); when no plan is emitted, every
+ * line is interactive.
+ *
+ * - `interactive`: prompt/acknowledge lines (the command name, typed
+ *   coordinate resolutions, "1 found (el-000001)" pick feedback). These
+ *   describe INPUT the user just gave — safe to render immediately.
+ * - `deferred`: the plan's outcome claims ("LINE: (0,0) → (300,0) on layer
+ *   'Walls'.", "-LAYER: layer 'X' created and set current."). These assert
+ *   what the command WILL have done — the CAD-BENCH-RW-001 benchmark
+ *   (DEF-027) proved printing them before the App API transaction commits
+ *   produces success-then-`*ERROR*` pairs the user cannot trust. The hosts
+ *   print them ONLY after every plan entry commits.
+ */
+export function splitEchoTiming(
+  lines: readonly string[],
+  plan: CommandPlan | null,
+): { interactive: readonly string[]; deferred: readonly string[] } {
+  if (plan === null || plan.echo.length === 0) {
+    return { interactive: lines, deferred: [] };
+  }
+  return {
+    interactive: lines.slice(0, lines.length - plan.echo.length),
+    deferred: plan.echo,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Internals.
 // ---------------------------------------------------------------------------

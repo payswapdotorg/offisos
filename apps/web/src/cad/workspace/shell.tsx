@@ -106,9 +106,11 @@ import {
   IDLE_PROMPT_STATE,
   applyPromptEvent,
   describePrompt,
+  splitEchoTiming,
   type PromptEngineState,
 } from "@offisos/cad-app-shell/workspace/prompt-engine";
 import { mapKeyEvent } from "@offisos/cad-app-shell/workspace/keymap";
+import { PICKBOX_SCREEN_PX } from "@offisos/cad-app-shell/workspace/precision-2d";
 import {
   DEFAULT_DRAFTING_AIDS,
   type DraftingAids,
@@ -208,6 +210,11 @@ export function WorkspaceShell(): React.JSX.Element {
   const [engineState, setEngineState] = React.useState<PromptEngineState>(IDLE_PROMPT_STATE);
   const [historyLines, setHistoryLines] = React.useState<string[]>([]);
   const [zoomExtentsSignal, setZoomExtentsSignal] = React.useState(0);
+  // COMPAT-CAD-005: NEW/view reset signal — the Model canvas restores the
+  // (new) document's persisted view when this increments (a document swap
+  // must never keep the previous document's pan/zoom: DEF-003's dangling
+  // view state made NEW leave a stale viewport).
+  const [viewResetSignal, setViewResetSignal] = React.useState(0);
   const [showHistory, setShowHistory] = React.useState(false);
   const [historyData, setHistoryData] = React.useState<{ revisions: number; graphEvents: number; replayNote: string | null }>({ revisions: 0, graphEvents: 0, replayNote: null });
   // CAD-PARITY-008: the paper-space editor surface — the selected viewport
@@ -230,6 +237,37 @@ export function WorkspaceShell(): React.JSX.Element {
     } else if (!stateRes.ok) {
       setError(`[getState] ${stateRes.code}: ${stateRes.message}`);
     }
+  }, []);
+
+  // COMPAT-CAD-005: authoritative snapshot adoption. Many App API commands
+  // return the post-commit document snapshot in their response value; the
+  // shell adopts it IMMEDIATELY (guarded by the version counter so a
+  // late-arriving response can never roll the client back to an older
+  // revision). This closes the stale-context window between commit and the
+  // next refresh — the root of the CAD-BENCH-RW-001 layer-identity desync
+  // (DEF-001/DEF-002: the client's layer table/activeLayer lagged one
+  // roundtrip behind the canonical document, so creation landed on '0' and
+  // CLAYER could not resolve names the document provably contained).
+  const adoptSnapshot = React.useCallback((snap: unknown) => {
+    if (typeof snap !== "object" || snap === null) return;
+    const next = snap as CADDocumentSnapshot;
+    if (typeof next?.version?.version_number !== "number" || !Array.isArray(next?.layers)) return;
+    setSnapshot((current) => {
+      if (current !== null && next.version.version_number < current.version.version_number) {
+        // A stale response (older revision) never replaces newer state.
+        return current;
+      }
+      return next;
+    });
+  }, []);
+
+  /** COMPAT-CAD-005: adopt the server's effective selection from a
+   *  document.setSelection response ({ selection }) — the canonical,
+   * live-pruned selection state (DEF-014/DEF-008). */
+  const adoptSelection = React.useCallback((value: unknown, fallback: readonly string[]) => {
+    const eff = (value as { selection?: unknown } | null)?.selection;
+    if (Array.isArray(eff) && eff.every((x) => typeof x === "string")) setSel(eff as string[]);
+    else setSel([...fallback]);
   }, []);
 
   React.useEffect(() => {
@@ -258,16 +296,32 @@ export function WorkspaceShell(): React.JSX.Element {
       void (async () => {
         const res = await send({ type: "command", name: "layer.setActive" as Command["name"], payload: { layerId } });
         if (!res.ok) setError(`[layer.setActive] ${res.code}: ${res.message}`);
+        else {
+          // COMPAT-CAD-005: adopt the authoritative layer table + activeLayer
+          // the command returns — the next create stamps THIS layer
+          // (DEF-001: active-layer changes must affect entity creation).
+          adoptSnapshot((res.value as { snapshot?: CADDocumentSnapshot } | null)?.snapshot);
+        }
         await refresh();
       })();
     },
-    [refresh],
+    [refresh, adoptSnapshot],
   );
   // The status bar shows the layer NAME (the id stays canonical).
   const activeLayerName = React.useMemo(
     () => (snapshot?.layers ?? []).find((l) => l.id === activeLayer)?.name ?? activeLayer,
     [snapshot, activeLayer],
   );
+  // COMPAT-CAD-005: THE canonical selection read model — the selection
+  // intersected with the live elements of the current snapshot. Every read
+  // site (status-bar count, Properties palette, command currentSelection,
+  // canvas highlight) observes THIS ONE value, so command-driven selection
+  // and click-driven selection can never disagree (CAD-BENCH-RW-001
+  // DEF-008: "Sel 1" while the palette said "No selection").
+  const liveSelection = React.useMemo(() => {
+    const ids = new Set((snapshot?.elements ?? []).map((el) => el.id));
+    return selection.filter((id) => ids.has(id));
+  }, [snapshot, selection]);
 
   // --- engine context -----------------------------------------------------------
 
@@ -275,7 +329,7 @@ export function WorkspaceShell(): React.JSX.Element {
     const elements = snapshot?.elements ?? [];
     const stories = elements.filter((el) => el.kind === "bim" && (el.props as Record<string, unknown>).type === "bim.story");
     const currentSelection: EntityPick[] = elements
-      .filter((el) => selection.includes(el.id))
+      .filter((el) => liveSelection.includes(el.id))
       .map((el) => ({ id: el.id, kind: el.kind, props: el.props as Record<string, unknown> }));
     return defaultCommandContext({
       activeLayer,
@@ -337,18 +391,18 @@ export function WorkspaceShell(): React.JSX.Element {
       titleBlocks: snapshot?.titleBlocks ?? [],
       publisherSets: snapshot?.publisherSets ?? [],
     });
-  }, [snapshot, selection, activeLayer, activeStoryId]);
+  }, [snapshot, liveSelection, activeLayer, activeStoryId]);
 
-  const executeFileSave = React.useCallback(async () => {
+  const executeFileSave = React.useCallback(async (): Promise<boolean> => {
     setBusy(true);
     try {
       const res = await save();
       if (!res.ok) {
         setError(`[Save] ${res.code}: ${res.message}`);
-        return;
+        return false;
       }
       const data = unwrapSaveBytes(res);
-      if (data === null) return;
+      if (data === null) return true;
       const blob = new Blob([new Uint8Array(data.bytes)], { type: "application/json" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
@@ -359,37 +413,83 @@ export function WorkspaceShell(): React.JSX.Element {
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
       setHistoryLines((h) => [...h, "SAVE: document downloaded."]);
+      return true;
     } finally {
       setBusy(false);
       await refresh();
     }
   }, [refresh]);
 
-  const executeFileNew = React.useCallback(async () => {
+  /** COMPAT-CAD-005: NEW is a FULL editor-session reset driven by the
+   *  canonical create response (the fresh document IS the response value),
+   *  applied SYNCHRONOUSLY before any further input can read stale state.
+   *  The CAD-BENCH-RW-001 benchmark (DEF-003) proved the previous flow left
+   *  the previous document's active-layer reference live across NEW: the
+   *  next create stamped a layer the fresh document does not contain,
+   *  failed with drafting_invalid, and left the document undrawable. Also
+   *  resets (DEF-014): the entity cache (snapshot), the selection (client
+   *  + document), the transient command state, story/viewport selection
+   *  and the canvas view (viewResetSignal). */
+  const executeFileNew = React.useCallback(async (): Promise<boolean> => {
     setBusy(true);
     try {
       const res = await createDoc({});
-      if (!res.ok) setError(`[New] ${res.code}: ${res.message}`);
-      else setHistoryLines((h) => [...h, "NEW: fresh document created."]);
+      if (!res.ok) {
+        setError(`[New] ${res.code}: ${res.message}`);
+        return false;
+      }
+      const snap = res.value as CADDocumentSnapshot;
+      if (typeof snap?.version?.version_number !== "number") {
+        setError("[New] unexpected response shape from document.create");
+        return false;
+      }
+      setSnapshot(snap);
+      setSel([]);
       setActiveStoryId(null);
-      await refresh();
+      setSelectedViewportId(null);
+      setPlotPreviewOpen(false);
+      if (engineState.commandId !== null) {
+        // A document swap cancels the running command (AutoCAD class).
+        setEngineState(IDLE_PROMPT_STATE);
+        setHistoryLines((h) => [...h, "*Cancel*"]);
+      }
+      setViewResetSignal((n) => n + 1);
+      setHistoryLines((h) => [...h, "NEW: fresh document created."]);
+      return true;
     } finally {
       setBusy(false);
     }
-  }, [refresh]);
+  }, [engineState.commandId]);
 
 
   // --- plan execution -------------------------------------------------------------
 
+  // COMPAT-CAD-005: executePlan runs a command plan COMMIT-AUTHORATIVELY.
+  //  - A failed App API entry is THE one authoritative failure outcome: the
+  //    *ERROR* history line + the error banner, ABORT of the remaining plan
+  //    entries, and SUPPRESSION of the plan's outcome echoes (deferredEcho)
+  //    — a success claim can never precede or follow a rejected canonical
+  //    transaction (CAD-BENCH-RW-001 DEF-027's success-then-*ERROR* pairs).
+  //  - Every successful entry's response snapshot is ADOPTED immediately
+  //    (see adoptSnapshot) so the next event reads post-commit state.
   const executePlan = React.useCallback(
-    async (plan: CommandPlan): Promise<void> => {
+    async (plan: CommandPlan, deferredEcho: readonly string[] = []): Promise<boolean> => {
+      let failed = false;
       for (const entry of plan.appApi) {
         setBusy(true);
         const res = await send({ type: "command", name: entry.name as Command["name"], payload: entry.payload });
         if (!res.ok) {
           setHistoryLines((h) => [...h, `*ERROR* ${entry.name}: ${res.code} — ${res.message}`]);
           setError(`[${entry.name}] ${res.code}: ${res.message}`);
-        } else if (entry.name === "bim.createElements") {
+          failed = true;
+          setBusy(false);
+          break;
+        }
+        // COMPAT-CAD-005: adopt the authoritative post-commit snapshot many
+        // commands return (layers/activeLayer/elements/version) — closes the
+        // stale-context window between commit and refresh (DEF-001/002).
+        adoptSnapshot((res.value as { snapshot?: CADDocumentSnapshot } | null)?.snapshot);
+        if (entry.name === "bim.createElements") {
           const value = res.value as { created?: string[] } | null;
           if (value !== null && Array.isArray(value.created) && value.created.length > 0) {
             // story.activateCreated UI action binding.
@@ -402,7 +502,7 @@ export function WorkspaceShell(): React.JSX.Element {
               if (story !== undefined) setActiveStoryId(story.id);
             }
           }
-        } else if (res.ok && (entry.name === "plot.export" || entry.name === "plot.publish")) {
+        } else if (entry.name === "plot.export" || entry.name === "plot.publish") {
           // CAD-PARITY-008: PLOT/PUBLISH deliver the deterministic artifact —
           // download the exported bytes (SVG text or PDF base64).
           const value = res.value as {
@@ -1046,31 +1146,52 @@ export function WorkspaceShell(): React.JSX.Element {
             setSel([]);
             break;
           case "selection.selectAll": {
-            const visible = new Set((snapshot?.layers ?? []).filter((l) => l.visible).map((l) => l.id));
-            const ids = (snapshot?.elements ?? [])
+            // COMPAT-CAD-005: SELECTALL computes from the AUTHORITATIVE
+            // document state (a fresh document.getState — not the possibly
+            // stale closure snapshot), adopts that state, and adopts the
+            // server's effective (live-pruned) selection — the CAD-BENCH-
+            // RW-001 DEF-014 phantom counts came from stale client ids: the
+            // status bar counted entities that neither render nor pick.
+            const stateRes = await getState();
+            if (!stateRes.ok) {
+              setError(`[getState] ${stateRes.code}: ${stateRes.message}`);
+              failed = true;
+              break;
+            }
+            const fresh = stateRes.value as CADDocumentSnapshot;
+            setSnapshot(fresh);
+            const visible = new Set((fresh.layers ?? []).filter((l) => l.visible).map((l) => l.id));
+            const ids = (fresh.elements ?? [])
               .filter((el) => {
                 const props = el.props as Record<string, unknown>;
                 if (el.kind === "bim") return props.type === "bim.wall" || props.type === "bim.slab";
                 return typeof props.layer === "string" && visible.has(props.layer);
               })
               .map((el) => el.id);
-            await setDocumentSelection(ids);
-            setSel(ids);
+            const selRes = await setDocumentSelection(ids);
+            adoptSelection(selRes.ok ? selRes.value : null, ids);
             break;
           }
           case "file.new":
-            await executeFileNew();
+            if (!(await executeFileNew())) failed = true;
             break;
           case "file.save":
-            await executeFileSave();
+            if (!(await executeFileSave())) failed = true;
             break;
           default:
             break;
         }
       }
       await refresh();
+      // COMPAT-CAD-005: the deferred outcome echoes print ONLY after every
+      // plan entry (App API + ui actions) committed — the commit-authoritative
+      // feedback channel (DEF-027).
+      if (!failed && deferredEcho.length > 0) {
+        setHistoryLines((h) => [...h, ...deferredEcho]);
+      }
+      return !failed;
     },
-    [snapshot, refresh],
+    [snapshot, refresh, adoptSnapshot, adoptSelection, executeFileNew, executeFileSave],
   );
 
   // --- file actions (existing CAD-IMPLEMENT-001 workflows preserved) ----------------
@@ -1084,7 +1205,20 @@ export function WorkspaceShell(): React.JSX.Element {
         const text = await file.text();
         const res = await openFromText(text);
         if (!res.ok) setError(`[Open] ${res.code}: ${res.message}`);
-        else setHistoryLines((h) => [...h, `OPEN: ${file.name}.`]);
+        else {
+          // COMPAT-CAD-005: OPEN is the same full editor reset class as NEW —
+          // the opened document IS the response value; adopt it (plus the
+          // reset of selection/story/viewport state) synchronously.
+          const snap = res.value as CADDocumentSnapshot;
+          if (typeof snap?.version?.version_number === "number") {
+            setSnapshot(snap);
+            setSel([]);
+            setActiveStoryId(null);
+            setSelectedViewportId(null);
+            setViewResetSignal((n) => n + 1);
+          }
+          setHistoryLines((h) => [...h, `OPEN: ${file.name}.`]);
+        }
         await refresh();
       } finally {
         if (fileInputRef.current) fileInputRef.current.value = "";
@@ -1100,10 +1234,15 @@ export function WorkspaceShell(): React.JSX.Element {
     (event: Parameters<typeof applyPromptEvent>[1]) => {
       const result = applyPromptEvent(engineState, event, engineCtx());
       setEngineState(result.state);
-      if (result.output.lines.length > 0) {
-        setHistoryLines((h) => [...h, ...result.output.lines]);
+      // COMPAT-CAD-005: interactive echoes (input acknowledgments) render
+      // immediately; the plan's OUTCOME claims are deferred until every plan
+      // entry commits in executePlan — no success echo before the canonical
+      // transaction (CAD-BENCH-RW-001 DEF-027).
+      const { interactive, deferred } = splitEchoTiming(result.output.lines, result.output.plan);
+      if (interactive.length > 0) {
+        setHistoryLines((h) => [...h, ...interactive]);
       }
-      if (result.output.plan !== null) void executePlan(result.output.plan);
+      if (result.output.plan !== null) void executePlan(result.output.plan, deferred);
     },
     [engineState, engineCtx, executePlan],
   );
@@ -1126,12 +1265,15 @@ export function WorkspaceShell(): React.JSX.Element {
       const started = applyPromptEvent(engineState, { type: "start", commandId }, engineCtx());
       const typed = applyPromptEvent(started.state, { type: "typed", text }, engineCtx());
       setEngineState(typed.state);
-      const lines = [...started.output.lines, ...typed.output.lines];
-      if (lines.length > 0) {
-        setHistoryLines((h) => [...h, ...lines]);
+      // COMPAT-CAD-005: same echo-timing split as dispatchEngine (see there).
+      const a = splitEchoTiming(started.output.lines, started.output.plan);
+      const b = splitEchoTiming(typed.output.lines, typed.output.plan);
+      const interactive = [...a.interactive, ...b.interactive];
+      if (interactive.length > 0) {
+        setHistoryLines((h) => [...h, ...interactive]);
       }
-      if (started.output.plan !== null) void executePlan(started.output.plan);
-      if (typed.output.plan !== null) void executePlan(typed.output.plan);
+      if (started.output.plan !== null) void executePlan(started.output.plan, a.deferred);
+      if (typed.output.plan !== null) void executePlan(typed.output.plan, b.deferred);
     },
     [engineState, engineCtx, executePlan],
   );
@@ -1141,9 +1283,12 @@ export function WorkspaceShell(): React.JSX.Element {
   const onSelectionChange = React.useCallback(
     async (ids: readonly string[]) => {
       setSel([...ids]);
-      await setDocumentSelection([...ids]);
+      // COMPAT-CAD-005: adopt the server's effective (live-pruned) selection
+      // — the same canonical state every read site observes (DEF-008).
+      const res = await setDocumentSelection([...ids]);
+      if (res.ok) adoptSelection(res.value, ids);
     },
-    [],
+    [adoptSelection],
   );
 
   // --- keyboard (keymap.ts drives both hosts) --------------------------------------
@@ -1433,7 +1578,7 @@ export function WorkspaceShell(): React.JSX.Element {
             {view === "model" && (
               <ModelCanvas
                 snapshot={snapshot}
-                selection={selection}
+                selection={liveSelection}
                 aids={aids}
                 engineState={engineState}
                 busy={busy}
@@ -1441,6 +1586,15 @@ export function WorkspaceShell(): React.JSX.Element {
                 onPickPoint={(world) => dispatchEngine({ type: "pick", point: world })}
                 onPickEntity={(pick) => dispatchEngine({ type: "entity", entity: pick })}
                 onPickEntityPoint={(pick, worldPoint) => dispatchEngine({ type: "entityPoint", entity: pick, point: [worldPoint[0], worldPoint[1]] })}
+                onPickMiss={(world) => {
+                  // COMPAT-CAD-005: a pick MISS is visible feedback (AutoCAD's
+                  // "0 found"), never a silent drop — the benchmark's DEF-006
+                  // repro depended on clicks vanishing without a trace.
+                  setHistoryLines((h) => [
+                    ...h,
+                    `0 found — nothing within the ${PICKBOX_SCREEN_PX} px pickbox at (${world[0].toFixed(0)}, ${world[1].toFixed(0)}).`,
+                  ]);
+                }}
                 onSelectionChange={onSelectionChange}
                 onGripEdit={(result: GripEditResult) => {
                   setHistoryLines((h) => [...h, ...result.echo]);
@@ -1448,6 +1602,7 @@ export function WorkspaceShell(): React.JSX.Element {
                 }}
                 onCommandStart={startCommand}
                 zoomExtentsSignal={zoomExtentsSignal}
+                viewResetSignal={viewResetSignal}
                 onContextAction={(action, payload) => {
                   // CAD-PARITY-004: the canvas context-menu actions (layer
                   // toggles/isolation/managers — one App API command each).
@@ -1583,7 +1738,7 @@ export function WorkspaceShell(): React.JSX.Element {
               setDockVisible(true);
             }}
             activeStoryName={activeStoryName}
-            selectionCount={selection.length}
+            selectionCount={liveSelection.length}
             version={version?.version_number ?? 0}
             onToggle={(aid) => {
               if (aid === "ortho" || aid === "polar" || aid === "otrack") {
@@ -1607,7 +1762,7 @@ export function WorkspaceShell(): React.JSX.Element {
 
         <RightDock
           snapshot={snapshot}
-          selection={selection}
+          selection={liveSelection}
           activeTab={dockTab}
           onTab={setDockTab}
           activeLayer={activeLayer}
@@ -1624,6 +1779,12 @@ export function WorkspaceShell(): React.JSX.Element {
             void (async () => {
               const res = await fn();
               if (!res.ok) setError(`[${label}] ${res.code}: ${res.message}`);
+              else {
+                // COMPAT-CAD-005: adopt the authoritative post-commit snapshot
+                // (the palette editors commit through the App API; the
+                // response snapshot is the canonical state).
+                adoptSnapshot((res.value as { snapshot?: CADDocumentSnapshot } | null)?.snapshot);
+              }
               await refresh();
               setBusy(false);
             })();
