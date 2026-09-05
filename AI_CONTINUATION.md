@@ -5,7 +5,8 @@ This is the first stop for a new LLM Architect, reviewer, or implementation agen
 ## Current authoritative state
 
 - Repository: `payswapdotorg/offisos`
-- Current `main` revision at this handoff: `c35103f674e7983e89297c5292e469165e9a28d2`
+- **Current main revision must always be resolved from `refs/heads/main` immediately before acting.** A handoff document cannot safely self-embed its own commit SHA because updating that document advances `main` again.
+- Last fully validated governance-tree baseline before this final continuation write: `cd0cce7bc847319418b1cc17de50a26fd86de1ab`.
 - Architecture: ConstructionOS Architecture **v1.1 — FROZEN**
 - Canonical system of record: **Construction Graph**
 - Editor/working representation: **CADDocument**
@@ -38,7 +39,7 @@ This is the first stop for a new LLM Architect, reviewer, or implementation agen
 - Current active work item: **COMPAT-CAD-008** — Arrays/materialization/render/selectability.
 - Current GitHub issue: **#5** (open).
 - Current governance state: **ASSIGNED — IMPLEMENTATION AUTHORIZED**.
-- Implementation agent: `z-ai-implementation-agent`.
+- Implementation agent: `z-ai-implementation-agent` (governance identity; this value is not a GitHub account/assignee).
 - Governance record: `governance/work-items/COMPAT-CAD-008.json`.
 - Implementation prompt: `docs/work-items/COMPAT-CAD-008-ZAI-PROMPT.md`.
 - Implementation stop gate: **PR_OPEN / VERIFYING**.
@@ -69,11 +70,11 @@ Every CAD work item must pass `docs/cad/browser-agent-phase-gate.md` after merge
 
 ## Governance state and known repair
 
-The previous CC008 governance record had an illegal extra property in the first `DRAFT → READY` transition's `references` object (`dependency` and `merge_commit` were not part of the transition reference shape). This was a governance metadata defect, not a product defect. It was repaired by removing those unsupported reference keys while preserving the dependency and merge facts in the canonical work-item text and predecessor record.
+The previous CC008 governance record had an illegal extra property in the first `DRAFT → READY` transition's `references` object. The state-machine contract permits the `issue` reference for that transition; the prior record incorrectly carried additional `dependency` and `merge_commit` reference properties. This was a governance metadata defect, not a product defect. It was repaired by removing the unsupported reference keys while preserving the dependency and merge facts in canonical work-item text and the verified predecessor record.
 
-The resulting repair commit was `f1d82dbfcd14e5e9a6386fe6a0863dd030720eaa`; the active prompt update followed at `c35103f674e7983e89297c5292e469165e9a28d2`.
+The repair was committed at `f1d82dbfcd14e5e9a6386fe6a0863dd030720eaa`, followed by the active prompt and continuation reconciliation commits. Fresh governance CI then passed on the repaired tree: deterministic governance suite, canonical state-machine/work-item validation, and the verified-revision drift audit all succeeded.
 
-A governance workflow on the pre-repair main head `6007d0df36d75852a9334312a824928452e6b5c8` failed only because `COMPAT-CAD-008` violated its schema. This must not be treated as product implementation evidence or as a reason to weaken the governance validator.
+The earlier governance workflow on `6007d0df36d75852a9334312a824928452e6b5c8` failed because `COMPAT-CAD-008` violated its schema. That failure was correctly treated as a governance defect and not as product evidence.
 
 ## Benchmark assets
 
@@ -88,6 +89,8 @@ npm run governance -- check-protected --base main
 npm run governance -- check-verified-revisions
 npm test
 ```
+
+The current main governance workflow runs typecheck, deterministic governance tests, canonical state validation, and verified-revision auditing. Its protected-path step is PR-scoped and therefore may be skipped on direct main pushes; protected-path compliance for an implementation PR must be checked on that PR before approval.
 
 For CC008 implementation evidence, the active worker prompt defines the required deterministic, Web/Electron parity and regression commands. The Architect must additionally run the exact-head CI, deployment and browser-agent gate after merge.
 
