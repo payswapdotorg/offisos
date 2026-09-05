@@ -1,10 +1,11 @@
 # ConstructionOS / Offisos — AI Continuation
 
-This is the first stop for a new LLM Architect, reviewer, or implementation agent taking over without chat history.
+This is the first stop for a new LLM Architect, reviewer, or implementation agent taking over without chat history. Chat history is non-authoritative.
 
 ## Current authoritative state
 
 - Repository: `payswapdotorg/offisos`
+- Current `main` revision at this handoff: `c35103f674e7983e89297c5292e469165e9a28d2`
 - Architecture: ConstructionOS Architecture **v1.1 — FROZEN**
 - Canonical system of record: **Construction Graph**
 - Editor/working representation: **CADDocument**
@@ -13,104 +14,72 @@ This is the first stop for a new LLM Architect, reviewer, or implementation agen
 - Engine GlobalIds: provenance only, never canonical identity
 - Unsupported capability: explicit typed failure, never fabricated semantics
 - Governance lifecycle: `DRAFT → READY → ASSIGNED → IMPLEMENTING → PR_OPEN → VERIFYING → ARCHITECT_REVIEW → APPROVED → MERGED → VERIFIED`
-- Architect owns `ARCHITECT_REVIEW → APPROVED → VERIFIED`.
-- Implementation agents stop at `PR_OPEN/VERIFYING`.
+- Architect owns `VERIFYING → ARCHITECT_REVIEW`, `ARCHITECT_REVIEW → APPROVED`, and `MERGED → VERIFIED`.
+- Implementation agents stop at `PR_OPEN / VERIFYING` and may not self-approve, merge or verify.
 
-## Architect continuation rule
+## Authority hierarchy
 
-When the implementation worker returns a work item at `PR_OPEN/VERIFYING`, that return is the trigger for the Architect to execute the complete downstream governance loop defined in `docs/governance/architect-return-protocol.md`.
+1. `spec/architecture-lock.md` and architecture-controlled specifications.
+2. `spec/development-workflow.md` and `governance/workflow-states.json`.
+3. `governance/work-items/*.json` and other canonical governance records.
+4. `docs/cad/autocad-parity-roadmap.md` for CAD sequencing and successor selection.
+5. `docs/cad/browser-agent-phase-gate.md` for CAD verification.
+6. Revision-bound evidence and verified milestones.
+7. Tests, fixtures, implementation code and CI configuration.
+8. GitHub issues, PRs, comments and worker reports as supporting evidence.
+9. This file, `AGENTS.md`, prompts and other handoff summaries must reflect the authorities above and never override them.
 
-The Architect does not wait for `next`, `go`, `continue`, or equivalent chat input between routine governance gates. A successful returned work item is carried through independent review, approval, merge, exact-revision post-merge checks, deployment/browser validation, `VERIFIED`, roadmap update, and the next repository-backed work-item implementation prompt. A failed item is carried through the legal remediation path until the repository contains the exact changes-required directive and worker prompt.
+## Current CAD execution
 
-The Architect stops only for an explicit changes-required/remediation handoff, Architecture Change Request, external hard blocker, or Product Owner decision outside existing authorization.
+- Latest verified CAD product revision: `9232c90e4340475bcf5c6818a30d9748ea04330a`
+- Verified work item: **COMPAT-CAD-007** — GitHub Issue **#1** — governance state **VERIFIED**.
+- CC007 governance evidence is bound to the physical merge and includes deterministic tests, real-host smoke, CI, deployment and independent browser evidence; its final governance evidence is recorded in `governance/work-items/COMPAT-CAD-007.json`.
+- Permanent benchmark baseline: **18/100** from `CAD-BENCH-RW-001`. No score increase is authoritative without a full benchmark rerun.
+- Current active work item: **COMPAT-CAD-008** — Arrays/materialization/render/selectability.
+- Current GitHub issue: **#5** (open).
+- Current governance state: **ASSIGNED — IMPLEMENTATION AUTHORIZED**.
+- Implementation agent: `z-ai-implementation-agent`.
+- Governance record: `governance/work-items/COMPAT-CAD-008.json`.
+- Implementation prompt: `docs/work-items/COMPAT-CAD-008-ZAI-PROMPT.md`.
+- Implementation stop gate: **PR_OPEN / VERIFYING**.
+- Predecessor dependency: `COMPAT-CAD-007` VERIFIED at `9232c90e4340475bcf5c6818a30d9748ea04330a`.
+- Next work item after CC008: **COMPAT-CAD-009**, planned by the authoritative CAD roadmap. It must not be released until CC008 is independently verified.
 
-## CAD product roadmap authority
+## CC008 scope
 
-The authoritative AutoCAD-class product roadmap is:
+CC008 owns **DEF-015** and only the bounded ARRAY/materialization slice. Required behavior includes deterministic rectangular and polar ARRAY semantics; path behavior only where genuinely supported by the frozen contract, otherwise explicit typed unsupported failure; canonical materialized members; deterministic stable identities and ordering; source/member ownership semantics; rendering and selectability; edit/erase interaction; one atomic canonical revision; undo/redo; invalid/unsupported behavior; deterministic serialization/byte identity; Web/Electron parity; and regression preservation for CC005/006/007.
 
-`docs/cad/autocad-parity-roadmap.md`
+Explicit non-goals are CC009 blocks/inserts/attributes/symbols; CC010 hatch/annotation/dimension expansion; CC011 durable SAVE/OPEN and multi-instance persistence; CC012 DXF; CC013 layouts/sheets; unrelated command/history expansion; architecture changes without ACR; and benchmark score changes without a full rerun.
 
-The mandatory browser-agent phase gate protocol is:
+The detailed semantic contract is `docs/work-items/COMPAT-CAD-008-SEMANTIC-CONTRACT.md`.
 
-`docs/cad/browser-agent-phase-gate.md`
+## Current lifecycle instruction
 
-These documents govern CAD parity sequencing, phase completion, benchmark score progression, successor selection and the required post-deployment black-box browser verification. Chat discussion is not authoritative.
+The CC008 preparation-only restriction is **retired**. The active directive authorizes `z-ai-implementation-agent` to reconcile the preparation branch `work/compat-cad-008-array-preparation` onto current `main`, then implement the frozen CC008 scope.
 
-## Current CAD state
+The implementation agent owns the next lifecycle transition `ASSIGNED → IMPLEMENTING`, followed by `IMPLEMENTING → PR_OPEN → VERIFYING`. The Architect must never fabricate `IMPLEMENTING`, `PR_OPEN`, or `VERIFYING` on behalf of the worker.
 
-- Latest verified CAD product revision carried forward from the predecessor track: `eb3406340df08d1ab39e771c40681d6248840d2e` (COMPAT-CAD-006).
-- Benchmark baseline remains **18/100** from CAD-BENCH-RW-001; no score increase may be claimed without a benchmark rerun.
-- Active work item: **COMPAT-CAD-007 — Core editing and deterministic object-selection workflows**.
-- Canonical GitHub issue on this fork: **#1**.
-- Governance record: `governance/work-items/COMPAT-CAD-007.json`.
-- Current governance state: **ASSIGNED**.
-- Implementation stop gate: **PR_OPEN/VERIFYING**.
-- Fork-local worker directive: `docs/work-items/COMPAT-CAD-007-ZAI-PROMPT.md`.
+When the worker returns at `PR_OPEN / VERIFYING`, the Architect must autonomously execute the full return protocol in `docs/governance/architect-return-protocol.md`: reconcile exact head; validate deterministic evidence and CI; conduct independent requirements/architecture/engineering/evidence review; approve if warranted; merge; wait for terminal post-merge workflows; reconcile the merged tree; deploy the exact revision; execute the mandatory independent browser gate; compare regressions and predecessor baseline; then mark `VERIFIED` only with revision-bound proof; update the authoritative roadmap; and release the next legal work item and prompt.
 
-## Dispatch status
+On failure, record the exact finding and reproduction, return legally to `IMPLEMENTING`, write the repository-backed remediation prompt, and stop.
 
-The work item is legally released and persisted in `ASSIGNED`. The Architect has reconciled the original issue reference to fork-local Issue #1 and refreshed the fork-local continuation and worker directive. The next lawful lifecycle transition is **ASSIGNED → IMPLEMENTING by the implementation agent itself**. The Architect must not fabricate that transition.
+## Mandatory CAD browser gate
 
-## COMPAT-CAD-007 gate
+Every CAD work item must pass `docs/cad/browser-agent-phase-gate.md` after merge against the exact deployed revision. For CC008, required workflows include G3, G5, G6, G7, targeted DEF-015 probes, invalid/unsupported ARRAY paths, undo/redo, no-phantom-member checks, and appropriate no-regression sweeps. The browser agent must use visible UI as a real user and must not use hidden APIs to perform the workflow under test.
 
-This slice restores deterministic object-selection and core modify workflows over the verified shared geometry, precision and viewport foundations. Required evidence includes deterministic automated tests, negative no-mutation/false-success tests, Web/Electron semantic parity, COMPAT-CAD-005/006 regressions, exact-head CI, exact deployment, and independent browser-agent Golden G1/G2/G4/G10 plus targeted DEF-006/007/021 probes.
+## Governance state and known repair
 
-The worker directive is `docs/work-items/COMPAT-CAD-007-ZAI-PROMPT.md`; it is fork-local and names Issue #1 as the canonical work-item issue.
+The previous CC008 governance record had an illegal extra property in the first `DRAFT → READY` transition's `references` object (`dependency` and `merge_commit` were not part of the transition reference shape). This was a governance metadata defect, not a product defect. It was repaired by removing those unsupported reference keys while preserving the dependency and merge facts in the canonical work-item text and predecessor record.
 
-Non-goals include ARRAY materialization (COMPAT-CAD-008), durable SAVE/OPEN and serverless multi-instance persistence (COMPAT-CAD-011 / infrastructure), DXF (COMPAT-CAD-012), layout/sheet identity (COMPAT-CAD-013), unrelated BIM/documentation/interop work, architecture changes, and benchmark score changes without a rerun.
+The resulting repair commit was `f1d82dbfcd14e5e9a6386fe6a0863dd030720eaa`; the active prompt update followed at `c35103f674e7983e89297c5292e469165e9a28d2`.
 
-## CAD successor sequence
+A governance workflow on the pre-repair main head `6007d0df36d75852a9334312a824928452e6b5c8` failed only because `COMPAT-CAD-008` violated its schema. This must not be treated as product implementation evidence or as a reason to weaken the governance validator.
 
-The repository roadmap defines:
+## Benchmark assets
 
-`COMPAT-CAD-005 → 006 → 007 → 008 → 009 → 010 → 011 → 012 → 013 → 014 → 015 → 016 → 017 → 018 → 019 → 020 → 021 → CAD-CERT-001`
+The authoritative roadmap cites `CAD-BENCH-RW-001` and the permanent baseline of 18/100. The requested historical filenames `docs/cad/autocad-real-world-benchmark.md` and `docs/cad/autocad-benchmark-corpus.json` are **not present at those exact paths on the current main tree**; do not invent or substitute them. Use the authoritative roadmap and actual repository benchmark assets when discovered.
 
-Do not release a successor merely because implementation or CI passes. The predecessor must be verified and the roadmap updated with revision-bound browser evidence.
-
-## Mandatory browser validation rule
-
-Every CAD work item must follow:
-
-```text
-IMPLEMENT
-→ deterministic tests
-→ CI
-→ Architect review
-→ MERGE
-→ exact-head deployment
-→ independent browser-agent black-box regression
-→ evidence review
-→ MERGED → VERIFIED
-→ update roadmap
-→ next repository-backed implementation prompt
-```
-
-The browser agent must operate through the visible application UI as a real user. It may inspect diagnostics as supporting evidence but must not use hidden APIs to perform the workflow under test.
-
-## Fresh Architect takeover order
-
-Read in this order before making a CAD decision:
-
-1. `AGENTS.md`
-2. `AI_CONTINUATION.md`
-3. `spec/architecture-lock.md`
-4. `spec/development-workflow.md`
-5. `docs/governance/architect-return-protocol.md`
-6. `docs/cad/autocad-parity-roadmap.md`
-7. `docs/cad/browser-agent-phase-gate.md`
-8. `docs/cad/autocad-real-world-benchmark.md`
-9. `docs/cad/autocad-benchmark-corpus.json`
-10. active governance record under `governance/work-items/`
-11. active GitHub issue/PR
-12. exact-head CI, deployment and browser evidence
-
-Reconcile any disagreement before making a decision. The canonical work-item governance records and frozen architecture specifications remain authoritative for lifecycle and architecture rules.
-
-## Broader ConstructionOS roadmap
-
-CAD remains a product track inside Architecture v1.1 and must not create a separate canonical data authority. Project, Office, platform, Graph, collaboration, AI and intelligence tracks continue according to their own governed dependencies.
-
-## Essential commands
+## Required reproduction commands
 
 ```bash
 npm install
@@ -120,6 +89,39 @@ npm run governance -- check-verified-revisions
 npm test
 ```
 
+For CC008 implementation evidence, the active worker prompt defines the required deterministic, Web/Electron parity and regression commands. The Architect must additionally run the exact-head CI, deployment and browser-agent gate after merge.
+
+## Fresh-Architect takeover order
+
+Read in this order before making a CAD decision:
+
+1. `AGENTS.md`
+2. `AI_CONTINUATION.md`
+3. `spec/architecture-lock.md`
+4. `spec/development-workflow.md`
+5. `governance/workflow-states.json`
+6. `docs/governance/architect-return-protocol.md`
+7. `docs/cad/autocad-parity-roadmap.md`
+8. `docs/cad/browser-agent-phase-gate.md`
+9. `governance/work-items/COMPAT-CAD-008.json`
+10. `docs/work-items/COMPAT-CAD-008-ZAI-PROMPT.md`
+11. current GitHub Issue #5 / any implementation PR
+12. exact revision-bound CI, deployment and browser evidence.
+
+Reconcile any disagreement against the authority hierarchy before making a lifecycle decision.
+
+## Broader roadmap
+
+The CAD sequence is:
+
+`CAD-BENCH-RW-001 → COMPAT-CAD-005 → COMPAT-CAD-006 → COMPAT-CAD-007 → COMPAT-CAD-008 → COMPAT-CAD-009 → COMPAT-CAD-010 → COMPAT-CAD-011 → COMPAT-CAD-012 → COMPAT-CAD-013 → COMPAT-CAD-014 → COMPAT-CAD-015 → COMPAT-CAD-016 → COMPAT-CAD-017 → COMPAT-CAD-018 → COMPAT-CAD-019 → COMPAT-CAD-020 → COMPAT-CAD-021 → CAD-CERT-001`
+
+The roadmap is authoritative for sequencing and successor selection.
+
+## ACR boundary
+
+Architecture v1.1 is frozen. Never change protected architecture, workflow-state rules, canonical authority, engine boundaries or other architecture-controlled artifacts inside an implementation work item. Route required architecture changes through the existing Architecture Change Request lifecycle.
+
 ## Security
 
-Never place GitHub PATs, Vercel tokens, deployment credentials, database secrets, or other credentials in tracked files, PR bodies, comments, fixtures, or logs.
+Never place GitHub PATs, Vercel tokens, deployment credentials, database secrets, private keys or other credentials in tracked files, PRs, issue comments, fixtures or logs. Evidence must prove behavior without leaking secrets.
