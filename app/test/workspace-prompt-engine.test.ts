@@ -458,12 +458,28 @@ test("Enter when idle repeats the last command", () => {
   assert.equal(repeat.output.commandName, "CIRCLE");
 });
 
-test("starting a new command cancels the running one first", () => {
+test("COMPAT-CAD-007: a typed token mid-command NEVER switches commands (AutoCAD prompt-owns-input)", () => {
+  // The CAD-BENCH-RW-001 DEF-007 finding: the shipped "command token typed
+  // while a command runs starts the new command" behavior produced the
+  // per-command lottery ("Undo" at LINE ran UNDO; "Arc" at POLYLINE ran
+  // ARC; "ALL" at MOVE ran SELECTALL) that destroyed the command-line
+  // trust contract. COMPAT-CAD-007 replaces it with the AutoCAD contract:
+  // the running prompt owns its input — a typed token that is not a valid
+  // option/coordinate/number answers with the step's explicit typed error
+  // and the command KEEPS RUNNING. (This test REPLACES the pre-CC007 pin
+  // "starting a new command cancels the running one first".)
   const line = applyPromptEvent(IDLE_PROMPT_STATE, { type: "typed", text: "LINE" }, ctx());
   const mid = applyPromptEvent(line.state, { type: "typed", text: "0,0" }, ctx());
-  const switched = applyPromptEvent(mid.state, { type: "typed", text: "CIRCLE" }, ctx());
-  assert.equal(switched.state.commandId, "circle");
-  assert.equal(switched.output.lines[0], "*Cancel*");
+  const notSwitched = applyPromptEvent(mid.state, { type: "typed", text: "CIRCLE" }, ctx());
+  assert.equal(notSwitched.state.commandId, "line", "LINE must keep running");
+  assert.ok(!notSwitched.output.lines.includes("*Cancel*"), `no *Cancel* echo: ${JSON.stringify(notSwitched.output.lines)}`);
+  assert.ok(
+    notSwitched.output.lines.length > 0 && /CIRCLE/i.test(notSwitched.output.lines[0]!),
+    `the typed error must name the rejected token: ${JSON.stringify(notSwitched.output.lines)}`,
+  );
+  // The command still completes normally afterwards.
+  const done = applyPromptEvent(notSwitched.state, { type: "typed", text: "100,0" }, ctx());
+  assert.equal(done.state.commandId, "line");
 });
 
 test("unknown command echoes an actionable message", () => {

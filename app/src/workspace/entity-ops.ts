@@ -1205,14 +1205,19 @@ function opTrim(
 ): EntityOpOutcome {
   if (trims.length === 0) throw new EntityOpError("trim requires at least one target pick", "bad_input");
   // Implied "all edges" when no cutting edges were selected (AutoCAD Enter
-  // semantics): every OTHER canonical entity is a potential edge.
-  const trimmedIds = new Set(trims.map((t) => t.targetId));
+  // semantics): every canonical entity is a potential edge. COMPAT-CAD-007
+  // (Issue #1; the G4 quadrilateral closure): the PER-TARGET edge set
+  // excludes only the target itself (an entity never cuts itself) — MUTUAL
+  // targets DO cut each other, exactly the boundary-loop trim the G4
+  // exercise runs (four overshooting lines mutually closing the
+  // quadrilateral through the implied-all Enter path). The pre-CC007
+  // exclusion of ALL trim targets starved closed-loop trims of every edge
+  // ("no cutting edges intersect the entity").
   const edgeIds =
     edges.length > 0
       ? edges
-      : elements.filter((el) => geomFromElement(el) !== null && !trimmedIds.has(el.id)).map((el) => el.id);
+      : elements.filter((el) => geomFromElement(el) !== null).map((el) => el.id);
   const edgeViews = loadEntities(elements, edgeIds);
-  const edgeGeoms = [...edgeViews.values()].map((v) => v.geom);
 
   const edits: DocumentEdit[] = [];
   const messages: string[] = [];
@@ -1220,6 +1225,9 @@ function opTrim(
   for (const t of trims) {
     const view = loadEntities(elements, [t.targetId]).get(t.targetId)!;
     try {
+      // The target's own geometry is never one of its cutting edges
+      // (AutoCAD-class; harmless for explicit selections that include it).
+      const edgeGeoms = [...edgeViews.values()].filter((v) => v.element.id !== t.targetId).map((v) => v.geom);
       const result = trimGeom(view.geom, edgeGeoms, t.pick);
       if (result === null) {
         edits.push(removeEdit(view.element.id));

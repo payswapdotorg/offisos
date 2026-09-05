@@ -20,10 +20,48 @@
  * every list this module returns is deterministic.
  */
 
-import type { Element } from "../contracts/caddocument.js";
+import type { Element, LayerRecord } from "../contracts/caddocument.js";
 import { elementToDraftEntity, entityCurves, isDraftingElement } from "../drafting/entities.js";
 import * as g from "../drafting/geom2d.js";
 import type { Vec2 } from "../drafting/precision.js";
+import type { EntityPick } from "./types.js";
+
+// ---------------------------------------------------------------------------
+// COMPAT-CAD-007 (Issue #1): the shared pickable element view.
+// ---------------------------------------------------------------------------
+
+/**
+ * The pickable entities of a document snapshot — the ONE rule both hosts
+ * apply for canvas interactability (visible + unfrozen + unlocked layers;
+ * BIM elements limited to the plan footprints the pick core covers:
+ * bim.wall / bim.slab). COMPAT-CAD-007 threads this view into the command
+ * context (`selectableElements`) so the entity-step selection keywords
+ * ALL / LAST (CAD-BENCH-RW-001 DEF-021) resolve the SAME object set the
+ * canvas picks on both hosts — deterministic, single-sourced, never a
+ * second opinion. Document order is preserved (LAST = the final entry).
+ */
+export function pickableEntityPicks(
+  elements: readonly Element[],
+  layers: readonly LayerRecord[],
+): readonly EntityPick[] {
+  const interactable = new Set(
+    layers.filter((l) => l.visible && l.frozen !== true && l.locked !== true).map((l) => l.id),
+  );
+  const picks: EntityPick[] = [];
+  for (const el of elements) {
+    const props = el.props as Record<string, unknown>;
+    if (el.kind === "bim") {
+      if (props.type === "bim.wall" || props.type === "bim.slab") {
+        picks.push({ id: el.id, kind: el.kind, props });
+      }
+      continue;
+    }
+    if (typeof props.layer === "string" && interactable.has(props.layer)) {
+      picks.push({ id: el.id, kind: el.kind, props });
+    }
+  }
+  return picks;
+}
 
 // ---------------------------------------------------------------------------
 // Hit testing.

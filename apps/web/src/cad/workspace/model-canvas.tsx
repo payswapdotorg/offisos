@@ -184,6 +184,13 @@ export interface ModelCanvasProps {
   readonly onCursor: (world: Vec2 | null) => void;
   readonly onPickPoint: (world: Vec2) => void;
   readonly onPickEntity: (pick: EntityPick) => void;
+  /** COMPAT-CAD-007 (Issue #1; DEF-006): the WINDOW/CROSSING selection
+   *  result while a command's "Select objects:" (multiple entity) step is
+   *  running — one batch, the same deterministic window/crossing evaluation
+   *  the idle canvas runs. The shell routes it to the prompt engine's
+   *  `entities` event (the command collects the set; presentation only
+   *  until the command's own committed mutation). */
+  readonly onPickEntities?: (picks: readonly EntityPick[]) => void;
   /** CAD-PARITY-003 entityPoint step: the picked element + the RAW world
    *  pick point (the location is semantic for TRIM/EXTEND/FILLET/…). */
   readonly onPickEntityPoint: (pick: EntityPick, worldPoint: Vec2) => void;
@@ -219,6 +226,9 @@ interface DragState {
   readonly panY: number;
   readonly gripId: string;
   readonly gripElement: Element | null;
+  /** COMPAT-CAD-007: this selection drag feeds a RUNNING COMMAND's object
+   *  step (onPickEntities) instead of the idle canonical selection. */
+  readonly commandSelect?: boolean;
 }
 
 function toEntityPick(el: Element): EntityPick {
@@ -941,7 +951,17 @@ export function ModelCanvas(props: ModelCanvasProps): React.JSX.Element {
         const picked = pickEntityAt(world);
         const hit = picked !== null ? (snapshot?.elements ?? []).find((el) => el.id === picked.id) : undefined;
         if (hit !== undefined) props.onPickEntity(toEntityPick(hit));
-        else props.onPickMiss?.(world); // COMPAT-CAD-005: visible "0 found" feedback
+        else if (activeStep.multiple === true) {
+          // COMPAT-CAD-007 (Issue #1; DEF-006): a miss on a MULTIPLE
+          // object step starts the window/crossing drag — drag-select works
+          // inside command select phases exactly like the idle canvas (the
+          // benchmark found it dead: "Drag-select attempts also fail").
+          // A degenerate release (< 4 px = a plain click) reports the miss
+          // through the COMPAT-CAD-005 "0 found" feedback channel.
+          dragRef.current = { kind: "selection", startX: sx, startY: sy, panX: pan.x, panY: pan.y, gripId: "", gripElement: null, commandSelect: true };
+          setSelectionRect({ a: [sx, sy], b: [sx, sy] });
+          e.currentTarget.setPointerCapture(e.pointerId);
+        } else props.onPickMiss?.(world); // COMPAT-CAD-005: visible "0 found" feedback
         return;
       }
       // CAD-PARITY-003 entityPoint step: pick the object under the cursor AND
@@ -1049,6 +1069,13 @@ export function ModelCanvas(props: ModelCanvasProps): React.JSX.Element {
       const a = toWorld(drag.startX, drag.startY);
       const b = toWorld(sx, sy);
       if (Math.hypot(sx - drag.startX, sy - drag.startY) < 4) {
+        if (drag.commandSelect === true) {
+          // COMPAT-CAD-007: a degenerate release during a command object
+          // step is a plain miss — the COMPAT-CAD-005 visible "0 found"
+          // feedback (never a silent drop).
+          props.onPickMiss?.(b);
+          return;
+        }
         // A click on empty space clears the selection.
         if (!e.shiftKey && selection.length > 0) props.onSelectionChange([]);
         return;
@@ -1077,6 +1104,23 @@ export function ModelCanvas(props: ModelCanvasProps): React.JSX.Element {
       );
       for (const id of annotationIds) {
         if (!merged.includes(id)) merged.push(id);
+      }
+      if (drag.commandSelect === true) {
+        // COMPAT-CAD-007 (Issue #1; DEF-006): the window/crossing result
+        // feeds the RUNNING command's object step as ONE batch — the same
+        // deterministic evaluation the idle canvas runs, routed through the
+        // prompt engine's `entities` event. The command's own committed
+        // mutation remains the only canonical write; this pick set is
+        // editor state until then (previews/transient selection stay
+        // presentation state — the CC007 contract).
+        const picks: EntityPick[] = [];
+        const byId = new Map((snapshot?.elements ?? []).map((el) => [el.id, el] as const));
+        for (const id of merged) {
+          const el = byId.get(id);
+          if (el !== undefined) picks.push(toEntityPick(el));
+        }
+        props.onPickEntities?.(picks);
+        return;
       }
       props.onSelectionChange(e.shiftKey ? Array.from(new Set([...selection, ...merged])) : merged);
       return;

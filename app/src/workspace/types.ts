@@ -284,6 +284,15 @@ export interface CommandContext {
   /** Current editor selection (ids with kinds) — used by MOVE/COPY/ERASE
    *  when the object step is skipped with Enter ("previous"). */
   readonly currentSelection: readonly EntityPick[];
+  /** COMPAT-CAD-007 (Issue #1): the pickable element view (the SAME
+   *  interactable rule both hosts apply for canvas picking — visible,
+   *  unfrozen, unlocked layers; BIM wall/slab footprints) for the entity-step
+   *  selection keywords ALL/LAST (CAD-BENCH-RW-001 DEF-021). Both hosts pass
+   *  the SAME derivation (workspace/selection.ts pickableEntityPicks) so the
+   *  keywords resolve identically on Web and Electron. Absent on legacy
+   *  contexts → the keywords answer with an explicit typed decline (never a
+   *  fabricated selection). */
+  readonly selectableElements?: readonly EntityPick[];
   /** CAD-PARITY-004: the document layer table (name resolution for the
    *  -LAYER / CHPROP / LAYERSTATE builders; empty on contexts that predate
    *  the field — every builder treats it as "no resolvable names"). */

@@ -36,6 +36,7 @@ export {
   pickAt,
   cyclePick,
   applyPickModifier,
+  pickableEntityPicks,
   selectionRectangle,
   windowSelect,
   type PickCandidate,
