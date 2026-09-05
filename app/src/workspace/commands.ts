@@ -1058,9 +1058,17 @@ export const WORKSPACE_COMMANDS: readonly WorkspaceCommand[] = [
     steps: [UNDO_STEP],
     build: (values) => {
       const objects = entitiesValue(values, "objects");
-      const { drafting, bim } = partitionSelection(objects);
+      const { drafting, canonical, bim } = partitionSelection(objects);
       const appApi: AppApiCommandPlanEntry[] = [];
-      if (drafting.length > 0) appApi.push({ name: "drafting.delete", payload: { ids: drafting } });
+      // COMPAT-CAD-007 (Issue #1): the canonical-flat partition joins the
+      // delete batch — drafting.delete's removeElement edits are
+      // convention-agnostic (id-keyed), and the pre-CC007 drop starved
+      // ERASE for every entity.create product and every trim/fillet/
+      // chamfer re-topologized entity ("ERASE received no erasable
+      // objects" right after the G4 closure — the G10 undo/redo flow
+      // could not complete).
+      const deletable = [...drafting, ...canonical];
+      if (deletable.length > 0) appApi.push({ name: "drafting.delete", payload: { ids: deletable } });
       if (bim.length > 0) appApi.push({ name: "bim.delete", payload: { ids: bim } });
       if (appApi.length === 0) throw new Error("ERASE received no erasable objects.");
       return plan(appApi, [`ERASE: ${objects.length} object(s).`]);

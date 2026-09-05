@@ -114,6 +114,7 @@ import {
 } from "@offisos/cad-app-shell/workspace/prompt-engine";
 import { mapKeyEvent } from "@offisos/cad-app-shell/workspace/keymap";
 import { PICKBOX_SCREEN_PX } from "@offisos/cad-app-shell/workspace/precision-2d";
+import { pickableEntityPicks } from "@offisos/cad-app-shell/workspace/selection";
 import {
   DEFAULT_DRAFTING_AIDS,
   type DraftingAids,
@@ -350,6 +351,12 @@ export function WorkspaceShell(): React.JSX.Element {
       elementCount: elements.length,
       storyCount: stories.length,
       currentSelection,
+      // COMPAT-CAD-007 (Issue #1; DEF-021): the pickable element view for
+      // the entity-step selection keywords ALL/LAST — the SAME shared
+      // derivation (workspace/selection.ts pickableEntityPicks) the Electron
+      // host passes over the same snapshot (identical keyword results on
+      // both hosts; never a second opinion).
+      selectableElements: pickableEntityPicks(elements, snapshot?.layers ?? []),
       // CAD-PARITY-004: the layer table (name resolution for -LAYER/CHPROP/
       // LAYON builders — the SAME document state both hosts pass).
       layers: snapshot?.layers ?? [],
@@ -1631,6 +1638,15 @@ export function WorkspaceShell(): React.JSX.Element {
                 onCursor={(world) => setCursor(world)}
                 onPickPoint={(world) => dispatchEngine({ type: "pick", point: world })}
                 onPickEntity={(pick) => dispatchEngine({ type: "entity", entity: pick })}
+                onPickEntities={(picks) => {
+                  // COMPAT-CAD-007 (Issue #1; DEF-006): the window/crossing
+                  // batch from a drag inside a command's "Select objects:"
+                  // step — ONE `entities` event into the SAME prompt engine
+                  // (the engine validates, dedupes and echoes "N found, M
+                  // total"; the batch is editor input, never a canonical
+                  // write).
+                  if (picks.length > 0) dispatchEngine({ type: "entities", entities: picks });
+                }}
                 onPickEntityPoint={(pick, worldPoint) => dispatchEngine({ type: "entityPoint", entity: pick, point: [worldPoint[0], worldPoint[1]] })}
                 onPickMiss={(world) => {
                   // COMPAT-CAD-005: a pick MISS is visible feedback (AutoCAD's

@@ -99,6 +99,7 @@ const isIfcSmoke = process.argv.includes("--smoke-ifc");
 const isComponentsSmoke = process.argv.includes("--smoke-components");
 const isWorkspaceSmoke = process.argv.includes("--smoke-workspace");
 const isCad006Smoke = process.argv.includes("--smoke-cad006");
+const isCad007Smoke = process.argv.includes("--smoke-cad007");
 
 function createWindow(): BrowserWindow {
   // app.getAppPath() is the directory containing this package's package.json
@@ -963,6 +964,209 @@ async function runCad006Smoke(win: BrowserWindow): Promise<void> {
 }
 
 /**
+ * COMPAT-CAD-007 / Issue #1: the core editing + deterministic object
+ * selection Electron smoke (the CAD-BENCH-RW-001 DEF-006/007/021 flows).
+ *
+ * Drives the REAL renderer — the professional command line (typedInput) and
+ * the SAME canvas pick core the pointer handler runs (pickEntityWorld /
+ * dragWindowWorld driver methods) — through:
+ *   1. the G4 precision quadrilateral: four overshooting lines drawn by
+ *      typed coordinates, then TRIM with implied-all edges and four canvas
+ *      entity picks closing the boundary exactly;
+ *   2. DEF-021: typed ALL at MOVE's "Select objects:" collects every
+ *      pickable entity (the command NEVER cancels for SELECTALL) and the
+ *      move commits;
+ *   3. DEF-006: the window/crossing batch through dragWindowWorld into
+ *      ERASE's object step;
+ *   4. DEF-007: typed "Undo" at LINE's [Undo] applies the option (LINE
+ *      keeps running; the global UNDO never runs), typed "Arc" at
+ *      POLYLINE's vertex is the typed error (no ARC escape);
+ *   5. G10: UNDO restores the exact prior state.
+ */
+async function runCad007Smoke(win: BrowserWindow): Promise<void> {
+  if (process.env.OFFISOS_SMOKE_VERBOSE) {
+    win.webContents.on("console-message", (_e, _level, message) => {
+      console.log("[renderer]", String(message).slice(0, 500));
+    });
+  }
+  const steps: SmokeStep[] = [];
+  const push = (name: string, ok: boolean, detail: unknown = null): void => {
+    steps.push({ step: name, ok, detail });
+    if (process.env.OFFISOS_SMOKE_VERBOSE) console.log(ok ? `  [PASS] ${name}` : `  [FAIL] ${name}`, detail ?? "");
+  };
+
+  await new Promise<void>((resolve) => {
+    win.webContents.once("did-finish-load", () => resolve());
+  });
+
+  const page = async <T>(js: string): Promise<T> => {
+    const wrapped = (await win.webContents.executeJavaScript(
+      `(${js}).then((r) => ({ __smokeOk: true, r }), (e) => ({ __smokeOk: false, msg: String(e), stack: String((e && e.stack) || "") }))`,
+    )) as { __smokeOk: true; r: T } | { __smokeOk: false; msg: string; stack: string };
+    if (wrapped.__smokeOk !== true) {
+      throw new Error(`renderer call rejected: ${wrapped.msg}\n${wrapped.stack.slice(0, 800)}\nfor script: ${js.slice(0, 200)}`);
+    }
+    return wrapped.r;
+  };
+  const qq = (name: string, payload: unknown) =>
+    page<CommandQueryResponse>(`window.cad.send(${JSON.stringify({ type: "query", name, payload })})`);
+  const driver = async <T>(method: string, ...args: unknown[]): Promise<T> =>
+    page<T>(
+      `(async () => await window.__offisosWorkspace.${method}(${args.map((a) => JSON.stringify(a)).join(",")}))()`,
+    );
+  const type = (text: string) => driver<void>("typedInput", text);
+  type DocState = { elements: { id: string; props: Record<string, unknown> }[]; version: { version_number: number } };
+  const docState = async (): Promise<DocState | null> => {
+    const r = await qq("document.getState", {});
+    return r && r.ok ? (r.value as DocState) : null;
+  };
+  const history = async (): Promise<string[]> => (await driver<{ history: string[] }>("status")).history;
+  const near = (a: number, b: number, eps: number): boolean => Math.abs(a - b) <= eps;
+  const coordsOf = (s: DocState, id: string): [number, number, number, number] => {
+    const el = s.elements.find((e) => e.id === id);
+    const p = el?.props ?? {};
+    return [p.x1 as number, p.y1 as number, p.x2 as number, p.y2 as number];
+  };
+
+  // 1. Fresh document + the G4 quadrilateral through the REAL command line.
+  await type("NEW");
+  await type("LINE");
+  await type("0,0");
+  await type("104,0");
+  await type("");
+  await type("LINE");
+  await type("100,0");
+  await type("100,104");
+  await type("");
+  await type("LINE");
+  await type("100,100");
+  await type("-4,100");
+  await type("");
+  await type("LINE");
+  await type("0,100");
+  await type("0,-4");
+  await type("");
+  let s = await docState();
+  push("1", !!(s && s.elements.length === 4), s ? `elements=${s.elements.length}` : "no state");
+  const quadVersion = s?.version.version_number ?? -1;
+
+  // 2. TRIM with implied-all edges + four canvas entity picks (the pick
+  //    point selects the excess piece) — the G4 closure.
+  await type("TRIM");
+  await type(""); // cutting edges: implied all objects
+  await driver("pickEntityWorld", 102, 0);
+  await driver("pickEntityWorld", 100, 102);
+  await driver("pickEntityWorld", -2, 100);
+  await driver("pickEntityWorld", 0, -2);
+  await type("");
+  s = await docState();
+  {
+    const st = s;
+    const closed =
+      !!st &&
+      st.elements.length === 4 &&
+      JSON.stringify(coordsOf(st, "el-000001")) === JSON.stringify([0, 0, 100, 0]) &&
+      JSON.stringify(coordsOf(st, "el-000002")) === JSON.stringify([100, 0, 100, 100]) &&
+      JSON.stringify(coordsOf(st, "el-000003")) === JSON.stringify([100, 100, 0, 100]) &&
+      JSON.stringify(coordsOf(st, "el-000004")) === JSON.stringify([0, 100, 0, 0]);
+    push("2", closed, st ? `quad coords: ${st.elements.map((e) => coordsOf(st, e.id).join(",")).join(" | ")}` : "no state");
+  }
+  push("3", !!(s && s.version.version_number === quadVersion + 1), `one atomic revision (v=${s?.version.version_number})`);
+
+  // 3. DEF-021: typed ALL at MOVE's "Select objects:" — the command never
+  //    cancels; the move commits for all four entities.
+  await type("MOVE");
+  await type("ALL");
+  {
+    const st = await driver<{ commandName: string | null; prompt: string | null }>("status");
+    push("4", st.commandName === "MOVE", `MOVE still running after ALL (commandName=${st.commandName})`);
+    const h = await history();
+    push("5", h.some((l) => l.includes("4 found (all)")), `the ALL echo: ${h.filter((l) => l.includes("found")).slice(-3).join(" | ")}`);
+    push("6", !h.slice(-6).includes("*Cancel*"), `no *Cancel*: ${h.slice(-4).join(" | ")}`);
+  }
+  await type("0,0");
+  await type("10,10");
+  s = await docState();
+  {
+    const moved = !!s && JSON.stringify(coordsOf(s, "el-000001")) === JSON.stringify([10, 10, 110, 10]);
+    push("7", moved, `el-000001 moved: ${s ? coordsOf(s, "el-000001").join(",") : "-"}`);
+  }
+
+  // 4. DEF-006: the window batch through the driver's canvas path into
+  //    ERASE's object step.
+  await type("ERASE");
+  {
+    const r = await driver<{ picked: number }>("dragWindowWorld", -100, -100, 300, 300);
+    push("8", r.picked === 4, `the window batch picked ${r.picked} objects`);
+    const h = await history();
+    push("9", h.some((l) => l.startsWith("4 found")), `the batch echo: ${h.slice(-3).join(" | ")}`);
+  }
+  await type("");
+  s = await docState();
+  push("10", !!(s && s.elements.length === 0), `elements after window ERASE=${s?.elements.length ?? -1}`);
+
+  // 5. G10: UNDO restores the exact prior state.
+  await type("UNDO");
+  s = await docState();
+  push("11", !!(s && s.elements.length === 4), `undo restored elements=${s?.elements.length ?? -1}`);
+  {
+    const restored =
+      !!s &&
+      JSON.stringify(coordsOf(s, "el-000001")) === JSON.stringify([10, 10, 110, 10]) &&
+      JSON.stringify(coordsOf(s, "el-000002")) === JSON.stringify([110, 10, 110, 110]);
+    push("12", restored, `the post-move state restored exactly: ${s ? coordsOf(s, "el-000001").join(",") : "-"}`);
+  }
+
+  // 6. DEF-007: typed "Undo" at LINE's [Undo] applies the option (the LINE
+  //    survives; the global UNDO never runs).
+  await type("NEW");
+  await type("LINE");
+  await type("0,0");
+  await type("100,0");
+  await type("Undo");
+  {
+    const st = await driver<{ commandName: string | null; prompt: string | null }>("status");
+    push("13", st.commandName === "LINE", `LINE still running after typed Undo (${st.commandName})`);
+    const h = await history();
+    push("14", h.some((l) => l.includes("Undo one segment")), `the option echo: ${h.slice(-3).join(" | ")}`);
+    push("15", !h.slice(-4).includes("UNDO.") && !h.slice(-4).includes("*Cancel*"), `the global UNDO never ran: ${h.slice(-3).join(" | ")}`);
+  }
+  await type("");
+
+  // 7. DEF-007: typed "Arc" at POLYLINE's vertex — the typed error, the
+  //    PLINE survives (no ARC escape).
+  await type("POLYLINE");
+  await type("0,0");
+  await type("Arc");
+  {
+    const st = await driver<{ commandName: string | null; prompt: string | null }>("status");
+    push("16", st.commandName === "POLYLINE", `POLYLINE still running after typed Arc (${st.commandName})`);
+    const h = await history();
+    push("17", !h.includes("*Cancel*"), `no *Cancel*: ${h.slice(-3).join(" | ")}`);
+  }
+  await type("100,0");
+  await type("");
+
+  // 8. NEGATIVE: the document never mutated through the failed-input flows.
+  //    (The LINE probe's segment was undone by the [Undo] option; only the
+  //    POLYLINE — which survived the rejected "Arc" token and completed —
+  //    remains.)
+  s = await docState();
+  push("18", !!(s && s.elements.length === 1), `elements=${s?.elements.length ?? -1} (the polyline from the DEF-007 probes; the LINE segment was undone)`);
+
+  const allOk = steps.every((st) => st.ok);
+  writeSmokeOut({
+    ok: allOk,
+    electronVersion: process.versions.electron,
+    nodeVersion: process.versions.node,
+    chromeVersion: process.versions.chrome,
+    steps,
+    contentHash: null,
+    sceneHash: null,
+  });
+}
+
+/**
  * CAD-PARITY-002 / Issue #75: the professional workspace Electron smoke.
  *
  * Drives the REAL renderer UI — the professional command line, prompt
@@ -1198,7 +1402,9 @@ app.whenReady().then(() => {
                       ? runWorkspaceSmoke(win)
                       : isCad006Smoke
                         ? runCad006Smoke(win)
-                        : null;
+                        : isCad007Smoke
+                          ? runCad007Smoke(win)
+                          : null;
   if (smokeRun !== null) {
     smokeRun
       .then(() => {

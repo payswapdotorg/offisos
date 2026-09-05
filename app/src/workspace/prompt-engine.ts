@@ -96,6 +96,7 @@ export type PromptEvent =
   | { readonly type: "typed"; readonly text: string; readonly cursor?: Vec2 | null }
   | { readonly type: "pick"; readonly point: Vec2 }
   | { readonly type: "entity"; readonly entity: EntityPick }
+  | { readonly type: "entities"; readonly entities: readonly EntityPick[] }
   | { readonly type: "entityPoint"; readonly entity: EntityPick; readonly point: Vec2 }
   | { readonly type: "enter" }
   | { readonly type: "cancel" };
@@ -419,6 +420,33 @@ function completeCommand(
   return { state: next, output: { lines: [...echo, ...plan.echo], prompt: null, commandName: null, plan } };
 }
 
+/** COMPAT-CAD-007 (Issue #1; CAD-BENCH-RW-001 DEF-007): does a typed token
+ *  select a step option?
+ *
+ *  AutoCAD-class rule, deterministic in every case:
+ *   1. the token equals the option keyword (case-insensitive) — "U", "C",
+ *      "T", "R" — the classic abbreviation; OR
+ *   2. the token is the (partial) word-form the prompt ADVERTISES between
+ *      the brackets: it extends the keyword AND matches the beginning of a
+ *      word of the option label — "Undo" for U/"Undo", "Close" for
+ *      C/"Close", "Through" for T/"Through point", "Radius" for
+ *      R/"Fillet radius", "Extents" for E/"Extents".
+ *
+ *  Case (2) is the DEF-007 fix: the benchmark found the advertised word-form
+ *  typed at the prompt ("Undo" at LINE's "[Undo]") falling through to
+ *  global command resolution, CANCELING the running command and starting
+ *  another one ("UNDO" runs; LINE is lost). Word-forms now win — options
+ *  are honored uniformly, exactly as the prompt advertises them. */
+export function optionTokenMatches(token: string, option: { readonly keyword: string; readonly label: string }): boolean {
+  const t = token.toUpperCase();
+  const kw = option.keyword.toUpperCase();
+  if (t === kw) return true;
+  if (t.length <= kw.length) return false;
+  if (!t.startsWith(kw)) return false;
+  const words = option.label.toUpperCase().split(/[\s/]+/);
+  return words.some((w) => w.length > kw.length && w.startsWith(kw) && w.startsWith(t));
+}
+
 function applyOptionKeyword(
   state: PromptEngineState,
   cmd: WorkspaceCommand,
@@ -427,7 +455,12 @@ function applyOptionKeyword(
 ): PromptEngineResult | null {
   const step = currentStep(state);
   if (step === null || step.options === undefined) return null;
-  const option = step.options.find((o) => o.keyword.toUpperCase() === keyword.toUpperCase());
+  // Two passes, deterministic: the EXACT keyword (declaration order) wins
+  // over word-form matches — typing "EXT" at ZOOM's prompt selects the
+  // declared "EXT" option, not a word-form of the earlier "E" option.
+  const option =
+    step.options.find((o) => o.keyword.toUpperCase() === keyword.toUpperCase()) ??
+    step.options.find((o) => optionTokenMatches(keyword, o));
   if (option === undefined) return null;
 
   if (cmd.id === "line" && option.keyword === "U") {
@@ -746,6 +779,64 @@ export function applyPromptEvent(
       return collectValue(state, cmd, { kind: "entities", entities: [event.entity] }, [`1 found (${event.entity.id})`], ctx);
     }
 
+    // COMPAT-CAD-007 (Issue #1; DEF-006): a WINDOW/CROSSING selection
+    // result delivered as ONE batch — the hosts emit this when the user
+    // drags a selection rectangle during a command's "Select objects:"
+    // step (the benchmark found drag-select dead inside command select
+    // phases). The pick set is the SAME deterministic window/crossing
+    // evaluation the idle canvas runs; this event only carries its result
+    // into the running command. Deduplicated against the step's already
+    // collected ids; per-step validation filters (with an explicit count);
+    // the honest AutoCAD echo is "N found, M total".
+    case "entities": {
+      if (cmd === null) return { state, output: idleOutput([]) };
+      const step = currentStep(state);
+      if (step === null || step.kind !== "entity") {
+        return { state, output: activeOutput(state, ["This step does not accept a window selection."]) };
+      }
+      if (step.multiple !== true) {
+        return {
+          state,
+          output: activeOutput(state, ["This step collects one object at a time — pick the object in the canvas."]),
+        };
+      }
+      // Already-collected ids (dedupe — a window over picked objects never
+      // double-counts; AutoCAD-class).
+      const existing = state.values[step.id];
+      const collected = existing !== undefined && existing.kind === "entities" ? existing.entities : [];
+      const seen = new Set(collected.map((e) => e.id));
+      // Validate + dedupe the batch (document order preserved).
+      const accepted: EntityPick[] = [];
+      let skipped = 0;
+      for (const entity of event.entities) {
+        if (seen.has(entity.id)) continue;
+        if (step.validate !== undefined && step.validate(entity) !== null) {
+          skipped += 1;
+          continue;
+        }
+        seen.add(entity.id);
+        accepted.push(entity);
+      }
+      if (accepted.length === 0) {
+        const reason =
+          skipped > 0
+            ? `0 found${collected.length > 0 ? ", " + collected.length + " total" : ""} — ${skipped} object${skipped === 1 ? "" : "s"} outside this command's selection filter.`
+            : collected.length > 0
+              ? `0 found, ${collected.length} total — the window selected nothing new.`
+              : "0 found — the window selected nothing.";
+        return { state, output: activeOutput(state, [reason]) };
+      }
+      const acceptedCount = accepted.length;
+      const total = collected.length + acceptedCount;
+      const echo = [
+        `${acceptedCount} found${skipped > 0 ? `, ${skipped} skipped` : ""}${total > acceptedCount ? `, ${total} total` : ""}.`,
+      ];
+      // Route ONLY the accepted picks through collectValue — its multiple-
+      // step semantics append onto the collected set and keep the advance/
+      // complete behavior identical to a single pick.
+      return collectValue(state, cmd, { kind: "entities", entities: accepted }, echo, ctx);
+    }
+
     // CAD-PARITY-003: object pick that ALSO records where it was picked —
     // the pick location is semantic for TRIM/EXTEND/FILLET/CHAMFER/BREAK
     // (it selects the piece/corner to operate on).
@@ -789,23 +880,21 @@ export function applyPromptEvent(
       const optioned = applyOptionKeyword(state, cmd, text, ctx);
       if (optioned !== null) return optioned;
 
-      // A command token typed while a command runs starts the new command
-      // (canceling the current one) — except inside text steps, where the
-      // token is legitimate input (e.g. a story named "Wall").
-      // COMPAT-CAD-006 (Issue #138): the ENTITY-step "P" (previous
-      // selection) convention WINS over the PAN command's P alias — the
-      // shipped selection semantics stay intact; PAN starts by its full
-      // name, or by P whenever no entity/entityPoint step is running.
-      const runningStep = currentStep(state);
-      if (runningStep !== null && runningStep.kind !== "text") {
-        const prevSelectionToken =
-          (runningStep.kind === "entity" || runningStep.kind === "entityPoint") && text.toUpperCase() === "P";
-        const switchTarget = prevSelectionToken ? null : resolveCommand(text);
-        if (switchTarget !== null) {
-          const started = startCommand({ ...IDLE_PROMPT_STATE, lastCommandId: state.lastCommandId }, switchTarget, ctx);
-          return { state: started.state, output: { ...started.output, lines: ["*Cancel*", ...started.output.lines] } };
-        }
-      }
+      // COMPAT-CAD-007 (Issue #1; CAD-BENCH-RW-001 DEF-007): a typed
+      // token NEVER starts a new command while a command is running —
+      // AutoCAD-class: the running prompt owns its input. The benchmark
+      // found the shipped "command token switches" behavior producing the
+      // per-command lottery ("Undo" at LINE's [Undo] ran UNDO and lost the
+      // LINE; "Arc" at POLYLINE's vertex ran ARC; "ALL" at MOVE's
+      // "Select objects:" ran SELECTALL) — the command-line trust contract
+      // was destroyed by every escape. Options win first (above); selection
+      // keywords win inside entity steps; every other token falls through
+      // to the step's own typed handling below, which answers with the
+      // explicit typed error (point: not a coordinate; number: not a
+      // number; …) and the command KEEPS RUNNING. Text steps consume any
+      // token as legitimate input (a story named "Wall"). To start another
+      // command the user presses Esc (or finishes) first — exactly
+      // AutoCAD's contract.
 
       const step = currentStep(state);
       if (step === null) return { state, output: activeOutput(state, []) };
@@ -835,7 +924,15 @@ export function applyPromptEvent(
           return collectValue(state, cmd, { kind: "text", text }, [text], ctx);
         }
         case "entity": {
-          if (text.toUpperCase() === "P") {
+          // COMPAT-CAD-007 (Issue #1; DEF-021): the AutoCAD selection
+          // keyword vocabulary INSIDE "Select objects:" prompts — P/PREVIOUS
+          // (the shipped COMPAT-CAD-006 behavior, now with its full word),
+          // ALL and LAST/L (the benchmark found ALL escaping to SELECTALL
+          // and canceling the running command). Every keyword resolves
+          // through the ctx views the hosts pass — deterministic, identical
+          // on Web and Electron, and explicit when the view is unavailable.
+          const t = text.toUpperCase();
+          if (t === "P" || t === "PREVIOUS") {
             if (ctx.currentSelection.length === 0) {
               return { state, output: activeOutput(state, ["No previous selection — pick objects or type P with a selection active."]) };
             }
@@ -847,7 +944,42 @@ export function applyPromptEvent(
               ctx,
             );
           }
-          return { state, output: activeOutput(state, [`'${text}' is not an object — pick in the canvas or type P for the previous selection.`]) };
+          if (t === "ALL") {
+            const all = ctx.selectableElements ?? null;
+            if (all === null) {
+              // Legacy context without the pickable view — the honest typed
+              // decline (never a fabricated selection).
+              return { state, output: activeOutput(state, ["ALL is not available in this context — pick objects in the canvas or type P for the previous selection."]) };
+            }
+            if (all.length === 0) {
+              return { state, output: activeOutput(state, ["0 found (all) — the drawing has no selectable objects."]) };
+            }
+            return collectValue(
+              state,
+              cmd,
+              { kind: "entities", entities: [...all] },
+              [`${all.length} found (all)`],
+              ctx,
+            );
+          }
+          if (t === "LAST" || t === "L") {
+            const all = ctx.selectableElements ?? null;
+            if (all === null) {
+              return { state, output: activeOutput(state, ["LAST is not available in this context — pick the object in the canvas or type P for the previous selection."]) };
+            }
+            if (all.length === 0) {
+              return { state, output: activeOutput(state, ["0 found (last) — the drawing has no selectable objects."]) };
+            }
+            const last = all[all.length - 1]!;
+            return collectValue(
+              state,
+              cmd,
+              { kind: "entities", entities: [last] },
+              [`1 found (last: ${last.id})`],
+              ctx,
+            );
+          }
+          return { state, output: activeOutput(state, [`'${text}' is not a valid selection — pick in the canvas, or type ALL, LAST or P (previous selection).`]) };
         }
         case "entityPoint": {
           // The pick LOCATION is semantic here (TRIM/EXTEND/FILLET/…) — a

@@ -1205,41 +1205,95 @@ function opTrim(
 ): EntityOpOutcome {
   if (trims.length === 0) throw new EntityOpError("trim requires at least one target pick", "bad_input");
   // Implied "all edges" when no cutting edges were selected (AutoCAD Enter
-  // semantics): every OTHER canonical entity is a potential edge.
-  const trimmedIds = new Set(trims.map((t) => t.targetId));
+  // semantics): every canonical entity is a potential edge. COMPAT-CAD-007
+  // (Issue #1; the G4 quadrilateral closure): the PER-TARGET edge set
+  // excludes only the target itself (an entity never cuts itself) — MUTUAL
+  // targets DO cut each other, exactly the boundary-loop trim the G4
+  // exercise runs (four overshooting lines mutually closing the
+  // quadrilateral through the implied-all Enter path). The pre-CC007
+  // exclusion of ALL trim targets starved closed-loop trims of every edge
+  // ("no cutting edges intersect the entity").
   const edgeIds =
     edges.length > 0
       ? edges
-      : elements.filter((el) => geomFromElement(el) !== null && !trimmedIds.has(el.id)).map((el) => el.id);
+      : elements.filter((el) => geomFromElement(el) !== null).map((el) => el.id);
   const edgeViews = loadEntities(elements, edgeIds);
-  const edgeGeoms = [...edgeViews.values()].map((v) => v.geom);
 
-  const edits: DocumentEdit[] = [];
+  // COMPAT-CAD-007 (Issue #1): picks are collected against the pre-commit
+  // geometry (input-only until the command's own mutation commits), so
+  // multiple picks on ONE entity must compose as the union of the picked
+  // pieces — AutoCAD-class incremental trimming inside a single TRIM
+  // command. Each pick cuts the WORKING piece the entity's earlier picks
+  // left behind; a pick whose piece is already gone is skipped HONESTLY
+  // (skipped message, never a trimmed count) instead of silently re-cutting
+  // a different piece. Discovered by the exact-head browser G4 gate (eight
+  // excess picks, two per edge: the pre-fix last-replace-wins application
+  // silently discarded the first cut of every doubly-picked edge).
+  const edits: Array<DocumentEdit | null> = [];
   const messages: string[] = [];
+  const slots = new Map<
+    string,
+    { mainIdx: number; addIdxs: number[]; geom: Geom; original: Geom; element: Element; removed: boolean }
+  >();
   let trimmed = 0;
+  const emit = (e: DocumentEdit): number => {
+    edits.push(e);
+    return edits.length - 1;
+  };
   for (const t of trims) {
-    const view = loadEntities(elements, [t.targetId]).get(t.targetId)!;
+    let slot = slots.get(t.targetId);
+    if (slot === undefined) {
+      const view = loadEntities(elements, [t.targetId]).get(t.targetId)!;
+      slot = { mainIdx: -1, addIdxs: [], geom: view.geom, original: view.geom, element: view.element, removed: false };
+      slots.set(t.targetId, slot);
+    }
+    if (slot.removed) {
+      messages.push(`${t.targetId}: already removed by an earlier pick in this command`);
+      continue;
+    }
     try {
-      const result = trimGeom(view.geom, edgeGeoms, t.pick);
+      // The target's own geometry is never one of its cutting edges
+      // (AutoCAD-class; harmless for explicit selections that include it).
+      const edgeGeoms = [...edgeViews.values()].filter((v) => v.element.id !== t.targetId).map((v) => v.geom);
+      // Stale-pick guard: the pick was collected against the PRE-COMMIT
+      // geometry, so it names a piece of the ORIGINAL entity. If an earlier
+      // pick in this same command already removed that piece, the pick no
+      // longer lies on the entity's working geometry (the distance to the
+      // working geometry exceeds the distance to the original by a real
+      // margin) and the pick is an honest no-op — never a re-cut of some
+      // OTHER piece the projection happens to land on.
+      const distOriginal = closestOn(slot.original, t.pick).d;
+      const distWorking = closestOn(slot.geom, t.pick).d;
+      if (distWorking - distOriginal > 1e-6) {
+        messages.push(`${t.targetId}: pick is off the remaining piece (already trimmed in this command)`);
+        continue;
+      }
+      const result = trimGeom(slot.geom, edgeGeoms, t.pick);
+      // Compose: supersede this entity's earlier edit in place (tombstone the
+      // superseded split adds) so the emitted stream is the NET outcome —
+      // never last-replace-wins clobbering of the first cut.
+      for (const i of slot.addIdxs) edits[i] = null;
+      slot.addIdxs = [];
       if (result === null) {
-        edits.push(removeEdit(view.element.id));
+        const remove = removeEdit(slot.element.id);
+        if (slot.mainIdx >= 0) edits[slot.mainIdx] = remove;
+        else slot.mainIdx = emit(remove);
+        slot.removed = true;
         trimmed++;
         continue;
       }
-      if (result.length === 1) {
-        edits.push(replaceGeomEdit(view, result[0]!));
-        trimmed++;
-        continue;
-      }
-      // Split: replace with the first piece, add the rest.
-      edits.push(replaceGeomEdit(view, result[0]!));
+      slot.geom = result[0]!;
+      const main = replaceGeomEdit({ element: slot.element, geom: result[0]! }, result[0]!);
+      if (slot.mainIdx >= 0) edits[slot.mainIdx] = main;
+      else slot.mainIdx = emit(main);
+      // Split: the first piece keeps the entity identity; the rest are added.
       for (const extra of result.slice(1)) {
-        edits.push(addGeomEdit(extra, layerOfElement(view.element)));
+        slot.addIdxs.push(emit(addGeomEdit(extra, layerOfElement(slot.element))));
       }
       trimmed++;
     } catch (err) {
       if (err instanceof GeomOpError) {
-        messages.push(`${view.element.id}: ${err.message}`);
+        messages.push(`${t.targetId}: ${err.message}`);
       } else {
         throw err;
       }
@@ -1248,8 +1302,9 @@ function opTrim(
   if (trimmed === 0 && messages.length > 0) {
     throw new EntityOpError(messages[0]!, "trim_failed");
   }
+  const live = edits.filter((e): e is DocumentEdit => e !== null);
   return outcome(
-    edits,
+    live,
     `${plurality(trimmed, "trim")} applied${messages.length > 0 ? `; skipped: ${messages.join("; ")}` : ""}`,
   );
 }

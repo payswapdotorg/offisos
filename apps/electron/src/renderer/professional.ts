@@ -128,6 +128,7 @@ import {
   gripDrag,
   gripsFor,
   hitTest,
+  pickableEntityPicks,
   selectionRectangle,
   windowSelect,
   type EntityPick,
@@ -644,6 +645,19 @@ export interface ProfessionalDriver {
   pressEnter(): Promise<void>;
   pressEscape(): Promise<void>;
   pickPoint(x: number, y: number): Promise<void>;
+  /** COMPAT-CAD-007 (Issue #1): an entity/entityPoint pick at a WORLD
+   *  point through the SAME pick core the canvas mousedown runs (the pick
+   *  resolves over the visible element view; the effective step routes the
+   *  event — entity steps collect the entity, entityPoint steps also carry
+   *  the raw pick location). Returns the picked element id or null (the
+   *  visible "0 found" miss path). */
+  pickEntityWorld(x: number, y: number): Promise<{ picked: string | null }>;
+  /** COMPAT-CAD-007 (Issue #1): a window/crossing selection batch during
+   *  a RUNNING command's multiple-object step — the SAME deterministic
+   *  window evaluation the canvas mouseup runs (legacy + canonical +
+   *  annotations + instances, deduped), delivered as ONE `entities` event
+   *  into the prompt engine. Returns the batch size. */
+  dragWindowWorld(ax: number, ay: number, bx: number, by: number): Promise<{ picked: number }>;
   setSelection(ids: string[]): Promise<void>;
   /** CAD-PARITY-011 (Issue #97): set the ACTIVE STORY (the Navigator's
    *  story context for BIM authoring commands — the same state the UI sets
@@ -801,6 +815,12 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
       currentSelection: elements
         .filter((el) => state.selection.includes(el.id))
         .map((el) => ({ id: el.id, kind: el.kind, props: el.props as Record<string, unknown> })),
+      // COMPAT-CAD-007 (Issue #1; DEF-021): the pickable element view for
+      // the entity-step selection keywords ALL/LAST — the SAME shared
+      // derivation (workspace/selection.ts pickableEntityPicks) the Web host
+      // passes over the same snapshot (identical keyword results on both
+      // hosts; never a second opinion).
+      selectableElements: pickableEntityPicks(elements, state.snapshot?.layers ?? []),
       // CAD-PARITY-004: the document layer table — the -LAYER / CHPROP /
       // LAYERSTATE builders resolve layer NAMES through it (name resolution,
       // LAYON batching; empty on snapshots without layers).
@@ -2855,6 +2875,10 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
   let dragStartScreen: [number, number] = [0, 0];
   let dragPan = { x: 0, y: 0 };
   let selRect: { a: Vec2; b: Vec2 } | null = null;
+  // COMPAT-CAD-007 (Issue #1): a selection drag feeding a RUNNING command's
+  // object step (the `entities` batch) instead of the idle canonical
+  // selection — the Web host's mirror flag.
+  let dragCommandSelect = false;
   let lastClick: { screen: [number, number]; at: number; index: number } | null = null;
   let gripDragState: { id: string; element: Element } | null = null;
 
@@ -2918,6 +2942,18 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
         const hit = picked !== null ? (state.snapshot?.elements ?? []).find((el) => el.id === picked.id) : undefined;
         if (hit !== undefined) {
           void dispatchEngine({ type: "entity", entity: { id: hit.id, kind: hit.kind, props: hit.props as Record<string, unknown> } });
+        } else if (step.multiple === true) {
+          // COMPAT-CAD-007 (Issue #1; DEF-006): a miss on a MULTIPLE object
+          // step starts the window/crossing drag — drag-select works inside
+          // command select phases exactly like the idle canvas (the Web
+          // host's mirror; the benchmark found drag-select dead). A
+          // degenerate release reports the miss through the visible "0
+          // found" feedback.
+          dragKind = "selection";
+          dragCommandSelect = true;
+          dragStart = world;
+          selRect = { a: world, b: world };
+          renderModel();
         } else {
           // COMPAT-CAD-005: a pick MISS is visible "0 found" feedback —
           // never a silent drop (the Web host's mirror; DEF-006).
@@ -2988,6 +3024,7 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
     }
     lastClick = null;
     dragKind = "selection";
+    dragCommandSelect = false;
     dragStart = world;
     selRect = { a: world, b: world };
     renderModel();
@@ -3024,9 +3061,19 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
     if (dragKind === "selection" && selRect !== null) {
       const rect = selectionRectangle(selRect.a, selRect.b);
       const moved = Math.hypot(selRect.b[0] - selRect.a[0], selRect.b[1] - selRect.a[1]);
+      const releasePoint: Vec2 = [selRect.b[0], selRect.b[1]];
+      const commandSelect = dragCommandSelect;
       dragKind = null;
+      dragCommandSelect = false;
       selRect = null;
       if (moved < 4 / state.zoom) {
+        if (commandSelect) {
+          // COMPAT-CAD-007: a degenerate release during a command object step
+          // is a plain miss — the COMPAT-CAD-005 visible "0 found" feedback
+          // (never a silent drop; the Web host's mirror).
+          pushLines([`0 found — nothing within the pickbox at (${Math.round(releasePoint[0])}, ${Math.round(releasePoint[1])}).`]);
+          return;
+        }
         if (state.selection.length > 0) {
           void command("document.setSelection", { ids: [] }).then(() => {
             state.selection = [];
@@ -3069,6 +3116,23 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
       );
       for (const id of instanceIds) {
         if (!merged.includes(id)) merged.push(id);
+      }
+      if (commandSelect) {
+        // COMPAT-CAD-007 (Issue #1; DEF-006): the window/crossing result
+        // feeds the RUNNING command's object step as ONE `entities` batch —
+        // the same deterministic evaluation the idle canvas runs, through the
+        // SAME prompt engine (validate + dedupe + "N found, M total"). The
+        // command's own committed mutation remains the only canonical write.
+        const byId = new Map((state.snapshot?.elements ?? []).map((el) => [el.id, el] as const));
+        const picks: { id: string; kind: string; props: Record<string, unknown> }[] = [];
+        for (const id of merged) {
+          const el = byId.get(id);
+          if (el !== undefined) picks.push({ id: el.id, kind: el.kind, props: el.props as Record<string, unknown> });
+        }
+        if (picks.length > 0) {
+          void dispatchEngine({ type: "entities", entities: picks });
+        }
+        return;
       }
       const next = e.shiftKey ? Array.from(new Set([...state.selection, ...merged])) : merged;
       void command("document.setSelection", { ids: next }).then(() => {
@@ -6898,6 +6962,75 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
       state.cursor = [x, y];
       const { point } = constrainSnap([x, y], false);
       await dispatchEngine({ type: "pick", point });
+    },
+    async pickEntityWorld(x: number, y: number): Promise<{ picked: string | null }> {
+      // COMPAT-CAD-007: the canvas mousedown's entity/entityPoint path —
+      // the SAME pick core over the SAME visible element view (no second
+      // opinion; the pick routes by the effective step exactly like the
+      // pointer handler).
+      const world: Vec2 = [x, y];
+      state.cursor = world;
+      const visible = visibleElements();
+      const picked = pickEntityAt(world, toEntities(visible), visible);
+      const hit = picked !== null ? (state.snapshot?.elements ?? []).find((el) => el.id === picked.id) : undefined;
+      if (hit === undefined) {
+        pushLines([`0 found — nothing within the pickbox at (${Math.round(world[0])}, ${Math.round(world[1])}).`]);
+        return { picked: null };
+      }
+      const step = effectiveStep(state.engine);
+      const entity = { id: hit.id, kind: hit.kind, props: hit.props as Record<string, unknown> };
+      if (step !== null && step.kind === "entityPoint") {
+        await dispatchEngine({ type: "entityPoint", entity, point: [world[0], world[1]] });
+      } else {
+        await dispatchEngine({ type: "entity", entity });
+      }
+      renderCommandLine();
+      return { picked: hit.id };
+    },
+    async dragWindowWorld(ax: number, ay: number, bx: number, by: number): Promise<{ picked: number }> {
+      // COMPAT-CAD-007: the canvas mouseup's window/crossing batch path —
+      // the SAME deterministic evaluation (legacy + canonical + annotations
+      // + instances, deduped by id) delivered as ONE `entities` event.
+      const a: Vec2 = [ax, ay];
+      const b: Vec2 = [bx, by];
+      const rect = selectionRectangle(a, b);
+      const visible = visibleElements();
+      const ids = windowSelect(rect, visible);
+      const canonicalIds = selectWindowGeom(toEntities(visible), {
+        mode: rect.mode,
+        min: { x: rect.min[0], y: rect.min[1] },
+        max: { x: rect.max[0], y: rect.max[1] },
+      });
+      const merged: string[] = [...ids];
+      for (const id of canonicalIds) {
+        if (!merged.includes(id)) merged.push(id);
+      }
+      const annotationIds = selectAnnotations(
+        visible,
+        { mode: rect.mode, min: { x: rect.min[0], y: rect.min[1] }, max: { x: rect.max[0], y: rect.max[1] } },
+        annotationStyleCtxOf(),
+      );
+      for (const id of annotationIds) {
+        if (!merged.includes(id)) merged.push(id);
+      }
+      const instanceIds = selectInstanceElements(
+        visible,
+        { mode: rect.mode, min: { x: rect.min[0], y: rect.min[1] }, max: { x: rect.max[0], y: rect.max[1] } },
+      );
+      for (const id of instanceIds) {
+        if (!merged.includes(id)) merged.push(id);
+      }
+      const byId = new Map((state.snapshot?.elements ?? []).map((el) => [el.id, el] as const));
+      const picks: EntityPick[] = [];
+      for (const id of merged) {
+        const el = byId.get(id);
+        if (el !== undefined) picks.push({ id: el.id, kind: el.kind, props: el.props as Record<string, unknown> });
+      }
+      if (picks.length > 0) {
+        await dispatchEngine({ type: "entities", entities: picks });
+      }
+      renderCommandLine();
+      return { picked: picks.length };
     },
     async setSelection(ids: string[]): Promise<void> {
       await command("document.setSelection", { ids });
