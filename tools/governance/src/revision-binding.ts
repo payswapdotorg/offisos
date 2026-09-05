@@ -121,7 +121,7 @@ export function computeVerifiedRevisionAudit(
 
     const changed = git.diffNames(resolved, base);
     const material = changed.filter(isMaterialPath);
-    const stalePaths = boundPaths.filter((p) => changed.includes(p));
+    const stalePaths = boundPaths.filter((p) => isMaterialPath(p) && changed.includes(p));
     entries.push({
       workItem: record.id,
       bindingRevision: resolved,
