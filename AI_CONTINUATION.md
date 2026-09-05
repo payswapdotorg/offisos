@@ -49,7 +49,7 @@ These documents govern CAD parity sequencing, phase completion, benchmark score 
 
 ## Dispatch status
 
-The work item is legally released and persisted in `ASSIGNED`. No implementer transition has been recorded yet. The implementation worker must perform the next lifecycle transition itself: `ASSIGNED → IMPLEMENTING`, then implement only the frozen scope and stop at `PR_OPEN/VERIFYING`.
+The work item is legally released and persisted in `ASSIGNED`. The Architect has reconciled the original issue reference to fork-local Issue #1 and refreshed the fork-local continuation and worker directive. The next lawful lifecycle transition is **ASSIGNED → IMPLEMENTING by the implementation agent itself**. The Architect must not fabricate that transition.
 
 ## COMPAT-CAD-007 gate
 
@@ -122,4 +122,4 @@ npm test
 
 ## Security
 
-Never commit PATs, Vercel tokens, credentials, or environment secrets to the repository or documentation.
+Never place GitHub PATs, Vercel tokens, deployment credentials, database secrets, or other credentials in tracked files, PR bodies, comments, fixtures, or logs.
