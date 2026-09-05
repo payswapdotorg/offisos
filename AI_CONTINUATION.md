@@ -46,11 +46,12 @@ These documents govern CAD parity sequencing, phase completion, benchmark score 
 - Current governance state: **ASSIGNED**.
 - Implementation stop gate: **PR_OPEN/VERIFYING**.
 - Fork-local worker directive: `docs/work-items/COMPAT-CAD-007-ZAI-PROMPT.md`.
-- Governance reconciliation is recorded on current `main`; the work-item issue reference is now #1.
 
 ## COMPAT-CAD-007 gate
 
 This slice restores deterministic object-selection and core modify workflows over the verified shared geometry, precision and viewport foundations. Required evidence includes deterministic automated tests, negative no-mutation/false-success tests, Web/Electron semantic parity, COMPAT-CAD-005/006 regressions, exact-head CI, exact deployment, and independent browser-agent Golden G1/G2/G4/G10 plus targeted DEF-006/007/021 probes.
+
+The worker directive is `docs/work-items/COMPAT-CAD-007-ZAI-PROMPT.md`; it is fork-local and names Issue #1 as the canonical work-item issue.
 
 Non-goals include ARRAY materialization (COMPAT-CAD-008), durable SAVE/OPEN and serverless multi-instance persistence (COMPAT-CAD-011 / infrastructure), DXF (COMPAT-CAD-012), layout/sheet identity (COMPAT-CAD-013), unrelated BIM/documentation/interop work, architecture changes, and benchmark score changes without a rerun.
 
@@ -99,7 +100,7 @@ Read in this order before making a CAD decision:
 11. active GitHub issue/PR
 12. exact-head CI, deployment and browser evidence
 
-Reconcile any disagreement before authorizing work. The canonical work-item governance records and frozen architecture specifications remain authoritative for lifecycle and architecture rules.
+Reconcile any disagreement before making a decision. The canonical work-item governance records and frozen architecture specifications remain authoritative for lifecycle and architecture rules.
 
 ## Broader ConstructionOS roadmap
 
