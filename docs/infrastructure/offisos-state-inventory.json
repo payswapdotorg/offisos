@@ -1,0 +1,180 @@
+{
+  "$schema_note": "INFRA-001 deliverable — the audited state inventory of the Offisos web host and shared app shell, classified into the five categories. Revision-bound to the audited main (a9867a8, branch point of work/infra-001-persistent-serverless-foundation). File paths are repository-relative; line anchors reference the audited revision.",
+  "work_item": "INFRA-001",
+  "audited_revision": "a9867a8 (main @ branch point)",
+  "categories": {
+    "A_authoritative_persistent": {
+      "description": "State that must survive every request, instance rotation and process death, and is the authority for its domain. Target: Neon PostgreSQL (registry/transactional) + Cloudflare R2 (immutable content-addressed bodies).",
+      "items": [
+        {
+          "id": "ST-A01",
+          "name": "CADDocument versioned content (the editor working representation)",
+          "location": "app/src/caddocument/document.ts (class CADDocument); live copy in AppApiHandler.doc (app/src/app-api/contract.ts:575)",
+          "current_store": "Instance memory only between checkpoints; autosave checkpoint blobs (content-addressed) through the P016 store; client-side file download on SAVE",
+          "contents": "elements, layers, ltypes, textStyles, dimStyles, layerStates, blockDefs, xrefs, constraints, layouts, viewports, ucs, sectionPlanes, navigatorNodes, titleBlocks, schedules, propertyDefs, specialized, revisions, publisherSets, docsViews, docsSheets, ifcImports, draftingSettings, bimSettings, sourceArtifactLineage, version (VersionMeta), modelHistory (immutable append-only)",
+          "identity": "version.entity_id (document entity id — the P016 project key today); version.version_id deterministic from content hash; element ids document-owned deterministic",
+          "target_store": "Neon: document registry + append-only version chain; R2: content-addressed version bodies",
+          "migration_work_item": "INFRA-002, INFRA-003, INFRA-004"
+        },
+        {
+          "id": "ST-A02",
+          "name": "Model revision history (immutable, append-only)",
+          "location": "app/src/caddocument/history.ts (ModelHistory); persisted inside CADDocumentSnapshot.modelHistory",
+          "current_store": "Travels with the snapshot (payload-carried); verifiedReplay proves determinism",
+          "target_store": "R2 (with the version body) + Neon registry rows (revision numbers, hashes) for indexed lookup",
+          "migration_work_item": "INFRA-002, INFRA-003"
+        },
+        {
+          "id": "ST-A03",
+          "name": "P016 project event log (collab/recovery/jobs/automation)",
+          "location": "app/src/persist/index.ts (P016Persist port); apps/web/src/server/p016-postgres.ts; apps/web/src/server/p016-blob.ts; app/src/persist/file.ts",
+          "current_store": "CI: postgres (p016_events/p016_blobs, advisory-lock serialization); Electron: file; production: FAIL-CLOSED (no secrets configured — typed p016_persistence_unconfigured)",
+          "contents": "clock, collab (members/presence/comments/activity/transactions/merge lineage), recovery (checkpoint index + nextSeq), jobs (records/seq/tickCount), automation (principals/scripts/runs/subscriptions/extensions)",
+          "identity": "projectKey = document version.entity_id",
+          "target_store": "Neon (authoritative transactional; promote the proven CI schema); blobs to R2",
+          "migration_work_item": "INFRA-002, INFRA-003"
+        },
+        {
+          "id": "ST-A04",
+          "name": "Recovery checkpoints (durable versioned snapshots)",
+          "location": "app/src/recovery/index.ts (CheckpointStore); minted by AppApiHandler.mintCheckpoint (autosave policy DEFAULT_RECOVERY_POLICY)",
+          "current_store": "Content-addressed blobs in the P016 store; index in the P016 record; restore proven from a fresh handler (restart-proof CI evidence)",
+          "target_store": "R2 (blobs/<sha>.json semantics preserved); index rows in Neon",
+          "migration_work_item": "INFRA-003"
+        },
+        {
+          "id": "ST-A05",
+          "name": "Job records (durable stepwise state machine)",
+          "location": "app/src/jobs/index.ts (JobStore — create/tick/terminal); persisted in the P016 record's jobs section",
+          "current_store": "P016 store (same fail-closed production state as ST-A03)",
+          "contents": "id, kind (docs.regenerate | quantity.recalculate | model.stream.warm), status, step/totalSteps, params, work (per-step deterministic working state), result summary with revisionBinding, failure",
+          "target_store": "Neon jobs table with claim lease + attempts; result artifacts to R2; executor ticks from the worker service (INFRA-006) or client ticks (today)",
+          "migration_work_item": "INFRA-006"
+        },
+        {
+          "id": "ST-A06",
+          "name": "Command + idempotency records (proposed)",
+          "location": "not yet implemented — today idempotency is instance-local (see ST-C01); commands are not journaled server-side",
+          "target_store": "Neon: idempotency_keys (unique (scope,key) → persisted response binding) + command log rows (audit + replay evidence)",
+          "migration_work_item": "INFRA-002, INFRA-004"
+        }
+      ]
+    },
+    "B_persistent_artifacts": {
+      "description": "Immutable, content-addressed or provenance-preserved artifacts. Target: Cloudflare R2 (S3-compatible) with the content-addressed discipline already proven by the P016 blob adapter.",
+      "items": [
+        {
+          "id": "ST-B01",
+          "name": "Saved workspace files (document.save output)",
+          "location": "apps/web/src/cad/workspace/shell.tsx executeFileSave (client download); app/src/adapters/* file adapter write",
+          "current_store": "Browser download only ('offisos-workspace.json'); nothing durable server-side",
+          "target_store": "R2: documents/{entityId}/versions/{versionId}.json (authoritative bodies) + the client download stays as a convenience export",
+          "migration_work_item": "INFRA-003, INFRA-004"
+        },
+        {
+          "id": "ST-B02",
+          "name": "Checkpoint snapshot blobs",
+          "location": "P016 store blobs (content-addressed by view content hash)",
+          "target_store": "R2: checkpoints/{sha256}.json (immutable, deduplicated by create-if-absent)",
+          "migration_work_item": "INFRA-003"
+        },
+        {
+          "id": "ST-B03",
+          "name": "Plot/export artifacts (SVG/PDF plot-ir)",
+          "location": "app/src/workspace/layouts/* (pdf/svg writers); returned in command responses (bytesBase64/text + sha256)",
+          "current_store": "Response payload only; client downloads",
+          "target_store": "R2: exports/{documentId}/{sha256}.{ext}; response references the object + hash",
+          "migration_work_item": "INFRA-003"
+        },
+        {
+          "id": "ST-B04",
+          "name": "Interop exchange files (IFC import/export, DXF import/export, BCF)",
+          "location": "app/src/interop/*, app/src/ifc/*, app/src/adapters/ifc/*",
+          "current_store": "Payload-carried (client upload/download); ifc.* typed unavailable on serverless production",
+          "target_store": "R2: sources/{sha256}.ifc (imports — provenance preserved, LOCK-012) + exports/{sha256}.{ext}; produced by the worker service (INFRA-006)",
+          "migration_work_item": "INFRA-003, INFRA-006"
+        },
+        {
+          "id": "ST-B05",
+          "name": "Engine mesh/tessellation artifacts (heavy LOD results)",
+          "location": "app/src/adapters/occt (mesh data); TessellationCache today is in-process (ST-C04)",
+          "target_store": "R2 (meshes/{descriptor-hash}.{quality}.json) as a content-addressed cache-tier artifact — recomputable, so NOT authoritative, but large enough to be worth persisting; Redis keys index availability",
+          "migration_work_item": "INFRA-006 (worker-produced), INFRA-005 (index)"
+        }
+      ]
+    },
+    "C_ephemeral_coordination": {
+      "description": "Transient, recomputable, or derivable state. Target: Upstash Redis with documented key patterns, TTLs, authority sources, failure behavior and rebuild strategies. Redis is NEVER authoritative (spec/architecture.md §6).",
+      "items": [
+        {
+          "id": "ST-C01",
+          "name": "Idempotency cache",
+          "location": "app/src/app-api/idempotency.ts (IdempotencyCache — LRU, 1024 entries, in-process)",
+          "defect": "Instance-local: the same idempotencyKey on a second instance re-executes the command (duplicate execution under retry/rotation)",
+          "target": "Redis idem:{scope}:{key} as a READ-THROUGH cache (TTL 24h) over the Neon idempotency table (ST-A06, the authority); on Redis loss the authority still dedups",
+          "migration_work_item": "INFRA-002, INFRA-005"
+        },
+        {
+          "id": "ST-C02",
+          "name": "Collaboration presence/liveness",
+          "location": "app/src/collab/index.ts (presence beats, deterministic project-clock TTL) — durably recorded in the P016 record; the web UI polls",
+          "target": "Redis presence:{projectKey}:{userId} (TTL = PRESENCE_TTL) for low-latency liveness reads; the durable P016 record remains the timeline authority; Redis loss degrades to P016-record reads",
+          "migration_work_item": "INFRA-005"
+        },
+        {
+          "id": "ST-C03",
+          "name": "Model stream cache pages (large-model streaming)",
+          "location": "app/src/modelstream/index.ts (ModelStreamCache — version-keyed, non-authoritative, revalidated against the current canonical version)",
+          "target": "Redis cache:stream:{documentId}:{version}:{page} with the existing non-authority contract (stale entries evicted with exact accounting, never served); rebuild = recompute from the authoritative snapshot",
+          "migration_work_item": "INFRA-005"
+        },
+        {
+          "id": "ST-C04",
+          "name": "Tessellation cache (revision-tied LOD meshes)",
+          "location": "AppApiHandler.tessellationCache (bounded, descriptor+quality keyed, dual budgets)",
+          "target": "Redis index + R2 bodies (ST-B05) for cross-instance reuse; every entry keyed by canonical descriptor encoding — an edit that changes geometry naturally invalidates",
+          "migration_work_item": "INFRA-005, INFRA-006"
+        },
+        {
+          "id": "ST-C05",
+          "name": "Engine availability probe memoization",
+          "location": "apps/web/src/app/api/cad/route.ts (probeOcctEngine once per handler instance, 15s budget)",
+          "target": "Redis probe:engine:{engineId} (TTL ~60s) so cold instances skip the probe cost; authority = the probe itself (recomputable)",
+          "migration_work_item": "INFRA-005"
+        },
+        {
+          "id": "ST-C06",
+          "name": "Short-lived coordination locks (proposed)",
+          "location": "not needed today (postgres advisory locks / blob create-if-absent already serialize appends)",
+          "target": "Redis lock:doc:{entityId} with lease TTL ONLY as an optimization layer over the Neon CAS serialization point; a lost lock never corrupts state (the CAS still decides)",
+          "migration_work_item": "INFRA-005 (optional)"
+        }
+      ]
+    },
+    "D_presentation_client": {
+      "description": "Client-side presentation/interaction state. Stays in the client (React state / future local storage); never authoritative; never required for server correctness.",
+      "items": [
+        { "id": "ST-D01", "name": "Workspace snapshot cache (entity cache)", "location": "apps/web/src/cad/workspace/shell.tsx — snapshot useState; adoptSnapshot with version-monotonic guard (COMPAT-CAD-005)", "note": "Display cache of the authoritative snapshot; refresh via document.getState" },
+        { "id": "ST-D02", "name": "View/camera/viewport state", "location": "apps/web/src/cad/workspace/* (view tabs, zoomExtentsSignal, viewResetSignal, story/viewport selection)", "note": "Editor view layer — COMPAT-CAD-006's active scope; must never mutate CADDocument content (their negative tests)" },
+        { "id": "ST-D03", "name": "Command-line transient state (prompt engine)", "location": "apps/web/src/cad/workspace/shell.tsx engineState + app/src/workspace/prompt-engine.ts", "note": "Pure presentation of the prompt state machine" },
+        { "id": "ST-D04", "name": "Selection UI state", "location": "shell.tsx setSel + document.setSelection (ephemeral, persisted with snapshot since COMPAT-CAD-001 but not in the version-hash)", "note": "Ephemeral editor selection (§5.4) — category D by the spec's own classification" },
+        { "id": "ST-D05", "name": "Dock/palette/layout UI state", "location": "shell.tsx (dockTab, dockVisible, paletteOpen, helpOpen, aids)", "note": "Pure UI" }
+      ]
+    },
+    "E_worker_state": {
+      "description": "State living in engine/worker execution contexts. Process-per-call today; the persistent worker service (INFRA-006) keeps workers stateless-per-call with durable coordination through the job records.",
+      "items": [
+        { "id": "ST-E01", "name": "OCCT worker processes (geometry realization)", "location": "app/src/adapters/occt/occt-process.ts (process-per-call: spawn python, 15s wall-clock, 64MiB stdout cap, prlimit address-space ceiling)", "note": "Stateless per call; target: the persistent worker service fronts the same JSON stdio protocol over HTTP claim/execute" },
+        { "id": "ST-E02", "name": "IFC worker processes (IfcOpenShell 0.8.5)", "location": "app/src/adapters/ifc/ifc-process.ts (disposable per-op worker; typed ifc_unavailable when the toolchain is absent — the serverless production boundary today)", "note": "Target: runs in the worker service where the pinned toolchain is installed" },
+        { "id": "ST-E03", "name": "Job execution working state (per-step work records)", "location": "app/src/jobs/index.ts JobRecord.work/workMut (deterministic, accumulated across ticks, persisted in the P016 record between steps)", "note": "The durable-tick design already survives executor restarts; the worker service becomes an additional ticker (claim lease + heartbeat), not a stateful owner" }
+      ]
+    }
+  },
+  "cross_cutting_observations": [
+    "The production deployment (PR #133 evidence) runs with NO external secrets: DATABASE_URL and BLOB_READ_WRITE_TOKEN are unset, so createP016Persist() resolves to FailClosedP016Persist and every P016 command declines typed — the durable layer is CI-proven but not production-wired.",
+    "The AppApiHandler singleton (route.ts:172 handlerPromise) is the ONLY holder of the live document: the multi-instance divergence, the cold-instance empty document, the instance-local idempotency and the payload-carried SAVE/OPEN are all the same root cause — state placement, not a missing feature.",
+    "The P016 port proves the correct discipline already (append = serialization point, pure transitions, content-addressed blobs, fail-closed, byte-identical across backends): the document persistence model extends this precedent rather than inventing a new one.",
+    "The engine boundary is serverless-honest today (reference fallback with per-element geometryEngine provenance; typed ifc_unavailable), so the worker service is an additive capability unlock, not a correctness fix.",
+    "No auth/tenancy exists in the app (userId is a payload field): the store namespace reserves tenants/default and the security model documents the honest single-tenant phase-1 boundary (LOCK-009 enforcement deferred to the auth work item)."
+  ]
+}
