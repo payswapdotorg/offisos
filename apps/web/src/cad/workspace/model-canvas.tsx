@@ -61,6 +61,29 @@ import {
 import { bbox as geomBBox } from "@offisos/cad-app-shell/workspace/geometry/entities";
 import { closestOn } from "@offisos/cad-app-shell/workspace/geometry/entities";
 import { propsToGeom, type Geom } from "@offisos/cad-app-shell/workspace/geometry/types";
+// COMPAT-CAD-006 (Issue #138): the ONE shared screen↔world view-transform
+// contract — every pick/render path on this host constructs its transform
+// through the same pure functions the Electron renderer uses.
+import {
+  CULL_MARGIN_PX,
+  SCALE_ZOOM_LIMITS,
+  WEB_ZOOM_LIMITS,
+  clipSegment,
+  expandRect,
+  fitExtents,
+  fitZoomOf,
+  panBy,
+  rectsIntersect,
+  toScreen as viewToScreen,
+  toWorld as viewToWorld,
+  viewTransformOf,
+  visibleWorldRect,
+  zoomAboutPoint,
+  zoomScaleAboutCenter,
+  zoomWindow,
+  type ViewNavigation,
+  type WorldRect,
+} from "@offisos/cad-app-shell/workspace/view";
 import { constrainCursor, type DraftingAids } from "@offisos/cad-app-shell/workspace/feedback";
 // CAD-PARITY-004: the shared standards module — the SAME display resolution
 // the Electron renderer and the App API run (LOCK-004 parity).
@@ -167,8 +190,14 @@ export interface ModelCanvasProps {
   readonly onSelectionChange: (ids: readonly string[]) => void;
   readonly onGripEdit: (result: GripEditResult) => void;
   readonly onCommandStart: (commandId: string) => void;
-  /** Increments when ZOOMEXTENTS runs — the canvas fits the visible model. */
-  readonly zoomExtentsSignal: number;
+  /** COMPAT-CAD-006: one navigation request channel (ZOOM/PAN/REGEN/
+   *  ZOOMEXTENTS) — the shell translates the command ui-actions into these
+   *  requests; the canvas (the view-state owner) applies them through the
+   *  SHARED view-transform functions and persists the presentation view. */
+  readonly navigation: ViewNavigation | null;
+  /** COMPAT-CAD-006: honest typed feedback from the view layer (e.g. ZOOM P
+   *  with no previous view) — appended to the command history by the shell. */
+  readonly onViewFeedback?: (line: string) => void;
   /** COMPAT-CAD-005: increments when the document is swapped (NEW/OPEN) —
   *  the canvas resets pan/zoom to the (new) document's persisted view; the
   *  previous document's viewport must never survive a document swap. */
@@ -194,6 +223,50 @@ interface DragState {
 
 function toEntityPick(el: Element): EntityPick {
   return { id: el.id, kind: el.kind, props: el.props as Record<string, unknown> };
+}
+
+/** COMPAT-CAD-006: the conservative world bbox of a LEGACY draft entity
+ *  (the drawEntity rendering branch) for the viewport cull gate — null for
+ *  shapes without a derivable rect (they draw; the surface clips). */
+function legacyEntityRect(entity: ReturnType<typeof parseDraftEntity>): WorldRect | null {
+  if (entity === null) return null;
+  switch (entity.type) {
+    case "line": {
+      const a = entity.from;
+      const b = entity.to;
+      return { minX: Math.min(a[0], b[0]), minY: Math.min(a[1], b[1]), maxX: Math.max(a[0], b[0]), maxY: Math.max(a[1], b[1]) };
+    }
+    case "polyline": {
+      if (entity.points.length === 0) return null;
+      let minX = Infinity;
+      let minY = Infinity;
+      let maxX = -Infinity;
+      let maxY = -Infinity;
+      for (const p of entity.points) {
+        minX = Math.min(minX, p[0]);
+        minY = Math.min(minY, p[1]);
+        maxX = Math.max(maxX, p[0]);
+        maxY = Math.max(maxY, p[1]);
+      }
+      return { minX, minY, maxX, maxY };
+    }
+    case "circle":
+    case "arc":
+      // Center ± radius is a superset for arcs too.
+      return { minX: entity.center[0] - entity.radius, minY: entity.center[1] - entity.radius, maxX: entity.center[0] + entity.radius, maxY: entity.center[1] + entity.radius };
+    case "rectangle": {
+      const a = entity.corner1;
+      const b = entity.corner2;
+      return { minX: Math.min(a[0], b[0]), minY: Math.min(a[1], b[1]), maxX: Math.max(a[0], b[0]), maxY: Math.max(a[1], b[1]) };
+    }
+    case "dim-linear": {
+      const a = entity.p1;
+      const b = entity.p2;
+      return { minX: Math.min(a[0], b[0]), minY: Math.min(a[1], b[1]), maxX: Math.max(a[0], b[0]), maxY: Math.max(a[1], b[1]) };
+    }
+    default:
+      return null;
+  }
 }
 
 /** CAD-PARITY-006: soft-load the materialized text view of one expanded
@@ -242,6 +315,9 @@ export function ModelCanvas(props: ModelCanvasProps): React.JSX.Element {
   const [pan, setPan] = React.useState({ x: -20, y: -20 });
   const [zoom, setZoom] = React.useState(6);
   const [canvasH, setCanvasH] = React.useState(480);
+  // COMPAT-CAD-006: the viewport WIDTH tracked alongside the height (the
+  // shared transform/navigation math needs the full viewport size).
+  const [canvasW, setCanvasW] = React.useState(900);
   const [panning, setPanning] = React.useState(false);
   const [cursor, setCursor] = React.useState<Vec2 | null>(null);
   const [selectionRect, setSelectionRect] = React.useState<{ a: [number, number]; b: [number, number] } | null>(null);
@@ -297,21 +373,34 @@ export function ModelCanvas(props: ModelCanvasProps): React.JSX.Element {
   React.useEffect(() => {
     const canvas = canvasRef.current;
     if (canvas === null) return;
-    const update = () => setCanvasH(canvas.clientHeight);
+    const update = () => {
+      setCanvasH(canvas.clientHeight);
+      setCanvasW(canvas.clientWidth);
+    };
     update();
     const observer = new ResizeObserver(update);
     observer.observe(canvas);
     return () => observer.disconnect();
   }, []);
 
+  // COMPAT-CAD-006: THE shared view transform — the one value every
+  // pick/render path on this host reads through the shared module (the
+  // Electron renderer constructs the identical value through the identical
+  // functions; toScreen/toWorld below are thin adapters for the tuple-based
+  // call sites).
+  const viewTransform = React.useMemo(
+    () => viewTransformOf(pan, zoom, { w: canvasW, h: canvasH }),
+    [pan, zoom, canvasW, canvasH],
+  );
+
   const toScreen = React.useCallback(
-    (p: Vec2): [number, number] => [(p[0] - pan.x) * zoom, canvasH - (p[1] - pan.y) * zoom],
-    [pan, zoom, canvasH],
+    (p: Vec2): [number, number] => viewToScreen(viewTransform, p),
+    [viewTransform],
   );
 
   const toWorld = React.useCallback(
-    (sx: number, sy: number): Vec2 => [sx / zoom + pan.x, (canvasH - sy) / zoom + pan.y],
-    [pan, zoom, canvasH],
+    (sx: number, sy: number): Vec2 => viewToWorld(viewTransform, sx, sy),
+    [viewTransform],
   );
 
   const persistView = React.useCallback((p: { x: number; y: number }, z: number) => {
@@ -586,21 +675,20 @@ export function ModelCanvas(props: ModelCanvasProps): React.JSX.Element {
     return engineState.lastPoint;
   }, [activeStep, engineState]);
 
-  // ZOOMEXTENTS: fit every visible entity in the viewport (deterministic
-  // bounds + padding; stories are excluded — they have no plan geometry).
-  // CAD-PARITY-012 (Issue #102): the grid datum segments (which span the
-  // document content bounds) are included so the fit shows the full
-  // coordination frame; a document with only grids still fits them.
-  React.useEffect(() => {
-    if (props.zoomExtentsSignal === 0) return;
+  // COMPAT-CAD-006 (Issue #138): the deterministic CONTENT BOUNDS the
+  // fit-extents and absolute-scale zooms read — every visible entity (grid
+  // datum spans included so a grids-only document still fits; stories are
+  // excluded — they have no plan geometry) and each block/xref instance's
+  // DERIVED content bounds (the same shared expansion the paint loop runs —
+  // the zoom fits what actually renders). Pure derivation from the snapshot;
+  // null when the document has no renderable content.
+  const contentBounds = React.useCallback((): WorldRect | null => {
     const elements = visibleEntities;
-    if (elements.length === 0 && gridLineViews.length === 0) return;
+    if (elements.length === 0 && gridLineViews.length === 0) return null;
     let minX = Infinity;
     let minY = Infinity;
     let maxX = -Infinity;
     let maxY = -Infinity;
-    // The grid datum spans (the full content-bounds segments the paint loop
-    // renders — revcloud polylines already contribute as ordinary geoms).
     for (const line of gridLineViews) {
       minX = Math.min(minX, line.p1.x, line.p2.x);
       minY = Math.min(minY, line.p1.y, line.p2.y);
@@ -608,9 +696,6 @@ export function ModelCanvas(props: ModelCanvasProps): React.JSX.Element {
       maxY = Math.max(maxY, line.p1.y, line.p2.y);
     }
     for (const el of elements) {
-      // CAD-PARITY-006: block/xref instances contribute their DERIVED content
-      // bounds (the same shared expansion the paint loop runs — the zoom fits
-      // what actually renders, placeholders included).
       const expanded = expandedInstances.get(el.id);
       if (expanded !== undefined) {
         const bb = expandedBounds(expanded);
@@ -632,8 +717,6 @@ export function ModelCanvas(props: ModelCanvasProps): React.JSX.Element {
           points.push([entity.center[0] - entity.radius, entity.center[1] - entity.radius], [entity.center[0] + entity.radius, entity.center[1] + entity.radius]);
         } else if (entity.type === "rectangle") points.push(entity.corner1, entity.corner2);
       } else {
-        // CAD-PARITY-003 canonical entities (ellipse/spline/point/ray/xline/
-        // region + flat-convention records).
         const geom = geomById(el.id);
         if (geom !== null) {
           points.push(...canonicalBoundsPoints(geom));
@@ -652,16 +735,112 @@ export function ModelCanvas(props: ModelCanvasProps): React.JSX.Element {
         maxY = Math.max(maxY, pt[1]);
       }
     }
-    if (!Number.isFinite(minX)) return;
-    const w = canvasRef.current?.clientWidth ?? 900;
-    const pad = 600;
-    const spanX = Math.max(maxX - minX + pad * 2, 1);
-    const spanY = Math.max(maxY - minY + pad * 2, 1);
-    const z = Math.min(w / spanX, canvasH / spanY);
-    setZoom(z);
-    setPan({ x: minX - pad - (w / z - spanX) / 2, y: minY - pad - (canvasH / z - spanY) / 2 });
-    persistView({ x: minX - pad - (w / z - spanX) / 2, y: minY - pad - (canvasH / z - spanY) / 2 }, z);
-  }, [props.zoomExtentsSignal]);
+    if (!Number.isFinite(minX)) return null;
+    return { minX, minY, maxX, maxY };
+  }, [visibleEntities, gridLineViews, expandedInstances, geomById]);
+
+  // COMPAT-CAD-006 (Issue #138): the command-driven view history (ZOOM
+  // Previous) — the pre-navigation {pan, zoom} of every COMMAND navigation
+  // (zoom window/scale/extents, pan), max 10 entries (the AutoCAD-class
+  // previous-view stack depth). Wheel-zoom and drag-pan deliberately do NOT
+  // push entries (a wheel gesture would flood the stack with per-tick
+  // states) — the stack records the discrete command vocabulary. Disclosed
+  // in the work-item record.
+  const viewHistoryRef = React.useRef<readonly { pan: { x: number; y: number }; zoom: number }[]>([]);
+  const lastNavigationSeq = React.useRef(0);
+
+  // COMPAT-CAD-006 (Issue #138): ONE navigation effect — every
+  // ZOOM/PAN/REGEN/ZOOMEXTENTS ui-action from the command plans lands here
+  // and is applied through the SHARED view-transform functions. Navigation
+  // is presentation-only: nothing here touches document entities, version
+  // or undo history; the view persists through the existing non-versioned
+  // drafting.setSettings { view } mechanism.
+  React.useEffect(() => {
+    const nav = props.navigation;
+    if (nav === null || nav.seq === 0 || nav.seq === lastNavigationSeq.current) return;
+    lastNavigationSeq.current = nav.seq;
+    const req = nav.request;
+    const current = viewTransformOf(pan, zoom, { w: canvasW, h: canvasH });
+    // The declared world-unit padding of the fit transforms (the shipped
+    // ZOOMEXTENTS presentation policy, unchanged).
+    const FIT_PAD = 600;
+    if (req.kind === "regen") {
+      // Pure redraw — no view or document change. The paint effect re-runs
+      // through the navigation prop identity (this object is new for every
+      // navigation request, regen included).
+      return;
+    }
+    if (req.kind === "zoomPrevious") {
+      const stack = viewHistoryRef.current;
+      if (stack.length === 0) {
+        props.onViewFeedback?.("ZOOM: no previous view to restore.");
+        return;
+      }
+      const prev = stack[stack.length - 1]!;
+      viewHistoryRef.current = stack.slice(0, -1);
+      setPan({ x: prev.pan.x, y: prev.pan.y });
+      setZoom(prev.zoom);
+      persistView({ x: prev.pan.x, y: prev.pan.y }, prev.zoom);
+      return;
+    }
+    // Every other navigation records the pre-navigation view (ZOOM P stack).
+    viewHistoryRef.current = [...viewHistoryRef.current, { pan: { x: pan.x, y: pan.y }, zoom }].slice(-10);
+    if (req.kind === "zoomExtents") {
+      const bounds = contentBounds();
+      if (bounds === null) return;
+      // NO zoom clamp on the fit (the shipped ZOOMEXTENTS presentation
+      // policy: a real-scale site plan fits at whatever zoom the content
+      // needs — the declared limits govern the INTERACTIVE zooms only).
+      const next = fitExtents({ w: canvasW, h: canvasH }, bounds, FIT_PAD);
+      setPan({ x: next.pan.x, y: next.pan.y });
+      setZoom(next.zoom);
+      persistView({ x: next.pan.x, y: next.pan.y }, next.zoom);
+      return;
+    }
+    if (req.kind === "zoomWindow") {
+      // No clamp: the user-specified window is the explicit target (the
+      // fit semantics — a real-scale window zooms to exactly what it spans).
+      const next = zoomWindow(current, req.corner1, req.corner2);
+      if (next === null) {
+        // Defensive: the builder rejects degenerate windows; a null here
+        // means the world window collapsed below the zoom precision — the
+        // honest typed feedback, no view change.
+        props.onViewFeedback?.("ZOOM: window too small — no view change.");
+        return;
+      }
+      setPan({ x: next.pan.x, y: next.pan.y });
+      setZoom(next.zoom);
+      persistView({ x: next.pan.x, y: next.pan.y }, next.zoom);
+      return;
+    }
+    if (req.kind === "zoomScale") {
+      // The user-specified factor is honored exactly within the wide scale
+      // guards (NOT the interactive wheel floor — a real-scale view at zoom
+      // 0.02 must be able to double).
+      let next;
+      if (req.relative) {
+        next = zoomScaleAboutCenter(current, req.factor, SCALE_ZOOM_LIMITS);
+      } else {
+        // AutoCAD "n" (plain): scale relative to the drawing-extents fit —
+        // the deterministic reference zoom over the content bounds (the
+        // empty-document degenerate bounds keep it deterministic).
+        const bounds = contentBounds() ?? { minX: 0, minY: 0, maxX: 0, maxY: 0 };
+        const reference = fitZoomOf({ w: canvasW, h: canvasH }, bounds, FIT_PAD);
+        const target = Math.min(SCALE_ZOOM_LIMITS.max, Math.max(SCALE_ZOOM_LIMITS.min, reference * req.factor));
+        next = zoomScaleAboutCenter(current, target / current.zoom, SCALE_ZOOM_LIMITS);
+      }
+      setPan({ x: next.pan.x, y: next.pan.y });
+      setZoom(next.zoom);
+      persistView({ x: next.pan.x, y: next.pan.y }, next.zoom);
+      return;
+    }
+    if (req.kind === "pan") {
+      const next = panBy(current, req.delta);
+      setPan({ x: next.pan.x, y: next.pan.y });
+      persistView({ x: next.pan.x, y: next.pan.y }, next.zoom);
+      return;
+    }
+  }, [props.navigation, pan, zoom, canvasW, canvasH, contentBounds, persistView, props.onViewFeedback]);
 
   // CAD-PARITY-003 shared precision settings (CAD-2D-003): the professional
   // default osnap mode set, the drafting-settings snap tolerance as aperture,
@@ -913,10 +1092,19 @@ export function ModelCanvas(props: ModelCanvasProps): React.JSX.Element {
   };
 
   const onWheel = (e: React.WheelEvent<HTMLCanvasElement>) => {
+    // COMPAT-CAD-006 (Issue #138): wheel zoom is anchored at the cursor —
+    // the world point under the pointer stays at the same screen position
+    // (the shared zoomAboutPoint invariant; the previous fixed-pan zoom let
+    // the content drift away from the cursor, the DEF-005 "unstable zoom"
+    // observation). Clamped to the declared limits; view-only.
     const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15;
-    const z = Math.min(400, Math.max(0.5, zoom * factor));
-    setZoom(z);
-    persistView(pan, z);
+    const rect = e.currentTarget.getBoundingClientRect();
+    const [sx, sy] = [e.clientX - rect.left, e.clientY - rect.top];
+    const anchor = viewToWorld(viewTransform, sx, sy);
+    const next = zoomAboutPoint(viewTransform, factor, anchor, WEB_ZOOM_LIMITS);
+    setZoom(next.zoom);
+    setPan({ x: next.pan.x, y: next.pan.y });
+    persistView({ x: next.pan.x, y: next.pan.y }, next.zoom);
   };
 
   // --- rendering -----------------------------------------------------------------
@@ -967,6 +1155,20 @@ export function ModelCanvas(props: ModelCanvasProps): React.JSX.Element {
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.fillStyle = "#ffffff";
     ctx.fillRect(0, 0, w, h);
+
+    // COMPAT-CAD-006 (Issue #138): THE deterministic viewport gate — the
+    // visible world rect expanded by the declared device-px cull margin.
+    // Geometry whose world bbox misses this rect is culled (never drawn);
+    // LINE segments are additionally PRE-CLIPPED (Liang–Barsky) so their
+    // screen coordinates stay bounded inside the viewport at any world
+    // scale — the explicit partial-clipping contract that replaces reliance
+    // on implicit host clipping (CAD-BENCH-RW-001 DEF-004 discipline).
+    // Rays/xlines are never culled here (their bbox is unbounded; the
+    // shared painter clips them to the visible rect itself).
+    const gateRect = expandRect(visibleWorldRect(viewTransform), CULL_MARGIN_PX, zoom);
+    /** Cull verdict for one world bbox against the gate. */
+    const passesGate = (bb: { minX: number; minY: number; maxX: number; maxY: number }): boolean =>
+      rectsIntersect(bb, gateRect);
 
     if (settings?.grid.enabled) {
       drawGrid(ctx, { size: settings.grid.size, pan, zoom, w, h, toScreen });
@@ -1063,6 +1265,24 @@ export function ModelCanvas(props: ModelCanvasProps): React.JSX.Element {
         const layer = layerById.get(layerId);
         if (layer !== undefined && (layer.frozen === true || !layer.visible)) continue;
         const derived = resolveDerivedDisplay(entity.props, instanceMaterialId);
+        // COMPAT-CAD-006: the viewport gate applies to each DERIVED piece
+        // exactly like a standalone entity (lines pre-clipped).
+        if (geom.type === "line") {
+          const seg = clipSegment(gateRect, [geom.x1, geom.y1], [geom.x2, geom.y2]);
+          if (seg === null) continue;
+          drawCanonicalEntity(ctx, { ...geom, x1: seg[0][0], y1: seg[0][1], x2: seg[1][0], y2: seg[1][1] }, {
+            color: derived.color,
+            selected,
+            toScreen,
+            zoom,
+            viewport: { w, h },
+            dash: derived.dash,
+            weightPx: derived.weightPx,
+            alpha: derived.alpha,
+          });
+          continue;
+        }
+        if (geom.type !== "ray" && geom.type !== "xline" && !passesGate(geomBBox(geom))) continue;
         drawCanonicalEntity(ctx, geom, {
           color: derived.color,
           selected,
@@ -1099,6 +1319,32 @@ export function ModelCanvas(props: ModelCanvasProps): React.JSX.Element {
       if (canonical !== undefined) {
         const layer = layerById.get(canonical.layer);
         if (layer !== undefined && (layer.frozen === true || !layer.visible)) continue;
+        // COMPAT-CAD-006 (Issue #138): the deterministic viewport gate —
+        // LINE geoms are pre-clipped (Liang–Barsky) to the gate rect so the
+        // rasterizer only ever sees bounded screen coordinates (the
+        // explicit partial-clip contract; the visible portion of a
+        // boundary-crossing segment is drawn — never the whole-entity skip
+        // of CAD-BENCH-RW-001 DEF-004); every other geom type is bbox-gated
+        // (its bbox is a superset of the stroke — the margin covers the
+        // weights) and the host surface clips the visible portion.
+        if (canonical.geom.type === "line") {
+          const g = canonical.geom;
+          const seg = clipSegment(gateRect, [g.x1, g.y1], [g.x2, g.y2]);
+          if (seg === null) continue;
+          drawCanonicalEntity(ctx, { ...g, x1: seg[0][0], y1: seg[0][1], x2: seg[1][0], y2: seg[1][1] }, {
+            color: display?.color ?? canonical.color ?? layer?.color ?? "#111827",
+            selected: selectedSet.has(el.id),
+            toScreen,
+            zoom,
+            viewport: { w, h },
+            dash: display?.dash ?? null,
+            weightPx: display?.weightPx,
+            alpha: display?.alpha,
+            markerStroke: isRevcloud ? (selectedSet.has(el.id) ? "#d97706" : "#f59e0b") : undefined,
+          });
+          continue;
+        }
+        if (canonical.geom.type !== "ray" && canonical.geom.type !== "xline" && !passesGate(geomBBox(canonical.geom))) continue;
         drawCanonicalEntity(ctx, canonical.geom, {
           color: display?.color ?? canonical.color ?? layer?.color ?? "#111827",
           selected: selectedSet.has(el.id),
@@ -1141,6 +1387,11 @@ export function ModelCanvas(props: ModelCanvasProps): React.JSX.Element {
       if (entity !== null) {
         const layer = layerById.get(entity.layer);
         if (layer !== undefined && (layer.frozen === true || !layer.visible)) continue;
+        // COMPAT-CAD-006: the same viewport gate for the legacy rendering
+        // branch (dims etc.) — conservative bbox from the entity's own
+        // points; unknown shapes draw (never a silent drop).
+        const gate = legacyEntityRect(entity);
+        if (gate !== null && !passesGate(gate)) continue;
         drawEntity(ctx, entity, {
           color: display?.color ?? layer?.color ?? "#111827",
           selected: selectedSet.has(el.id),
@@ -1152,6 +1403,24 @@ export function ModelCanvas(props: ModelCanvasProps): React.JSX.Element {
           dimStyle: activeDimStyle,
         });
         continue;
+      }
+      // COMPAT-CAD-006: BIM plan elements (walls/slabs) pass the gate by
+      // their start/end or corner points — with the wall thickness safety
+      // margin baked into CULL_MARGIN_PX (16 px device); anything without a
+      // derivable rect draws (conservative, the surface clips).
+      {
+        const p = el.props as Record<string, unknown>;
+        let gate: WorldRect | null = null;
+        if (p.type === "bim.wall" && Array.isArray(p.start) && Array.isArray(p.end)) {
+          const a = p.start as [number, number];
+          const b = p.end as [number, number];
+          gate = { minX: Math.min(a[0], b[0]), minY: Math.min(a[1], b[1]), maxX: Math.max(a[0], b[0]), maxY: Math.max(a[1], b[1]) };
+        } else if (p.type === "bim.slab" && Array.isArray(p.corner1) && Array.isArray(p.corner2)) {
+          const a = p.corner1 as [number, number];
+          const b = p.corner2 as [number, number];
+          gate = { minX: Math.min(a[0], b[0]), minY: Math.min(a[1], b[1]), maxX: Math.max(a[0], b[0]), maxY: Math.max(a[1], b[1]) };
+        }
+        if (gate !== null && !passesGate(gate)) continue;
       }
       drawBimPlanElement(ctx, el, { selected: selectedSet.has(el.id), toScreen, zoom });
     }
@@ -1210,6 +1479,23 @@ export function ModelCanvas(props: ModelCanvasProps): React.JSX.Element {
         zoom,
         viewport: { w, h },
       });
+      // COMPAT-CAD-006: ZOOM window rubber band — the dashed cyan rectangle
+      // from the first corner to the cursor while the second corner prompt
+      // is active (the classic zoom-window affordance; the pan command has
+      // its own displacement rubber band below).
+      if (command.id === "zoom") {
+        const first = engineState.values.corner1;
+        if (first !== undefined && first.kind === "point" && cursor !== null) {
+          const a = toScreen(first.point);
+          const b = toScreen(constrainedSnapped(cursor, false).point);
+          ctx.save();
+          ctx.strokeStyle = "#0891b2";
+          ctx.lineWidth = 1;
+          ctx.setLineDash([5, 4]);
+          ctx.strokeRect(Math.min(a[0], b[0]), Math.min(a[1], b[1]), Math.abs(b[0] - a[0]), Math.abs(b[1] - a[1]));
+          ctx.restore();
+        }
+      }
     }
 
     // Rubber band for the active point/distance/displacement step
@@ -1244,7 +1530,7 @@ export function ModelCanvas(props: ModelCanvasProps): React.JSX.Element {
     if (cursor !== null) {
       drawCrosshair(ctx, toScreen(cursor), w, h);
     }
-  }, [settings, layers, drawableEntities, geomEntityMap, selectedSet, toScreen, pan, zoom, cursor, selectionRect, snapPreview, polylinePending, activeStep, stepBase, singleSelected, grips, hotGrip, constrainedSnapped, command, engineState.values, targetGeoms, geomById, pickEntityAt, displayById, activeDimStyle, annotationStyleCtx, expandedInstances, lweightDisplay, gridLineViews, materialsById, resolvedMaterialIdOf]);
+  }, [settings, layers, drawableEntities, geomEntityMap, selectedSet, toScreen, viewTransform, pan, zoom, cursor, selectionRect, snapPreview, polylinePending, activeStep, stepBase, singleSelected, grips, hotGrip, constrainedSnapped, command, engineState.values, targetGeoms, geomById, pickEntityAt, displayById, activeDimStyle, annotationStyleCtx, expandedInstances, lweightDisplay, gridLineViews, materialsById, resolvedMaterialIdOf, props.navigation]);
 
   // --- mini-toolbar position -------------------------------------------------------------
 

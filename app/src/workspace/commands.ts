@@ -22,6 +22,7 @@
 
 import type { Vec2 } from "../drafting/precision.js";
 import { propsToGeom } from "./geometry/types.js";
+import { optionValueKey } from "./prompt-options.js";
 import { COMMANDS_2D } from "./commands-2d.js";
 import { COMMANDS_PROPS } from "./commands-props.js";
 import { COMMANDS_ANNO } from "./commands-anno.js";
@@ -113,6 +114,15 @@ function pointValue(values: Readonly<Record<string, PromptValue>>, id: string): 
   const v = values[id];
   if (v === undefined || v.kind !== "point") throw new Error(`command builder: step '${id}' has no point`);
   return v.point;
+}
+
+/** COMPAT-CAD-006: the TEXT collected by an option sub-prompt (ZOOM Scale's
+ *  factor string) stored under the option key — null when the option never
+ *  fired. Uses the canonical optionValueKey storage convention. */
+function optionTextValue(values: Readonly<Record<string, PromptValue>>, stepId: string, keyword: string): string | null {
+  const v = values[optionValueKey(stepId, keyword)];
+  if (v === undefined || v.kind !== "text") return null;
+  return v.text;
 }
 
 function pointsValue(values: Readonly<Record<string, PromptValue>>, id: string): readonly Vec2[] {
@@ -1123,6 +1133,126 @@ export const WORKSPACE_COMMANDS: readonly WorkspaceCommand[] = [
     ribbonTab: "View",
     steps: [],
     instant: () => plan([], ["ZOOMEXTENTS."], [{ action: "view.zoomExtents" }]),
+  },
+  // COMPAT-CAD-006 (Issue #138): the navigation vocabulary over the shared
+  // view transform — ZOOM (window default, bracketed All/Extents/Previous/
+  // Scale/Window modes), PAN (base+second point or displacement-on-Enter),
+  // REGEN (redraw, never a document mutation). View state is presentation
+  // state: the builders emit NO App API commands; every navigation plan is
+  // ui-actions + echo only.
+  {
+    id: "zoom",
+    name: "ZOOM",
+    aliases: ["Z"],
+    label: "Zoom",
+    description:
+      "Zoom the view. Default: specify two window corners. Options: All/Extents fit everything, Previous restores the last view, Scale multiplies by a factor (n = ×extents fit, nX = ×current).",
+    category: "view",
+    ribbonTab: "View",
+    steps: [
+      {
+        id: "corner1",
+        kind: "point",
+        prompt: "Specify first corner of zoom window or [All/Extents/Previous/Scale/Window]:",
+        options: [
+          { keyword: "A", label: "All", flag: true },
+          { keyword: "ALL", label: "All", flag: true },
+          { keyword: "E", label: "Extents", flag: true },
+          { keyword: "EXT", label: "Extents", flag: true },
+          { keyword: "EXTENTS", label: "Extents", flag: true },
+          { keyword: "P", label: "Previous", flag: true },
+          { keyword: "PREVIOUS", label: "Previous", flag: true },
+          { keyword: "S", label: "Scale factor", input: "text", optionPrompt: "Enter a scale factor (nX or nXP):" },
+          { keyword: "W", label: "Window", flag: true },
+          { keyword: "WINDOW", label: "Window", flag: true },
+        ],
+      },
+      { id: "corner2", kind: "point", prompt: "Specify opposite corner:" },
+    ],
+    build: (values) => {
+      // Option modes (All/Extents/Previous act immediately — see
+      // applyOptionKeyword's zoom branch; Scale captures a text factor then
+      // completes). Window (W) is the default corner mode: the flag alone
+      // re-prompts for the corners.
+      const scaleText = optionTextValue(values, "corner1", "S");
+      if (scaleText !== null) {
+        const m = scaleText.trim().match(/^([+-]?(?:\d+\.?\d*|\.\d+))\s*(x|X|xp|XP)?$/);
+        if (m === null || m[1] === undefined) {
+          return plan([], [`ZOOM: '${scaleText}' is not a scale factor — enter a number (n) or nX. No view change.`], []);
+        }
+        const factor = Number(m[1]);
+        if (!(factor > 0)) {
+          return plan([], [`ZOOM: scale factor must be positive — '${scaleText}' rejected. No view change.`], []);
+        }
+        const relative = m[2] !== undefined;
+        return plan(
+          [],
+          [relative ? `ZOOM: scale ${factor}X — ${factor}× the current view.` : `ZOOM: scale ${factor} — ${factor}× the extents fit.`],
+          [{ action: "view.zoomScale", payload: { factor, relative } }],
+        );
+      }
+      if (optionTextValue(values, "corner1", "E") !== null || optionTextValue(values, "corner1", "EXT") !== null || optionTextValue(values, "corner1", "EXTENTS") !== null) {
+        return plan([], ["ZOOM: fitting extents."], [{ action: "view.zoomExtents" }]);
+      }
+      if (optionTextValue(values, "corner1", "A") !== null || optionTextValue(values, "corner1", "ALL") !== null) {
+        return plan([], ["ZOOM All: no drawing limits defined in this document — fitting extents."], [{ action: "view.zoomExtents" }]);
+      }
+      if (optionTextValue(values, "corner1", "P") !== null || optionTextValue(values, "corner1", "PREVIOUS") !== null) {
+        return plan([], ["ZOOM: restoring previous view."], [{ action: "view.zoomPrevious" }]);
+      }
+      const corner1 = pointValue(values, "corner1");
+      const corner2 = pointValue(values, "corner2");
+      // COMPAT-CAD-006: a degenerate window (zero width or height) is
+      // rejected HERE — world-intrinsic, viewport-independent: the honest
+      // typed failure, no view change, no ui action.
+      const wW = Math.abs(corner2[0] - corner1[0]);
+      const wH = Math.abs(corner2[1] - corner1[1]);
+      if (!(wW > 0) || !(wH > 0)) {
+        return plan([], ["ZOOM: window is degenerate (zero width or height) — two different corners required. No view change."], []);
+      }
+      return plan(
+        [],
+        [`ZOOM: window (${fmtPoint(corner1)}) → (${fmtPoint(corner2)}).`],
+        [{ action: "view.zoomWindow", payload: { corner1: [corner1[0], corner1[1]], corner2: [corner2[0], corner2[1]] } }],
+      );
+    },
+  },
+  {
+    id: "pan",
+    name: "PAN",
+    aliases: ["P"],
+    label: "Pan",
+    description: "Pan the view: specify a base point and a second point (Enter at the second prompt treats the base point as the displacement).",
+    category: "view",
+    ribbonTab: "View",
+    steps: [
+      { id: "base", kind: "point", prompt: "Specify base point or displacement:" },
+      // COMPAT-CAD-006: Enter at the second point completes the command with
+      // the base point alone (AutoCAD's displacement mode: the first entry
+      // IS the pan vector).
+      { id: "second", kind: "point", prompt: "Specify second point:", optional: true },
+    ],
+    build: (values) => {
+      const base = pointValue(values, "base");
+      const secondValue = values["second"];
+      if (secondValue === undefined || secondValue.kind !== "point") {
+        return plan([], [`PAN: displacement (${fmtPoint(base)}).`], [{ action: "view.pan", payload: { delta: [base[0], base[1]] } }]);
+      }
+      const delta: Vec2 = [secondValue.point[0] - base[0], secondValue.point[1] - base[1]];
+      return plan([], [`PAN: (${fmtPoint(base)}) → (${fmtPoint(secondValue.point)}) — displacement (${fmtPoint(delta)}).`], [{ action: "view.pan", payload: { delta: [delta[0], delta[1]] } }]);
+    },
+  },
+  {
+    id: "regen",
+    name: "REGEN",
+    aliases: ["RE"],
+    label: "Regenerate Display",
+    description: "Regenerate the viewport display (pure redraw — no document change).",
+    category: "view",
+    ribbonTab: "View",
+    steps: [],
+    instant: () =>
+      plan([], ["Regenerating model.", "REGEN: display regenerated — no document change."], [{ action: "view.regen" }]),
   },
   {
     id: "layer",

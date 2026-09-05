@@ -108,4 +108,30 @@ export {
   type WindowSelection,
 } from "./precision-2d.js";
 export { effectiveStep, optionValue, optionValueKey, type OptionCapture } from "./prompt-engine.js";
+// COMPAT-CAD-006 (Issue #138): the ONE shared screen↔world view-transform
+// contract (Web + Electron, every pick/render path).
+export {
+  CULL_MARGIN_PX,
+  DESKTOP_ZOOM_LIMITS,
+  WEB_ZOOM_LIMITS,
+  clampZoom,
+  clipSegment,
+  expandRect,
+  fitExtents,
+  fitZoomOf,
+  panBy,
+  rectsIntersect,
+  toScreen,
+  toWorld,
+  viewTransformOf,
+  visibleWorldRect,
+  zoomAboutPoint,
+  zoomScaleAboutCenter,
+  zoomWindow,
+  type ViewNavigation,
+  type ViewNavigationRequest,
+  type ViewportSize,
+  type ViewTransform,
+  type WorldRect,
+} from "./view.js";
 export * from "./standards/index.js";

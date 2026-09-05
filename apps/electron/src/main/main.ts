@@ -98,6 +98,7 @@ const isDocsSmoke = process.argv.includes("--smoke-docs");
 const isIfcSmoke = process.argv.includes("--smoke-ifc");
 const isComponentsSmoke = process.argv.includes("--smoke-components");
 const isWorkspaceSmoke = process.argv.includes("--smoke-workspace");
+const isCad006Smoke = process.argv.includes("--smoke-cad006");
 
 function createWindow(): BrowserWindow {
   // app.getAppPath() is the directory containing this package's package.json
@@ -793,6 +794,175 @@ async function runImpactSmoke(win: BrowserWindow): Promise<void> {
 }
 
 /**
+ * COMPAT-CAD-006 / Issue #138: the viewport/navigation smoke — the ZOOM
+ * vocabulary (E extents, W window, S scale, P previous), PAN (displacement
+ * mode) and REGEN driven through the REAL renderer command line
+ * (window.__offisosWorkspace.typedInput — the same dispatch the keyboard
+ * input runs), asserting the shared-module view-transform values, the
+ * zero-document-mutation negative probe, and the entity-step P precedence.
+ */
+async function runCad006Smoke(win: BrowserWindow): Promise<void> {
+  if (process.env.OFFISOS_SMOKE_VERBOSE) {
+    win.webContents.on("console-message", (_e, _level, message) => {
+      console.log("[renderer]", String(message).slice(0, 500));
+    });
+  }
+  const steps: SmokeStep[] = [];
+  const push = (name: string, ok: boolean, detail: unknown = null): void => {
+    steps.push({ step: name, ok, detail });
+    if (process.env.OFFISOS_SMOKE_VERBOSE) console.log(ok ? `  [PASS] ${name}` : `  [FAIL] ${name}`, detail ?? "");
+  };
+
+  await new Promise<void>((resolve) => {
+    win.webContents.once("did-finish-load", () => resolve());
+  });
+
+  const page = async <T>(js: string): Promise<T> => {
+    const wrapped = (await win.webContents.executeJavaScript(
+      `(${js}).then((r) => ({ __smokeOk: true, r }), (e) => ({ __smokeOk: false, msg: String(e), stack: String((e && e.stack) || "") }))`,
+    )) as { __smokeOk: true; r: T } | { __smokeOk: false; msg: string; stack: string };
+    if (wrapped.__smokeOk !== true) {
+      throw new Error(`renderer call rejected: ${wrapped.msg}\n${wrapped.stack.slice(0, 800)}\nfor script: ${js.slice(0, 200)}`);
+    }
+    return wrapped.r;
+  };
+  const qq = (name: string, payload: unknown) =>
+    page<CommandQueryResponse>(`window.cad.send(${JSON.stringify({ type: "query", name, payload })})`);
+  const driver = async <T>(method: string, ...args: unknown[]): Promise<T> =>
+    page<T>(
+      `(async () => await window.__offisosWorkspace.${method}(${args.map((a) => JSON.stringify(a)).join(",")}))()`,
+    );
+  const type = (text: string) => driver<void>("typedInput", text);
+  type DocState = { elements: unknown[]; version: { version_number: number } };
+  const docState = async (): Promise<DocState | null> => {
+    const r = await qq("document.getState", {});
+    return r && r.ok ? (r.value as DocState) : null;
+  };
+  const near = (a: number, b: number, eps: number): boolean => Math.abs(a - b) <= eps;
+
+  // 1. Fresh document + a real-scale site boundary through the REAL command line.
+  await type("NEW");
+  await type("LINE");
+  await type("0,0");
+  await type("50000,30000");
+  await type("");
+  let s = await docState();
+  push("1", !!(s && s.elements.length === 1), s ? `elements=${s.elements.length} version=${s.version.version_number}` : "no state");
+  const baselineVersion = s?.version.version_number ?? -1;
+
+  // 2. ZOOM E through the command line: the unclamped extents fit reaches the
+  //    real-scale content (zoom ≈ 900/(50000+1600) on the 900×620 viewport).
+  await type("ZOOM");
+  await type("E");
+  const afterE = await driver<{ pan: { x: number; y: number }; zoom: number }>("viewTransform");
+  const expectedFitZoom = 900 / (50000 + 1600);
+  push("2", near(afterE.zoom, expectedFitZoom, 1e-9), `fit zoom ${afterE.zoom} (expected ~${expectedFitZoom})`);
+  const historyAfterE = await driver<string[]>("commandLog");
+  void historyAfterE;
+  const status1 = await driver<{ history: string[] }>("status");
+  push(
+    "3",
+    status1.history.some((l) => l.includes("ZOOM: fitting extents")),
+    `echo present: ${status1.history.filter((l) => l.includes("ZOOM")).join(" | ")}`,
+  );
+
+  // 4. ZOOM W: the window (10000,6000)→(40000,24000) lands exactly.
+  await type("ZOOM");
+  await type("10000,6000");
+  await type("40000,24000");
+  const afterW = await driver<{ pan: { x: number; y: number }; zoom: number }>("viewTransform");
+  push(
+    "5",
+    near(afterW.pan.x, 10000, 1e-6) && near(afterW.pan.y, 6000, 1e-6) && near(afterW.zoom, 900 / 30000, 1e-9),
+    `window view pan=(${afterW.pan.x},${afterW.pan.y}) zoom=${afterW.zoom}`,
+  );
+
+  // 6. ZOOM S 2x: the relative scale doubles the zoom about the center.
+  await type("ZOOM");
+  await type("S");
+  await type("2x");
+  const afterS = await driver<{ zoom: number }>("viewTransform");
+  push("7", near(afterS.zoom, (900 / 30000) * 2, 1e-9), `scaled zoom ${afterS.zoom}`);
+
+  // 8. PAN displacement mode: base (500,250), Enter at the second prompt.
+  await type("PAN");
+  await type("500,250");
+  await type("");
+  const afterPan = await driver<{ pan: { x: number; y: number }; zoom: number }>("viewTransform");
+  // Expected pan from the S view's center invariance: the world center of
+  // the WINDOW view is the viewport's visible-rect center (span 900/zW ×
+  // 620/zW — aspect-limited by width), and pan_S = center − (center −
+  // pan_W)·z_W/z_S; the PAN then adds the displacement exactly.
+  const zW = 900 / 30000;
+  const zS = zW * 2;
+  const centerW: [number, number] = [10000 + 900 / zW / 2, 6000 + 620 / zW / 2];
+  const expectedPanSx = centerW[0] - (centerW[0] - 10000) * zW / zS;
+  const expectedPanSy = centerW[1] - (centerW[1] - 6000) * zW / zS;
+  const expectedPanX = expectedPanSx + 500;
+  const expectedPanY = expectedPanSy + 250;
+  push(
+    "9",
+    near(afterPan.pan.x, expectedPanX, 1e-6) && near(afterPan.pan.y, expectedPanY, 1e-6),
+    `pan pan=(${afterPan.pan.x},${afterPan.pan.y}) expected=(${expectedPanX},${expectedPanY})`,
+  );
+
+  // 10. REGEN: pure redraw + the honest no-mutation echo.
+  await type("REGEN");
+  const statusRegen = await driver<{ history: string[] }>("status");
+  push(
+    "11",
+    statusRegen.history.some((l) => l.includes("no document change")),
+    `regen echo: ${statusRegen.history.filter((l) => l.includes("REGEN") || l.includes("Regenerating")).join(" | ")}`,
+  );
+
+  // 12. ZOOM P restores the pre-PAN view exactly.
+  await type("ZOOM");
+  await type("P");
+  const afterPrev = await driver<{ pan: { x: number; y: number }; zoom: number }>("viewTransform");
+  push(
+    "13",
+    near(afterPrev.pan.x, expectedPanSx, 1e-6) && near(afterPrev.pan.y, expectedPanSy, 1e-6) && near(afterPrev.zoom, zS, 1e-9),
+    `previous view pan=(${afterPrev.pan.x},${afterPrev.pan.y}) zoom=${afterPrev.zoom}`,
+  );
+
+  // 14. NEGATIVE PROBE: the document never mutated through ALL navigation.
+  s = await docState();
+  push(
+    "15",
+    !!(s && s.elements.length === 1 && s.version.version_number === baselineVersion),
+    s ? `elements=${s.elements.length} version=${s.version.version_number} (baseline ${baselineVersion})` : "no state",
+  );
+
+  // 16. The entity-step "P" (previous selection) convention beats the PAN
+  //     alias in the REAL UI: SELECTALL → ERASE → P (previous selection) →
+  //     Enter deletes the line (no PAN switch, no *Cancel*).
+  await type("SELECTALL");
+  await type("ERASE");
+  await type("P");
+  await type("");
+  s = await docState();
+  const erased = !!(s && s.elements.length === 0);
+  push("17", erased, s ? `elements after ERASE P=${s.elements.length}` : "no state");
+  const statusP = await driver<{ history: string[] }>("status");
+  const noCancel = !statusP.history.slice(-8).includes("*Cancel*");
+  push("18", noCancel, `no *Cancel* during the P flow: ${statusP.history.slice(-6).join(" | ")}`);
+  await type("UNDO");
+  s = await docState();
+  push("19", !!(s && s.elements.length === 1), `undo restored elements=${s?.elements.length ?? -1}`);
+
+  const allOk = steps.every((st) => st.ok);
+  writeSmokeOut({
+    ok: allOk,
+    electronVersion: process.versions.electron,
+    nodeVersion: process.versions.node,
+    chromeVersion: process.versions.chrome,
+    steps,
+    contentHash: null,
+    sceneHash: null,
+  });
+}
+
+/**
  * CAD-PARITY-002 / Issue #75: the professional workspace Electron smoke.
  *
  * Drives the REAL renderer UI — the professional command line, prompt
@@ -1026,7 +1196,9 @@ app.whenReady().then(() => {
                     ? runComponentsSmoke(win)
                     : isWorkspaceSmoke
                       ? runWorkspaceSmoke(win)
-                      : null;
+                      : isCad006Smoke
+                        ? runCad006Smoke(win)
+                        : null;
   if (smokeRun !== null) {
     smokeRun
       .then(() => {

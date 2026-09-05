@@ -102,6 +102,9 @@ import {
   unwrapSchedulesList,
 } from "@/cad/client/http-transport";
 import { commandById, WORKSPACE_COMMANDS, type WorkspaceCommand } from "@offisos/cad-app-shell/workspace/commands";
+// COMPAT-CAD-006 (Issue #138): the shared navigation request vocabulary
+// (ZOOM/PAN/REGEN ui actions → ViewNavigation requests for the canvas).
+import type { ViewNavigation, ViewNavigationRequest } from "@offisos/cad-app-shell/workspace/view";
 import {
   IDLE_PROMPT_STATE,
   applyPromptEvent,
@@ -209,7 +212,17 @@ export function WorkspaceShell(): React.JSX.Element {
   const [cursor, setCursor] = React.useState<Vec2 | null>(null);
   const [engineState, setEngineState] = React.useState<PromptEngineState>(IDLE_PROMPT_STATE);
   const [historyLines, setHistoryLines] = React.useState<string[]>([]);
-  const [zoomExtentsSignal, setZoomExtentsSignal] = React.useState(0);
+  // COMPAT-CAD-006 (Issue #138): the ONE navigation request channel — the
+  // ZOOM/PAN/REGEN/ZOOMEXTENTS command ui-actions land here and the Model
+  // canvas (the view-state owner) applies them through the SHARED
+  // view-transform module. seq is monotonic (the canvas effect keys on it).
+  const navigationSeq = React.useRef(0);
+  const [navigation, setNavigation] = React.useState<ViewNavigation | null>(null);
+  /** COMPAT-CAD-006: translate one ui action into a navigation request. */
+  const navigate = React.useCallback((request: ViewNavigationRequest): void => {
+    navigationSeq.current += 1;
+    setNavigation({ seq: navigationSeq.current, request });
+  }, []);
   // COMPAT-CAD-005: NEW/view reset signal — the Model canvas restores the
   // (new) document's persisted view when this increments (a document swap
   // must never keep the previous document's pan/zoom: DEF-003's dangling
@@ -1119,7 +1132,40 @@ export function WorkspaceShell(): React.JSX.Element {
             break;
           }
           case "view.zoomExtents":
-            setZoomExtentsSignal((n) => n + 1);
+            navigate({ kind: "zoomExtents" });
+            break;
+          // COMPAT-CAD-006 (Issue #138): the navigation vocabulary — the
+          // ZOOM/PAN/REGEN builders emit these ui actions; the canvas owns
+          // the view state and the shared module owns the math.
+          case "view.zoomWindow": {
+            const payload = (action.payload as { corner1?: [number, number]; corner2?: [number, number] } | undefined) ?? undefined;
+            if (
+              payload !== undefined && Array.isArray(payload.corner1) && Array.isArray(payload.corner2) &&
+              payload.corner1.length === 2 && payload.corner2.length === 2
+            ) {
+              navigate({ kind: "zoomWindow", corner1: [payload.corner1[0]!, payload.corner1[1]!], corner2: [payload.corner2[0]!, payload.corner2[1]!] });
+            }
+            break;
+          }
+          case "view.zoomScale": {
+            const payload = (action.payload as { factor?: number; relative?: boolean } | undefined) ?? undefined;
+            if (payload !== undefined && typeof payload.factor === "number" && Number.isFinite(payload.factor)) {
+              navigate({ kind: "zoomScale", factor: payload.factor, relative: payload.relative === true });
+            }
+            break;
+          }
+          case "view.pan": {
+            const payload = (action.payload as { delta?: [number, number] } | undefined) ?? undefined;
+            if (payload !== undefined && Array.isArray(payload.delta) && payload.delta.length === 2) {
+              navigate({ kind: "pan", delta: [payload.delta[0]!, payload.delta[1]!] });
+            }
+            break;
+          }
+          case "view.zoomPrevious":
+            navigate({ kind: "zoomPrevious" });
+            break;
+          case "view.regen":
+            navigate({ kind: "regen" });
             break;
           // CAD-PARITY-008: the paper-space context switches + the plot
           // preview surface (host-local view state, LOCK-015).
@@ -1335,7 +1381,7 @@ export function WorkspaceShell(): React.JSX.Element {
           dispatchEngine({ type: "enter" });
           break;
         case "zoomExtents":
-          setZoomExtentsSignal((n) => n + 1);
+          navigate({ kind: "zoomExtents" });
           break;
         case "selectionAll":
           void executePlan({ appApi: [], ui: [{ action: "selection.selectAll" }], echo: [] });
@@ -1601,7 +1647,8 @@ export function WorkspaceShell(): React.JSX.Element {
                   void executePlan({ appApi: result.appApi, ui: [], echo: [] });
                 }}
                 onCommandStart={startCommand}
-                zoomExtentsSignal={zoomExtentsSignal}
+                navigation={navigation}
+                onViewFeedback={(line) => setHistoryLines((h) => [...h, line])}
                 viewResetSignal={viewResetSignal}
                 onContextAction={(action, payload) => {
                   // CAD-PARITY-004: the canvas context-menu actions (layer
