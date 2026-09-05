@@ -85,10 +85,10 @@
       "at": "2026-09-05T07:05:00Z",
       "actor": "z-ai-infra-agent",
       "role": "implementer",
-      "reason": "The full documentation-only diff (six docs/infrastructure deliverables, the successor implementation prompt, and this governance record) is pushed on the work branch and the implementation PR #141 is open against main. Zero code changes; check-protected passes against main.",
+      "reason": "The full documentation-only diff (six docs/infrastructure deliverables, the successor implementation prompt, and this governance record) is pushed on the work branch and the implementation PR #141 is open against main. Zero code changes; check-protected passes against main. Revision binding corrected per the Architect's CHANGES REQUIRED decision on PR #141: the final implementation revision is the actual PR head, not the earlier deliverables-only head.",
       "references": {
         "pr": 141,
-        "commit": "64e474d23f4c35103880a480196523f76363a67a",
+        "commit": "6271cde2b9571b5545312a79f3d349c7f5a4daed",
         "issue": 140
       }
     },
@@ -101,6 +101,7 @@
       "reason": "Verification evidence submitted for independent Architect review: the deliverables are revision-bound on the PR; the record is schema-valid with all validateWorkItem rule categories passing; governance check-protected passes; the deterministic governance test suite shows byte-identical pre/post results (the six failures are the pre-existing CAD-PARITY-020.json defect documented in PR #133 and are Architect authority). Implementation-side lifecycle advancement stops here.",
       "references": {
         "pr": 141,
+        "commit": "6271cde2b9571b5545312a79f3d349c7f5a4daed",
         "issue": 140,
         "evidence": ["EV-001", "EV-002", "EV-003"]
       }
@@ -110,10 +111,10 @@
     {
       "id": "EV-001",
       "type": "reproducible-script",
-      "description": "Governance validation of this branch's own diff: `npm run governance -- check-protected --base main` → PASS (0 protected paths; docs-only additions). The INFRA-001 record is schema-valid against governance/schemas/work-item.schema.json and passes all ten validateWorkItem rule categories (state-membership, transition-chain, transition-legality, temporal-ordering, architecture-version, requirements, dependencies, evidence, decisions, demo-marking) when exercised through the validator modules on the branch tree.",
-      "produced_at": "2026-09-05T07:08:00Z",
+      "description": "Governance validation of this branch's own diff: `npm run governance -- check-protected --base main` → PASS (0 protected paths; docs-only additions). The INFRA-001 record is schema-valid against governance/schemas/work-item.schema.json and passes all ten validateWorkItem rule categories (state-membership, transition-chain, transition-legality, temporal-ordering, architecture-version, requirements, dependencies, evidence, decisions, demo-marking) when exercised through the validator modules on the branch tree. Revision binding corrected per the Architect's CHANGES REQUIRED decision on PR #141: the final implementation/evidence revision is the actual PR head 6271cde2b9571b5545312a79f3d349c7f5a4daed; re-validated on the corrected branch tree post-remediation.",
+      "produced_at": "2026-09-05T07:12:00Z",
       "references": {
-        "commit": "64e474d23f4c35103880a480196523f76363a67a",
+        "commit": "6271cde2b9571b5545312a79f3d349c7f5a4daed",
         "path": "governance/work-items/INFRA-001.json",
         "pr": 141
       },
@@ -123,10 +124,10 @@
     {
       "id": "EV-002",
       "type": "automated-test-suite",
-      "description": "The deterministic governance suite result is byte-identical with and without this diff: 199 tests / 193 pass / 6 fail on the branch AND on clean main (verified by stash → run → pop). All six failures trace to the pre-existing CAD-PARITY-020.json missing-dependencies defect (TypeError at tools/governance/src/validate.ts:253, documented in PR #133) — disclosed here, not fixed (a VERIFIED record is Architect authority). npm run governance -- validate is blocked by the same pre-existing defect on clean main.",
-      "produced_at": "2026-09-05T07:09:00Z",
+      "description": "The deterministic governance suite result is byte-identical with and without this diff: 199 tests / 193 pass / 6 fail on the branch AND on clean main (verified by stash → run → pop). All six failures trace to the pre-existing CAD-PARITY-020.json missing-dependencies defect (TypeError at tools/governance/src/validate.ts:253, documented in PR #133) — disclosed here, not fixed (a VERIFIED record is Architect authority). npm run governance -- validate is blocked by the same pre-existing defect on clean main. Revision binding corrected per the Architect's CHANGES REQUIRED decision on PR #141 to the actual PR head 6271cde2b9571b5545312a79f3d349c7f5a4daed; the suite result is unchanged by the correction (governance-record-only diff).",
+      "produced_at": "2026-09-05T07:13:00Z",
       "references": {
-        "commit": "64e474d23f4c35103880a480196523f76363a67a",
+        "commit": "6271cde2b9571b5545312a79f3d349c7f5a4daed",
         "pr": 141
       },
       "reproducible": true,
@@ -135,10 +136,10 @@
     {
       "id": "EV-003",
       "type": "inspectable-artifact",
-      "description": "The seven INFRA-001 deliverables are committed, revision-bound and traceable: docs/infrastructure/offisos-serverless-architecture.md, offisos-state-inventory.md, offisos-state-inventory.json, offisos-persistence-model.md, offisos-worker-model.md, offisos-infrastructure-roadmap.md, and docs/work-items/INFRA-001-ZAI-PROMPT.md. Every load-bearing audit finding cites auditable repository locations at audited main revision a9867a8; the production infrastructure facts (Vercel project identity, deployment binding, no-external-secrets state) derive from PR #133 and the README deployment branch — no assumed store capabilities.",
-      "produced_at": "2026-09-05T07:10:00Z",
+      "description": "The seven INFRA-001 deliverables are committed, revision-bound and traceable: docs/infrastructure/offisos-serverless-architecture.md, offisos-state-inventory.md, offisos-state-inventory.json, offisos-persistence-model.md, offisos-worker-model.md, offisos-infrastructure-roadmap.md, and docs/work-items/INFRA-001-ZAI-PROMPT.md. Every load-bearing audit finding cites auditable repository locations at audited main revision a9867a8; the production infrastructure facts (Vercel project identity, deployment binding, no-external-secrets state) derive from PR #133 and the README deployment branch — no assumed store capabilities. Revision binding corrected per the Architect's CHANGES REQUIRED decision on PR #141 to the actual PR head 6271cde2b9571b5545312a79f3d349c7f5a4daed; the audited main revision a9867a8 remains the audit baseline, unchanged.",
+      "produced_at": "2026-09-05T07:14:00Z",
       "references": {
-        "commit": "64e474d23f4c35103880a480196523f76363a67a",
+        "commit": "6271cde2b9571b5545312a79f3d349c7f5a4daed",
         "path": "docs/infrastructure/",
         "pr": 141
       },
