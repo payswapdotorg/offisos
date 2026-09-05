@@ -17,6 +17,12 @@
       "from_issue": 5,
       "to_issue": 8,
       "reason": "Fork-local issue #5 is now COMPAT-CAD-008; preserve the historical source issue in the record while binding this work item to its dedicated fork issue #8."
+    },
+    {
+      "work_item": "RESEARCH-CAD-006",
+      "from_issue": 6,
+      "to_issue": 9,
+      "reason": "Fork-local issue #6 is now the dedicated migration issue for RESEARCH-CAD-001; preserve the historical source issue in the record while binding this work item to its dedicated fork issue #9."
     }
   ]
 }
