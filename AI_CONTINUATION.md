@@ -47,6 +47,10 @@ These documents govern CAD parity sequencing, phase completion, benchmark score 
 - Implementation stop gate: **PR_OPEN/VERIFYING**.
 - Fork-local worker directive: `docs/work-items/COMPAT-CAD-007-ZAI-PROMPT.md`.
 
+## Dispatch status
+
+The work item is legally released and persisted in `ASSIGNED`. No implementer transition has been recorded yet. The implementation worker must perform the next lifecycle transition itself: `ASSIGNED → IMPLEMENTING`, then implement only the frozen scope and stop at `PR_OPEN/VERIFYING`.
+
 ## COMPAT-CAD-007 gate
 
 This slice restores deterministic object-selection and core modify workflows over the verified shared geometry, precision and viewport foundations. Required evidence includes deterministic automated tests, negative no-mutation/false-success tests, Web/Electron semantic parity, COMPAT-CAD-005/006 regressions, exact-head CI, exact deployment, and independent browser-agent Golden G1/G2/G4/G10 plus targeted DEF-006/007/021 probes.
@@ -118,4 +122,4 @@ npm test
 
 ## Security
 
-Never commit PATs, Vercel tokens, credentials, or environment secrets to the repository or documentation. Use environment-backed credentials only.
+Never commit PATs, Vercel tokens, credentials, or environment secrets to the repository or documentation.
