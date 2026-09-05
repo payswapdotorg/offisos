@@ -48,7 +48,7 @@ import {
 import { resolveSnap } from "../drafting/snap.js";
 // CAD-PARITY-003 (additive): the shared 2D entity operations + precision
 // engine (workspace core — engine-free, LOCK-018 scanned).
-import { createEntities, modifyEntities, EntityOpError } from "../workspace/entity-ops.js";
+import { createEntities, modifyEntities, EntityOpError, arrayMembersOfSources } from "../workspace/entity-ops.js";
 import {
   pickAt as precisionPickAt,
   resolveSnap as precisionResolveSnap,
@@ -1834,6 +1834,17 @@ export class AppApiHandler {
       // (removeConstraint edits + typed notes — the dead-ref precedent).
       const elements = this.doc.allElements();
       const deleted = new Set(p.ids as string[]);
+      // COMPAT-CAD-008 (Issue #5, DEC-001 remediation): source-deletion
+      // cascade — ARRAY-owned members whose source occurrence is deleted
+      // are removed in the SAME atomic revision (semantic contract §7:
+      // "deleting a source does not leave orphaned ARRAY-owned entities").
+      // The orphaned member ids are added to `deleted` BEFORE the
+      // annotation/constraint cascade so those cascades also cover the
+      // cascade-deleted members. Deterministic and order-stable (document
+      // order). Individual member deletion does NOT cascade upward (only
+      // source deletion cascades to owned members).
+      const orphanedArrayMembers = arrayMembersOfSources(elements, [...deleted]);
+      for (const memberId of orphanedArrayMembers) deleted.add(memberId);
       const annotations = annotationViewsOf(elements).filter(({ annotation }) => {
         for (const refId of annotationRefIds(annotation)) {
           if (deleted.has(refId)) return true;
@@ -1856,6 +1867,17 @@ export class AppApiHandler {
       if (severance.edits.length > 0) {
         extraEdits.push(...severance.edits);
         summary = `${summary}; ${severance.severed.length} constraint${severance.severed.length === 1 ? "" : "s"} severed`;
+      }
+      // COMPAT-CAD-008 (Issue #5, DEC-001 remediation): the ARRAY member
+      // cascade-deletion edits (removeElement per orphaned member). These
+      // join the SAME applyEdits revision as the source erase, so UNDO
+      // restores the source AND all cascade-deleted members atomically,
+      // and REDO re-erases them (exact undo/redo, §7).
+      if (orphanedArrayMembers.length > 0) {
+        for (const memberId of orphanedArrayMembers) {
+          extraEdits.push({ type: "removeElement", elementId: memberId });
+        }
+        summary = `${summary}; ${orphanedArrayMembers.length} array member${orphanedArrayMembers.length === 1 ? "" : "s"} cascade-deleted`;
       }
       if (extraEdits.length > 0) {
         const edits = edit.type === "applyEdits" ? [...edit.edits, ...extraEdits] : [edit, ...extraEdits];

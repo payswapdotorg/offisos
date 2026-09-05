@@ -365,10 +365,17 @@ test("array validation: typed failures (bad counts, 1x1 no-op)", async () => {
   const h = make();
   await drawScene(h);
   assert.equal(errCode(await cmd(h, "entity.modify", { op: "array", mode: "rectangular", ids: ["el-000001"], rows: 0, columns: 3 })), "bad_input");
-  assert.equal(errCode(await cmd(h, "entity.modify", { op: "array", mode: "polar", ids: ["el-000001"], items: 1, center: { x: 0, y: 0 } })), "bad_input");
+  // COMPAT-CAD-008 preparation spike: count=1 is now the contract's
+  // deterministic no-op (applied: false); counts below 1 stay typed.
+  assert.equal(errCode(await cmd(h, "entity.modify", { op: "array", mode: "polar", ids: ["el-000001"], items: 0, center: { x: 0, y: 0 } })), "bad_input");
   const noOp = val<{ applied: boolean; reason: string }>(await cmd(h, "entity.modify", { op: "array", mode: "rectangular", ids: ["el-000001"], rows: 1, columns: 1 }));
   assert.equal(noOp.applied, false);
   assert.ok(String(noOp.reason).includes("single item"));
+  const polarNoOp = val<{ applied: boolean; reason: string }>(await cmd(h, "entity.modify", { op: "array", mode: "polar", ids: ["el-000001"], items: 1, center: { x: 0, y: 0 }, angleSpan: Math.PI * 2 }));
+  assert.equal(polarNoOp.applied, false);
+  assert.ok(String(polarNoOp.reason).includes("single item"));
+  // COMPAT-CAD-008 preparation spike: signed spacing is a typed failure.
+  assert.equal(errCode(await cmd(h, "entity.modify", { op: "array", mode: "rectangular", ids: ["el-000001"], rows: 2, columns: 3, rowSpacing: -10 })), "bad_input");
 });
 
 // ---------------------------------------------------------------------------
