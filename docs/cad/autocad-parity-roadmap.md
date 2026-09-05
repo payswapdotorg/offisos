@@ -1,12 +1,13 @@
 # Offisos AutoCAD Product Roadmap — Authoritative CAD Parity Program
 
-**Status:** ACTIVE
-**Architecture:** ConstructionOS Architecture v1.1 — FROZEN
-**Current repository main:** `93ce43152a744a0ddb0e1869e1ec2f2ac850e8d0`
-**Current product benchmark baseline:** CAD-BENCH-RW-001 — 18/100 at product revision `f4a1a735dfbfa58d9b24197ffc1808d4cdf84db6`
-**Current active work item:** `COMPAT-CAD-005` — GitHub Issue #135
-**Current implementation stop gate:** `PR_OPEN / VERIFYING`
-**Primary verification instrument:** independent browser-agent black-box testing against the deployed application
+**Status:** ACTIVE  
+**Architecture:** ConstructionOS Architecture v1.1 — FROZEN  
+**Latest verified product main:** `74d1b39578916f1915674e20d215bde79d1c10cd` (COMPAT-CAD-005 merge)  
+**Current product benchmark baseline:** CAD-BENCH-RW-001 — 18/100 at product revision `f4a1a735dfbfa58d9b24197ffc1808d4cdf84db6`  
+**Current active work item:** `COMPAT-CAD-006` — GitHub Issue #138  
+**Current implementation status:** `ASSIGNED`  
+**Current implementation stop gate:** `PR_OPEN / VERIFYING`  
+**Primary verification instrument:** independent browser-agent black-box testing against the deployed application  
 **Autonomous return protocol:** `docs/governance/architect-return-protocol.md`
 
 > This document is the authoritative roadmap for the AutoCAD-class product improvement program. It is the repository source of truth for CAD parity sequencing, phase gates, score tracking, and successor selection. Chat discussion is not authoritative.
@@ -124,8 +125,8 @@ This sequence is dependency-ordered. A successor work item must not be released 
 | Sequence | Work item | Phase outcome | Browser gate | Status |
 |---:|---|---|---|---|
 | 0 | CAD-BENCH-RW-001 | Establish empirical baseline | Full 25-project benchmark | **BASELINED — 18/100** |
-| 1 | **COMPAT-CAD-005** | Canonical drafting state: layers, active layer, NEW/reset, unified selection, screen-space picking, authoritative feedback | G1/G3/G5/G7/G8/G9/G10 + targeted probes | **ASSIGNED** |
-| 2 | COMPAT-CAD-006 | Viewport clipping, zoom, pan, regen, stable coordinate transforms | G1/G2/G3 | **PLANNED** |
+| 1 | **COMPAT-CAD-005** | Canonical drafting state: layers, active layer, NEW/reset, unified selection, screen-space picking, authoritative feedback | G1/G3/G5/G7/G8/G9/G10 + targeted probes | **VERIFIED** |
+| 2 | **COMPAT-CAD-006** | Viewport clipping, zoom, pan, regen, stable coordinate transforms | G1/G2/G3 + targeted navigation probes | **ASSIGNED** |
 | 3 | COMPAT-CAD-007 | Core editing and deterministic object-selection workflows | G1/G2/G4/G10 | **PLANNED** |
 | 4 | COMPAT-CAD-008 | Arrays and repeated geometry materialization/render/selectability | G3/G5/G6/G7 | **PLANNED** |
 | 5 | COMPAT-CAD-009 | Blocks, inserts, attributes and reusable symbols | G5/G7/G8 | **PLANNED** |
@@ -235,6 +236,8 @@ The roadmap's `100/100` is a product-program normalization across the benchmark 
 
 A work item may improve the score only when the corresponding browser evidence demonstrates user-visible improvement. Adding tests without fixing runtime behavior does not increase the score.
 
+**Scoring note after COMPAT-CAD-005:** the targeted first-slice defects were demonstrably repaired, including layer identity/activation, NEW reset, screen-space picking, canonical selection pruning/count integrity and commit-authoritative feedback. The permanent program score remains **18/100** until the full benchmark is re-run and category scores are recalculated from observed behavior; no score increase is claimed merely from implementation coverage.
+
 ## 9. Successor-selection rule
 
 After every verified work item, the Architect updates this file on the repository's mainline with:
@@ -250,27 +253,30 @@ After every verified work item, the Architect updates this file on the repositor
 
 No successor is authorized solely by chat agreement.
 
-## 10. Current phase — COMPAT-CAD-005
+## 10. Current phase — COMPAT-CAD-006
 
-**Issue:** #135
-
-**Objective:** restore the trustworthy 2D drafting foundation exposed by CAD-BENCH-RW-001 without changing Architecture v1.1.
+**Issue:** #138  
+**Predecessor:** COMPAT-CAD-005 — VERIFIED at merge `74d1b39578916f1915674e20d215bde79d1c10cd`  
+**Objective:** restore deterministic viewport/navigation behavior exposed by CAD-BENCH-RW-001 without changing Architecture v1.1.
 
 **Scope:**
 
-- one canonical layer identity space;
-- real active-layer behavior;
-- complete NEW/editor reset;
-- one canonical selection state;
-- deterministic screen-space picking;
-- no phantom graph state;
-- authoritative post-commit command feedback.
+- deterministic partial viewport clipping;
+- stable ZOOM/window-zoom semantics;
+- deterministic PAN semantics;
+- REGEN/redraw without CADDocument mutation;
+- one shared screen↔world transform contract across Web/Electron;
+- preservation of COMPAT-CAD-005 canonical layer/selection/commit-authority behavior.
 
-**Deferred to successors:** viewport clipping/navigation and ARRAY materialization are not part of the first slice unless required to repair a directly entangled root cause.
+**Deferred to successors:** ARRAY materialization/render/selectability remains COMPAT-CAD-008; durable SAVE/OPEN/session persistence remains COMPAT-CAD-011; DXF remains COMPAT-CAD-012; layout identity remains COMPAT-CAD-013.
 
-**Required browser gate:** G1, G3, G5, G7, G8, G9 and G10 plus direct probes for every changed failure mode.
+**Required browser gate:** G1, G2 and G3 plus targeted probes for off-viewport geometry, zoom/window-zoom, pan, regen and navigation-state non-mutation.
 
 **Implementation stop:** `PR_OPEN/VERIFYING`.
+
+**Authorized implementation prompt:** `docs/work-items/COMPAT-CAD-006-ZAI-PROMPT.md`.
+
+**Assigned implementation role:** `z-ai-implementation-agent` (virtual governance role; GitHub issue assignee remains unset because that role is not a GitHub user account).
 
 **Architect continuation:** once the worker returns this PR, follow `docs/governance/architect-return-protocol.md` without awaiting a user `next/go` message.
 
@@ -293,6 +299,10 @@ The 27 benchmark defects remain individually traceable. Primary ownership by roa
 | DEF-017 | COMPAT-CAD-016 / 020 |
 | DEF-020 | COMPAT-CAD-014 / 021 |
 | DEF-025 | COMPAT-CAD-016 |
+
+### COMPAT-CAD-005 retirement finding
+
+The Architect accepts the following targeted benchmark defects as resolved by the verified first slice based on deterministic and browser evidence: **DEF-001, DEF-002, DEF-003, DEF-006, DEF-008, DEF-014 and DEF-027**. DEF-024 was not independently re-scored and remains in the broader ownership matrix. No other defect is retired by this phase merely because a related prerequisite became usable.
 
 A defect may be retired earlier if a predecessor phase legitimately resolves its root cause, but the change must be recorded in the relevant work-item evidence.
 
