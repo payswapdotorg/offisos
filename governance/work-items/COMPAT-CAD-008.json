@@ -26,11 +26,11 @@
     "No benchmark score increase claim without a measured benchmark rerun."
   ],
   "risk_assumptions":[
-    "COMPAT-CAD-007 is the required semantic and selection baseline, but its post-merge verification is currently externally blocked by CI and therefore this record remains DRAFT until that dependency is VERIFIED.",
+    "COMPAT-CAD-007 is VERIFIED at physical merge 9232c90; it is the required semantic and selection baseline for CC008.",
     "The existing engine-free shared geometry and canonical revision model are sufficient for materialized arrays; any native-engine dependency discovered during implementation must be isolated behind the existing adapter boundary.",
     "Array previews remain presentation state until a single canonical commit.",
     "Materialization must not create an application-local competing authority for shared objects.",
-    "The known CAD-PARITY-020 governance defect remains pre-existing and must not be silently changed by CC008."
+    "The historical CAD-PARITY-020 governance defects have been isolated and repaired at the governance-record layer and must not be silently reintroduced by CC008."
   ],
   "evidence_requirements":[
     "Deterministic automated tests for each supported array mode, invalid inputs, no-mutation-before-commit and typed unsupported behavior.",
@@ -41,8 +41,11 @@
     "Exact-head deployment and independent browser-agent evidence for the required array Golden workflows.",
     "Revision-bound governance evidence sufficient for an independent Architect to verify the work item."
   ],
-  "state":"DRAFT",
-  "transitions":[],
+  "state":"ASSIGNED",
+  "transitions":[
+    {"from":"DRAFT","to":"READY","at":"2026-09-05T19:57:30Z","actor":"payswapdotorg","role":"architect","reason":"COMPAT-CAD-007 is now VERIFIED at physical merge 9232c90. The dependency-ordered ARRAY scope is frozen, bounded and ready for assignment under Architecture v1.1.","references":{"issue":5,"dependency":"COMPAT-CAD-007","merge_commit":"9232c90e4340475bcf5c6818a30d9748ea04330a"}},
+    {"from":"READY","to":"ASSIGNED","at":"2026-09-05T19:58:00Z","actor":"payswapdotorg","role":"architect","reason":"Authorize z-ai-implementation-agent to implement only the frozen COMPAT-CAD-008 scope and stop at PR_OPEN/VERIFYING. Preparation already exists on branch work/compat-cad-008-array-preparation; the implementation agent may now convert that preparation into the bounded implementation.","references":{"issue":5,"assignee":"z-ai-implementation-agent","artifact":"docs/work-items/COMPAT-CAD-008-ZAI-PROMPT.md"}}
+  ],
   "evidence":[],
   "decisions":[]
 }
