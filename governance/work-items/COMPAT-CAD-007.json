@@ -50,7 +50,7 @@
       "at": "2026-09-05T06:40:00Z",
       "actor": "pectoraux",
       "role": "architect",
-      "reason": "COMPAT-CAD-006 is VERIFIED at merge eb340634; the dependency-ordered Phase 3 CAD editing slice is bounded by the authoritative roadmap and Issue #142.",
+      "reason": "COMPAT-CAD-006 is VERIFIED at merge eb340634; the dependency-ordered Phase 3 CAD editing slice is bounded by the authoritative roadmap and Issue #1.",
       "references": {
         "issue": 1,
         "predecessor": "COMPAT-CAD-006",
