@@ -2,11 +2,11 @@
 
 **Status:** ACTIVE  
 **Architecture:** ConstructionOS Architecture v1.1 — FROZEN  
-**Latest verified product main:** `eb3406340df08d1ab39e771c40681d6248840d2e` (COMPAT-CAD-006; CC007 is merged but its mandatory post-merge verification is externally blocked)  
+**Latest verified product main:** `9232c90e4340475bcf5c6818a30d9748ea04330a` (COMPAT-CAD-007; verified after terminal post-merge workflow fan-out)  
 **Latest verified infrastructure foundation:** **INFRA-002** — merge `f3d8a02f7c739c77ddfaa5aea93466aab3230fc0`, verified by Architect at `d436fa72080782e6506715e656757e09acfd2348`  
 **Current product benchmark baseline:** CAD-BENCH-RW-001 — **18/100** at product revision `f4a1a735dfbfa58d9b24197ffc1808d4cdf84db6`  
-**Current active execution:** **COMPAT-CAD-007 verification hold** — GitHub PR **#3** merged at `9232c90e4340475bcf5c6818a30d9748ea04330a`  
-**Current successor preparation:** **COMPAT-CAD-008** — GitHub Issue **#5**, governance state **DRAFT** only  
+**Current active execution:** **COMPAT-CAD-008** — GitHub Issue **#5**, governance state **ASSIGNED**  
+**Current successor preparation:** **COMPAT-CAD-009** — **PLANNED**  
 **Verification instrument:** independent browser-agent black-box testing against an exact-head deployment  
 **Autonomous return protocol:** `docs/governance/architect-return-protocol.md`
 
@@ -68,8 +68,8 @@ The full 25-project CAD-BENCH-RW-001 corpus remains mandatory and may not be sil
 | 0 | CAD-BENCH-RW-001 | Empirical baseline | Full corpus | **BASELINED — 18/100** |
 | 1 | COMPAT-CAD-005 | Canonical drafting state | G1/G3/G5/G7/G8/G9/G10 | **VERIFIED** |
 | 2 | COMPAT-CAD-006 | Viewport clipping, zoom, pan, regen, transforms | G1/G2/G3 | **VERIFIED** |
-| 3 | **COMPAT-CAD-007** | Core editing and deterministic object selection | G1/G2/G4/G10 | **MERGED — POST-MERGE CI BLOCKED** |
-| 4 | **COMPAT-CAD-008** | Arrays/materialization/render/selectability | G3/G5/G6/G7 | **PREPARED — DRAFT** |
+| 3 | **COMPAT-CAD-007** | Core editing and deterministic object selection | G1/G2/G4/G10 | **VERIFIED** |
+| 4 | **COMPAT-CAD-008** | Arrays/materialization/render/selectability | G3/G5/G6/G7 | **ASSIGNED — IMPLEMENTATION AUTHORIZED** |
 | 5 | COMPAT-CAD-009 | Blocks/inserts/attributes/symbols | G5/G7/G8 | **PLANNED** |
 | 6 | COMPAT-CAD-010 | Hatch/annotation/dimension/inspection | G1/G4/G6/G8 | **PLANNED** |
 | 7 | COMPAT-CAD-011 | Durable SAVE/OPEN/reload | G9 + restart/recovery | **PLANNED** |
@@ -119,28 +119,31 @@ Evidence included 34 targeted deterministic tests, a full app suite of 1426 test
 
 **Retired by this phase:** DEF-004 and DEF-005 are accepted as resolved for the targeted clipping/navigation behavior based on the phase evidence. The permanent benchmark score remains 18/100 pending the complete corpus rerun.
 
-## 11. COMPAT-CAD-007 — merged, awaiting external post-merge verification
+## 11. Completed phase — COMPAT-CAD-007
 
-**GitHub PR:** #3  
+**GitHub Issue:** #1  
+**Pull request:** #3  
 **Merge:** `9232c90e4340475bcf5c6818a30d9748ea04330a`  
 **Governance record:** `governance/work-items/COMPAT-CAD-007.json`  
-**State:** **MERGED — post-merge CI externally blocked**
+**Result:** **VERIFIED**
 
-The implementation satisfied its deterministic, real-host, exact-head deployment and independent browser gates before merge. The remaining required post-merge workflow fan-out for merge SHA `9232c90` is queued and has not produced terminal evidence. The Architect therefore does not mark CC007 `VERIFIED` until that gate is resolved.
+CC007 delivered deterministic core editing and object-selection workflows over the verified viewport foundation. Exact implementation-head evidence included 1459 tests with 1414 pass, 0 fail and 45 skipped; Web/Electron host smokes; exact-head deployment; and independent browser G1/G2/G4/G10 plus DEF-006/007/021 probes with zero console errors. At physical merge head `9232c90`, all 30 post-merge workflow runs were terminal, with 29 success and one governance-only failure caused by the historical malformed CC007 governance record; the record was subsequently repaired without any product implementation delta.
 
-The known `CAD-PARITY-020` governance defect has since been repaired on main by restoring its missing `dependencies` field (`CAD-PARITY-019`). This is independent governance debt cleanup and not part of CC007's implementation scope.
+Root governance is now green after migration-safe record normalization and a verified-revision audit correction: the latest deterministic governance run passed all governance checks, including work-item schema/state validation, issue migration uniqueness, and verified-revision drift validation. The historical issue-number collisions introduced by fork migration are represented explicitly in `governance/issue-migrations.json` rather than weakening the uniqueness invariant.
 
-## 12. Prepared successor — COMPAT-CAD-008
+**Result:** CC007 is VERIFIED. Issue #1 is closed as completed. The permanent benchmark score remains **18/100** because no full benchmark rerun has been performed.
+
+## 12. Active phase — COMPAT-CAD-008
 
 **Issue:** #5  
 **Predecessor:** COMPAT-CAD-007  
-**Status:** **DRAFT / PREPARATION ONLY**  
+**Status:** **ASSIGNED — IMPLEMENTATION AUTHORIZED**  
 **Governance record:** `governance/work-items/COMPAT-CAD-008.json`  
 **Implementation prompt:** `docs/work-items/COMPAT-CAD-008-ZAI-PROMPT.md`
 
-CC008 owns **DEF-015** and the bounded ARRAY capability: deterministic rectangular/polar array semantics, materialized canonical members, rendering/selectability, stable identities and ordering, undo/redo, invalid/unsupported behavior, and Web/Electron parity. The preparation package deliberately does **not** advance CC008 to READY/ASSIGNED while CC007's required verification remains unresolved.
+CC008 owns **DEF-015** and the bounded ARRAY capability: deterministic rectangular/polar array semantics, materialized canonical members, rendering/selectability, stable identities and ordering, undo/redo, invalid/unsupported behavior, and Web/Electron parity. Supported modes and their negative/unsupported boundaries must remain explicit; no feature outside the frozen work item may be opportunistically added.
 
-The worker directive is repository-backed and explicitly limits current activity to preparation/spec/test design. No CC008 PR, approval, merge or verification claim is authorized until the Architect legally advances the work item.
+The preparation-only constraint has now been lifted because COMPAT-CAD-007 is VERIFIED. `z-ai-implementation-agent` is authorized to convert the existing preparation branch/work into the frozen implementation, with the mandatory stop at PR_OPEN/VERIFYING. No PR, merge or verification is implied by this authorization.
 
 ## 13. Defect retirement matrix
 
@@ -160,7 +163,7 @@ The worker directive is repository-backed and explicitly limits current activity
 | DEF-020 | COMPAT-CAD-014 / 021 |
 | DEF-025 | COMPAT-CAD-016 |
 
-Known governance debt item repaired: `governance/work-items/CAD-PARITY-020.json` now declares the required `dependencies` field and points to `CAD-PARITY-019`.
+Historical governance migration debt repaired: source issue-number reuse is now represented by explicit migrations in `governance/issue-migrations.json`, while current fork issue ownership remains unique. The earlier CAD-PARITY-020 missing-dependencies defect is also repaired and schema-valid.
 
 ## 14. Relationship to the broader ConstructionOS roadmap
 
@@ -174,6 +177,6 @@ The CAD parity program remains a bounded product track within frozen Constructio
 **Architect verification finalization:** `d436fa72080782e6506715e656757e09acfd2348`  
 **Result:** **VERIFIED**
 
-INFRA-002 delivered the authoritative Neon/PostgreSQL DocumentStore foundation with deterministic memory and PostgreSQL backends, cross-backend byte-identity fixtures, deterministic CAS/idempotency behavior, fail-closed corruption handling, and real-PostgreSQL CI. The final exact-head `infra-002` workflow run `33974833492` completed successfully for both workspace and real-PostgreSQL jobs. The standing governance workflow failure was the pre-existing `CAD-PARITY-020` missing-dependency defect and was separately repaired on main.
+INFRA-002 delivered the authoritative Neon/PostgreSQL DocumentStore foundation with deterministic memory and PostgreSQL backends, cross-backend byte-identity fixtures, deterministic CAS/idempotency behavior, fail-closed corruption handling, and real-PostgreSQL CI. The final exact-head `infra-002` workflow run `33974833492` completed successfully for both workspace and real-PostgreSQL jobs. The governance record is now schema-normalized, and the root governance migration work isolates historical record debt from INFRA-002 implementation validity.
 
 INFRA-002 is infrastructure-track completion and does **not** change the CAD benchmark score or the legal dependency sequence for COMPAT-CAD-007/008.
