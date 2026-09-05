@@ -18,6 +18,9 @@ The implementation agent may use this directive for architecture/test/spec prepa
 
 Prepare the next bounded CAD parity slice for **DEF-015**: ARRAY creation with deterministic materialization, rendering and selectability, canonical identities, undo/redo, and Web/Electron semantic parity.
 
+The detailed semantic contract is authoritative for preparation details:
+`docs/work-items/COMPAT-CAD-008-SEMANTIC-CONTRACT.md`.
+
 ## Frozen boundaries
 
 - Construction Graph remains the canonical system of record.
