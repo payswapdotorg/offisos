@@ -100,6 +100,105 @@ export class EntityOpError extends Error {
 // Outcomes.
 // ---------------------------------------------------------------------------
 
+/** COMPAT-CAD-008 (Issue #5): deterministic ARRAY provenance/ownership
+ *  metadata attached to each materialized array member. Lives in the
+ *  entity's `props.arrayProvenance` field — domain-owned metadata in the
+ *  existing flat canonical partition, never a competing application-local
+ *  authority (§1/§6 of the CC008 semantic contract).
+ *
+ *  - `opId`: a deterministic fingerprint of the ARRAY operation (mode +
+ *    parameters). Byte-identical on repeated execution (§6 invariant).
+ *  - `sourceId`: the canonical id of the source occurrence the member was
+ *    materialized from. The source occurrence (index 0) is NOT tagged —
+ *    only materialized copies carry provenance.
+ *  - `memberIndex`: the deterministic member order (row-major for
+ *    rectangular, increasing index for polar), starting at 1 (the source
+ *    is index 0).
+ *  - `row` / `column`: rectangular member coordinates (absent for polar). */
+export interface ArrayProvenance {
+  readonly opId: string;
+  readonly sourceId: string;
+  readonly mode: "rectangular" | "polar";
+  readonly memberIndex: number;
+  readonly row?: number;
+  readonly column?: number;
+}
+
+/** Read the ARRAY provenance from an element's props, or null if the entity
+ *  is not an ARRAY-owned member. Used by the source-deletion cascade
+ *  (drafting.delete) to prevent orphaned ARRAY-owned canonical entities. */
+export function arrayProvenanceOf(element: Element): ArrayProvenance | null {
+  const p = element.props as Record<string, unknown>;
+  const ap = p.arrayProvenance;
+  if (ap === null || typeof ap !== "object") return null;
+  const a = ap as Record<string, unknown>;
+  if (
+    typeof a.opId === "string" &&
+    typeof a.sourceId === "string" &&
+    (a.mode === "rectangular" || a.mode === "polar") &&
+    typeof a.memberIndex === "number"
+  ) {
+    return {
+      opId: a.opId,
+      sourceId: a.sourceId,
+      mode: a.mode,
+      memberIndex: a.memberIndex,
+      ...(typeof a.row === "number" ? { row: a.row } : {}),
+      ...(typeof a.column === "number" ? { column: a.column } : {}),
+    };
+  }
+  return null;
+}
+
+/** COMPAT-CAD-008 (Issue #5): the canonical entity ids of all ARRAY-owned
+ *  members whose source occurrence is in `sourceIds`. Used by the
+ *  source-deletion cascade to remove orphaned members in the same atomic
+ *  revision as the source erase (§7 — "deleting a source does not leave
+ *  orphaned ARRAY-owned entities"). Deterministic and order-stable
+ *  (document order). */
+export function arrayMembersOfSources(
+  elements: readonly Element[],
+  sourceIds: readonly string[],
+): string[] {
+  if (sourceIds.length === 0) return [];
+  const sources = new Set(sourceIds);
+  const out: string[] = [];
+  for (const el of elements) {
+    const ap = arrayProvenanceOf(el);
+    if (ap !== null && sources.has(ap.sourceId)) out.push(el.id);
+  }
+  return out;
+}
+
+/** COMPAT-CAD-008 (Issue #5): a deterministic fingerprint of the ARRAY
+ *  operation (mode + parameters, excluding source ids — the source
+ *  occurrence is recorded separately as `sourceId`). Built from a stable
+ *  canonical JSON of the mode-specific parameters so repeated execution
+ *  with identical input produces a byte-identical opId (§6 invariant).
+ *  Number formatting is deterministic per ECMA-262 Number::toString. */
+function arrayOpId(
+  op: Extract<EntityModifyOp, { op: "array" }>,
+): string {
+  if (op.mode === "rectangular") {
+    const params = {
+      r: op.rows ?? 1,
+      c: op.columns ?? 1,
+      rs: op.rowSpacing ?? 0,
+      cs: op.columnSpacing ?? 0,
+    };
+    return `array:rectangular:${JSON.stringify(params)}`;
+  }
+  // polar
+  const params = {
+    n: op.items ?? 2,
+    s: op.angleSpan ?? Math.PI * 2,
+    cx: op.center?.x ?? 0,
+    cy: op.center?.y ?? 0,
+    rot: op.rotateItems !== false,
+  };
+  return `array:polar:${JSON.stringify(params)}`;
+}
+
 export interface EntityOpOutcome {
   /** The atomic edit batch (one revision, one undo entry). Null = no-op. */
   readonly edit: DocumentEdit | null;
@@ -182,14 +281,19 @@ function loadEntities(
 
 /** addElement with a mintable placeholder id (the document assigns el-NNNNNN).
  *  CAD-PARITY-004: display overrides (color/linetype/lineweight/transparency)
- *  are carried onto the new entity when provided. */
+ *  are carried onto the new entity when provided.
+ *  COMPAT-CAD-008 (Issue #5): when `provenance` is provided the materialized
+ *  member carries `arrayProvenance` in its props — deterministic domain-owned
+ *  ownership metadata linking it to the ARRAY operation and source occurrence. */
 function addGeomEdit(
   geom: Geom,
   layer: string,
   display: EntityDisplayOverrides | null = null,
+  provenance?: ArrayProvenance,
 ): DocumentEdit {
   const props: Record<string, unknown> = { drafting: true, layer, ...(geom as unknown as Record<string, unknown>) };
   if (display !== null) applyDisplayToProps(props, display);
+  if (provenance !== undefined) props.arrayProvenance = provenance;
   return {
     type: "addElement",
     element: { id: "", kind: "geometry", engineId: null, props },
@@ -448,13 +552,19 @@ export type EntityModifyOp =
   | { readonly op: "explode"; readonly ids: readonly string[]; readonly blockDefById?: (id: string) => BlockDefinitionRecord | undefined }
   | { readonly op: "setGeometry"; readonly id: string; readonly geom: Geom }
   | {
-      /** CAD-PARITY-007: deterministic rectangular/polar array (the bounded
-       *  pattern surface — path arrays are a typed decline at the command
-       *  layer). Copies carry document-minted identities (one atomic batch,
-       *  replay-safe); constraint bindings do NOT travel to the copies (they
-       *  bind the source canonical identities — documented). */
+      /** CAD-PARITY-007 / COMPAT-CAD-008: deterministic rectangular/polar
+       *  array (the bounded pattern surface). COMPAT-CAD-008 (Issue #5):
+       *  materialized members carry deterministic ARRAY provenance
+       *  (arrayProvenance in entity props) linking each member to the
+       *  ARRAY operation, its source occurrence and its deterministic
+       *  member index — domain-owned metadata in the existing flat
+       *  partition, never a competing application-local authority. Path
+       *  mode is a typed `unsupported` decline at the canonical semantic
+       *  boundary (entity.modify / opArray), not merely the prompt layer.
+       *  Copies carry document-minted identities (one atomic batch,
+       *  replay-safe); constraint bindings do NOT travel to the copies. */
       readonly op: "array";
-      readonly mode: "rectangular" | "polar";
+      readonly mode: "rectangular" | "polar" | "path";
       readonly ids: readonly string[];
       readonly rows?: number;
       readonly columns?: number;
@@ -843,22 +953,48 @@ function opSetGeometry(elements: readonly Element[], id: string, geom: Geom): En
   return outcome([replaceGeomEdit(view, geom)], `geometry of '${id}' updated`, { modified: 1 });
 }
 
-/** CAD-PARITY-007: the deterministic array/pattern op (rectangular +
- *  polar — the bounded pattern surface). ONE atomic batch of copies with
- *  document-minted identities (replay-safe: the batch is a single recorded
- *  revision); constraint bindings do NOT travel to the copies (they bind
- *  the SOURCE canonical identities — the honest bounded rule, echoed by
- *  the commands). */
+/** CAD-PARITY-007 / COMPAT-CAD-008 (Issue #5): the deterministic
+ *  array/pattern op (rectangular + polar — the bounded pattern surface).
+ *  ONE atomic batch of copies with document-minted identities (replay-safe:
+ *  the batch is a single recorded revision); constraint bindings do NOT
+ *  travel to the copies (they bind the SOURCE canonical identities — the
+ *  honest bounded rule, echoed by the commands).
+ *
+ *  COMPAT-CAD-008 remediation (DEC-001): each materialized member carries
+ *  deterministic ARRAY provenance (arrayProvenance in props) linking it to
+ *  the ARRAY operation (opId), its source occurrence (sourceId) and its
+ *  deterministic member index/order. Path mode is a typed `unsupported`
+ *  decline at this canonical semantic boundary (not merely the prompt
+ *  layer). Source-deletion orphan prevention is enforced by the
+ *  drafting.delete cascade (arrayMembersOfSources), not here. */
 function opArray(
   elements: readonly Element[],
   op: Extract<EntityModifyOp, { op: "array" }>,
 ): EntityOpOutcome {
   if (op.ids.length === 0) throw new EntityOpError("array requires at least one source entity", "bad_input");
+  // COMPAT-CAD-008 (Issue #5, DEC-001 remediation): path mode is a typed
+  // `unsupported` decline at the canonical semantic boundary
+  // (entity.modify / opArray) — not merely the prompt-plan layer. The
+  // frozen CC008 contract supports rectangular and polar only; path is
+  // explicitly unsupported (§3/§10). No geometry is fabricated.
+  if (op.mode === "path") {
+    throw new EntityOpError(
+      "path array mode is not supported by the frozen COMPAT-CAD-008 contract (rectangular and polar only)",
+      "unsupported",
+    );
+  }
   const { instanceEls, geomIds } = partitionInstances(elements, op.ids);
   const views = geomIds.length > 0 ? loadEntities(elements, geomIds) : new Map<string, EntityView>();
   const edits: DocumentEdit[] = [];
+  const opId = arrayOpId(op);
 
-  const placeInstanceCopy = (el: Element, dx: number, dy: number, rotationDelta: number): void => {
+  const placeInstanceCopy = (
+    el: Element,
+    dx: number,
+    dy: number,
+    rotationDelta: number,
+    provenance: ArrayProvenance,
+  ): void => {
     const at = instancePlacement(el);
     edits.push({
       type: "addElement",
@@ -871,26 +1007,48 @@ function opArray(
           x: at.x + dx,
           y: at.y + dy,
           rotation: normalizedRotation(at.rotation + rotationDelta),
+          arrayProvenance: provenance,
         },
       },
     });
   };
-  const placeGeomCopy = (view: EntityView, dx: number, dy: number, rotationDelta: number, pivot: Pt): void => {
+  const placeGeomCopy = (
+    view: EntityView,
+    dx: number,
+    dy: number,
+    rotationDelta: number,
+    pivot: Pt,
+    provenance: ArrayProvenance,
+  ): void => {
     let geom = moveGeom(view.geom, dx, dy);
     if (rotationDelta !== 0) geom = rotateGeom(geom, pivot, rotationDelta);
-    edits.push(addGeomEdit(geom, layerOfElement(view.element), displayOverridesOf(view.element.props as Record<string, unknown>)));
+    edits.push(
+      addGeomEdit(
+        geom,
+        layerOfElement(view.element),
+        displayOverridesOf(view.element.props as Record<string, unknown>),
+        provenance,
+      ),
+    );
   };
   /** The classic polar-array copy: rotateItems=true rotates the whole
    *  geometry about the array center (pure rotation — endpoints map
    *  p ↦ R(center, angle)·p); rotateItems=false translates by the rotated
    *  bounding-box-center delta with the orientation preserved. */
-  const placePolarGeomCopy = (view: EntityView, angle: number, center: Pt, rotateItems: boolean): void => {
+  const placePolarGeomCopy = (
+    view: EntityView,
+    angle: number,
+    center: Pt,
+    rotateItems: boolean,
+    provenance: ArrayProvenance,
+  ): void => {
     if (rotateItems) {
       edits.push(
         addGeomEdit(
           rotateGeom(view.geom, center, angle),
           layerOfElement(view.element),
           displayOverridesOf(view.element.props as Record<string, unknown>),
+          provenance,
         ),
       );
       return;
@@ -902,7 +1060,7 @@ function opArray(
     const sin = Math.sin(angle);
     const rx = center.x + cos * (px - center.x) - sin * (py - center.y);
     const ry = center.y + sin * (px - center.x) + cos * (py - center.y);
-    placeGeomCopy(view, rx - px, ry - py, 0, center);
+    placeGeomCopy(view, rx - px, ry - py, 0, center, provenance);
   };
 
   if (op.mode === "rectangular") {
@@ -916,6 +1074,18 @@ function opArray(
     if (!Number.isFinite(rowSpacing) || !Number.isFinite(columnSpacing)) {
       throw new EntityOpError("array spacings must be finite", "bad_input");
     }
+    // COMPAT-CAD-008 (Issue #5, preparation spike): negative spacing is not
+    // defined by the frozen transform model (spacing is a distance, not a
+    // signed direction) — fail typed instead of silently mirroring the
+    // pattern. Zero spacing remains legal: the members stay uniquely
+    // canonical (distinct minted ids over identical geometry — the entity
+    // model permits exact duplicates; pinned by compat-cad-008 tests).
+    if (rowSpacing < 0 || columnSpacing < 0) {
+      throw new EntityOpError(
+        "array spacings must be non-negative (signed spacing is not defined by the frozen transform model)",
+        "bad_input",
+      );
+    }
     const copies = rows * columns - 1;
     if (copies <= 0) {
       return {
@@ -928,11 +1098,19 @@ function opArray(
     }
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < columns; c++) {
-        if (r === 0 && c === 0) continue; // the source stays
+        if (r === 0 && c === 0) continue; // the source stays (memberIndex 0)
         const dx = c * columnSpacing;
         const dy = r * rowSpacing;
-        for (const el of instanceEls) placeInstanceCopy(el, dx, dy, 0);
-        for (const view of views.values()) placeGeomCopy(view, dx, dy, 0, { x: 0, y: 0 });
+        // COMPAT-CAD-008 (Issue #5, DEC-001): deterministic row-major
+        // member index (§4): memberIndex = r*columns + c. The source
+        // occurrence at (0,0) is index 0 and is NOT tagged.
+        const memberIndex = r * columns + c;
+        for (const el of instanceEls) {
+          placeInstanceCopy(el, dx, dy, 0, { opId, sourceId: el.id, mode: "rectangular", memberIndex, row: r, column: c });
+        }
+        for (const view of views.values()) {
+          placeGeomCopy(view, dx, dy, 0, { x: 0, y: 0 }, { opId, sourceId: view.element.id, mode: "rectangular", memberIndex, row: r, column: c });
+        }
       }
     }
     return outcome(
@@ -948,12 +1126,25 @@ function opArray(
     throw new EntityOpError("polar array requires a finite center", "bad_input");
   }
   const items = op.items ?? 2;
-  if (!Number.isInteger(items) || items < 2) {
-    throw new EntityOpError("polar array requires an integer item count >= 2 (including the source)", "bad_input");
+  // COMPAT-CAD-008 (Issue #5, preparation spike): a count of 1 is the
+  // deterministic no-op the semantic contract requires (the source IS the
+  // single occurrence — no duplicate may be fabricated). Counts below 1 and
+  // non-integers remain typed bad_input.
+  if (!Number.isInteger(items) || items < 1) {
+    throw new EntityOpError("polar array requires an integer item count >= 1 (including the source)", "bad_input");
   }
   const span = op.angleSpan ?? Math.PI * 2;
   if (!Number.isFinite(span) || span <= 0) {
     throw new EntityOpError("polar array angle span must be > 0", "bad_input");
+  }
+  if (items === 1) {
+    return {
+      edit: null,
+      summary: "polar array is a single item (1) — nothing to create",
+      createdCount: 0,
+      modifiedCount: 0,
+      removedCount: 0,
+    };
   }
   const full = span >= Math.PI * 2 - 1e-9;
   const step = full ? Math.PI * 2 / items : span / (items - 1);
@@ -961,14 +1152,17 @@ function opArray(
     const angle = i * step;
     const cos = Math.cos(angle);
     const sin = Math.sin(angle);
+    // COMPAT-CAD-008 (Issue #5, DEC-001): deterministic increasing member
+    // index (§5): member i has memberIndex = i. The source occurrence at
+    // index 0 is NOT tagged.
     for (const el of instanceEls) {
       const at = instancePlacement(el);
       const rx = center.x + cos * (at.x - center.x) - sin * (at.y - center.y);
       const ry = center.y + sin * (at.x - center.x) + cos * (at.y - center.y);
-      placeInstanceCopy(el, rx - at.x, ry - at.y, op.rotateItems === false ? 0 : angle);
+      placeInstanceCopy(el, rx - at.x, ry - at.y, op.rotateItems === false ? 0 : angle, { opId, sourceId: el.id, mode: "polar", memberIndex: i });
     }
     for (const view of views.values()) {
-      placePolarGeomCopy(view, angle, center, op.rotateItems !== false);
+      placePolarGeomCopy(view, angle, center, op.rotateItems !== false, { opId, sourceId: view.element.id, mode: "polar", memberIndex: i });
     }
   }
   const spanNote = full ? "full circle" : `${span * 180 / Math.PI}° span`;
