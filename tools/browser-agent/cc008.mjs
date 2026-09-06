@@ -40,8 +40,8 @@ async function submit(text) {
   await page.waitForTimeout(120);
 }
 
-await page.goto(baseUrl, { waitUntil: "networkidle" });
-await page.getByTestId("command-line").waitFor();
+await page.goto(baseUrl, { waitUntil: "load" });
+await page.getByTestId("command-line").waitFor({ timeout: 30000 });
 await record("G3-initial-workspace", true, await page.locator("canvas").count() > 0, true);
 
 // G3/G5/G6/G7 changed-path: create a source line through the visible command UI.
@@ -103,7 +103,13 @@ await page.waitForFunction(() => document.body.innerText.includes("Rectangular")
 await submit("Path");
 await page.waitForTimeout(250);
 const unsupportedHistory = await historyText();
-await record("unsupported-path-typed", true, unsupportedHistory.toLowerCase().includes("unsupported"));
+const lower = unsupportedHistory.toLowerCase();
+await record(
+  "unsupported-path-typed",
+  true,
+  lower.includes("unsupported") || lower.includes("not supported"),
+  true,
+);
 
 // Undo/redo changed-path: visible keyboard commands must be accepted and echoed.
 await submit("U");

@@ -2,6 +2,10 @@ name: cc008-browser-gate
 
 on:
   workflow_dispatch:
+  pull_request:
+    paths:
+      - "tools/browser-agent/cc008.mjs"
+      - ".github/workflows/cc008-browser-gate.yml"
   push:
     branches: [main]
     paths:
@@ -81,6 +85,13 @@ jobs:
       - name: Install browser-agent dependency at workspace root
         run: npm install --no-save playwright@1.55.0
 
+      - name: Build exact-SHA production deployment
+        working-directory: apps/web
+        env:
+          OFFISOS_OCCT_WORKER: ${{ github.workspace }}/app/src/adapters/occt/worker/occt-worker.py
+          OFFISOS_IFC_WORKER: ${{ github.workspace }}/app/src/adapters/ifc/worker/ifc-worker.py
+        run: npm run build
+
       - name: Start exact-SHA ephemeral deployment
         working-directory: apps/web
         env:
@@ -88,9 +99,9 @@ jobs:
           OFFISOS_IFC_WORKER: ${{ github.workspace }}/app/src/adapters/ifc/worker/ifc-worker.py
           OFFISOS_WEB_URL: http://127.0.0.1:3100
         run: |
-          nohup npm run dev -- --webpack -p 3100 >/tmp/offisos-cc008-server.log 2>&1 &
+          nohup npx next start -p 3100 >/tmp/offisos-cc008-server.log 2>&1 &
           echo $! >/tmp/offisos-server.pid
-          for i in $(seq 1 90); do
+          for i in $(seq 1 60); do
             if curl -fsS http://127.0.0.1:3100/ >/dev/null; then exit 0; fi
             sleep 2
           done
