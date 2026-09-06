@@ -2,12 +2,13 @@
 
 **Status:** ACTIVE  
 **Architecture:** ConstructionOS Architecture v1.1 — FROZEN  
-**Latest verified product main:** `3854f5391fe58475b50bec9b33e695c33dabc467` (COMPAT-CAD-008; browser-verified after terminal post-merge CI)  
-**Latest verified governance main:** `559a1a06f50017e55678b5d34931fb0265692b9e`  
+**Latest fully verified product main:** `3854f5391fe58475b50bec9b33e695c33dabc467` (COMPAT-CAD-008; browser-verified after terminal post-merge CI)  
+**Current product merge under post-merge verification:** `066be5fc098443e21263ed57d21788849a875195` (COMPAT-CAD-009)  
+**Latest governance bookkeeping commit:** `28c3acabd3f47d6a9e233e8dc6f3348c97caabd6`  
 **Latest verified infrastructure foundation:** **INFRA-002** — merge `f3d8a02f7c739c77ddfaa5aea93466aab3230fc0`, verified by Architect at `d436fa72080782e6506715e656757e09acfd2348`  
 **Current product benchmark baseline:** CAD-BENCH-RW-001 — **18/100** at product revision `f4a1a735dfbfa58d9b24197ffc1808d4cdf84db6`  
-**Current active execution:** **COMPAT-CAD-009** — successor work order being released after CC008 verification  
-**Current successor preparation:** **COMPAT-CAD-010** — **PLANNED**  
+**Current active execution:** **COMPAT-CAD-009** — **MERGED; post-merge verification pending**  
+**Current successor preparation:** **COMPAT-CAD-010** — **PLANNED; not legally released**  
 **Verification instrument:** independent browser-agent black-box testing against an exact-head deployment  
 **Autonomous return protocol:** `docs/governance/architect-return-protocol.md`
 
@@ -71,8 +72,8 @@ The full 25-project CAD-BENCH-RW-001 corpus remains mandatory and may not be sil
 | 2 | COMPAT-CAD-006 | Viewport clipping, zoom, pan, regen, transforms | G1/G2/G3 | **VERIFIED** |
 | 3 | **COMPAT-CAD-007** | Core editing and deterministic object selection | G1/G2/G4/G10 | **VERIFIED** |
 | 4 | **COMPAT-CAD-008** | Arrays/materialization/render/selectability | G3/G5/G6/G7 | **VERIFIED — merge 3854f539** |
-| 5 | COMPAT-CAD-009 | Blocks/inserts/attributes/symbols | G5/G7/G8 | **NEXT — IMPLEMENTATION AUTHORIZED** |
-| 6 | COMPAT-CAD-010 | Hatch/annotation/dimension/inspection | G1/G4/G6/G8 | **PLANNED** |
+| 5 | COMPAT-CAD-009 | Blocks/inserts/attributes/symbols | G5/G7/G8 | **MERGED — post-merge verification pending** |
+| 6 | COMPAT-CAD-010 | Hatch/annotation/dimension/inspection | G1/G4/G6/G8 | **PLANNED — successor not released** |
 | 7 | COMPAT-CAD-011 | Durable SAVE/OPEN/reload | G9 + restart/recovery | **PLANNED** |
 | 8 | COMPAT-CAD-012 | DXF import/export | G9 | **PLANNED** |
 | 9 | COMPAT-CAD-013 | Layout identity/MVIEW/sheets/plot | G8 | **PLANNED** |
@@ -146,15 +147,18 @@ The product benchmark score remains **18/100** because no full CAD-BENCH-RW-001 
 
 ## 13. Active phase — COMPAT-CAD-009
 
-**GitHub Issue:** to be created as the successor work order  
+**GitHub Issue:** #13  
+**Pull request:** #14  
 **Predecessor:** COMPAT-CAD-008  
-**Status:** **NEXT — IMPLEMENTATION AUTHORIZED**  
+**Implementation revision approved before merge:** `463344ba095bd700fb96f46f4164f333977a85cc`  
+**Physical product merge:** `066be5fc098443e21263ed57d21788849a875195`  
+**Status:** **MERGED — POST-MERGE VERIFICATION PENDING**  
 **Governance record:** `governance/work-items/COMPAT-CAD-009.json`  
 **Implementation prompt:** `docs/work-items/COMPAT-CAD-009-ZAI-PROMPT.md`
 
-CC009 owns the next bounded AutoCAD-class capability: **blocks, inserts, attributes and symbols**, with canonical identity/provenance, materialization/ownership policy, selection/render integration, deterministic serialization/order, undo/redo, command semantics, and Web/Electron parity. The worker must preserve the frozen Construction Graph/CADDocument/EngineAdapterBundle architecture and must stop at PR_OPEN/VERIFYING for independent Architect review.
+CC009 owns the next bounded AutoCAD-class capability: **blocks, inserts, attributes and symbols**, with canonical identity/provenance, materialization/ownership policy, selection/render integration, deterministic serialization/order, undo/redo, command semantics, and Web/Electron parity. The implementation closed DEC-001 remediation requirements and was approved at exact PR head `463344ba` after exact-head CI and independent G5/G7/G8 browser evidence passed.
 
-CC009 must explicitly exclude hatch/annotation/dimension expansion (CC010), durable SAVE/OPEN (CC011), DXF (CC012), layouts (CC013), broad command-language expansion (CC014), and unrelated architecture changes without an approved ACR.
+The authoritative merge is `066be5fc`. The required post-merge exact-revision CI and browser-gate workflows are still queued/in progress. Therefore the Architect has intentionally **not** advanced CC009 to `VERIFIED` and has not released CC010. The benchmark remains 18/100.
 
 ## 14. Defect retirement matrix
 
