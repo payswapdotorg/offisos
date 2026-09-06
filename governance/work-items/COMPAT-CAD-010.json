@@ -184,6 +184,20 @@
         "commit": "daa8a34",
         "path": "app/test/compat-cad-010.test.ts"
       }
+    },
+    {
+      "id": "EV-006",
+      "type": "ci-run",
+      "description": "Exact-head CI at the final PR head 1f7ebd4: ALL 32 triggered workflows terminal-success \u2014 including cad-parity-018 run 34050608304 (the three-job exact-head suite: workspace deterministic app suite with the pinned engines, Web host lint/typecheck/build + the 17 workflow smokes, Electron host smokes), the governance workflow run 34050608416 (deterministic governance tests, canonical record validation, VERIFIED-revision audit, protected-path check), and the cc010-browser-gate run 34050608448 (exact-SHA production build + ephemeral deployment on port 3100 + the independent black-box G1/G4/G6/G8 browser agent: 20/20 steps pass, evidence artifact cc010-browser-gate-34050608448 bound to 1f7ebd4). One strict-mode typing defect in the CC010 test file surfaced in the per-work-item CI at the intermediate head 62eb112 (the app tsconfig excludes the test tree; the repository's per-work-item workflows typecheck tests with strict settings) and was remediated by 1f7ebd4 \u2014 typed result accesses only, no runtime or semantic change; the full 32-workflow matrix is green at the final head.",
+      "produced_at": "2026-09-06T19:35:00Z",
+      "reproducible": true,
+      "reproduction": "GitHub Actions runs 34050608304 (cad-parity-018), 34050608416 (governance), 34050608448 (cc010-browser-gate) at exact head 1f7ebd4 on PR #19; the complete per-head workflow matrix is inspectable at https://github.com/payswapdotorg/offisos/actions?query=branch:work/compat-cad-010-hatch",
+      "references": {
+        "commit": "1f7ebd4",
+        "pr": 19,
+        "workflow_run": "34050608304, 34050608416, 34050608448",
+        "artifact_path": "GitHub Actions artifact cc010-browser-gate-34050608448 (20/20 G1/G4/G6/G8 steps at 1f7ebd4)"
+      }
     }
   ],
   "decisions": []
