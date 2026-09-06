@@ -55,7 +55,21 @@ Produce revision-bound evidence for:
 9. exact-head CI;
 10. exact deployment/browser evidence for the roadmap workflows assigned to CC009.
 
-Do not self-approve or self-verify the work item. Return at **PR_OPEN / VERIFYING** with the implementation PR, exact head SHA, tests, CI, deployment and browser evidence. The Architect owns all later review, approval, merge and VERIFIED decisions.
+## Architect remediation directive — DEC-001
+
+The first implementation submission reached Architect Review but was returned to `IMPLEMENTING` before approval. The following are mandatory closure items; do not treat them as optional cleanup:
+
+- **Provenance monotonicity:** `insertIndex` must remain collision-free and deterministic across deletion/reinsert history for a block definition. A deleted instance must not permit a later insert to reuse an index that remains represented by another surviving instance.
+- **Provenance consistency:** when `insertProvenance` is present, its `blockId` must equal the canonical `blockRef.blockId`; malformed inconsistent provenance must be rejected with the existing typed `bad_input` failure before mutation.
+- **Deterministic regression proof:** add tests covering deletion followed by reinsertion, provenance mismatch rejection/no-mutation, and any affected ordering/serialization behavior.
+- **Independent browser gate:** provide revision-bound exact-deployment black-box evidence through the visible product UI for the CC009 roadmap Golden workflows **G5, G7 and G8**, including block/insert/attribute/symbol visibility and selection plus negative/unsupported behavior. Do not substitute API calls, deterministic unit tests or screenshots for the required browser-agent execution.
+- Keep Architecture v1.1 frozen and do not expand into CC010+ scope.
+
+The Architect has recorded the remediation in `governance/work-items/COMPAT-CAD-009.json` as `DEC-001` with lifecycle `ARCHITECT_REVIEW → IMPLEMENTING`.
+
+## Stop gate
+
+Do not self-approve, self-merge, or self-verify. Return at **PR_OPEN / VERIFYING** only after the remediation is implemented and all required evidence is attached to the repository and governance record. The Architect owns later review, approval, merge and `VERIFIED`.
 
 ## Worker return format
 
@@ -65,7 +79,7 @@ Report:
 - exact test counts/pass/fail/skip;
 - governance validation result;
 - exact-head CI run IDs;
-- deployment revision and browser-agent evidence IDs/artifacts;
+- exact deployment revision and browser-agent evidence IDs/artifacts for G5/G7/G8;
 - changed semantic surface and explicit non-goal checks;
 - any newly discovered defect or architecture concern;
 - confirmation that no benchmark score increase is claimed.
