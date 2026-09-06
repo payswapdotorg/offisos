@@ -120,6 +120,16 @@ export type CommandName =
   | "annotation.create"
   | "annotation.update"
   | "annotation.remeasure"
+  // --- COMPAT-CAD-010 (additive, Issue #18): hatch + bounded inspection ---
+  // hatch.create validates + applies ONE atomic batch of hatch entities
+  // (bounded pattern registry, boundary loops resolved SERVER-side from
+  // the referenced closed geometry, associative snapshots stored);
+  // hatch.update patches pattern/scale/angle (HATCHEDIT-class, bounded —
+  // boundary re-association is out of scope) with validation BEFORE
+  // mutation. Hatch erasure rides the existing drafting.delete (the
+  // boundary cascade erases orphaned hatches in the same revision).
+  | "hatch.create"
+  | "hatch.update"
   // --- CAD-PARITY-006 (additive, Issue #84): blocks/attributes/xrefs ---
   // block.create validates + converts the source elements into canonical
   // inline content and removes them — ONE atomic conversion revision;
@@ -473,6 +483,14 @@ export type QueryName =
   // counts + attribute tags / status diagnostics (non-mutating).
   | "blocks.list"
   | "xrefs.list"
+  // COMPAT-CAD-010 (additive, Issue #18): the bounded entity inspection
+  // surface (the LIST workflow): deterministic per-entity semantic
+  // summaries (type/layer/canonical id, key geometry and stored
+  // measurements, hatch pattern/scale/loops, associativity references) —
+  // non-mutating, computed fresh from the canonical state, never a
+  // fabricated measurement (the OSNAP/OTRACK/measurement program is
+  // COMPAT-CAD-018's scope, not this one).
+  | "inspection.list"
   // CAD-PARITY-007 (additive): the declared constraint graph inventory and
   // the on-demand solver diagnostics (satisfaction per constraint, the
   // per-component degrees-of-freedom accounting, the typed outcome —

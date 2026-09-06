@@ -59,6 +59,9 @@ import {
   annotationsReferencing,
   remeasureCascade,
 } from "./annotation/assoc.js";
+// COMPAT-CAD-010 (Issue #18): the hatch core (engine-free — the boundary
+// associativity cascade over hatch boundary references).
+import { hatchBoundaryCascade } from "./hatch/cascade.js";
 // CAD-PARITY-006: the blocks core (engine-free — instance placement edits,
 // the one-level explode materialization).
 import {
@@ -646,6 +649,25 @@ export function modifyEntities(
         edits = [...edits, ...cascade.edits];
         summary = `${summary}; ${cascade.edits.length} annotation${cascade.edits.length === 1 ? "" : "s"} re-measured`;
       }
+    }
+  }
+
+  // COMPAT-CAD-010 (Issue #18): the hatch boundary cascade — when the edit
+  // changes geometry a hatch references as its boundary, the stored
+  // boundary snapshots re-resolve against the settled world inside the
+  // SAME atomic batch (one revision, one undo entry; the remeasure
+  // convention). A boundary that became an unsupported loop is a typed
+  // failure surfaced to the caller — never a fabricated snapshot.
+  if (edits.length > 0) {
+    const currentBatchAll: DocumentEdit =
+      edits.length === baseEdits.length ? base.edit : { type: "applyEdits", edits };
+    const hatchCascade = hatchBoundaryCascade(elements, currentBatchAll);
+    if (hatchCascade.failure !== null) {
+      throw new EntityOpError(hatchCascade.failure.message, "hatch_boundary");
+    }
+    if (hatchCascade.edits.length > 0) {
+      edits = [...edits, ...hatchCascade.edits];
+      summary = `${summary}; ${hatchCascade.edits.length} hatch boundar${hatchCascade.edits.length === 1 ? "y" : "ies"} re-resolved`;
     }
   }
 
