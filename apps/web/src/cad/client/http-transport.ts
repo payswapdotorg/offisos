@@ -1649,6 +1649,33 @@ export async function materialsBom(): Promise<CommandQueryResponse> {
   return query("materials.bom", {});
 }
 
+// COMPAT-CAD-010 (Issue #18): the bounded entity inspection query (the
+// LIST workflow — non-mutating, computed fresh from the canonical state).
+
+/** One deterministic inspection row of `inspection.list`. */
+export interface InspectionRow {
+  readonly id: string;
+  readonly kind: string;
+  readonly layer: string;
+  readonly type: string;
+  readonly summary: string;
+  readonly fields: Readonly<Record<string, unknown>>;
+}
+
+/** `inspection.list` (query) — the bounded LIST workflow over explicit ids
+ *  (or the whole document when ids is omitted). */
+export async function inspectionList(ids?: readonly string[]): Promise<CommandQueryResponse> {
+  return query("inspection.list", ids !== undefined && ids.length > 0 ? { ids } : {});
+}
+
+/** Extract an InspectionRow[] from an inspection.list ok response. */
+export function unwrapInspectionList(res: CommandQueryResponse): InspectionRow[] | null {
+  if (!res.ok) return null;
+  const v = res.value as { rows?: unknown } | null;
+  if (typeof v !== "object" || v === null || !Array.isArray(v.rows)) return null;
+  return v.rows as InspectionRow[];
+}
+
 /** `grids.list` (query) — the bim.grid entities with derived labels. */
 export async function gridsList(): Promise<CommandQueryResponse> {
   return query("grids.list", {});
