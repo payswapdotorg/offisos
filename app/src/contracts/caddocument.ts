@@ -217,6 +217,13 @@ export interface BlockDefinitionRecord {
   readonly materialId?: string;
   /** Fixed deterministic timestamp (provenance; mirrors the IFC records). */
   readonly createdAt: string;
+  /** COMPAT-CAD-009 (Issue #13, additive): the monotonic insert sequence
+   *  counter for this definition. Increments on each `block.insert` and
+   *  NEVER decreases on instance deletion — so `insertIndex` (assigned as
+   *  `insertSeq + 1` at insert time) is collision-free across delete/
+   *  reinsert history (DEC-001 remediation). Absent = 0 (legacy definitions;
+   *  the additive-optional contract keeps pre-CC009 fixtures byte-identical). */
+  readonly insertSeq?: number;
 }
 
 /** An attached external reference (CAD-PARITY-006, CAD-2D-008 bounded

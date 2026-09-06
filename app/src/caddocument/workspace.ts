@@ -1107,6 +1107,13 @@ export function validateBlockDefinitionRecord(
   if (b.materialId !== undefined && b.materialId !== null && (typeof b.materialId !== "string" || b.materialId.length === 0)) {
     throw new Error(`blockDef '${b.name}': materialId must be a non-empty material element id when present`);
   }
+  // COMPAT-CAD-009 (additive): the monotonic insert sequence counter.
+  // Optional; when present must be a non-negative integer.
+  if (b.insertSeq !== undefined && b.insertSeq !== null) {
+    if (typeof b.insertSeq !== "number" || !Number.isInteger(b.insertSeq) || b.insertSeq < 0) {
+      throw new Error(`blockDef '${b.name}': insertSeq must be a non-negative integer when present`);
+    }
+  }
   if (!Array.isArray(b.entities)) {
     throw new Error(`blockDef '${b.name}': entities must be an array`);
   }
@@ -1137,11 +1144,13 @@ export function validateBlockDefinitionRecord(
   // CAD-PARITY-012 (additive): written ONLY when set (the additive-optional
   // contract — absence is the canonical no-default form, never undefined).
   if (typeof b.materialId === "string" && b.materialId.length > 0) out.materialId = b.materialId;
+  // COMPAT-CAD-009 (additive): written ONLY when present (legacy byte-identical).
+  if (typeof b.insertSeq === "number" && Number.isInteger(b.insertSeq) && b.insertSeq >= 0) out.insertSeq = b.insertSeq;
   return out as unknown as BlockDefinitionRecord;
 }
 
 /** Keys a block-definition patch may carry (id/createdAt are immutable). */
-const BLOCK_DEF_PATCH_KEYS = ["name", "basePoint", "description", "entities", "materialId"] as const;
+const BLOCK_DEF_PATCH_KEYS = ["name", "basePoint", "description", "entities", "materialId", "insertSeq"] as const;
 
 /** Validate + merge an updateBlockDef patch (entities replaces the whole
  *  inline array — the canonical full-array-replace convention). */
