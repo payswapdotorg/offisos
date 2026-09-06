@@ -2,13 +2,12 @@
 
 **Status:** ACTIVE  
 **Architecture:** ConstructionOS Architecture v1.1 — FROZEN  
-**Latest fully verified product main:** `3854f5391fe58475b50bec9b33e695c33dabc467` (COMPAT-CAD-008; browser-verified after terminal post-merge CI)  
-**Current product merge under governance closure:** `066be5fc098443e21263ed57d21788849a875195` (COMPAT-CAD-009; post-merge product CI/browser green, governance validator blocked by GOV-001)  
-**Latest governance bookkeeping commit:** `9209ba5d0b891a8de1f9343ec513016d2e07dddd`  
+**Latest fully verified product main:** `066be5fc098443e21263ed57d21788849a875195` (COMPAT-CAD-009; product/browser verification complete and governance now closed)  
+**Latest governance bookkeeping commit:** `184a08fa5c734d72f040c9a3c3f0bbdb2fb1da48`  
 **Latest verified infrastructure foundation:** **INFRA-002** — merge `f3d8a02f7c739c77ddfaa5aea93466aab3230fc0`, verified by Architect at `d436fa72080782e6506715e656757e09acfd2348`  
 **Current product benchmark baseline:** CAD-BENCH-RW-001 — **18/100** at product revision `f4a1a735dfbfa58d9b24197ffc1808d4cdf84db6`  
-**Current active execution:** **GOV-001** — governance-rule remediation blocking final CC009 closure  
-**CAD successor preparation:** **COMPAT-CAD-010** — **PLANNED; not legally released until CC009 governance closure**  
+**Current active execution:** **COMPAT-CAD-010** — **ASSIGNED** to `z-ai-implementation-agent`  
+**CAD successor dependency:** **COMPAT-CAD-009** — **VERIFIED** at physical product merge `066be5fc098443e21263ed57d21788849a875195`  
 **Verification instrument:** independent browser-agent black-box testing against an exact-head deployment  
 **Autonomous return protocol:** `docs/governance/architect-return-protocol.md`
 
@@ -72,8 +71,8 @@ The full 25-project CAD-BENCH-RW-001 corpus remains mandatory and may not be sil
 | 2 | COMPAT-CAD-006 | Viewport clipping, zoom, pan, regen, transforms | G1/G2/G3 | **VERIFIED** |
 | 3 | **COMPAT-CAD-007** | Core editing and deterministic object selection | G1/G2/G4/G10 | **VERIFIED** |
 | 4 | **COMPAT-CAD-008** | Arrays/materialization/render/selectability | G3/G5/G6/G7 | **VERIFIED — merge 3854f539** |
-| 5 | COMPAT-CAD-009 | Blocks/inserts/attributes/symbols | G5/G7/G8 | **MERGED — governance closure blocked by GOV-001** |
-| 6 | COMPAT-CAD-010 | Hatch/annotation/dimension/inspection | G1/G4/G6/G8 | **PLANNED — not released** |
+| 5 | COMPAT-CAD-009 | Blocks/inserts/attributes/symbols | G5/G7/G8 | **VERIFIED — merge 066be5fc** |
+| 6 | COMPAT-CAD-010 | Hatch/annotation/dimension/inspection | G1/G4/G6/G8 | **ASSIGNED — issue #18** |
 | 7 | COMPAT-CAD-011 | Durable SAVE/OPEN/reload | G9 + restart/recovery | **PLANNED** |
 | 8 | COMPAT-CAD-012 | DXF import/export | G9 | **PLANNED** |
 | 9 | COMPAT-CAD-013 | Layout identity/MVIEW/sheets/plot | G8 | **PLANNED** |
@@ -145,21 +144,38 @@ Post-merge certification evidence includes exact post-merge CI run `34009858133`
 
 The product benchmark score remains **18/100** because no full CAD-BENCH-RW-001 rerun was performed. No benchmark score increase is claimed.
 
-## 13. Active governance closure — COMPAT-CAD-009 / GOV-001
+## 13. Completed governance closure — COMPAT-CAD-009 / GOV-001
 
-**CC009 GitHub Issue:** #13  
+**CC009 GitHub Issue:** #13 — **closed completed**  
 **CC009 pull request:** #14  
 **CC009 physical product merge:** `066be5fc098443e21263ed57d21788849a875195`  
-**GOV-001 GitHub Issue:** #16  
-**GOV-001 governance record:** `governance/work-items/GOV-001.json`  
-**GOV-001 implementation prompt:** `docs/work-items/GOV-001-ZAI-PROMPT.md`  
-**GOV-001 status:** **ASSIGNED**
+**CC009 governance record:** `governance/work-items/COMPAT-CAD-009.json` — **VERIFIED**  
+**GOV-001 GitHub Issue:** #16 — **closed completed**  
+**GOV-001 pull request:** #17  
+**GOV-001 physical governance merge:** `8931341c8e7ef6fc9da6eac5174a11764b1c0f3f`  
+**GOV-001 governance record:** `governance/work-items/GOV-001.json` — **VERIFIED**  
+**GOV-001 settled-main bookkeeping revision:** `60c4b98ed98bb87e9cbdc0ebd641282a8cee0525`  
+**Final governance workflow:** run `34045452013` — **terminal success** after the merge-transition role correction  
 
-CC009's product implementation has passed exact-head review, exact post-merge CI, and the exact-SHA G5/G7/G8 browser gate. Its remaining blocker is governance-tool correctness: `collectReconcilableViolations()` does not emit the stable `decisions/entry:<STATE>/no-prior-approved-decision` waiver key when a prior non-approved decision exists, even though the decision validator correctly identifies that condition as a reconcilable historical violation.
+CC009 product implementation was already product-verified; GOV-001 repaired the reconciliation-key generation so the documented prior-non-approved decision violation is correctly emitted and narrowly waivable without weakening strict decision validation. Historical CC009 ledger facts were not rewritten. The settled-main governance audit passes deterministic tests, canonical record validation and VERIFIED revision-binding checks.
 
-This defect was discovered during final governance validation. It does **not** justify rewriting CC009 history, weakening the validator, or waiving verification evidence. GOV-001 is the active governance remediation assigned to the implementation agent. CC010 remains planned and unreleased until CC009 governance validation is clean.
+## 14. Active successor — COMPAT-CAD-010
 
-## 14. Defect retirement matrix
+**GitHub Issue:** #18  
+**Governance record:** `governance/work-items/COMPAT-CAD-010.json`  
+**Implementation prompt:** `docs/work-items/COMPAT-CAD-010-ZAI-PROMPT.md`  
+**State:** **ASSIGNED**  
+**Implementation agent:** `z-ai-implementation-agent`  
+**Dependency:** COMPAT-CAD-009 — VERIFIED  
+**Browser gates:** G1/G4/G6/G8  
+
+Authorized scope: bounded hatch, annotation, dimension and inspection capability; deterministic canonical ownership/identity/provenance/serialization; validation-before-mutation; rendering/selectability; typed invalid/unsupported behavior; deletion/undo safety; shared engine-free Web/Electron semantic execution; regression preservation of verified predecessors; and exact-target independent browser verification.
+
+Explicitly deferred: durable persistence/multi-instance recovery (CC011), DXF (CC012), layouts (CC013), broad command language (CC014), generalized history/long-session work (CC015), BIM completion (CC016), and broad OSNAP/OTRACK/tracking/measurement expansion (CC018).
+
+**Permanent benchmark score remains 18/100.** Tests or implementation coverage do not increase it; only a full measured CAD-BENCH-RW-001 rerun can do so.
+
+## 15. Defect retirement matrix
 
 | Defects | Primary phase |
 |---|---|
@@ -177,11 +193,11 @@ This defect was discovered during final governance validation. It does **not** j
 | DEF-020 | COMPAT-CAD-014 / 021 |
 | DEF-025 | COMPAT-CAD-016 |
 
-## 15. Relationship to the broader ConstructionOS roadmap
+## 16. Relationship to the broader ConstructionOS roadmap
 
 The CAD parity program remains a bounded product track within frozen ConstructionOS Architecture v1.1. Infrastructure work may proceed on its separate dependency graph; it does not silently alter CAD sequencing. The serverless persistence/session problem remains explicitly owned by the infrastructure/persistence workstream and COMPAT-CAD-011.
 
-## 16. Verified infrastructure milestone — INFRA-002
+## 17. Verified infrastructure milestone — INFRA-002
 
 **GitHub Issue:** #2  
 **Pull request:** #4  
@@ -189,4 +205,4 @@ The CAD parity program remains a bounded product track within frozen Constructio
 **Architect verification finalization:** `d436fa72080782e6506715e656757e09acfd2348`  
 **Result:** **VERIFIED**
 
-INFRA-002 is infrastructure-track completion and does **not** change the CAD benchmark score or the legal dependency sequence for COMPAT-CAD-009.
+INFRA-002 is infrastructure-track completion and does **not** change the CAD benchmark score or the legal dependency sequence for COMPAT-CAD-010.
