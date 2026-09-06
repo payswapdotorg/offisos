@@ -70,6 +70,7 @@ jobs:
         run: npm install
 
       - name: Install browser engine
+        working-directory: apps/web
         run: |
           npm install --no-save playwright@1.55.0
           npx playwright install --with-deps chromium
@@ -91,6 +92,7 @@ jobs:
           exit 1
 
       - name: Run independent black-box CC008 browser agent
+        working-directory: apps/web
         run: node /tmp/cc008.mjs
 
       - name: Validate evidence binding
