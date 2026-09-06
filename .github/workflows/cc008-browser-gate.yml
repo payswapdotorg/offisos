@@ -48,7 +48,7 @@ jobs:
         run: git checkout --detach "$TARGET_SHA"
 
       - name: Restore browser-agent harness into exact-SHA workspace
-        run: cp /tmp/cc008.mjs tools/browser-agent/cc008.mjs
+        run: mkdir -p tools/browser-agent && cp /tmp/cc008.mjs tools/browser-agent/cc008.mjs
 
       - name: Set up Node
         uses: actions/setup-node@v4
