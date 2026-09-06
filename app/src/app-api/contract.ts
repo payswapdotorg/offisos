@@ -89,6 +89,24 @@ import {
   resolveAnchor,
   type Annotation,
 } from "../workspace/annotation/index.js";
+// COMPAT-CAD-010 (additive, Issue #18): the hatch core (engine-free — the
+// bounded pattern registry, boundary resolution, the associativity cascade
+// and the shared render/pick surface).
+import {
+  HATCH_PATTERN_IDS,
+  HatchError,
+  boundaryLoopOfElement,
+  hatchBoundaryCascade,
+  hatchFromElement,
+  hatchToProps,
+  hatchViewsOf,
+  hatchesOfBoundaries,
+  loopsBBox,
+  makeHatch,
+  type HatchBoundaryRef,
+  type HatchEntity,
+} from "../workspace/hatch/index.js";
+import { layerOfElement } from "../workspace/geometry/bridge.js";
 import {
   annotationViewsOf,
   annotationsReferencing,
@@ -106,8 +124,10 @@ import {
   insertsOfBlockDef,
   makeBlockRef,
   normalizeBlockEntities,
+  xrefRefFromElement,
 } from "../workspace/blocks/index.js";
 import { geomFromElement } from "../workspace/geometry/bridge.js";
+import { propsToGeom } from "../workspace/geometry/types.js";
 import { canonicalStringify } from "../caddocument/serialization.js";
 import type { BlockDefinitionRecord, BlockEntityRecord, XrefRecord, ConstraintRecord } from "../contracts/caddocument.js";
 // CAD-PARITY-019 rev 2 (additive, the architect review on PR #125): the
@@ -572,6 +592,217 @@ interface P016EventResult<T> {
   result: T;
 }
 
+// COMPAT-CAD-010 (Issue #18): module-level helpers for the hatch handlers
+// (display-override validation + the bounded inspection row projection).
+
+/** The display-override validation shared by hatch.create (the
+ *  entity.create/annotation.create rules — typed declines, validation
+ *  BEFORE mutation). Returns the validated overrides, or a TYPED MESSAGE
+ *  STRING on the first invalid field (the caller maps it to the wire
+ *  error). */
+function hatchDisplayOverrides(
+  input: Record<string, unknown>,
+  ltypeResolves: (name: string) => boolean,
+): Record<string, unknown> | string {
+  const out: Record<string, unknown> = {};
+  for (const key of ["color", "linetype", "lineweight", "transparency"] as const) {
+    const v = input[key];
+    if (v === undefined || v === "ByLayer") continue;
+    if (key === "color") {
+      if (typeof v !== "string" || !/^#[0-9a-fA-F]{6}$/.test(v)) {
+        return `color must be 'ByLayer' or #RRGGBB`;
+      }
+    } else if (key === "linetype") {
+      if (typeof v !== "string" || v.length === 0) {
+        return `linetype must be 'ByLayer' or a linetype name`;
+      }
+      if (!ltypeResolves(v)) {
+        return `linetype: unknown linetype '${v}'`;
+      }
+    } else if (key === "lineweight") {
+      if (typeof v !== "number" || !Number.isFinite(v) || !(STANDARD_LINEWEIGHTS as readonly number[]).some((w) => Math.abs(w - v) < 1e-9)) {
+        return `lineweight must be 'ByLayer' or a standard lineweight (mm)`;
+      }
+    } else {
+      if (typeof v !== "number" || !Number.isInteger(v) || v < 0 || v > 90) {
+        return `transparency must be 'ByLayer' or an integer 0–90`;
+      }
+    }
+    out[key] = v;
+  }
+  return out;
+}
+
+/** One deterministic inspection row (the bounded LIST projection), or null
+ *  when the element is outside the bounded vocabulary (the caller turns
+ *  that into a typed decline). Field order is the declaration order
+ *  (JSON.stringify is deterministic by construction). */
+function inspectionRowOf(el: Element, layerName: string): Record<string, unknown> | null {
+  const props = el.props as Record<string, unknown>;
+  const base = { id: el.id, kind: el.kind, layer: layerName };
+  const row = (type: string, fields: Record<string, unknown>, summary: string): Record<string, unknown> => ({
+    ...base,
+    type,
+    summary,
+    fields,
+  });
+  // Hatch (COMPAT-CAD-010).
+  const hatch = hatchFromElement(el);
+  if (hatch !== null) {
+    const loopAreas = hatch.boundary.map((ref) =>
+      ref.loop.kind === "polygon" ? polygonArea(ref.loop.points) : Math.PI * ref.loop.radius * ref.loop.radius,
+    );
+    const loopKinds = hatch.boundary.map((ref) => ref.loop.kind);
+    const box = loopsBBox(hatch.boundary.map((ref) => ref.loop));
+    return row(
+      "hatch",
+      {
+        pattern: hatch.pattern,
+        scale: hatch.scale,
+        angle: hatch.angle,
+        loops: hatch.boundary.length,
+        loopKinds,
+        loopAreas,
+        bounds: { minX: box.minX, minY: box.minY, maxX: box.maxX, maxY: box.maxY },
+        boundaries: hatch.boundary.map((ref) => ref.id),
+      },
+      `hatch ${hatch.pattern} scale ${trim(hatch.scale)} angle ${trim(hatch.angle)} rad, ${hatch.boundary.length} loop(s)`,
+    );
+  }
+  // Annotations (the 8-type canonical vocabulary + legacy dims).
+  const anno = annotationFromElement(el);
+  if (anno !== null) {
+    switch (anno.type) {
+      case "text":
+        return row("text", { value: anno.value, height: anno.height, rotation: anno.rotation, style: anno.style ?? "Standard" }, `text "${anno.value}" height ${trim(anno.height)}`);
+      case "mtext":
+        return row("mtext", { value: anno.value, height: anno.height, width: anno.width, rotation: anno.rotation, style: anno.style ?? "Standard" }, `mtext "${anno.value}" height ${trim(anno.height)} width ${trim(anno.width)}`);
+      case "dim-linear":
+        return row("dim-linear", { mode: anno.mode, measured: anno.measured, offset: anno.offset, refs: (anno.refs ?? []).length }, `dim-linear ${anno.mode} measured ${trim(anno.measured)}`);
+      case "dim-radius":
+        return row("dim-radius", { measured: anno.measured, target: anno.target, radius: anno.radius }, `dim-radius measured ${trim(anno.measured)}${anno.target !== null ? ` → ${anno.target}` : " (disassociated)"}`);
+      case "dim-diameter":
+        return row("dim-diameter", { measured: anno.measured, target: anno.target, radius: anno.radius }, `dim-diameter measured ${trim(anno.measured)}${anno.target !== null ? ` → ${anno.target}` : " (disassociated)"}`);
+      case "dim-angular":
+        return row("dim-angular", { measured: anno.measured, radius: anno.radius, refs: (anno.refs ?? []).length }, `dim-angular measured ${trim(anno.measured)} rad`);
+      case "leader":
+        return row("leader", { points: anno.points.length, value: anno.value ?? null }, `leader ${anno.points.length} point(s)${anno.value !== undefined ? `, text "${anno.value}"` : ""}`);
+      case "mleader":
+        return row("mleader", { value: anno.value, height: anno.height }, `mleader "${anno.value}"`);
+    }
+  }
+  // Block references.
+  const blockRef = blockRefFromElement(el);
+  if (blockRef !== null) {
+    return row(
+      "block-ref",
+      { blockId: blockRef.blockId, at: [blockRef.x, blockRef.y], scale: blockRef.scale, rotation: blockRef.rotation },
+      `block insert → ${blockRef.blockId} scale ${trim(blockRef.scale)} rotation ${trim(blockRef.rotation)}`,
+    );
+  }
+  const xrefRef = xrefRefFromElement(el);
+  if (xrefRef !== null) {
+    return row("xref-ref", { xrefId: xrefRef.xrefId, at: [xrefRef.x, xrefRef.y] }, `xref reference → ${xrefRef.xrefId}`);
+  }
+  // Legacy drafting entities (COMPAT-CAD-001 vocabulary, tuple points).
+  if (props.drafting === true && typeof props.type === "string") {
+    switch (props.type) {
+      case "line": {
+        const from = props.from as [number, number];
+        const to = props.to as [number, number];
+        const length = Math.hypot(to[0] - from[0], to[1] - from[1]);
+        return row("line", { from, to, length }, `line (${from[0]},${from[1]}) → (${to[0]},${to[1]}), length ${trim(length)}`);
+      }
+      case "polyline": {
+        const points = props.points as [number, number][];
+        const closed = props.closed === true;
+        let length = 0;
+        for (let i = 0; i + 1 < points.length; i++) {
+          length += Math.hypot(points[i + 1]![0] - points[i]![0], points[i + 1]![1] - points[i]![1]);
+        }
+        if (closed && points.length > 0) {
+          length += Math.hypot(points[0]![0] - points[points.length - 1]![0], points[0]![1] - points[points.length - 1]![1]);
+        }
+        return row(
+          "polyline",
+          { vertices: points.length, closed, length, ...(closed ? { area: polygonArea(points.map((p) => ({ x: p[0], y: p[1] }))) } : {}) },
+          `polyline ${points.length} vertices${closed ? " closed" : ""}, length ${trim(length)}`,
+        );
+      }
+      case "circle": {
+        const center = Array.isArray(props.center) ? (props.center as [number, number]) : (props.center as { x: number; y: number });
+        const cx = Array.isArray(center) ? center[0] : center.x;
+        const cy = Array.isArray(center) ? center[1] : center.y;
+        const radius = props.radius as number;
+        return row("circle", { center: [cx, cy], radius, area: Math.PI * radius * radius, circumference: 2 * Math.PI * radius }, `circle center (${cx},${cy}) radius ${trim(radius)}`);
+      }
+      case "arc": {
+        const center = props.center as [number, number];
+        return row("arc", { center, radius: props.radius, startAngle: props.startAngle, endAngle: props.endAngle }, `arc center (${center[0]},${center[1]}) radius ${trim(props.radius as number)}`);
+      }
+      case "rectangle": {
+        const c1 = props.corner1 as [number, number];
+        const c2 = props.corner2 as [number, number];
+        const w = Math.abs(c2[0] - c1[0]);
+        const h = Math.abs(c2[1] - c1[1]);
+        return row("rectangle", { corner1: c1, corner2: c2, width: w, height: h, area: w * h }, `rectangle ${trim(w)} × ${trim(h)}`);
+      }
+      default:
+        break;
+    }
+  }
+  // Canonical flat geometry (CAD-PARITY-003 vocabulary).
+  const geom = propsToGeom(props);
+  if (geom !== null) {
+    switch (geom.type) {
+      case "line": {
+        const length = Math.hypot(geom.x2 - geom.x1, geom.y2 - geom.y1);
+        return row("line", { from: [geom.x1, geom.y1], to: [geom.x2, geom.y2], length }, `line (${geom.x1},${geom.y1}) → (${geom.x2},${geom.y2}), length ${trim(length)}`);
+      }
+      case "polyline": {
+        let length = 0;
+        for (let i = 0; i + 1 < geom.vertices.length; i++) {
+          length += Math.hypot(geom.vertices[i + 1]!.x - geom.vertices[i]!.x, geom.vertices[i + 1]!.y - geom.vertices[i]!.y);
+        }
+        if (geom.closed && geom.vertices.length > 0) {
+          const a = geom.vertices[0]!;
+          const b = geom.vertices[geom.vertices.length - 1]!;
+          length += Math.hypot(a.x - b.x, a.y - b.y);
+        }
+        return row(
+          "polyline",
+          { vertices: geom.vertices.length, closed: geom.closed, length, ...(geom.closed ? { area: polygonArea(geom.vertices) } : {}) },
+          `polyline ${geom.vertices.length} vertices${geom.closed ? " closed" : ""}, length ${trim(length)}`,
+        );
+      }
+      case "circle": {
+        return row("circle", { center: [geom.cx, geom.cy], radius: geom.r, area: Math.PI * geom.r * geom.r, circumference: 2 * Math.PI * geom.r }, `circle center (${geom.cx},${geom.cy}) radius ${trim(geom.r)}`);
+      }
+      case "arc": {
+        return row("arc", { center: [geom.cx, geom.cy], radius: geom.r, startAngle: geom.startAngle, endAngle: geom.endAngle }, `arc center (${geom.cx},${geom.cy}) radius ${trim(geom.r)}`);
+      }
+      default:
+        break;
+    }
+  }
+  return null;
+}
+
+function polygonArea(points: readonly { x: number; y: number }[]): number {
+  let area = 0;
+  for (let i = 0; i < points.length; i++) {
+    const a = points[i]!;
+    const b = points[(i + 1) % points.length]!;
+    area += a.x * b.y - b.x * a.y;
+  }
+  return Math.abs(area) / 2;
+}
+
+function trim(n: number): string {
+  return Number.isInteger(n) ? String(n) : String(Number(n.toFixed(3)));
+}
+
+
 export class AppApiHandler {
   private doc: CADDocument;
   private readonly adapters: EngineAdapterBundle;
@@ -940,6 +1171,11 @@ export class AppApiHandler {
         return this.cmdAnnotationUpdate(command.payload);
       case "annotation.remeasure":
         return this.cmdAnnotationRemeasure(command.payload);
+      // --- COMPAT-CAD-010 (additive, Issue #18): hatch commands ---------
+      case "hatch.create":
+        return this.cmdHatchCreate(command.payload);
+      case "hatch.update":
+        return this.cmdHatchUpdate(command.payload);
       // --- CAD-PARITY-006 (additive): blocks/attributes/xrefs commands ----
       case "block.create":
         return this.cmdBlockCreate(command.payload);
@@ -1561,6 +1797,10 @@ export class AppApiHandler {
         return this.qBlocksList();
       case "xrefs.list":
         return this.qXrefsList();
+      // COMPAT-CAD-010 (additive): the bounded entity inspection surface
+      // (the LIST workflow — non-mutating, computed fresh every call).
+      case "inspection.list":
+        return this.qInspectionList(query.payload);
       // CAD-PARITY-007 (additive): the constraint graph inventory + the
       // on-demand solver diagnostics (non-mutating, computed fresh).
       case "constraints.list":
@@ -1806,12 +2046,30 @@ export class AppApiHandler {
       if (outcome.status === "no-op") {
         return ok({ applied: false, reason: outcome.reason, snapshot: this.doc.snapshot() });
       }
+      let edit: DocumentEdit = outcome.edit;
+      let summary = outcome.summary;
+      // COMPAT-CAD-010 (Issue #18): the hatch boundary cascade — MOVEing a
+      // boundary entity re-resolves every hatch boundary snapshot in the
+      // SAME atomic revision (one undo entry; the remeasure-cascade
+      // convention). COPY creates independent geometry (hatch references
+      // stay with the originals — no cascade).
+      if (op === "move") {
+        const cascade = hatchBoundaryCascade(this.doc.allElements(), edit);
+        if (cascade.failure !== null) {
+          return err(cascade.failure.code, cascade.failure.message, false);
+        }
+        if (cascade.edits.length > 0) {
+          const edits = edit.type === "applyEdits" ? [...edit.edits, ...cascade.edits] : [edit, ...cascade.edits];
+          edit = { type: "applyEdits", edits };
+          summary = `${summary}; ${cascade.edits.length} hatch boundar${cascade.edits.length === 1 ? "y" : "ies"} re-resolved`;
+        }
+      }
       const before = new Set(this.doc.allElements().map((el) => el.id));
-      this.doc.execute(outcome.edit);
+      this.doc.execute(edit);
       const created = op === "copy"
         ? this.doc.allElements().filter((el) => !before.has(el.id)).map((el) => el.id)
         : [];
-      return ok({ applied: true, summary: outcome.summary, created, snapshot: this.doc.snapshot() });
+      return ok({ applied: true, summary, created, snapshot: this.doc.snapshot() });
     } catch (e) {
       return err("drafting_invalid", (e as Error).message, false);
     }
@@ -1846,6 +2104,14 @@ export class AppApiHandler {
       // source deletion cascades to owned members).
       const orphanedArrayMembers = arrayMembersOfSources(elements, [...deleted]);
       for (const memberId of orphanedArrayMembers) deleted.add(memberId);
+      // COMPAT-CAD-010 (Issue #18): the hatch boundary cascade — a hatch
+      // whose referenced boundary entity is erased is cascade-ERASED in
+      // the SAME atomic revision (the CC008 ARRAY source-deletion
+      // precedent: no orphaned boundary-owned hatch over a partial
+      // boundary). Direct hatch erasure is a plain removal. UNDO restores
+      // the boundary AND the hatch atomically.
+      const orphanedHatches = hatchesOfBoundaries(elements, [...deleted]);
+      for (const hatchId of orphanedHatches) deleted.add(hatchId);
       const annotations = annotationViewsOf(elements).filter(({ annotation }) => {
         for (const refId of annotationRefIds(annotation)) {
           if (deleted.has(refId)) return true;
@@ -1879,6 +2145,14 @@ export class AppApiHandler {
           extraEdits.push({ type: "removeElement", elementId: memberId });
         }
         summary = `${summary}; ${orphanedArrayMembers.length} array member${orphanedArrayMembers.length === 1 ? "" : "s"} cascade-deleted`;
+      }
+      // COMPAT-CAD-010: the hatch cascade-erase edits (removeElement per
+      // orphaned hatch, same-revision atomicity, exact undo/redo).
+      if (orphanedHatches.length > 0) {
+        for (const hatchId of orphanedHatches) {
+          extraEdits.push({ type: "removeElement", elementId: hatchId });
+        }
+        summary = `${summary}; ${orphanedHatches.length} hatch${orphanedHatches.length === 1 ? "" : "es"} cascade-deleted (boundary erase)`;
       }
       if (extraEdits.length > 0) {
         const edits = edit.type === "applyEdits" ? [...edit.edits, ...extraEdits] : [edit, ...extraEdits];
@@ -5480,6 +5754,224 @@ export class AppApiHandler {
     } catch (e) {
       if (e instanceof AnnotationError) return err(e.code, e.message, false);
       return err("annotation_invalid", (e as Error).message, false);
+    }
+  }
+
+  // --- COMPAT-CAD-010 (Issue #18): hatch commands ---------------------------
+
+  /** hatch.create — validate + apply ONE atomic batch of hatch entities.
+   *  Boundary loops are resolved SERVER-side from the referenced elements
+   *  (existing document UNION earlier batch entries — creation order
+   *  defines reference order, the dim-radius convention); every pattern
+   *  name must be in the bounded registry; display overrides follow the
+   *  entity.create/annotation.create rules; ids are minted by the DOCUMENT
+   *  on addElement (canonical identity stays a document authority, §5.4).
+   *  One versioned command, one revision, one undo entry. */
+  private cmdHatchCreate(payload: unknown): CommandQueryResponse {
+    const p = payload as { entities?: unknown } | null;
+    if (p === null || typeof p !== "object" || !Array.isArray(p.entities) || p.entities.length === 0) {
+      return err("bad_payload", "hatch.create requires a non-empty entities array", true);
+    }
+    try {
+      const elements = this.doc.allElements();
+      const known = new Map(elements.map((el) => [el.id, el] as const));
+      const edits: DocumentEdit[] = [];
+      const summaries: string[] = [];
+      for (const [index, raw] of (p.entities as unknown[]).entries()) {
+        if (typeof raw !== "object" || raw === null) {
+          throw new HatchError(`entities[${index}] must be an object`, "bad_input");
+        }
+        const input = { ...(raw as Record<string, unknown>) };
+        if (input.type !== "hatch") {
+          throw new HatchError(
+            `entities[${index}]: unknown hatch type '${String(input.type)}' (hatch.create creates 'hatch' entities; supported patterns: ${HATCH_PATTERN_IDS.join(", ")})`,
+            "bad_input",
+          );
+        }
+        const layer = typeof input.layer === "string" && input.layer.length > 0 ? input.layer : "0";
+        if (this.doc.layerById(layer) === undefined) {
+          throw new HatchError(`entities[${index}]: layer '${layer}' does not exist`, "bad_layer");
+        }
+        input.layer = layer;
+        // Boundary references resolve SERVER-side against the document
+        // UNION the earlier entries of this same batch.
+        if (!Array.isArray(input.boundary) || input.boundary.length === 0) {
+          throw new HatchError(`entities[${index}]: boundary must be a non-empty array of boundary entity ids`, "bad_boundary");
+        }
+        const boundary: HatchBoundaryRef[] = [];
+        const seen = new Set<string>();
+        for (const [bi, rawId] of (input.boundary as unknown[]).entries()) {
+          if (typeof rawId !== "string" || rawId.length === 0) {
+            throw new HatchError(`entities[${index}].boundary[${bi}] must be a boundary entity id string`, "bad_boundary");
+          }
+          if (seen.has(rawId)) {
+            throw new HatchError(`entities[${index}].boundary[${bi}]: '${rawId}' is listed twice (a boundary entity contributes one loop)`, "bad_boundary");
+          }
+          seen.add(rawId);
+          const el = known.get(rawId);
+          if (el === undefined) {
+            throw new HatchError(
+              `entities[${index}].boundary[${bi}]: '${rawId}' does not exist (create the boundary geometry first, then hatch it)`,
+              "bad_boundary",
+            );
+          }
+          if (hatchFromElement(el) !== null) {
+            throw new HatchError(
+              `entities[${index}].boundary[${bi}]: '${rawId}' is a hatch — nested hatch boundaries are a typed decline (bounded CC010 set: closed polylines, rectangles, circles)`,
+              "hatch_unsupported",
+            );
+          }
+          boundary.push({ id: rawId, loop: boundaryLoopOfElement(el) });
+        }
+        const hatch = makeHatch({ ...input, boundary });
+        // Display overrides on creation (the entity.create rules).
+        const props = hatchToProps(hatch);
+        const display = hatchDisplayOverrides(input, (name: string) => this.ltypeResolves(name));
+        if (typeof display === "string") {
+          return err(display.startsWith("linetype") ? "bad_linetype" : "bad_input", `entities[${index}]: ${display}`, false);
+        }
+        for (const [key, value] of Object.entries(display)) {
+          props[key] = value;
+        }
+        edits.push({
+          type: "addElement",
+          element: { id: "", kind: "annotation", engineId: null, props },
+        });
+        summaries.push(String(hatch.pattern));
+      }
+      if (edits.length === 0) {
+        return ok({ applied: false, reason: "nothing to create", snapshot: this.doc.snapshot() });
+      }
+      this.doc.execute({ type: "applyEdits", edits });
+      return ok({
+        applied: true,
+        summary: `${edits.length} hatch${edits.length === 1 ? "" : "es"} created (${summaries.join(", ")})`,
+        snapshot: this.doc.snapshot(),
+      });
+    } catch (e) {
+      if (e instanceof HatchError) return err(e.code, e.message, false);
+      return err("hatch_invalid", (e as Error).message, false);
+    }
+  }
+
+  /** hatch.update — patch hatch pattern/scale/angle (+layer, the CHPROP
+   *  vocabulary; HATCHEDIT-class, bounded: boundary re-association is out
+   *  of scope). Validation BEFORE mutation (strict re-validation of the
+   *  merged record); ONE atomic revision; full-record props rewrite with
+   *  display overrides preserved. */
+  private cmdHatchUpdate(payload: unknown): CommandQueryResponse {
+    const p = payload as { ids?: unknown; patch?: unknown } | null;
+    if (p === null || typeof p !== "object" || !Array.isArray(p.ids) || !p.ids.every((x) => typeof x === "string") || (p.ids as string[]).length === 0) {
+      return err("bad_payload", "hatch.update requires a non-empty ids string array", true);
+    }
+    if (typeof p.patch !== "object" || p.patch === null || Object.keys(p.patch as Record<string, unknown>).length === 0) {
+      return err("bad_payload", "hatch.update requires a non-empty patch object", true);
+    }
+    const patch = p.patch as Record<string, unknown>;
+    try {
+      const elements = this.doc.allElements();
+      const byId = new Map(elements.map((el) => [el.id, el] as const));
+      const targets: { el: Element; hatch: HatchEntity }[] = [];
+      for (const id of p.ids as string[]) {
+        const el = byId.get(id);
+        if (el === undefined) {
+          throw new HatchError(`hatch.update: '${id}' does not exist`, "bad_input");
+        }
+        const hatch = hatchFromElement(el);
+        if (hatch === null) {
+          throw new HatchError(`hatch.update: '${id}' is not a hatch entity`, "bad_input");
+        }
+        targets.push({ el, hatch });
+      }
+      // Validate the patch vocabulary FIRST (no unknown fields — nothing
+      // mutates on an invalid request).
+      const allowed: readonly string[] = ["pattern", "scale", "angle", "layer"];
+      for (const key of Object.keys(patch)) {
+        if (!allowed.includes(key)) {
+          throw new HatchError(
+            `hatch.update: field '${key}' does not apply to hatch (allowed: ${allowed.join(", ")}; boundary re-association is out of the bounded CC010 scope)`,
+            "bad_input",
+          );
+        }
+      }
+      if (patch.layer !== undefined && (typeof patch.layer !== "string" || this.doc.layerById(String(patch.layer)) === undefined)) {
+        throw new HatchError(`hatch.update: layer '${String(patch.layer)}' does not exist`, "bad_layer");
+      }
+      const edits: DocumentEdit[] = [];
+      for (const { el, hatch } of targets) {
+        const next: Record<string, unknown> = {
+          pattern: patch.pattern !== undefined ? patch.pattern : hatch.pattern,
+          scale: patch.scale !== undefined ? patch.scale : hatch.scale,
+          angle: patch.angle !== undefined ? patch.angle : hatch.angle,
+          boundary: hatch.boundary.map((ref) => ({ id: ref.id, loop: ref.loop })),
+          layer: patch.layer !== undefined ? patch.layer : hatch.layer,
+        };
+        // Strict re-validation of the merged record (LOCK-007).
+        const validated = makeHatch(next);
+        const props = hatchToProps(validated);
+        const currentProps = (el.props ?? {}) as Record<string, unknown>;
+        for (const key of ["color", "linetype", "lineweight", "transparency"] as const) {
+          if (currentProps[key] !== undefined) props[key] = currentProps[key];
+        }
+        edits.push({ type: "setProps", elementId: el.id, patch: props });
+      }
+      this.doc.execute({ type: "applyEdits", edits });
+      return ok({
+        applied: true,
+        summary: `${edits.length} hatch${edits.length === 1 ? "" : "es"} updated`,
+        snapshot: this.doc.snapshot(),
+      });
+    } catch (e) {
+      if (e instanceof HatchError) return err(e.code, e.message, false);
+      return err("hatch_invalid", (e as Error).message, false);
+    }
+  }
+
+  /** inspection.list (query) — the bounded LIST workflow: deterministic
+   *  per-entity semantic summaries computed fresh from the canonical
+   *  state. Hatch rows report the stored pattern/scale/angle/loops and
+   *  per-loop areas derived from the stored snapshots; dimension rows
+   *  report the STORED measured values (never recomputed); nothing
+   *  fabricates a measurement. Non-mutating (the unchanged version is
+   *  returned as proof). Bounded to the drafting/annotation/hatch/block
+   *  vocabulary — other element families are a typed decline (the
+   *  OSNAP/OTRACK/measurement program is CC018's scope). */
+  private qInspectionList(payload: unknown): CommandQueryResponse {
+    const p = payload as { ids?: unknown } | null;
+    const ids = p !== null && typeof p === "object" && Array.isArray(p.ids) ? (p.ids as string[]) : [];
+    try {
+      const elements = this.doc.allElements();
+      const byId = new Map(elements.map((el) => [el.id, el] as const));
+      const selected: (Element | undefined)[] = ids.length > 0 ? ids.map((id) => byId.get(id)) : [...elements];
+      if (ids.length > 0) {
+        const missing = ids.filter((id, i) => selected[i] === undefined);
+        if (missing.length > 0) {
+          return err("bad_id", `inspection.list: '${missing[0]}' does not exist in the document`, false);
+        }
+      }
+      const rows: Record<string, unknown>[] = [];
+      for (const el of selected as Element[]) {
+        if (el === undefined) continue;
+        const layer = layerOfElement(el);
+        const layerName = this.doc.layerById(layer)?.name ?? layer;
+        const row = inspectionRowOf(el, layerName);
+        if (row === null) {
+          const type = (el.props as Record<string, unknown>).type;
+          return err(
+            "inspection_unsupported",
+            `inspection.list: '${el.id}' (type '${String(type)}') is outside the bounded CC010 inspection vocabulary (drafting geometry, annotations, hatches and block references)`,
+            false,
+          );
+        }
+        rows.push(row);
+      }
+      return ok({
+        rows,
+        version: this.doc.snapshot().version.version_number,
+        bounded: "drafting geometry, annotations, hatches and block references (the CC018 measurement program is out of scope)",
+      });
+    } catch (e) {
+      return err("inspection_invalid", (e as Error).message, false);
     }
   }
 

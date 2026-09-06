@@ -37,6 +37,8 @@ import {
   getState,
   materialsBom,
   materialsList,
+  inspectionList,
+  unwrapInspectionList,
   coordinationClash,
   openFromText,
   replayModel,
@@ -192,6 +194,15 @@ const VIEW_TABS: readonly { id: WorkspaceView; label: string }[] = [
   // pinned corpus catalog + the live interop classification).
   { id: "certification", label: "Certification" },
 ];
+
+/** COMPAT-CAD-010: deterministic inline formatting of one inspection
+ *  field value (arrays/objects as compact JSON, scalars as-is). */
+function formatInspectionValue(v: unknown): string {
+  if (v === null) return "null";
+  if (typeof v === "number") return Number.isInteger(v) ? String(v) : String(Number(v.toFixed(3)));
+  if (typeof v === "object") return JSON.stringify(v);
+  return String(v);
+}
 
 export function WorkspaceShell(): React.JSX.Element {
   // --- document state -------------------------------------------------------
@@ -654,6 +665,39 @@ export function WorkspaceShell(): React.JSX.Element {
           // intercepts them and renders the REAL query results to the
           // command-line history (deterministic formatting; failures print
           // a typed *ERROR* history line, never crash the shell).
+          // COMPAT-CAD-010 (Issue #18): the bounded inspection report — the
+          // host intercepts the LIST ui action and renders the REAL
+          // inspection.list query results to the command-line history
+          // (deterministic formatting; failures print a typed *ERROR*
+          // history line, never crash the shell — the report.matlist
+          // precedent).
+          case "inspection.list": {
+            try {
+              const payload = (action.payload as { ids?: unknown } | undefined) ?? {};
+              const ids = Array.isArray(payload.ids) && payload.ids.every((x) => typeof x === "string") ? (payload.ids as string[]) : undefined;
+              const res = await inspectionList(ids);
+              const rows = unwrapInspectionList(res);
+              if (rows === null) {
+                setHistoryLines((h) => [
+                  ...h,
+                  `*ERROR* inspection.list: ${res.ok ? "unexpected response shape" : `${res.code} — ${res.message}`}`,
+                ]);
+                break;
+              }
+              const lines = [`LIST: ${rows.length} object${rows.length === 1 ? "" : "s"} (canonical inspection, non-mutating).`];
+              for (const row of rows) {
+                lines.push(`LIST: ${row.id} | ${row.type} | layer '${row.layer}' | ${row.summary}`);
+                const fields = Object.entries(row.fields);
+                if (fields.length > 0) {
+                  lines.push(`LIST:   ${fields.map(([k, v]) => `${k}=${formatInspectionValue(v)}`).join(" ")}`);
+                }
+              }
+              setHistoryLines((h) => [...h, ...lines]);
+            } catch {
+              setHistoryLines((h) => [...h, "*ERROR* inspection.list: the query failed."]);
+            }
+            break;
+          }
           case "report.matlist": {
             try {
               const res = await materialsList();

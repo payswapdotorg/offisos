@@ -1,0 +1,104 @@
+name: cc010-browser-gate
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "tools/browser-agent/cc010.mjs"
+      - ".github/workflows/cc010-browser-gate.yml"
+  push:
+    branches: [main]
+    paths:
+      - "tools/browser-agent/cc010.mjs"
+      - ".github/workflows/cc010-browser-gate.yml"
+
+jobs:
+  browser-agent:
+    name: CC010 exact-SHA ephemeral deployment + browser agent (G1/G4/G6/G8)
+    runs-on: ubuntu-latest
+    env:
+      TARGET_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      OFFISOS_TARGET_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      OFFISOS_WEB_URL: http://127.0.0.1:3100
+      OFFISOS_BROWSER_EVIDENCE: /tmp/cc010-browser-evidence.json
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install pinned engines
+        run: pip install cadquery-ocp==7.8.1.1.post1 ifcopenshell==0.8.5 IfcTester==0.8.5 numpy==2.1.3
+
+      - name: Install root dependencies
+        run: npm install
+
+      - name: Install web dependencies
+        working-directory: apps/web
+        run: npm install
+
+      - name: Install browser engine
+        working-directory: apps/web
+        run: |
+          npm install --no-save playwright@1.55.0
+          npx playwright install --with-deps chromium
+
+      - name: Install browser-agent dependency at workspace root
+        run: npm install --no-save playwright@1.55.0
+
+      - name: Build exact-SHA production deployment
+        working-directory: apps/web
+        run: npm run build
+
+      - name: Start exact-SHA ephemeral deployment
+        working-directory: apps/web
+        env:
+          OFFISOS_OCCT_WORKER: ${{ github.workspace }}/app/src/adapters/occt/worker/occt-worker.py
+          OFFISOS_IFC_WORKER: ${{ github.workspace }}/app/src/adapters/ifc/worker/ifc-worker.py
+          OFFISOS_WEB_URL: http://127.0.0.1:3100
+          OFFISOS_P016_PERSIST: memory
+        run: |
+          nohup npx next start -p 3100 >/tmp/offisos-cc010-server.log 2>&1 &
+          echo $! >/tmp/offisos-server.pid
+          for i in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:3100/ >/dev/null; then exit 0; fi
+            sleep 2
+          done
+          cat /tmp/offisos-cc010-server.log
+          exit 1
+
+      - name: Run independent black-box CC010 browser agent (G1/G4/G6/G8)
+        run: node tools/browser-agent/cc010.mjs
+
+      - name: Validate evidence binding
+        run: |
+          test -s "$OFFISOS_BROWSER_EVIDENCE"
+          node -e '
+            const fs=require("fs");
+            const e=JSON.parse(fs.readFileSync(process.env.OFFISOS_BROWSER_EVIDENCE,"utf8"));
+            if(e.targetSha!==process.env.OFFISOS_TARGET_SHA) process.exit(2);
+            if(e.pass!==true) process.exit(4);
+          '
+
+      - name: Upload browser evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cc010-browser-gate-${{ github.run_id }}
+          path: |
+            /tmp/cc010-browser-evidence.json
+            /tmp/cc010-*.png
+            /tmp/offisos-cc010-server.log
+          if-no-files-found: warn

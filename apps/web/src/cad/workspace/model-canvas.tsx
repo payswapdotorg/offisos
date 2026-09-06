@@ -112,6 +112,17 @@ import {
   type TextAnnotation,
 } from "@offisos/cad-app-shell/workspace/annotation";
 import { paintAnnotationPrimitives } from "@offisos/cad-app-shell/workspace/annotation/paint";
+// COMPAT-CAD-010 (Issue #18): the shared hatch core — the SAME primitive
+// resolution + painter + pick surface the Electron renderer and the App API
+// run (LOCK-004 parity by construction; no engine loads here).
+import {
+  hatchFromElement,
+  hatchPrimitives,
+  hatchRenderContext,
+  pickHatchAt,
+  selectHatches,
+} from "@offisos/cad-app-shell/workspace/hatch";
+import { paintHatchPrimitives } from "@offisos/cad-app-shell/workspace/hatch/paint";
 // CAD-PARITY-007 (Issue #86): the shared constraints core — the glyph
 // descriptors + the ONE shared badge painter (the SAME rendering the
 // Electron canvas runs; diagnostics computed through the shared solver).
@@ -548,6 +559,15 @@ export function ModelCanvas(props: ModelCanvasProps): React.JSX.Element {
     [snapshot, settings],
   );
 
+  // COMPAT-CAD-010 (Issue #18): the hatch render context — the document
+  // annotation scale (the SAME standards setting the annotation style
+  // context reads; the DIMSCALE-class convention multiplies the effective
+  // pattern spacing).
+  const hatchRenderCtx = React.useMemo(
+    () => hatchRenderContext(settings?.standards?.annotationScale),
+    [settings],
+  );
+
   // CAD-PARITY-012 (Issue #102): the bim.grid coordination datums — their
   // DERIVED display segments (full-span over the document content bounds,
   // labels minted from the sorted line order — never stored). The SAME
@@ -641,6 +661,11 @@ export function ModelCanvas(props: ModelCanvasProps): React.JSX.Element {
       // CAD-PARITY-005: annotations pick where they paint (primitives).
       const annotationPick = pickAnnotationAt(visibleEntities, probe, aperture, annotationStyleCtx);
       const annotationBest = annotationPick !== null ? { id: annotationPick.id, d: annotationPick.d } : null;
+      // COMPAT-CAD-010: hatches pick where they paint AND anywhere inside
+      // their boundary region (distance 0 inside — the pick surface is the
+      // render surface plus the exact even-odd region test).
+      const hatchPick = pickHatchAt(visibleEntities, probe, aperture, hatchRenderCtx);
+      const hatchBest = hatchPick !== null ? { id: hatchPick.id, d: hatchPick.d } : null;
       // CAD-PARITY-006: block/xref instances pick by their DERIVED content —
       //  the closest expanded entity within the aperture selects the WHOLE
       //  instance (AutoCAD semantics: clicking block content selects the
@@ -663,10 +688,11 @@ export function ModelCanvas(props: ModelCanvasProps): React.JSX.Element {
       consider(canonicalBest);
       consider(legacyBest);
       consider(annotationBest);
+      consider(hatchBest);
       consider(instanceBest);
       return best;
     },
-    [zoom, geomEntities, visibleEntities, annotationStyleCtx, expandedInstances, expandedInstancePickDistance],
+    [zoom, geomEntities, visibleEntities, annotationStyleCtx, hatchRenderCtx, expandedInstances, expandedInstancePickDistance],
   );
 
   // --- engine-aware interaction -------------------------------------------------
@@ -1105,6 +1131,17 @@ export function ModelCanvas(props: ModelCanvasProps): React.JSX.Element {
       for (const id of annotationIds) {
         if (!merged.includes(id)) merged.push(id);
       }
+      // COMPAT-CAD-010: hatches select through their region + primitives
+      // (window = whole region bbox inside, crossing = any intersection);
+      // deduped by id against the other paths.
+      const hatchIds = selectHatches(
+        visibleEntities,
+        { mode: rect.mode, min: { x: rect.min[0], y: rect.min[1] }, max: { x: rect.max[0], y: rect.max[1] } },
+        hatchRenderCtx,
+      );
+      for (const id of hatchIds) {
+        if (!merged.includes(id)) merged.push(id);
+      }
       if (drag.commandSelect === true) {
         // COMPAT-CAD-007 (Issue #1; DEF-006): the window/crossing result
         // feeds the RUNNING command's object step as ONE batch — the same
@@ -1401,6 +1438,27 @@ export function ModelCanvas(props: ModelCanvasProps): React.JSX.Element {
           markerStroke: isRevcloud ? (selectedSet.has(el.id) ? "#d97706" : "#f59e0b") : undefined,
         });
         continue;
+      }
+      // COMPAT-CAD-010 (Issue #18): hatch elements render through the ONE
+      // shared hatch painter — the deterministic pattern primitives painted
+      // identically on Web and Electron (LOCK-004). Layer visibility/frozen
+      // filtering applies exactly like every other entity; a selected hatch
+      // paints slightly thicker strokes at full alpha.
+      if (el.kind === "annotation") {
+        const hatch = hatchFromElement(el);
+        if (hatch !== null) {
+          const layer = layerById.get(hatch.layer);
+          if (layer !== undefined && (layer.frozen === true || !layer.visible)) continue;
+          const selected = selectedSet.has(el.id);
+          paintHatchPrimitives(ctx, hatchPrimitives(hatch, hatchRenderCtx), {
+            toScreen: toScreenPt,
+            zoom,
+            color: display?.color ?? layer?.color ?? "#111827",
+            weightPx: selected ? Math.max(1, (display?.weightPx ?? 1) * 1.8) : Math.max(1, display?.weightPx ?? 1),
+            alpha: selected ? 1 : (display?.alpha ?? 1),
+          });
+          continue;
+        }
       }
       // CAD-PARITY-005: annotation elements (the 8-type canonical vocabulary
       // AND the legacy COMPAT-CAD-001 dims — both load through

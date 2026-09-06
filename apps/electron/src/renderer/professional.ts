@@ -214,6 +214,17 @@ import {
   type AnnotationStyleContext,
 } from "@offisos/cad-app-shell/workspace/annotation";
 import { paintAnnotationPrimitives } from "@offisos/cad-app-shell/workspace/annotation/paint";
+// COMPAT-CAD-010 (Issue #18): the shared hatch core — the SAME primitive
+// resolution + painter + pick/selection surface the Web renderer and the
+// App API run (LOCK-004 parity by construction; engine-free, pure).
+import {
+  hatchFromElement,
+  hatchPrimitives,
+  hatchRenderContext,
+  pickHatchAt,
+  selectHatches,
+} from "@offisos/cad-app-shell/workspace/hatch";
+import { paintHatchPrimitives } from "@offisos/cad-app-shell/workspace/hatch/paint";
 // CAD-PARITY-007 (Issue #86): the shared constraints core — the glyph
 // descriptors + the ONE shared badge painter + the shared diagnostics (the
 // SAME rendering/solver the Web canvas and the App API run; LOCK-004).
@@ -298,6 +309,16 @@ interface ProState {
   cursor: Vec2 | null;
   busy: boolean;
   paletteOpen: boolean;
+}
+
+/** COMPAT-CAD-010: deterministic inline formatting of one inspection field
+ *  value (arrays/objects as compact JSON, scalars as-is — the Web host's
+ *  formatInspectionValue mirror). */
+function formatInspectionValue(v: unknown): string {
+  if (v === null) return "null";
+  if (typeof v === "number") return Number.isInteger(v) ? String(v) : String(Number(v.toFixed(3)));
+  if (typeof v === "object") return JSON.stringify(v);
+  return String(v);
 }
 
 const SVG_W = 900;
@@ -1099,6 +1120,43 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
           // drafting setting; identical on both hosts).
           const settings = state.snapshot?.draftingSettings;
           await command("drafting.setSettings", { settings: { lineweightDisplay: !(settings?.lineweightDisplay ?? false) } });
+          break;
+        }
+        // COMPAT-CAD-010 (Issue #18): the bounded inspection report — the
+        // LIST ui action renders the REAL inspection.list query results to
+        // the command-line history with the SAME deterministic formatting
+        // as the Web host (LOCK-004; failures print a typed *ERROR* line).
+        case "inspection.list": {
+          try {
+            const payload = (action.payload as { ids?: unknown } | undefined) ?? {};
+            const ids = Array.isArray(payload.ids) && payload.ids.every((x) => typeof x === "string")
+              ? (payload.ids as string[])
+              : undefined;
+            const res = await query("inspection.list", ids !== undefined && ids.length > 0 ? { ids } : {});
+            if (!res.ok) {
+              pushLines([`*ERROR* inspection.list: ${res.code} — ${res.message}`]);
+              break;
+            }
+            const v = res.value as { rows?: unknown } | null;
+            const rows = typeof v === "object" && v !== null && Array.isArray(v.rows)
+              ? (v.rows as { id: string; kind: string; layer: string; type: string; summary: string; fields: Record<string, unknown> }[])
+              : null;
+            if (rows === null) {
+              pushLines(["*ERROR* inspection.list: unexpected response shape"]);
+              break;
+            }
+            const lines = [`LIST: ${rows.length} object${rows.length === 1 ? "" : "s"} (canonical inspection, non-mutating).`];
+            for (const row of rows) {
+              lines.push(`LIST: ${row.id} | ${row.type} | layer '${row.layer}' | ${row.summary}`);
+              const fields = Object.entries(row.fields ?? {});
+              if (fields.length > 0) {
+                lines.push(`LIST:   ${fields.map(([k, val]) => `${k}=${formatInspectionValue(val)}`).join(" ")}`);
+              }
+            }
+            pushLines(lines);
+          } catch {
+            pushLines(["*ERROR* inspection.list: the query failed."]);
+          }
           break;
         }
         case "palette.show": {
@@ -2259,6 +2317,14 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
     );
   }
 
+  /** COMPAT-CAD-010 (Issue #18): the hatch render context — the document
+   *  annotation scale (the SAME standards setting the annotation style
+   *  context reads; the DIMSCALE-class convention multiplies the effective
+   *  pattern spacing — the Web host's hatchRenderCtx mirror). */
+  function hatchRenderCtxOf(): ReturnType<typeof hatchRenderContext> {
+    return hatchRenderContext(state.snapshot?.draftingSettings?.standards?.annotationScale);
+  }
+
   // --- CAD-PARITY-006 (Issue #84): the blocks/references derived view ------
   // Block-ref/xref-ref instances render, pick and window-select through the
   // ONE shared expansion (workspace/blocks — the SAME module the App API
@@ -2852,6 +2918,10 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
     // CAD-PARITY-005: annotations pick where they paint (primitives).
     const annotationPick = pickAnnotationAt(visible, probe, aperture, annotationStyleCtxOf());
     const annotationBest = annotationPick !== null ? { id: annotationPick.id, d: annotationPick.d } : null;
+    // COMPAT-CAD-010: hatches pick where they paint AND anywhere inside
+    // their boundary region (distance 0 inside — the Web host's mirror).
+    const hatchPick = pickHatchAt(visible, probe, aperture, hatchRenderCtxOf());
+    const hatchBest = hatchPick !== null ? { id: hatchPick.id, d: hatchPick.d } : null;
     // CAD-PARITY-006: block/xref instances pick by their DERIVED content
     // (expand → canonical/text/placeholder distances), returning the
     // INSTANCE element id.
@@ -2864,6 +2934,7 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
     consider(canonicalBest);
     consider(legacyBest);
     consider(annotationBest);
+    consider(hatchBest);
     consider(instanceBest);
     return best;
   }
@@ -3105,6 +3176,17 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
         annotationStyleCtxOf(),
       );
       for (const id of annotationIds) {
+        if (!merged.includes(id)) merged.push(id);
+      }
+      // COMPAT-CAD-010: hatches select through their region + primitives
+      // (window = whole region bbox inside, crossing = any intersection);
+      // deduped by id against the other paths (the Web host's mirror).
+      const hatchIds = selectHatches(
+        visible,
+        { mode: rect.mode, min: { x: rect.min[0], y: rect.min[1] }, max: { x: rect.max[0], y: rect.max[1] } },
+        hatchRenderCtxOf(),
+      );
+      for (const id of hatchIds) {
         if (!merged.includes(id)) merged.push(id);
       }
       // CAD-PARITY-006: block/xref instances select through their DERIVED
@@ -3947,6 +4029,29 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
           alpha: display?.alpha,
         });
         continue;
+      }
+      // COMPAT-CAD-010 (Issue #18): hatch elements render through the ONE
+      // shared hatch painter — the deterministic pattern primitives painted
+      // identically on Web and Electron (LOCK-004). Layer visibility/frozen
+      // filtering applies exactly like every other entity; a selected hatch
+      // paints slightly thicker strokes at full alpha (the Web host's exact
+      // convention).
+      if (el.kind === "annotation") {
+        const hatch = hatchFromElement(el);
+        if (hatch !== null) {
+          const layer = layerById.get(hatch.layer);
+          if (layer !== undefined && (layer.frozen === true || !layer.visible)) continue;
+          if (annoCtx !== null) {
+            paintHatchPrimitives(annoCtx, hatchPrimitives(hatch, hatchRenderCtxOf()), {
+              toScreen: (p: Pt): [number, number] => toScreen([p.x, p.y]),
+              zoom: state.zoom,
+              color: display?.color ?? layer?.color ?? "#111827",
+              weightPx: selected ? Math.max(1, (display?.weightPx ?? 1) * 1.8) : Math.max(1, display?.weightPx ?? 1),
+              alpha: selected ? 1 : (display?.alpha ?? 1),
+            });
+          }
+          continue;
+        }
       }
       // CAD-PARITY-005: annotation elements (the 8-type canonical vocabulary
       // AND the legacy COMPAT-CAD-001 dims — both load through
@@ -7011,6 +7116,17 @@ export function mountProfessionalWorkspace(opts: ProfessionalOptions): Professio
         annotationStyleCtxOf(),
       );
       for (const id of annotationIds) {
+        if (!merged.includes(id)) merged.push(id);
+      }
+      // COMPAT-CAD-010: hatches select through their region + primitives
+      // (window = whole region bbox inside, crossing = any intersection);
+      // deduped by id against the other paths (the Web host's mirror).
+      const hatchIds = selectHatches(
+        visible,
+        { mode: rect.mode, min: { x: rect.min[0], y: rect.min[1] }, max: { x: rect.max[0], y: rect.max[1] } },
+        hatchRenderCtxOf(),
+      );
+      for (const id of hatchIds) {
         if (!merged.includes(id)) merged.push(id);
       }
       const instanceIds = selectInstanceElements(

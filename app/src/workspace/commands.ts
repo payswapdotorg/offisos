@@ -26,6 +26,9 @@ import { optionValueKey } from "./prompt-options.js";
 import { COMMANDS_2D } from "./commands-2d.js";
 import { COMMANDS_PROPS } from "./commands-props.js";
 import { COMMANDS_ANNO } from "./commands-anno.js";
+// COMPAT-CAD-010 (Issue #18): the hatch/hatch-edit/bounded-inspection
+// vocabulary (hatch.create / hatch.update / the inspection.list report).
+import { COMMANDS_HATCH } from "./commands-hatch.js";
 import { COMMANDS_BLOCK } from "./commands-blocks.js";
 import { COMMANDS_PARAMETRICS } from "./commands-parametrics.js";
 import { COMMANDS_LAYOUTS } from "./commands-layouts.js";
@@ -1432,6 +1435,8 @@ export const WORKSPACE_COMMANDS: readonly WorkspaceCommand[] = [
   ...COMMANDS_2D,
   ...COMMANDS_PROPS,
   ...COMMANDS_ANNO,
+  // --- COMPAT-CAD-010 (Issue #18): hatch + bounded inspection ----------
+  ...COMMANDS_HATCH,
   // --- CAD-PARITY-006 (Issue #84): blocks, attributes & references -------
   ...COMMANDS_BLOCK,
   // --- CAD-PARITY-007 (Issue #86): parametric constraints & patterns ---

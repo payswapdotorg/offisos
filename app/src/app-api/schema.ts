@@ -451,6 +451,49 @@ export const COMMAND_PAYLOAD_SCHEMAS: Readonly<Record<CommandName, object>> = {
       ids: { type: "array", items: { type: "string" } },
     },
   },
+  // --- COMPAT-CAD-010 (additive, Issue #18): hatch + bounded inspection ---
+  // Coarse wire shapes; the shared hatch core validates strictly.
+  "hatch.create": {
+    type: "object",
+    properties: {
+      entities: {
+        type: "array",
+        minItems: 1,
+        items: {
+          type: "object",
+          properties: {
+            type: { type: "string", enum: ["hatch"] },
+            layer: { type: "string" },
+            pattern: {
+              type: "string",
+              enum: ["SOLID", "ANSI31", "ANSI32", "ANSI37", "NET", "DOTS"],
+            },
+            scale: { type: "number", exclusiveMinimum: 0 },
+            angle: { type: "number" },
+            boundary: { type: "array", minItems: 1, items: { type: "string" } },
+          },
+          required: ["type", "boundary"],
+        },
+      },
+    },
+    required: ["entities"],
+  },
+  "hatch.update": {
+    type: "object",
+    properties: {
+      ids: { type: "array", items: { type: "string" }, minItems: 1 },
+      patch: {
+        type: "object",
+        minProperties: 1,
+        properties: {
+          pattern: { type: "string", enum: ["SOLID", "ANSI31", "ANSI32", "ANSI37", "NET", "DOTS"] },
+          scale: { type: "number", exclusiveMinimum: 0 },
+          angle: { type: "number" },
+        },
+      },
+    },
+    required: ["ids", "patch"],
+  },
   // --- CAD-PARITY-006 (additive, Issue #84): blocks/attributes/xrefs ---
   // Coarse wire shapes; the shared blocks core validates strictly.
   "block.create": {
@@ -2512,6 +2555,14 @@ export const COMMAND_PAYLOAD_SCHEMAS: Readonly<Record<CommandName, object>> = {
 };
 
 export const QUERY_PAYLOAD_SCHEMAS: Readonly<Record<QueryName, object>> = {
+  // COMPAT-CAD-010 (additive, Issue #18): the bounded entity inspection
+  // query (the LIST workflow — non-mutating).
+  "inspection.list": {
+    type: "object",
+    properties: {
+      ids: { type: "array", items: { type: "string" } },
+    },
+  },
   "document.getState": { type: "object", properties: {} },
   "document.getVersion": { type: "object", properties: {} },
   "document.canUndo": { type: "object", properties: {} },
