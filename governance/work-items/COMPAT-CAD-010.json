@@ -1,1 +1,190 @@
-{"id":"COMPAT-CAD-010","title":"Hatch, annotation, dimension and inspection","issue":18,"architecture_version":"1.1","requirements":["CAD-001"],"dependencies":["COMPAT-CAD-009"],"objective":"Implement the next bounded AutoCAD-class capability for hatch, annotation, dimension and inspection workflows across Golden workflows G1/G4/G6/G8 while preserving frozen Architecture v1.1 and existing canonical CAD semantics.","acceptance_criteria":["Hatch entities and patterns have deterministic canonical identity, ownership/provenance, boundary semantics, serialization and rendering/selectability within the bounded roadmap scope.","Supported hatch creation and edits are validated before mutation, commit through the canonical CADDocument/Construction Graph path, and integrate with existing undo/redo without orphaned or phantom entities.","Annotation/text semantics needed by G1/G4/G6/G8 are deterministic, canonical and render/select correctly across supported views without introducing a separate application authority.","Dimension creation, editing and measurement presentation required by the assigned workflows are deterministic, canonical and revision-backed, with invalid/unsupported inputs rejected using the existing typed error taxonomy before mutation.","Inspection behavior required by the assigned workflows is explicit, deterministic and bounded; it must not silently expand into the later OSNAP/OTRACK/tracking scope.","Deletion and invalid/unsupported cases have deterministic behavior and cannot create hidden canonical state or orphaned entities.","Web and Electron execute the same engine-free semantic command path and converge on equivalent affected serialized state.","Verified predecessor behavior from COMPAT-CAD-005 through COMPAT-CAD-009 remains regression-green; no previously verified invariant is weakened.","Exact-target deployment and independent black-box browser verification cover G1, G4, G6 and G8, including relevant negative/error paths.","Architecture v1.1, Construction Graph authority, CADDocument semantics and EngineAdapterBundle boundaries remain unchanged unless a separately approved ACR authorizes an architecture change.","No benchmark score increase is claimed unless the complete CAD-BENCH-RW-001 corpus is rerun and measured."],"non_goals":["No durable SAVE/OPEN or multi-instance persistence; COMPAT-CAD-011 and infrastructure own that work.","No DXF import/export; COMPAT-CAD-012 owns that work.","No layout identity, MVIEW, sheets or plot expansion; COMPAT-CAD-013 owns that work.","No broad command-language/options/aliases/help expansion; COMPAT-CAD-014 owns that work.","No generalized undo/redo, cancellation or long-session expansion; COMPAT-CAD-015 owns that work.","No BIM completion expansion; COMPAT-CAD-016 owns that work.","No broad OSNAP/OTRACK/tracking/measurement program expansion; COMPAT-CAD-018 owns that work.","No architecture change without an approved ACR.","No benchmark score increase without a measured full-corpus rerun."],"risk_assumptions":["COMPAT-CAD-009 is the immediately preceding legal dependency and is VERIFIED at physical product merge 066be5fc098443e21263ed57d21788849a875195.","The existing canonical geometry, revision, selection, provenance and rendering foundations are sufficient for the bounded CC010 capability.","Transient previews remain presentation state until canonical commit.","Inspection and dimension calculations must expose supported/unsupported boundaries explicitly rather than fabricating measurements.","Existing verified predecessor invariants remain mandatory regression contracts.","Any native engine requirement remains behind EngineAdapterBundle and does not become application authority."],"evidence_requirements":["Deterministic automated tests for hatch, annotation, dimension and bounded inspection semantics, invalid/unsupported cases and mutation safety.","Deterministic identity/provenance/order and serialization fixtures.","Web/Electron semantic parity evidence over the affected command stream.","Regression evidence against COMPAT-CAD-005 through COMPAT-CAD-009.","Exact-head CI evidence.","Exact-target deployment evidence.","Independent black-box browser-agent evidence for G1/G4/G6/G8, including negative/error paths.","Revision-bound governance evidence sufficient for an independent Architect to verify the implementation."],"state":"ASSIGNED","transitions":[{"from":"DRAFT","to":"READY","at":"2026-09-06T16:28:20Z","actor":"payswapdotorg","role":"architect","reason":"CC009 is now VERIFIED and issue #18 plus the repository-backed implementation prompt define the frozen successor scope; the work item is ready for assignment.","references":{"issue":18,"artifact":"docs/work-items/COMPAT-CAD-010-ZAI-PROMPT.md"}},{"from":"READY","to":"ASSIGNED","at":"2026-09-06T16:28:30Z","actor":"payswapdotorg","role":"architect","reason":"Authorize z-ai-implementation-agent to implement the frozen CC010 scope and return only at PR_OPEN/VERIFYING.","references":{"issue":18,"assignee":"z-ai-implementation-agent","artifact":"docs/work-items/COMPAT-CAD-010-ZAI-PROMPT.md"}}],"evidence":[],"decisions":[]}
+{
+  "id": "COMPAT-CAD-010",
+  "title": "Hatch, annotation, dimension and inspection",
+  "issue": 18,
+  "architecture_version": "1.1",
+  "requirements": [
+    "CAD-001"
+  ],
+  "dependencies": [
+    "COMPAT-CAD-009"
+  ],
+  "objective": "Implement the next bounded AutoCAD-class capability for hatch, annotation, dimension and inspection workflows across Golden workflows G1/G4/G6/G8 while preserving frozen Architecture v1.1 and existing canonical CAD semantics.",
+  "acceptance_criteria": [
+    "Hatch entities and patterns have deterministic canonical identity, ownership/provenance, boundary semantics, serialization and rendering/selectability within the bounded roadmap scope.",
+    "Supported hatch creation and edits are validated before mutation, commit through the canonical CADDocument/Construction Graph path, and integrate with existing undo/redo without orphaned or phantom entities.",
+    "Annotation/text semantics needed by G1/G4/G6/G8 are deterministic, canonical and render/select correctly across supported views without introducing a separate application authority.",
+    "Dimension creation, editing and measurement presentation required by the assigned workflows are deterministic, canonical and revision-backed, with invalid/unsupported inputs rejected using the existing typed error taxonomy before mutation.",
+    "Inspection behavior required by the assigned workflows is explicit, deterministic and bounded; it must not silently expand into the later OSNAP/OTRACK/tracking scope.",
+    "Deletion and invalid/unsupported cases have deterministic behavior and cannot create hidden canonical state or orphaned entities.",
+    "Web and Electron execute the same engine-free semantic command path and converge on equivalent affected serialized state.",
+    "Verified predecessor behavior from COMPAT-CAD-005 through COMPAT-CAD-009 remains regression-green; no previously verified invariant is weakened.",
+    "Exact-target deployment and independent black-box browser verification cover G1, G4, G6 and G8, including relevant negative/error paths.",
+    "Architecture v1.1, Construction Graph authority, CADDocument semantics and EngineAdapterBundle boundaries remain unchanged unless a separately approved ACR authorizes an architecture change.",
+    "No benchmark score increase is claimed unless the complete CAD-BENCH-RW-001 corpus is rerun and measured."
+  ],
+  "non_goals": [
+    "No durable SAVE/OPEN or multi-instance persistence; COMPAT-CAD-011 and infrastructure own that work.",
+    "No DXF import/export; COMPAT-CAD-012 owns that work.",
+    "No layout identity, MVIEW, sheets or plot expansion; COMPAT-CAD-013 owns that work.",
+    "No broad command-language/options/aliases/help expansion; COMPAT-CAD-014 owns that work.",
+    "No generalized undo/redo, cancellation or long-session expansion; COMPAT-CAD-015 owns that work.",
+    "No BIM completion expansion; COMPAT-CAD-016 owns that work.",
+    "No broad OSNAP/OTRACK/tracking/measurement program expansion; COMPAT-CAD-018 owns that work.",
+    "No architecture change without an approved ACR.",
+    "No benchmark score increase without a measured full-corpus rerun."
+  ],
+  "risk_assumptions": [
+    "COMPAT-CAD-009 is the immediately preceding legal dependency and is VERIFIED at physical product merge 066be5fc098443e21263ed57d21788849a875195.",
+    "The existing canonical geometry, revision, selection, provenance and rendering foundations are sufficient for the bounded CC010 capability.",
+    "Transient previews remain presentation state until canonical commit.",
+    "Inspection and dimension calculations must expose supported/unsupported boundaries explicitly rather than fabricating measurements.",
+    "Existing verified predecessor invariants remain mandatory regression contracts.",
+    "Any native engine requirement remains behind EngineAdapterBundle and does not become application authority."
+  ],
+  "evidence_requirements": [
+    "Deterministic automated tests for hatch, annotation, dimension and bounded inspection semantics, invalid/unsupported cases and mutation safety.",
+    "Deterministic identity/provenance/order and serialization fixtures.",
+    "Web/Electron semantic parity evidence over the affected command stream.",
+    "Regression evidence against COMPAT-CAD-005 through COMPAT-CAD-009.",
+    "Exact-head CI evidence.",
+    "Exact-target deployment evidence.",
+    "Independent black-box browser-agent evidence for G1/G4/G6/G8, including negative/error paths.",
+    "Revision-bound governance evidence sufficient for an independent Architect to verify the implementation."
+  ],
+  "state": "VERIFYING",
+  "transitions": [
+    {
+      "from": "DRAFT",
+      "to": "READY",
+      "at": "2026-09-06T16:28:20Z",
+      "actor": "payswapdotorg",
+      "role": "architect",
+      "reason": "CC009 is now VERIFIED and issue #18 plus the repository-backed implementation prompt define the frozen successor scope; the work item is ready for assignment.",
+      "references": {
+        "issue": 18,
+        "artifact": "docs/work-items/COMPAT-CAD-010-ZAI-PROMPT.md"
+      }
+    },
+    {
+      "from": "READY",
+      "to": "ASSIGNED",
+      "at": "2026-09-06T16:28:30Z",
+      "actor": "payswapdotorg",
+      "role": "architect",
+      "reason": "Authorize z-ai-implementation-agent to implement the frozen CC010 scope and return only at PR_OPEN/VERIFYING.",
+      "references": {
+        "issue": 18,
+        "assignee": "z-ai-implementation-agent",
+        "artifact": "docs/work-items/COMPAT-CAD-010-ZAI-PROMPT.md"
+      }
+    },
+    {
+      "from": "ASSIGNED",
+      "to": "IMPLEMENTING",
+      "at": "2026-09-06T17:12:00Z",
+      "actor": "z-ai-implementation-agent",
+      "role": "implementer",
+      "reason": "Begin the frozen CC010 hatch/annotation/dimension/bounded-inspection scope on payswapdotorg/offisos from the verified mainline 5758f67. Implement the bounded hatch pattern registry with deterministic canonical identity, boundary semantics over closed polylines/rectangles/circles, associative refs + stored loop snapshots, exact even-odd render/pick surfaces shared by both hosts, the boundary cascade (same-revision re-resolution on moves, cascade erase on boundary deletion with exact undo/redo), the bounded inspection.list surface, and the HATCH/HATCHEDIT/LIST command vocabulary.",
+      "references": {
+        "issue": 18,
+        "commit": "0c57d1e"
+      }
+    },
+    {
+      "from": "IMPLEMENTING",
+      "to": "PR_OPEN",
+      "at": "2026-09-06T17:34:00Z",
+      "actor": "z-ai-implementation-agent",
+      "role": "implementer",
+      "reason": "CC010 implementation complete at implementation head daa8a34: the hatch core (5 modules), the hatch.create/hatch.update App API commands with validation-before-mutation and typed declines, the drafting.delete/move + entity.modify cascades, the bounded inspection.list query, the HATCH/HATCHEDIT/LIST registry entries, the Web + Electron host surfaces (shared painter/pick/report), the 21-test deterministic suite with the pinned primitive/serialization fixtures, and the independent black-box G1/G4/G6/G8 browser gate (agent + exact-SHA workflow). PR #19 open against main.",
+      "references": {
+        "pr": 19,
+        "commit": "daa8a34"
+      }
+    },
+    {
+      "from": "PR_OPEN",
+      "to": "VERIFYING",
+      "at": "2026-09-06T17:35:00Z",
+      "actor": "z-ai-implementation-agent",
+      "role": "implementer",
+      "reason": "Submit COMPAT-CAD-010 for independent Architect verification. Revision-bound implementer evidence recorded (EV-001 automated suite + EV-002 governance validation + EV-003 pinned fixtures + EV-004 local black-box browser verification + EV-005 serialization/parity summary). The exact-head CI runs (cad-parity-018 + the cc010 browser gate) are triggered on PR #19; independent Architect review, approval, merge and exact-revision verification are the Architect-owned gates.",
+      "references": {
+        "pr": 19,
+        "evidence": [
+          "EV-001",
+          "EV-002",
+          "EV-003",
+          "EV-004",
+          "EV-005"
+        ]
+      }
+    }
+  ],
+  "evidence": [
+    {
+      "id": "EV-001",
+      "type": "automated-test-suite",
+      "description": "Full deterministic app suite at implementation head daa8a34: 1525 tests, 1469 pass, 0 fail, 56 OCCT/IFC-gated skips (the CC009 baseline profile plus the new 21-test CC010 suite). CC010 coverage: identity/provenance/atomicity (H1/H1b), typed pattern/boundary/validation declines with no mutation (H2/H3/H3b/H6), exact even-odd region semantics + the pinned fixture regeneration (H4/H4b), pick/window selection (H5), the erase cascade with atomic undo/redo (H7), move cascades on both storage tracks + copy non-cascade (H8/H8b), byte-identical serialization + round-trips (H9), the bounded inspection rows (H10), WebHost/ElectronHost transport parity (H11), CC005-CC009 regression (H12) and the prompt-engine command flows incl. negative paths (H13/H13b-H13e).",
+      "produced_at": "2026-09-06T17:30:00Z",
+      "reproducible": true,
+      "reproduction": "cd app && node --import tsx --test \"test/*.test.ts\"; node --import tsx --test test/compat-cad-010.test.ts",
+      "references": {
+        "commit": "daa8a34",
+        "path": "app/test/compat-cad-010.test.ts"
+      }
+    },
+    {
+      "id": "EV-002",
+      "type": "reproducible-script",
+      "description": "Governance validation at implementation head daa8a34: 630/630 record validation, governance deterministic suite 206/206, check-protected PASS (0 architecture-controlled paths touched \u2014 no ACR required), check-verified-revisions all bindings intact, root/app/web typechecks pass, app typecheck pass, web ESLint pass.",
+      "produced_at": "2026-09-06T17:32:00Z",
+      "reproducible": true,
+      "reproduction": "npm run governance -- validate; npm test; npm run governance -- check-protected --base main; npm run governance -- check-verified-revisions; npm run typecheck; node_modules/.bin/tsc --noEmit -p app/tsconfig.json; cd apps/web && npm run lint && npx tsc --noEmit",
+      "references": {
+        "commit": "daa8a34",
+        "pr": 19
+      }
+    },
+    {
+      "id": "EV-003",
+      "type": "inspectable-artifact",
+      "description": "The pinned deterministic identity/order/serialization fixtures: app/test/fixtures/compat-cad-010-hatch.json (five primitive cases \u2014 rect-ansi31, circle-net, circle-solid, islands-ansi37 with the even-odd XOR, rect-dots-angle \u2014 plus the canonical hatch props and bbox projections). The H4 test regenerates the primitives from the stored definitions and asserts byte-identical canonical serialization against the pinned fixture; the fixture was generated twice and verified byte-identical before pinning.",
+      "produced_at": "2026-09-06T17:15:00Z",
+      "reproducible": true,
+      "reproduction": "cd app && node --import tsx --test test/compat-cad-010.test.ts (H4 \u2014 the pinned fixture regeneration)",
+      "references": {
+        "commit": "daa8a34",
+        "path": "app/test/fixtures/compat-cad-010-hatch.json"
+      }
+    },
+    {
+      "id": "EV-004",
+      "type": "inspectable-artifact",
+      "description": "Independent black-box browser-agent evidence for CC010 G1/G4/G6/G8 at implementation head daa8a34 (dev-server form): 20/20 recorded steps pass through the visible UI only (no /api/cad calls by the agent). G1: geometry + DIMLINEAR + TEXT + LIST inspection + the open-boundary typed decline; G4: relative/polar typed entry + closure + LIST area inspection; G6: HATCH + HATCHEDIT + LIST hatch + boundary-erase cascade + hatch gone + atomic UNDO restoration + the unsupported-pattern typed decline; G8: title-block TEXT + dimension + LIST inspection. The exact-SHA production-deployment form runs as the cc010-browser-gate workflow on PR #19 (the CC009 gate precedent: exact-head build + ephemeral deployment + evidence SHA binding).",
+      "produced_at": "2026-09-06T17:25:00Z",
+      "reproducible": true,
+      "reproduction": "cd apps/web && (setsid env -u DATABASE_URL OFFISOS_P016_PERSIST=memory npx next dev --webpack -p 3100 &) ; cd ../.. && OFFISOS_WEB_URL=http://localhost:3100 node tools/browser-agent/cc010.mjs ; the exact-head CI form: .github/workflows/cc010-browser-gate.yml on PR #19",
+      "references": {
+        "commit": "daa8a34",
+        "path": "tools/browser-agent/cc010.mjs",
+        "pr": 19,
+        "workflow_run": ".github/workflows/cc010-browser-gate.yml"
+      }
+    },
+    {
+      "id": "EV-005",
+      "type": "reproducible-script",
+      "description": "Web/Electron semantic parity evidence at implementation head daa8a34: the identical hatch command stream (create/move/update/cascade-delete) through WebHost and ElectronHost converges on byte-identical canonical state (H11); the identical stream from scratch serializes byte-identically (H9, per-instance identity UUIDs excluded per the CC009 projection convention) and survives save/open round-trips with the exact hatch props, boundary snapshots and the updated pattern.",
+      "produced_at": "2026-09-06T17:31:00Z",
+      "reproducible": true,
+      "reproduction": "cd app && node --import tsx --test test/compat-cad-010.test.ts (H9 + H11)",
+      "references": {
+        "commit": "daa8a34",
+        "path": "app/test/compat-cad-010.test.ts"
+      }
+    }
+  ],
+  "decisions": []
+}
