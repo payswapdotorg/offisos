@@ -54,6 +54,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import type { Command, CommandQueryResponse, Query } from "../src/contracts/app-api.js";
+import type { CADDocumentSnapshot } from "../src/contracts/caddocument.js";
 import { AppApiHandler } from "../src/app-api/index.js";
 import { DummyAdapterBundle } from "../src/adapters/dummy/index.js";
 import { WebHost, WebSocketTransport } from "../src/host-web/index.js";
@@ -161,7 +162,7 @@ async function seeded(): Promise<AppApiHandler> {
 test("H1 — hatch.create: deterministic identity, boundary provenance, one atomic revision", async () => {
   const h = await seeded();
   const before = await stateOf(h);
-  const r = val(await h.handle(cmd("hatch.create", {
+  const r = val<{ applied: boolean; summary: string }>(await h.handle(cmd("hatch.create", {
     entities: [{ type: "hatch", layer: "0", pattern: "ANSI31", scale: 1, angle: 0, boundary: ["el-000001"] }],
   })));
   assert.equal(r.applied, true);
@@ -194,7 +195,7 @@ test("H1b — batch creation: earlier entries resolve as boundaries for later en
       { type: "hatch", layer: "0", pattern: "NET", boundary: ["el-000002"] },
     ],
   })));
-  assert.ok(r.applied);
+  assert.ok((r as { applied: boolean }).applied);
   const s = await stateOf(h);
   assert.equal(s.elements.filter((el) => el.props.type === "hatch").length, 2);
 });
@@ -446,7 +447,7 @@ test("H8 — drafting.move / entity.modify on a boundary re-resolve the hatch sn
     entities: [{ type: "hatch", layer: "0", pattern: "ANSI31", boundary: ["el-000001"] }],
   })));
   // drafting.move (the legacy track the visible POLYLINE entities ride).
-  const r = val(await h.handle(cmd("drafting.move", { ids: ["el-000001"], dx: 50, dy: 10 })));
+  const r = val<{ applied: boolean; summary: string }>(await h.handle(cmd("drafting.move", { ids: ["el-000001"], dx: 50, dy: 10 })));
   assert.ok(r.summary.includes("hatch boundar"), `the cascade is part of the SAME revision summary: ${r.summary}`);
   let s = await stateOf(h);
   let hatch = s.elements.find((el) => el.id === "el-000006")!;
@@ -500,7 +501,7 @@ test("H9 — the identical command stream serializes byte-identically; save/open
     val(await h.handle(cmd("hatch.update", { ids: ["el-000007"], patch: { pattern: "NET" } })));
     val(await h.handle(cmd("drafting.move", { ids: ["el-000001"], dx: 5, dy: 5 })));
     const projection = await projectionOf(h);
-    const text = serialize(val<{ snapshot: unknown }>(await h.handle(q("document.getState"))));
+    const text = serialize(val<CADDocumentSnapshot>(await h.handle(q("document.getState"))));
     return { projection, text };
   };
   const a = await run();
