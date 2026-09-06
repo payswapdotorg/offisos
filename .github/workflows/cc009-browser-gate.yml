@@ -68,6 +68,7 @@ jobs:
           OFFISOS_OCCT_WORKER: ${{ github.workspace }}/app/src/adapters/occt/worker/occt-worker.py
           OFFISOS_IFC_WORKER: ${{ github.workspace }}/app/src/adapters/ifc/worker/ifc-worker.py
           OFFISOS_WEB_URL: http://127.0.0.1:3100
+          OFFISOS_P016_PERSIST: memory
         run: |
           nohup npx next start -p 3100 >/tmp/offisos-cc009-server.log 2>&1 &
           echo $! >/tmp/offisos-server.pid
