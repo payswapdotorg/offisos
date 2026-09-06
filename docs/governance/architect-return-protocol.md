@@ -49,6 +49,8 @@ write exact remediation scope + repository implementation prompt
 STOP
 ```
 
+The normal successful path is one coherent autonomous cycle. Intermediate governance states are lifecycle bookkeeping, not separate Product Owner approval requests.
+
 ## 3. No intermediate user prompts
 
 Routine governance steps must not be surfaced as separate approval requests to the Product Owner.
@@ -62,7 +64,38 @@ The Architect stops and returns control only when one of these conditions is tru
 
 A missing `next/go/continue` message is never a reason to stop.
 
-## 4. Architect review checklist
+## 4. Single-cycle state preparation
+
+Before writing successor state, reconcile all authoritative inputs and avoid avoidable write churn.
+
+The Architect uses this order:
+
+```text
+verified predecessor + roadmap
+        ↓
+canonical next work item + dependencies
+        ↓
+GitHub issue created/reconciled → issue number fixed
+        ↓
+governance record created/reconciled from DRAFT
+        ↓
+implementation prompt created/reconciled
+        ↓
+AI_CONTINUATION + roadmap updated to the same canonical state
+        ↓
+one governance validation after the state settles
+```
+
+Rules:
+
+- Never fabricate or guess an issue number; bind it before writing governance references.
+- Never duplicate-create an existing issue, work-item record, prompt or roadmap entry; reconcile it in place.
+- Never create temporary/staging tracked files merely to test a GitHub write operation.
+- Do not pause for chat confirmation between these routine steps.
+- Fix concrete validator failures directly at their authoritative source; rerun only the affected required validation.
+- The resulting repository state must be sufficient for a fresh Architect or implementation agent to continue without the prior chat.
+
+## 5. Architect review checklist
 
 Before approval, the Architect independently reconciles:
 
@@ -79,7 +112,7 @@ Before approval, the Architect independently reconciles:
 
 A green CI result alone is not sufficient.
 
-## 5. Post-merge verification
+## 6. Post-merge verification
 
 Approval is not verification.
 
@@ -94,13 +127,13 @@ After merge, the Architect must:
 7. bind qualifying evidence to the exact revision;
 8. perform `MERGED → VERIFIED` only when all requirements are satisfied.
 
-## 6. CAD-specific rule
+## 7. CAD-specific rule
 
 For every CAD roadmap work item, `docs/cad/browser-agent-phase-gate.md` is a mandatory part of this autonomous loop.
 
 After a passing CAD gate, the Architect updates `docs/cad/autocad-parity-roadmap.md` with the verified revision, deployment/evidence bindings, measured score and category delta, retired/new defects, next work item and next browser gate. Only then is the next CAD implementation prompt released.
 
-## 7. Next-work-item release
+## 8. Next-work-item release
 
 A successful work item ends with a persisted successor handoff, not a chat instruction.
 
@@ -117,7 +150,7 @@ The Architect must:
 
 No successor may be released solely through chat agreement.
 
-## 8. Remediation release
+## 9. Remediation release
 
 When changes are required, the Architect must not merely say “please fix”. The repository must contain:
 
@@ -131,7 +164,7 @@ When changes are required, the Architect must not merely say “please fix”. T
 
 The updated implementation prompt is the worker's next deterministic instruction set.
 
-## 9. Fresh-Architect rule
+## 10. Fresh-Architect rule
 
 A fresh Architect must discover the complete next action without chat history:
 
