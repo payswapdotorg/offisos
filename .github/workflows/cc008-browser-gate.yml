@@ -78,6 +78,9 @@ jobs:
           npm install --no-save playwright@1.55.0
           npx playwright install --with-deps chromium
 
+      - name: Install browser-agent dependency at workspace root
+        run: npm install --no-save playwright@1.55.0
+
       - name: Start exact-SHA ephemeral deployment
         working-directory: apps/web
         env:
