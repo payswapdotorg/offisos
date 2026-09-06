@@ -1,1 +1,0 @@
-Temporary governance staging note. The canonical GitHub issue number will be bound immediately after issue creation.
