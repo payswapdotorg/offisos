@@ -103,6 +103,7 @@ import {
   blockRefFromElement,
   blockRefToProps,
   BlockError,
+  insertsOfBlockDef,
   makeBlockRef,
   normalizeBlockEntities,
 } from "../workspace/blocks/index.js";
@@ -2662,6 +2663,14 @@ export class AppApiHandler {
         }
       }
       const elementId = this.doc.mintElementId();
+      // COMPAT-CAD-009 (Issue #13): deterministic INSERT provenance/ownership.
+      // opId fingerprints the INSERT operation (blockId + scale + rotation +
+      // mirrored) — byte-identical on repeated execution with identical
+      // parameters. insertIndex is the deterministic insert order for this
+      // definition (1-based: the next insert is existing-count + 1).
+      const existingInserts = insertsOfBlockDef(this.doc.allElements(), def.id);
+      const insertIndex = existingInserts.length + 1;
+      const opId = `insert:${def.id}:${JSON.stringify({ s: scale, r: rotation, m: false })}`;
       const ref = makeBlockRef({
         layer,
         blockId: def.id,
@@ -2670,6 +2679,7 @@ export class AppApiHandler {
         scale,
         rotation,
         ...(attributes.length > 0 ? { attributes } : {}),
+        insertProvenance: { opId, blockId: def.id, insertIndex },
       });
       this.doc.execute({
         type: "addElement",
@@ -2680,6 +2690,7 @@ export class AppApiHandler {
         blockId: def.id,
         name: def.name,
         attributes: attributes.length,
+        insertIndex,
         snapshot: this.doc.snapshot(),
       });
     } catch (e) {

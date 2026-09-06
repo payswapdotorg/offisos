@@ -31,12 +31,15 @@ export {
   attributeValue,
   normalizedRotation,
   blockPtOf,
+  insertProvenanceOf,
+  insertsOfBlockDef,
 } from "./types.js";
 export type {
   AttributeValue,
   BlockRefView,
   XrefRefView,
   AttdefRecord,
+  InsertProvenance,
 } from "./types.js";
 
 export {

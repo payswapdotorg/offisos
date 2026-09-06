@@ -114,6 +114,72 @@ export interface BlockRefView {
    *  drawing-office default): text POSITIONS transform with the reflected
    *  similarity; the text rotation follows the unreflected frame. */
   readonly mirrored?: true;
+  /** COMPAT-CAD-009 (Issue #13, additive): deterministic INSERT
+   *  provenance/ownership metadata. Present on instances created through
+   *  block.insert after CC009; absent on legacy instances (additive —
+   *  legacy snapshots and pinned fixtures stay byte-identical). Links the
+   *  instance to the INSERT operation (opId), its source definition
+   *  (blockId — already in the flat props, repeated here for provenance
+   *  completeness) and its deterministic insert order (insertIndex).
+   *  Domain-owned metadata in the existing flat canonical partition —
+   *  never a competing application-local authority. */
+  readonly insertProvenance?: InsertProvenance;
+}
+
+/** COMPAT-CAD-009 (Issue #13): deterministic INSERT provenance/ownership
+ *  metadata attached to each materialized block instance. Lives in the
+ *  instance element's `props.insertProvenance` field — domain-owned
+ *  metadata in the existing flat canonical partition, never a competing
+ *  application-local authority (analogous to CC008's arrayProvenance).
+ *
+ *  - `opId`: a deterministic fingerprint of the INSERT operation
+ *    (blockId + scale + rotation + mirrored). Byte-identical on repeated
+ *    execution with identical parameters.
+ *  - `blockId`: the canonical id of the source block definition. Mirrors
+ *    the flat `blockId` prop for provenance completeness.
+ *  - `insertIndex`: the deterministic insert order, starting at 1. The
+ *    first insert of a given definition is index 1, the second is 2, etc.
+ *    Deterministic for identical history positions. */
+export interface InsertProvenance {
+  readonly opId: string;
+  readonly blockId: string;
+  readonly insertIndex: number;
+}
+
+/** Read the INSERT provenance from an element's props, or null if the
+ *  instance is a legacy insert (pre-CC009) or not a block instance.
+ *  Used by the definition-deletion cascade to identify owned instances. */
+export function insertProvenanceOf(el: Element): InsertProvenance | null {
+  if (!isBlockRefElement(el)) return null;
+  const p = el.props as Record<string, unknown>;
+  const ip = p.insertProvenance;
+  if (ip === null || typeof ip !== "object") return null;
+  const o = ip as Record<string, unknown>;
+  if (
+    typeof o.opId === "string" &&
+    typeof o.blockId === "string" &&
+    typeof o.insertIndex === "number"
+  ) {
+    return { opId: o.opId, blockId: o.blockId, insertIndex: o.insertIndex };
+  }
+  return null;
+}
+
+/** COMPAT-CAD-009 (Issue #13): the canonical element ids of all block
+ *  instances that reference `blockId` (both CC009-provenanced and legacy
+ *  pre-CC009 inserts). Used by the definition-deletion cascade to identify
+ *  owned instances. Deterministic and order-stable (document order). */
+export function insertsOfBlockDef(
+  elements: readonly Element[],
+  blockId: string,
+): string[] {
+  const out: string[] = [];
+  for (const el of elements) {
+    if (!isBlockRefElement(el)) continue;
+    const p = el.props as Record<string, unknown>;
+    if (p.blockId === blockId) out.push(el.id);
+  }
+  return out;
 }
 
 export interface XrefRefView {
@@ -245,6 +311,24 @@ export function makeBlockRef(input: Record<string, unknown>): BlockRefView {
     throw new BlockError("block-ref mirrored must be a boolean when present", "bad_input");
   }
   const mirrored = input.mirrored === true ? (true as const) : undefined;
+  // COMPAT-CAD-009 (additive): optional INSERT provenance — strict
+  // re-validation through the constructor (LOCK-007). Written ONLY when
+  // present so legacy snapshots stay byte-identical.
+  let insertProvenance: InsertProvenance | undefined;
+  if (input.insertProvenance !== undefined && input.insertProvenance !== null) {
+    if (typeof input.insertProvenance !== "object") {
+      throw new BlockError("block-ref insertProvenance must be an object when present", "bad_input");
+    }
+    const ip = input.insertProvenance as Record<string, unknown>;
+    if (
+      typeof ip.opId !== "string" || ip.opId.length === 0 ||
+      typeof ip.blockId !== "string" || ip.blockId.length === 0 ||
+      typeof ip.insertIndex !== "number" || !Number.isInteger(ip.insertIndex) || ip.insertIndex < 1
+    ) {
+      throw new BlockError("block-ref insertProvenance requires {opId: non-empty string, blockId: non-empty string, insertIndex: integer >= 1}", "bad_input");
+    }
+    insertProvenance = { opId: ip.opId, blockId: ip.blockId, insertIndex: ip.insertIndex };
+  }
   return {
     type: "block-ref",
     layer,
@@ -256,6 +340,7 @@ export function makeBlockRef(input: Record<string, unknown>): BlockRefView {
     ...(attributes !== undefined ? { attributes } : {}),
     ...(materialId !== undefined ? { materialId } : {}),
     ...(mirrored !== undefined ? { mirrored } : {}),
+    ...(insertProvenance !== undefined ? { insertProvenance } : {}),
   };
 }
 
@@ -335,6 +420,15 @@ export function blockRefToProps(ref: BlockRefView): Record<string, unknown> {
   // COMPAT-CAD-004 (additive): written ONLY when true (absence = the
   // canonical unreflected placement — legacy snapshots byte-identical).
   if (ref.mirrored === true) props.mirrored = true;
+  // COMPAT-CAD-009 (additive): written ONLY when present (legacy snapshots
+  // and pinned fixtures stay byte-identical).
+  if (ref.insertProvenance !== undefined) {
+    props.insertProvenance = {
+      opId: ref.insertProvenance.opId,
+      blockId: ref.insertProvenance.blockId,
+      insertIndex: ref.insertProvenance.insertIndex,
+    };
+  }
   return props;
 }
 
