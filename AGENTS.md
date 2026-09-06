@@ -45,6 +45,23 @@ When a worker returns a work item at `PR_OPEN/VERIFYING`, the Architect must tre
 
 The Architect must not pause between routine governance gates waiting for `next`, `go`, `continue`, or equivalent user messages. After a successful item, the Architect carries the item through review, approval, merge, exact-revision post-merge verification, required deployment/browser validation, governance closure, roadmap update and successor work-item/prompt release. After a failure, the Architect records the finding, returns the item through the legal remediation path and leaves the repository-backed remediation prompt for the worker.
 
+### Single-cycle successor release
+
+A normal successful work item must be processed as one coherent autonomous governance transaction from worker return through successor release. Routine intermediate milestones are internal sequencing, not user approval points.
+
+The Architect must front-load reconciliation and write the successor artifacts in a deterministic order so the repository reaches a self-contained handoff with the minimum necessary commits/interactions:
+
+1. establish the authoritative predecessor/roadmap state and exact verified revision;
+2. determine the next legal work item from the roadmap and verify its dependencies;
+3. create or reconcile the GitHub issue so the canonical issue number is known before governance references are written;
+4. create/reconcile the successor governance record from `DRAFT`, including the complete legal transition history and canonical issue binding;
+5. create/reconcile the implementation prompt and link it to the work item/issue;
+6. update `AI_CONTINUATION.md` and the authoritative roadmap to the same successor state;
+7. run the governance/evidence validation once after the complete state settles, fixing only concrete validation failures and rerunning only when required;
+8. leave the repository at the legally authorized successor state without waiting for another user message.
+
+Do not create staging files or speculative governance records merely to test whether a write path works. Do not duplicate-create an issue, work item, prompt, or roadmap entry that already exists; reconcile the existing artifact instead.
+
 The Architect stops only for a recorded changes-required/remediation decision, an Architecture Change Request, an external hard blocker, or a Product Owner decision that is outside existing authorization.
 
 ## Hard architecture rules
