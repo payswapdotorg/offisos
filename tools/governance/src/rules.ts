@@ -114,6 +114,14 @@ function emitWithWaivers(
  *
  * Computed against the RAW ledger (no waivers applied) so reconciliation
  * citation checks are state-independent.
+ *
+ * GOV-001: the decisions-entry key is emitted whenever the state's
+ * requires_last_decision entry requirement is not satisfied — both when no
+ * prior decision exists at all and when the last prior decision exists but
+ * carries a non-approved status. The key stays exactly as above so an
+ * ACR-sanctioned reconciliation can cite and waive the same stable class
+ * either way; the strict decision validator in validateWorkItem() keeps
+ * rejecting both shapes until such a reconciliation is active.
  */
 export function collectReconcilableViolations(
   record: WorkItemRecord,
@@ -154,10 +162,16 @@ export function collectReconcilableViolations(
     const at = parseDate(entryTransition.at);
     if (at === undefined) continue;
     const priorDecisions = decisions.filter((d) => parseDate(d.decided_at)! <= at);
-    if (priorDecisions.length === 0) {
+    const lastPrior = priorDecisions[priorDecisions.length - 1];
+    if (lastPrior === undefined) {
       violations.set(
         `decisions/entry:${targetState}/no-prior-approved-decision`,
         `entering ${targetState} requires a prior recorded decision; none exists at or before that transition.`,
+      );
+    } else if (lastPrior.status !== requirement) {
+      violations.set(
+        `decisions/entry:${targetState}/no-prior-approved-decision`,
+        `entering ${targetState} requires the last prior decision to be '${requirement}'; found '${lastPrior.id}' (${lastPrior.status}).`,
       );
     }
   }
@@ -522,7 +536,15 @@ export function validateWorkItem(record: WorkItemRecord, ctx: WorkItemContext): 
         message: `entering ${targetState} requires a prior recorded decision; none exists at or before that transition.`,
       });
     } else if (lastPrior.status !== requirement) {
-      decisionEntries.push({ message: `entering ${targetState} requires the last prior decision to be '${requirement}'; found '${lastPrior.id}' (${lastPrior.status}).` });
+      // GOV-001: carry the stable reconciliation key on this entry too, so an
+      // ACR-sanctioned reconciliation citing exactly
+      // decisions/entry:<STATE>/no-prior-approved-decision can waive it.
+      // Without an active reconciliation the entry remains a hard failure
+      // (emitWithWaivers waives nothing), so the validator stays strict.
+      decisionEntries.push({
+        key: `decisions/entry:${targetState}/no-prior-approved-decision`,
+        message: `entering ${targetState} requires the last prior decision to be '${requirement}'; found '${lastPrior.id}' (${lastPrior.status}).`,
+      });
     }
   }
   results.push(
