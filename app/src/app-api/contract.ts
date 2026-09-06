@@ -2663,13 +2663,16 @@ export class AppApiHandler {
         }
       }
       const elementId = this.doc.mintElementId();
-      // COMPAT-CAD-009 (Issue #13): deterministic INSERT provenance/ownership.
-      // opId fingerprints the INSERT operation (blockId + scale + rotation +
-      // mirrored) — byte-identical on repeated execution with identical
-      // parameters. insertIndex is the deterministic insert order for this
-      // definition (1-based: the next insert is existing-count + 1).
-      const existingInserts = insertsOfBlockDef(this.doc.allElements(), def.id);
-      const insertIndex = existingInserts.length + 1;
+      // COMPAT-CAD-009 (Issue #13, DEC-001 remediation): deterministic INSERT
+      // provenance/ownership. insertIndex is derived from the definition's
+      // monotonic insertSeq counter (insertSeq + 1) — NEVER from the current
+      // instance count. insertSeq increments on each insert and NEVER
+      // decreases on deletion, so insertIndex is collision-free across
+      // delete/reinsert history (the DEC-001 fix). The counter is bumped in
+      // the SAME atomic revision as the insert (updateBlockDef edit) so undo
+      // restores the old counter and redo restores the bumped counter.
+      const seq = def.insertSeq ?? 0;
+      const insertIndex = seq + 1;
       const opId = `insert:${def.id}:${JSON.stringify({ s: scale, r: rotation, m: false })}`;
       const ref = makeBlockRef({
         layer,
@@ -2681,9 +2684,15 @@ export class AppApiHandler {
         ...(attributes.length > 0 ? { attributes } : {}),
         insertProvenance: { opId, blockId: def.id, insertIndex },
       });
+      // ONE atomic revision: add the insert element AND bump the definition's
+      // insertSeq counter (so the next insert gets insertIndex + 1 even if
+      // this one is later deleted).
       this.doc.execute({
-        type: "addElement",
-        element: { id: elementId, kind: "geometry", engineId: null, props: blockRefToProps(ref) },
+        type: "applyEdits",
+        edits: [
+          { type: "addElement", element: { id: elementId, kind: "geometry", engineId: null, props: blockRefToProps(ref) } },
+          { type: "updateBlockDef", blockId: def.id, patch: { insertSeq: insertIndex } },
+        ],
       });
       return ok({
         elementId,

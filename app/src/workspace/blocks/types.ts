@@ -328,6 +328,15 @@ export function makeBlockRef(input: Record<string, unknown>): BlockRefView {
       throw new BlockError("block-ref insertProvenance requires {opId: non-empty string, blockId: non-empty string, insertIndex: integer >= 1}", "bad_input");
     }
     insertProvenance = { opId: ip.opId, blockId: ip.blockId, insertIndex: ip.insertIndex };
+    // COMPAT-CAD-009 DEC-001 remediation: the provenance blockId MUST agree
+    // with the canonical blockRef blockId — contradictory ownership metadata
+    // is a typed bad_input failure before mutation (never silently accepted).
+    if (insertProvenance.blockId !== blockId) {
+      throw new BlockError(
+        `block-ref insertProvenance.blockId '${insertProvenance.blockId}' must equal the canonical blockId '${blockId}'`,
+        "bad_input",
+      );
+    }
   }
   return {
     type: "block-ref",

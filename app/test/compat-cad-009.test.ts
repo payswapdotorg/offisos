@@ -439,3 +439,65 @@ test("B12 — regression: CC008 ARRAY provenance + CC007 selection survive the b
 async function fullStateOf(h: AppApiHandler): Promise<string> {
   return JSON.stringify(val(await h.handle(q("document.getState"))));
 }
+
+// ---------------------------------------------------------------------------
+// COMPAT-CAD-009 DEC-001 remediation fixtures:
+//   R1 — collision-free insertIndex across delete/reinsert history.
+//   R2 — provenance consistency: insertProvenance.blockId must equal blockRef.blockId.
+// ---------------------------------------------------------------------------
+
+test("remediation R1 — insertIndex is collision-free across delete/reinsert history (monotonic insertSeq)", async () => {
+  const h = await seeded();
+  val(await h.handle(cmd("block.create", { name: "CORNER", basePoint: { x: 0, y: 0 }, fromElementIds: ["el-000001", "el-000002"] })));
+  // Insert three instances: indices 1, 2, 3.
+  const a = val<{ elementId: string; insertIndex: number }>(await h.handle(cmd("block.insert", { name: "CORNER", x: 100, y: 100 })));
+  const b = val<{ elementId: string; insertIndex: number }>(await h.handle(cmd("block.insert", { name: "CORNER", x: 200, y: 200 })));
+  const c = val<{ elementId: string; insertIndex: number }>(await h.handle(cmd("block.insert", { name: "CORNER", x: 300, y: 300 })));
+  assert.equal(a.insertIndex, 1);
+  assert.equal(b.insertIndex, 2);
+  assert.equal(c.insertIndex, 3);
+  // Delete the SECOND insert (index 2). The surviving inserts are 1 and 3.
+  val(await h.handle(cmd("drafting.delete", { ids: [b.elementId] })));
+  // Insert a new instance. With the OLD code (existingInserts.length + 1 = 2 + 1 = 3),
+  // this would collide with the surviving index 3. With the monotonic insertSeq
+  // counter (now at 3), the new insert gets index 4 — collision-free.
+  const d = val<{ elementId: string; insertIndex: number }>(await h.handle(cmd("block.insert", { name: "CORNER", x: 400, y: 400 })));
+  assert.equal(d.insertIndex, 4, "the new insert gets index 4 (monotonic), not 3 (collision with surviving instance c)");
+  // Verify no two surviving instances share an insertIndex.
+  const after = await stateOf(h);
+  const indices: number[] = [];
+  for (const el of after.elements) {
+    const ip = (el.props as Record<string, unknown>).insertProvenance as Record<string, unknown> | undefined;
+    if (ip !== undefined && typeof ip.insertIndex === "number") indices.push(ip.insertIndex);
+  }
+  const unique = new Set(indices);
+  assert.equal(unique.size, indices.length, `all surviving insertIndices are unique: ${JSON.stringify(indices)}`);
+  assert.ok(!indices.includes(2), "the deleted index 2 is not reused by the new insert");
+});
+
+test("remediation R2 — provenance consistency: insertProvenance.blockId must equal blockRef.blockId (typed rejection)", async () => {
+  // makeBlockRef rejects contradictory provenance at the typed boundary
+  // (before mutation). This is tested at the constructor level since the
+  // command layer always sets blockId consistently — the guard prevents
+  // malformed/hand-crafted props from producing inconsistent state.
+  const { makeBlockRef, BlockError } = await import("../src/workspace/blocks/types.js");
+  // Consistent: provenance.blockId === blockId — accepted.
+  const ok_ref = makeBlockRef({
+    layer: "0",
+    blockId: "blk-000001",
+    x: 0, y: 0, scale: 1, rotation: 0,
+    insertProvenance: { opId: "insert:blk-000001:{}", blockId: "blk-000001", insertIndex: 1 },
+  });
+  assert.ok(ok_ref.insertProvenance !== undefined, "consistent provenance is accepted");
+  // Inconsistent: provenance.blockId !== blockId — typed bad_input rejection.
+  assert.throws(
+    () => makeBlockRef({
+      layer: "0",
+      blockId: "blk-000001",
+      x: 0, y: 0, scale: 1, rotation: 0,
+      insertProvenance: { opId: "insert:blk-000002:{}", blockId: "blk-000002", insertIndex: 1 },
+    }),
+    (e: unknown) => e instanceof BlockError && e.code === "bad_input" && /must equal the canonical blockId/.test(e.message),
+    "inconsistent provenance blockId is a typed bad_input failure",
+  );
+});
