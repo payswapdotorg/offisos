@@ -28,14 +28,12 @@ The Architect stops only for a recorded changes-required/remediation decision, a
 
 ## Current CAD execution
 
-- Latest verified CAD product revision: `3854f5391fe58475b50bec9b33e695c33dabc467`
+- Latest fully **VERIFIED** CAD product revision: `3854f5391fe58475b50bec9b33e695c33dabc467`
 - Verified work item: **COMPAT-CAD-008** — Issue **#5** — VERIFIED.
+- Current physical product merge under verification: **COMPAT-CAD-009** — PR **#14** — merge `066be5fc098443e21263ed57d21788849a875195`.
+- CC009 governance record is legally **MERGED** and must not be advanced to VERIFIED until the exact merge reaches terminal post-merge CI plus the independent exact-SHA browser gate.
+- Current governance bookkeeping commit: `28c3acabd3f47d6a9e233e8dc6f3348c97caabd6`.
 - Permanent benchmark baseline: **18/100**. No score increase is authoritative without a full benchmark rerun.
-- Browser-gate tooling merge: `c2ef91811cfc7d9369c639dd9233b50bc0b49c11`.
-- Current legal successor: **COMPAT-CAD-009** — Issue **#13** — ASSIGNED to `z-ai-implementation-agent`.
-- Successor governance record: `governance/work-items/COMPAT-CAD-009.json`.
-- Successor implementation prompt: `docs/work-items/COMPAT-CAD-009-ZAI-PROMPT.md`.
-- Worker stop gate: **PR_OPEN / VERIFYING**.
 
 ## CC008 verification evidence
 
@@ -45,11 +43,13 @@ The Architect stops only for a recorded changes-required/remediation decision, a
 - Post-merge governance validation: run `34017125782`, artifact `9984247961` — terminal success; governance validation 588/588, deterministic governance suite 200/200, and verified-revision drift audit passed.
 - CC008 governance record is **VERIFIED** and Issue #5 is closed as completed.
 
-## Current worker assignment
+## Current CC009 state
 
-CC009 is the next authorized implementation work order. Its bounded scope is blocks, inserts, attributes and symbols, with canonical ownership/provenance, deterministic identity/order/serialization, rendering/selectability, atomic revision semantics, undo/redo, deletion/orphan policy, typed invalid/unsupported behavior and Web/Electron parity.
+CC009 implements blocks, inserts, attributes and symbols under frozen Architecture v1.1. The Architect approved the remediated implementation at exact PR head `463344ba095bd700fb96f46f4164f333977a85cc`; the approved implementation was then physically merged as `066be5fc098443e21263ed57d21788849a875195`.
 
-The worker must preserve Architecture v1.1 and must not expand into CC010+ scope. It must not claim a benchmark score increase. It must return only at **PR_OPEN / VERIFYING** with revision-bound tests, CI, deployment and browser evidence.
+Pre-merge exact-head evidence was terminal-successful, including the independent G5/G7/G8 browser gate at run `34028079173` with artifact `9987844059`. The required physical post-merge verification is still executing on the merge SHA. Browser run `34032178294` and the merge-triggered CI are currently queued/in progress; therefore CC009 remains **MERGED**, not VERIFIED.
+
+No CC010 successor is legally released while CC009 is in this state. The benchmark remains **18/100**.
 
 ## Broader roadmap
 
