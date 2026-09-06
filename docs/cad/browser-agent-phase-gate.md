@@ -24,6 +24,20 @@ implementation
 
 Once the implementation worker has returned the PR, the Architect executes this sequence autonomously. There is no intermediate user prompt between the governance steps.
 
+## Deployment boundary
+
+The deployment under test must be revision-exact. A production/preview provider deployment is preferred, but it is not a mandatory dependency of the repository.
+
+When no authorized external hosting project is linked to the repository, an **ephemeral CI deployment** is a valid deployment boundary when all of the following are true:
+
+1. the application source is checked out at the exact target implementation SHA;
+2. the CI job starts the actual deployable application host from that SHA;
+3. the browser agent reaches that running host over HTTP rather than hidden application APIs;
+4. the evidence records both the target commit SHA and a unique deployment identifier such as the CI run ID;
+5. the ephemeral deployment is destroyed with the CI job.
+
+This is an execution-boundary rule only. It does not change Construction Graph authority, CAD semantics, engine isolation, canonical identity, or any frozen Architecture v1.1 rule.
+
 ## Browser-agent behavior
 
 The agent uses the visible application as a real user: command line, ribbon, palettes, canvas clicks and keyboard input. It must not use hidden APIs to perform the workflow being validated.
@@ -78,7 +92,7 @@ The Architect must classify the failure as one of:
 - benchmark/evidence defect;
 - intentionally unsupported capability, where the application exposes an explicit typed outcome consistent with the architecture.
 
-A known implementation failure cannot be converted into a pass by weakening the test or changing the benchmark score.
+A known implementation failure cannot be converted to a pass by weakening the test or changing the benchmark score.
 
 ## Release gate output
 
