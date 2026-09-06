@@ -20,7 +20,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { validateReconciliationRegistry, reconciliationViolationKey } from "../src/reconciliation.js";
-import { validateWorkItem } from "../src/rules.js";
+import { collectReconcilableViolations, validateWorkItem } from "../src/rules.js";
 import { loadWorkflowStates } from "../src/loaders.js";
 import { REPO_ROOT, makeContext, baseVerifiedRecord } from "./helpers.js";
 import type {
@@ -394,4 +394,241 @@ test("reconciliation violation keys are stable and narrow", () => {
     reconciliationViolationKey({ rule: "decisions", violation: "no-prior-approved-decision", state_entry: "MERGED" }),
     "decisions/entry:MERGED/no-prior-approved-decision",
   );
+});
+
+// ----------------------------------------------------------------------
+// GOV-001 (Issue #16): the reconcilable decisions-entry key must also be
+// emitted when the last prior decision exists but is non-approved. The
+// fixtures below are deterministic and cover the required matrix: no prior
+// decisions, prior changes_requested, prior approved, and a real
+// ACR-sanctioned reconciliation over the prior-non-approved case.
+// ----------------------------------------------------------------------
+
+/**
+ * A record whose only ledger defects are the CC009-shaped pair: the physical
+ * merge (05:58) preceded the recorded approval (06:00), so transition #12
+ * inverts the temporal order and, at the immutable merge timestamp, the last
+ * prior decision is DEC-001 (changes_requested) — a prior NON-approved
+ * decision. Everything else is legal: the first changes_requested review was
+ * remediated through a legal return to IMPLEMENTING, and the approval
+ * transition cites the later approved decision.
+ */
+function priorNonApprovedMergedRecord(): WorkItemRecord {
+  const record = baseVerifiedRecord();
+  record.id = "TEST-012";
+  record.state = "MERGED";
+  record.acr = undefined;
+  const review = record.transitions.find((t) => t.to === "ARCHITECT_REVIEW")!;
+  review.at = "2026-01-01T05:00:00Z";
+  const approvedTransition = record.transitions.find((t) => t.to === "APPROVED")!;
+  approvedTransition.at = "2026-01-01T06:00:00Z";
+  // The approval transition must cite the later approved decision (DEC-002),
+  // not the remediated changes_requested decision (DEC-001).
+  approvedTransition.references = { decision: "DEC-002" };
+  const merged = record.transitions.find((t) => t.to === "MERGED")!;
+  merged.at = "2026-01-01T05:58:00Z";
+  // Drop the verify transition; the record ends at MERGED.
+  record.transitions = record.transitions.filter((t) => t.to !== "VERIFIED");
+  // Insert the remediation loop between the first review and the approval:
+  // ARCHITECT_REVIEW -> IMPLEMENTING -> PR_OPEN -> VERIFYING -> ARCHITECT_REVIEW.
+  const remediationLoop: WorkItemRecord["transitions"] = [
+    {
+      from: "ARCHITECT_REVIEW",
+      to: "IMPLEMENTING",
+      at: "2026-01-01T05:30:00Z",
+      actor: "architect-a",
+      role: "architect",
+      reason: "changes requested on first review",
+      failure_reason: "evidence gaps",
+    },
+    {
+      from: "IMPLEMENTING",
+      to: "PR_OPEN",
+      at: "2026-01-01T05:45:00Z",
+      actor: "implementer-a",
+      role: "implementer",
+      reason: "remediation submitted",
+      references: { pr: 43 },
+    },
+    {
+      from: "PR_OPEN",
+      to: "VERIFYING",
+      at: "2026-01-01T05:50:00Z",
+      actor: "implementer-a",
+      role: "implementer",
+      reason: "remediation verification",
+    },
+    {
+      from: "VERIFYING",
+      to: "ARCHITECT_REVIEW",
+      at: "2026-01-01T05:55:00Z",
+      actor: "ci",
+      role: "automation",
+      reason: "remediation evidence complete",
+      references: { evidence: ["EV-001"] },
+    },
+  ];
+  const insertAt = record.transitions.findIndex((t) => t.to === "APPROVED");
+  record.transitions.splice(insertAt, 0, ...remediationLoop);
+  record.decisions = [
+    {
+      id: "DEC-001",
+      status: "changes_requested",
+      decided_at: "2026-01-01T05:00:00Z",
+      decided_by: "architect-a",
+      role: "architect",
+      rationale: "changes requested",
+      remediation_required: "fix the evidence gaps",
+      evidence_refs: ["EV-001"],
+    },
+    {
+      id: "DEC-002",
+      status: "approved",
+      decided_at: "2026-01-01T06:00:00Z",
+      decided_by: "architect-a",
+      role: "architect",
+      rationale: "approved after remediation",
+      evidence_refs: ["EV-001"],
+    },
+  ];
+  return record;
+}
+
+function nonApprovedSanctioningAcr(): AcrRecord {
+  const acr = approvedAcr();
+  acr.id = "ACR-012";
+  acr.affected_work_items = ["TEST-012"];
+  return acr;
+}
+
+/** The transition #12 facts, verbatim, for citation integrity. */
+function mergeTransitionFacts() {
+  return {
+    from: "APPROVED",
+    to: "MERGED",
+    at: "2026-01-01T05:58:00Z",
+    actor: "owner",
+    role: "product-owner",
+  };
+}
+
+function nonApprovedDecidedReconciliation(): ReconciliationRecord {
+  const original = mergeTransitionFacts();
+  return {
+    id: "REC-TEST-012",
+    work_item: "TEST-012",
+    status: "DECIDED",
+    problem:
+      "The physical merge (05:58:00Z) preceded the recorded approval decision (06:00:00Z); at the immutable merge timestamp the last prior decision is DEC-001 (changes_requested).",
+    defects: [
+      {
+        rule: "temporal-ordering",
+        violation: "precedes-previous",
+        transition: 12,
+        original,
+        explanation: "The merge timestamp precedes the recorded approval timestamp.",
+      },
+      {
+        rule: "decisions",
+        violation: "no-prior-approved-decision",
+        state_entry: "MERGED",
+        original,
+        explanation: "At the immutable merge timestamp, no approved decision had yet been recorded.",
+      },
+    ],
+    evidence: [
+      {
+        id: "EV-001",
+        type: "ci-run",
+        description: "Post-merge verification of the merged revision.",
+        produced_at: "2026-01-01T06:30:00Z",
+        reproducible: true,
+        reproduction: "inspect the CI run",
+        references: { commit: "abcdef1", pr: 43 },
+      },
+    ],
+    acr: "ACR-012",
+    decided_by: "architect-a",
+    role: "architect",
+    decided_at: "2026-01-01T08:00:00Z",
+    rationale: "The approval exists and covers the merged implementation; the defect was a recording-order failure.",
+    remediation: "The item may proceed to VERIFIED only through the normal architect-verified path.",
+  } as ReconciliationRecord;
+}
+
+test("GOV-001: the raw collector emits the stable decisions-entry key when the last prior decision is non-approved", () => {
+  const machine = loadWorkflowStates(REPO_ROOT);
+  const violations = collectReconcilableViolations(priorNonApprovedMergedRecord(), machine);
+  const key = "decisions/entry:MERGED/no-prior-approved-decision";
+  assert.ok(violations.has(key), `the stable key must be emitted for a prior non-approved decision: ${key}`);
+  const message = violations.get(key)!;
+  assert.ok(message.includes("changes_requested"), "the message must name the non-approved status");
+  assert.ok(message.includes("'DEC-001'"), "the message must identify the offending decision");
+});
+
+test("GOV-001: the raw collector still emits the same stable key when no prior decision exists", () => {
+  const machine = loadWorkflowStates(REPO_ROOT);
+  const violations = collectReconcilableViolations(defectiveMergedRecord(), machine);
+  assert.ok(violations.has("decisions/entry:MERGED/no-prior-approved-decision"));
+});
+
+test("GOV-001: the raw collector stays silent when the last prior decision satisfies the entry requirement", () => {
+  const machine = loadWorkflowStates(REPO_ROOT);
+  const violations = collectReconcilableViolations(baseVerifiedRecord(), machine);
+  for (const key of violations.keys()) {
+    assert.ok(!key.startsWith("decisions/entry:"), `no decisions-entry key should be emitted, found '${key}'`);
+  }
+});
+
+test("GOV-001: a non-approved last prior decision still fails the decisions rule without an active reconciliation", () => {
+  const checks = checkIds(priorNonApprovedMergedRecord());
+  const decisions = checks.get("decisions")!;
+  assert.equal(decisions.status, "fail", "the strict decision validator must keep rejecting the raw record");
+  const detail = (decisions.details ?? []).join(" ");
+  assert.ok(detail.includes("'DEC-001'"), "the failure must identify the non-approved decision");
+  assert.ok(detail.includes("changes_requested"), "the failure must name the non-approved status");
+});
+
+test("GOV-001: an ACR-sanctioned reconciliation waives exactly the prior-non-approved decisions-entry key", () => {
+  const record = priorNonApprovedMergedRecord();
+  const { outcome } = runReconciliationValidation(
+    [nonApprovedDecidedReconciliation()],
+    [record],
+    [nonApprovedSanctioningAcr()],
+  );
+  assert.deepEqual(outcome.checks.filter((c) => c.status === "fail"), []);
+  assert.equal(outcome.active.size, 1);
+  const active = outcome.active.get("TEST-012")!;
+  assert.deepEqual(
+    [...active.waivedKeys].sort(),
+    ["decisions/entry:MERGED/no-prior-approved-decision", "temporal-ordering/t12/precedes-previous"],
+  );
+
+  const checks = checkIds(record, outcome.active);
+  const decisions = checks.get("decisions")!;
+  assert.equal(decisions.status, "pass", "the decisions rule must pass under the active reconciliation");
+  const detail = (decisions.details ?? []).join(" ");
+  assert.ok(detail.includes("[RECONCILED]"), "the waiver must be explicitly annotated, never silent");
+  assert.ok(detail.includes("REC-TEST-012"), "the annotation must name the reconciliation");
+  assert.equal(checks.get("temporal-ordering")!.status, "pass");
+  assert.equal(checks.get("transition-legality")!.status, "pass");
+});
+
+test("GOV-001: the waiver never suppresses unrelated decision violations", () => {
+  const record = priorNonApprovedMergedRecord();
+  // An unrelated decision violation: DEC-002 references unknown evidence.
+  record.decisions![1]!.evidence_refs = ["EV-999"];
+  const { outcome } = runReconciliationValidation(
+    [nonApprovedDecidedReconciliation()],
+    [record],
+    [nonApprovedSanctioningAcr()],
+  );
+  assert.equal(outcome.active.size, 1, "the unrelated violation must not deactivate the reconciliation");
+  const checks = checkIds(record, outcome.active);
+  const decisions = checks.get("decisions")!;
+  assert.equal(decisions.status, "fail", "unrelated decision violations must still fail");
+  const detail = (decisions.details ?? []).join(" ");
+  assert.ok(detail.includes("unknown evidence 'EV-999'"), "the unrelated violation must be reported");
+  assert.ok(detail.includes("[RECONCILED]"), "the waived entry stays explicitly annotated");
+  assert.ok(detail.includes("REC-TEST-012"), "the annotation must name the reconciliation");
 });
