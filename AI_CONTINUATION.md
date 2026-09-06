@@ -28,16 +28,21 @@ The Architect stops only for a recorded changes-required/remediation decision, a
 
 ## Current CAD execution
 
-- Latest fully **VERIFIED** CAD product revision: `3854f5391fe58475b50bec9b33e695c33dabc467`
-- Verified work item: **COMPAT-CAD-008** — Issue **#5** — VERIFIED.
-- Current physical CC009 product merge: `066be5fc098443e21263ed57d21788849a875195` — PR **#14**.
-- CC009 product verification evidence is complete: exact post-merge CI run `34032178301` is terminal-successful and exact-SHA browser gate `34032178294` is terminal-successful with artifact `9989550776`.
-- CC009 governance closure is blocked by a validator defect, not by product evidence: `collectReconcilableViolations()` does not emit the stable `decisions/entry:<STATE>/no-prior-approved-decision` waiver key when the last prior decision exists but is non-approved, even though the decision validator correctly rejects that state.
-- Historical CC009 ledger facts are preserved unchanged. `ACR-006` and `REC-COMPAT-CAD-009` explicitly reconcile only the historical temporal-ordering/decision-order defect; no evidence or revision-binding requirement is waived.
-- **GOV-001** — Issue **#16** — is the current legally assigned governance remediation. Its governance record is `governance/work-items/GOV-001.json`; its implementation prompt is `docs/work-items/GOV-001-ZAI-PROMPT.md`.
-- GOV-001 state: **ASSIGNED**. The implementation agent must own the correction and return at `PR_OPEN / VERIFYING`; the Architect must then run the full downstream review/merge/verification loop.
-- **COMPAT-CAD-010 remains planned and is NOT legally released** until CC009 governance validation is clean.
-- Permanent benchmark baseline: **18/100**. No score increase is authoritative without a full benchmark rerun.
+- Latest fully **VERIFIED** CAD product revision: `066be5fc098443e21263ed57d21788849a875195` — COMPAT-CAD-009.
+- Verified work item: **COMPAT-CAD-009** — Issue **#13** — VERIFIED; Issue #13 is closed completed.
+- GOV-001 — Issue **#16** — is VERIFIED; Issue #16 is closed completed.
+- GOV-001 PR: **#17**.
+- GOV-001 physical governance merge: `8931341c8e7ef6fc9da6eac5174a11764b1c0f3f`.
+- GOV-001 settled-main governance bookkeeping revision: `60c4b98ed98bb87e9cbdc0ebd641282a8cee0525`.
+- Settled-main governance workflow: run `34045452013` — terminal success, including deterministic tests, canonical record validation and VERIFIED revision-binding audit.
+- The GOV-001 reconciliation-rule defect was fixed without weakening strict decision validation and without rewriting CC009 historical facts.
+- **COMPAT-CAD-010** — Issue **#18** — is now the legally assigned successor to `z-ai-implementation-agent`.
+- CC010 governance record: `governance/work-items/COMPAT-CAD-010.json`.
+- CC010 implementation prompt: `docs/work-items/COMPAT-CAD-010-ZAI-PROMPT.md`.
+- CC010 state: **ASSIGNED**. The worker must implement only the frozen hatch/annotation/dimension/inspection scope and return at `PR_OPEN / VERIFYING`; Architect owns review, approval, merge and verification.
+- CC010 dependency: COMPAT-CAD-009 — VERIFIED at physical product merge `066be5fc098443e21263ed57d21788849a875195`.
+- CC010 browser gates: **G1/G4/G6/G8**.
+- Permanent benchmark baseline remains **18/100**; no increase is authoritative without a full CAD-BENCH-RW-001 rerun.
 
 ## CC008 verification evidence
 
@@ -47,15 +52,35 @@ The Architect stops only for a recorded changes-required/remediation decision, a
 - Post-merge governance validation: run `34017125782`, artifact `9984247961` — terminal success; governance validation 588/588, deterministic governance suite 200/200, and verified-revision drift audit passed.
 - CC008 governance record is **VERIFIED** and Issue #5 is closed as completed.
 
-## Current CC009 state
+## CC009 verified state
 
-CC009 implements blocks, inserts, attributes and symbols under frozen Architecture v1.1. The Architect approved the remediated implementation at exact PR head `463344ba095bd700fb96f46f4164f333977a85cc`; the approved implementation was then physically merged as `066be5fc098443e21263ed57d21788849a875195`.
+CC009 implements blocks, inserts, attributes and symbols under frozen Architecture v1.1. The Architect approved the remediated implementation at exact PR head `463344ba095bd700fb96f46f4164f333977a85cc`; the approved implementation was physically merged as `066be5fc098443e21263ed57d21788849a875195`.
 
-Post-merge product evidence is green. The remaining gate is the repository governance validator because of the historical merge/approval recording-order defect and the validator's incomplete reconciliation-key handling for a prior non-approved decision. Historical facts are not rewritten.
+Product verification was complete at the exact physical merge, including post-merge deterministic/host CI and the exact-SHA independent G5/G7/G8 browser gate. Historical governance ordering defects were reconciled under ACR-006 without waiving evidence requirements. GOV-001 then repaired the reconciliation-key generation for prior non-approved decisions and was independently verified on main.
 
-## GOV-001 worker contract
+CC009 governance record is **VERIFIED**, and GitHub Issue #13 is closed completed.
 
-GOV-001 repairs only `tools/governance/src/rules.ts` reconciliation-key generation. The worker must preserve the exact stable waiver key, keep the decision validator strict, add deterministic tests for zero-prior/prior-non-approved/prior-approved/reconciled cases, and avoid changing lifecycle roles, evidence rules, Architecture v1.1, or product behavior. The worker stops after PR_OPEN/VERIFYING.
+## GOV-001 verified state
+
+GOV-001 repaired only `tools/governance/src/rules.ts` reconciliation-key generation plus deterministic governance tests. The exact PR #17 implementation head passed the required governance evidence and was merged at `8931341c8e7ef6fc9da6eac5174a11764b1c0f3f`.
+
+The post-merge governance record was corrected to use the canonical `product-owner` role on the `APPROVED → MERGED` transition; the settled-main workflow then passed completely at run `34045452013`. GOV-001 is therefore **VERIFIED** and Issue #16 is closed completed.
+
+## Active successor contract — COMPAT-CAD-010
+
+CC010 is the authoritative successor after CC009. Its frozen scope is:
+
+- Hatch entities/patterns with deterministic canonical identity, ownership/provenance, boundary semantics, serialization, rendering/selectability, deletion and undo-safe mutation.
+- Annotation/text semantics needed by G1/G4/G6/G8.
+- Dimension creation/editing/measurement presentation needed by those workflows, with validation-before-mutation and typed invalid/unsupported behavior.
+- Inspection behavior needed by those workflows, bounded so it does not absorb the later OSNAP/OTRACK/tracking program.
+- Shared engine-free Web/Electron semantic execution and parity.
+
+Mandatory invariants remain Construction Graph authority, CADDocument working semantics, deterministic domain-owned IDs, engine GlobalIds as provenance only, typed unsupported failures, commit-time canonical state and existing revision/history rules.
+
+Explicit non-goals include CC011 persistence/recovery, CC012 DXF, CC013 layouts/plot, CC014 broad command language, CC015 generalized history/long-session work, CC016 BIM completion, and CC018 broad OSNAP/OTRACK/tracking/measurement expansion. Architecture v1.1 remains frozen; any architecture-controlled change requires an approved ACR.
+
+Worker return evidence must include deterministic tests, identity/provenance/serialization fixtures, Web/Electron parity, regression against verified predecessors, exact-head CI, exact-target deployment, independent black-box browser evidence for G1/G4/G6/G8 including negative/error paths, and revision-bound governance evidence. Worker stops at PR_OPEN/VERIFYING.
 
 ## Broader roadmap
 
