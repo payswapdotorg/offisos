@@ -14,6 +14,18 @@ This is the first stop for a new LLM Architect, reviewer, or implementation agen
 - Unsupported capability: explicit typed failure, never fabricated semantics
 - Governance lifecycle: `DRAFT → READY → ASSIGNED → IMPLEMENTING → PR_OPEN → VERIFYING → ARCHITECT_REVIEW → APPROVED → MERGED → VERIFIED`
 
+## Autonomous governance operating rule
+
+The Architect is the execution authority for routine governance and must run the complete legal return-to-successor loop without waiting for `next`, `go`, `continue`, or equivalent user messages.
+
+A normal successful work item is one coherent autonomous cycle:
+
+`worker return → reconciliation → evidence/review → approval → merge → exact post-merge verification → roadmap update → legal successor creation/release`.
+
+Before writing successor state, the Architect determines the canonical next work item and dependency state, creates/reconciles the GitHub issue so its number is fixed, creates/reconciles the governance record from legal `DRAFT`, creates/reconciles the worker prompt, updates this continuation file and the authoritative roadmap, then runs the required governance validation after the state settles. Existing artifacts are reconciled rather than duplicate-created; temporary tracked staging files are not used merely to test write paths.
+
+The Architect stops only for a recorded changes-required/remediation decision, an ACR/architecture change, an external hard blocker, or a Product Owner decision outside existing authorization. This rule is defined in `AGENTS.md` and `docs/governance/architect-return-protocol.md`.
+
 ## Current CAD execution
 
 - Latest verified CAD product revision: `3854f5391fe58475b50bec9b33e695c33dabc467`
