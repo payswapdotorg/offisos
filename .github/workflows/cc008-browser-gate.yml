@@ -47,6 +47,9 @@ jobs:
       - name: Check out exact CC008 implementation revision
         run: git checkout --detach "$TARGET_SHA"
 
+      - name: Restore browser-agent harness into exact-SHA workspace
+        run: cp /tmp/cc008.mjs tools/browser-agent/cc008.mjs
+
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
@@ -92,8 +95,7 @@ jobs:
           exit 1
 
       - name: Run independent black-box CC008 browser agent
-        working-directory: apps/web
-        run: node /tmp/cc008.mjs
+        run: node tools/browser-agent/cc008.mjs
 
       - name: Validate evidence binding
         run: |
