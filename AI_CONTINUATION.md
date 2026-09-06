@@ -30,9 +30,13 @@ The Architect stops only for a recorded changes-required/remediation decision, a
 
 - Latest fully **VERIFIED** CAD product revision: `3854f5391fe58475b50bec9b33e695c33dabc467`
 - Verified work item: **COMPAT-CAD-008** — Issue **#5** — VERIFIED.
-- Current physical product merge under verification: **COMPAT-CAD-009** — PR **#14** — merge `066be5fc098443e21263ed57d21788849a875195`.
-- CC009 governance record is legally **MERGED** and must not be advanced to VERIFIED until the exact merge reaches terminal post-merge CI plus the independent exact-SHA browser gate.
-- Current governance bookkeeping commit: `28c3acabd3f47d6a9e233e8dc6f3348c97caabd6`.
+- Current physical CC009 product merge: `066be5fc098443e21263ed57d21788849a875195` — PR **#14**.
+- CC009 product verification evidence is complete: exact post-merge CI run `34032178301` is terminal-successful and exact-SHA browser gate `34032178294` is terminal-successful with artifact `9989550776`.
+- CC009 governance closure is blocked by a validator defect, not by product evidence: `collectReconcilableViolations()` does not emit the stable `decisions/entry:<STATE>/no-prior-approved-decision` waiver key when the last prior decision exists but is non-approved, even though the decision validator correctly rejects that state.
+- Historical CC009 ledger facts are preserved unchanged. `ACR-006` and `REC-COMPAT-CAD-009` explicitly reconcile only the historical temporal-ordering/decision-order defect; no evidence or revision-binding requirement is waived.
+- **GOV-001** — Issue **#16** — is the current legally assigned governance remediation. Its governance record is `governance/work-items/GOV-001.json`; its implementation prompt is `docs/work-items/GOV-001-ZAI-PROMPT.md`.
+- GOV-001 state: **ASSIGNED**. The implementation agent must own the correction and return at `PR_OPEN / VERIFYING`; the Architect must then run the full downstream review/merge/verification loop.
+- **COMPAT-CAD-010 remains planned and is NOT legally released** until CC009 governance validation is clean.
 - Permanent benchmark baseline: **18/100**. No score increase is authoritative without a full benchmark rerun.
 
 ## CC008 verification evidence
@@ -47,9 +51,11 @@ The Architect stops only for a recorded changes-required/remediation decision, a
 
 CC009 implements blocks, inserts, attributes and symbols under frozen Architecture v1.1. The Architect approved the remediated implementation at exact PR head `463344ba095bd700fb96f46f4164f333977a85cc`; the approved implementation was then physically merged as `066be5fc098443e21263ed57d21788849a875195`.
 
-Pre-merge exact-head evidence was terminal-successful, including the independent G5/G7/G8 browser gate at run `34028079173` with artifact `9987844059`. The required physical post-merge verification is still executing on the merge SHA. Browser run `34032178294` and the merge-triggered CI are currently queued/in progress; therefore CC009 remains **MERGED**, not VERIFIED.
+Post-merge product evidence is green. The remaining gate is the repository governance validator because of the historical merge/approval recording-order defect and the validator's incomplete reconciliation-key handling for a prior non-approved decision. Historical facts are not rewritten.
 
-No CC010 successor is legally released while CC009 is in this state. The benchmark remains **18/100**.
+## GOV-001 worker contract
+
+GOV-001 repairs only `tools/governance/src/rules.ts` reconciliation-key generation. The worker must preserve the exact stable waiver key, keep the decision validator strict, add deterministic tests for zero-prior/prior-non-approved/prior-approved/reconciled cases, and avoid changing lifecycle roles, evidence rules, Architecture v1.1, or product behavior. The worker stops after PR_OPEN/VERIFYING.
 
 ## Broader roadmap
 
